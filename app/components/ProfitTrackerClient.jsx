@@ -1227,7 +1227,6 @@ if (auditPayload) {
     </div>
   </div>
 )}
-
 {showQuickBookTxModal && selectedBook && (
   <div style={modalOverlay} onClick={() => setShowQuickBookTxModal(false)}>
     <div style={modalCard} onClick={(e) => e.stopPropagation()}>
