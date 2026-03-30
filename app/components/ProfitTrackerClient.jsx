@@ -1279,7 +1279,8 @@ if (auditPayload) {
       </form>
     </div>
   </div>
-)}
+)
+}
 
 const container = { minHeight: '100vh', background: 'linear-gradient(180deg, #020617 0%, #0f172a 100%)', color: '#e5eefb', padding: '24px 16px 48px' }
 const pageWrap = { maxWidth: 1500, margin: '0 auto' }
