@@ -1098,9 +1098,55 @@ if (auditPayload) {
           </div>
         )}
 
-        {showBookModal && <div style={modalOverlay} onClick={() => setShowBookModal(false)}><div style={modalCard} onClick={(e) => e.stopPropagation()}><div style={modalHeader}><div><h3 style={modalTitle}>Nuovo Book</h3><p style={modalSubtitle}>Inserisci un nuovo bookmaker</p></div><button style={modalClose} onClick={() => setShowBookModal(false)}>✕</button></div><form onSubmit={addBook}><input value={bookForm.nome} onChange={(e) => setBookForm({ ...bookForm, nome: e.target.value })} placeholder='Nome book' style={input} /><input value={bookForm.intestatario} onChange={(e) => setBookForm({ ...bookForm, intestatario: e.target.value })} placeholder='Intestatario' style={input} /><input value={bookForm.saldo} onChange={(e) => setBookForm({ ...bookForm, saldo: e.target.value })} placeholder='Saldo iniziale' style={input} /><textarea value={bookForm.note} onChange={(e) => setBookForm({ ...bookForm, note: e.target.value })} placeholder='Note' style={textarea} /><div style={modalActions}><button type='button' style={secondaryButton} onClick={() => setShowBookModal(false)}>Annulla</button><button type='submit' style={primaryButtonGreen}>Salva Book</button></div></form></div></div>}
+        {showBookModal && (
+  <div style={modalOverlay} onClick={() => setShowBookModal(false)}>
+    <div style={modalCard} onClick={(e) => e.stopPropagation()}>
+      <div style={modalHeader}>
+        <div>
+          <h3 style={modalTitle}>Nuovo Book</h3>
+          <p style={modalSubtitle}>Inserisci un nuovo bookmaker</p>
+        </div>
+        <button style={modalClose} onClick={() => setShowBookModal(false)}>✕</button>
+      </div>
+      <form onSubmit={addBook}>
+        <input
+          value={bookForm.nome}
+          onChange={(e) => setBookForm({ ...bookForm, nome: e.target.value })}
+          placeholder='Nome book'
+          style={input}
+        />
+        <input
+          value={bookForm.intestatario}
+          onChange={(e) => setBookForm({ ...bookForm, intestatario: e.target.value })}
+          placeholder='Intestatario'
+          style={input}
+        />
+        <input
+          value={bookForm.saldo}
+          onChange={(e) => setBookForm({ ...bookForm, saldo: e.target.value })}
+          placeholder='Saldo iniziale'
+          style={input}
+        />
+        <textarea
+          value={bookForm.note}
+          onChange={(e) => setBookForm({ ...bookForm, note: e.target.value })}
+          placeholder='Note'
+          style={textarea}
+        />
+        <div style={modalActions}>
+          <button type='button' style={secondaryButton} onClick={() => setShowBookModal(false)}>
+            Annulla
+          </button>
+          <button type='submit' style={primaryButtonGreen}>
+            Salva Book
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+)}
 
-        {showWalletModal && (
+{showWalletModal && (
   <div style={modalOverlay} onClick={() => setShowWalletModal(false)}>
     <div style={modalCard} onClick={(e) => e.stopPropagation()}>
       <div style={modalHeader}>
