@@ -1229,54 +1229,6 @@ if (auditPayload) {
   </div>
 )}
 
-{showAdjustWalletSaldoModal && selectedWallet && (
-  <div style={modalOverlay} onClick={() => setShowAdjustWalletSaldoModal(false)}>
-    <div style={modalCard} onClick={(e) => e.stopPropagation()}>
-      <div style={modalHeader}>
-        <div>
-          <h3 style={modalTitle}>Correzione saldo wallet</h3>
-          <p style={modalSubtitle}>
-            Wallet: <strong>{selectedWallet.nome}</strong> · saldo attuale <strong>{formatCurrency(selectedWallet.saldo)}</strong>
-          </p>
-        </div>
-        <button style={modalClose} onClick={() => setShowAdjustWalletSaldoModal(false)}>✕</button>
-      </div>
-      <form onSubmit={handleAdjustWalletSaldo}>
-        <input
-          value={adjustWalletSaldoForm.nuovo_saldo}
-          onChange={(e) =>
-            setAdjustWalletSaldoForm({
-              ...adjustWalletSaldoForm,
-              nuovo_saldo: e.target.value,
-            })
-          }
-          placeholder='Nuovo saldo'
-          style={input}
-        />
-        <textarea
-          value={adjustWalletSaldoForm.note}
-          onChange={(e) =>
-            setAdjustWalletSaldoForm({
-              ...adjustWalletSaldoForm,
-              note: e.target.value,
-            })
-          }
-          placeholder='Motivo correzione saldo wallet'
-          style={textarea}
-        />
-        <div style={modalActions}>
-          <button type='button' style={secondaryButton} onClick={() => setShowAdjustWalletSaldoModal(false)}>
-            Annulla
-          </button>
-          <button type='submit' style={tinyOrangeButtonLarge}>
-            Salva correzione
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
-)}
-
 {showQuickBookTxModal && selectedBook && (
   <div style={modalOverlay} onClick={() => setShowQuickBookTxModal(false)}>
     <div style={modalCard} onClick={(e) => e.stopPropagation()}>
