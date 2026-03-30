@@ -27,13 +27,15 @@ const [monthlySnapshots, setMonthlySnapshots] = useState([])
   const [showBookModal, setShowBookModal] = useState(false)
   const [showWalletModal, setShowWalletModal] = useState(false)
   const [showAdjustSaldoModal, setShowAdjustSaldoModal] = useState(false)
+  const [showAdjustWalletSaldoModal, setShowAdjustWalletSaldoModal] = useState(false)
   const [showQuickBookTxModal, setShowQuickBookTxModal] = useState(false)
 
   const [selectedBook, setSelectedBook] = useState(null)
-
+  const [selectedWallet, setSelectedWallet] = useState(null)
   const [bookForm, setBookForm] = useState({ nome: '', intestatario: '', saldo: '', note: '' })
   const [walletForm, setWalletForm] = useState({ nome: '', intestatario: '', saldo: '', note: '' })
   const [adjustSaldoForm, setAdjustSaldoForm] = useState({ nuovo_saldo: '', note: '' })
+  const [adjustWalletSaldoForm, setAdjustWalletSaldoForm] = useState({ nuovo_saldo: '', note: '' })
   const [quickBookTxForm, setQuickBookTxForm] = useState({ tipo: 'versa', wallet_id: '', importo: '', note: '' })
   const [txForm, setTxForm] = useState({ tipo: '', da_tipo: '', importo: '', da_id: '', a_id: '', note: '' })
 
@@ -245,6 +247,10 @@ function isSameOwner(a, b) {
 
   function resetAdjustSaldoForm(book) {
     setAdjustSaldoForm({ nuovo_saldo: String(book?.saldo ?? ''), note: '' })
+  }
+
+  function resetAdjustWalletSaldoForm(wallet) {
+  setAdjustWalletSaldoForm({ nuovo_saldo: String(wallet?.saldo ?? ''), note: '' })
   }
 
   function clearBookFilters() {
@@ -581,6 +587,39 @@ await loadData({ preserveMessages: true })
     setMessage('Saldo corretto e transazione registrata')
     await loadData({ preserveMessages: true })
   }
+
+  async function handleAdjustWalletSaldo(e) {
+  e.preventDefault()
+  if (!selectedWallet) return setErrorMessage('Wallet non selezionato')
+
+  const nuovoSaldo = Number(adjustWalletSaldoForm.nuovo_saldo)
+  if (Number.isNaN(nuovoSaldo) || nuovoSaldo < 0) {
+    return setErrorMessage('Inserisci un saldo valido')
+  }
+  if (!adjustWalletSaldoForm.note.trim()) {
+    return setErrorMessage('Inserisci una nota per la correzione saldo')
+  }
+
+  const saldoPrecedente = Number(selectedWallet.saldo || 0)
+  const differenza = nuovoSaldo - saldoPrecedente
+
+  let r = await updateSaldo('wallets', selectedWallet.id, nuovoSaldo)
+  if (r.error) return setErrorMessage(`Errore correzione saldo wallet: ${r.error.message}`)
+
+  r = await salvaLogTransazione({
+    tipo: 'correzione',
+    importo: Math.abs(differenza),
+    riferimento: `${selectedWallet.nome} | ${formatCurrency(saldoPrecedente)} -> ${formatCurrency(nuovoSaldo)}`,
+    note: `Correzione saldo wallet manuale. Delta: ${formatCurrency(differenza)}. Motivo: ${adjustWalletSaldoForm.note.trim()}`,
+    azione: 'manual_balance_adjustment_wallet',
+  })
+  if (r.error) return setErrorMessage(`Errore correzione saldo wallet: ${r.error.message}`)
+
+  setShowAdjustWalletSaldoModal(false)
+  setSelectedWallet(null)
+  setMessage('Saldo wallet corretto e transazione registrata')
+  await loadData({ preserveMessages: true })
+}
 
   async function handleQuickBookTransaction(e) {
     e.preventDefault()
@@ -981,7 +1020,41 @@ if (auditPayload) {
               </div>
               <div style={tableWrap}>
                 <table style={table}><thead><tr><th style={th}>ID</th><th style={th}>Nome</th><th style={th}>Intestatario</th><th style={th}>Saldo</th><th style={th}>Note</th><th style={th}>Azioni</th></tr></thead><tbody>
-                  {filteredWallets.map((wallet) => <tr key={wallet.id} style={tr}><td style={td}>{wallet.id}</td><td style={tdStrong}>{wallet.nome}</td><td style={td}>{wallet.intestatario || '-'}</td><td style={td}>{formatCurrency(wallet.saldo)}</td><td style={tdNote}><textarea defaultValue={wallet.note || ''} onBlur={(e) => updateNote('wallets', wallet.id, e.target.value)} style={noteTextarea} /></td><td style={tdActions}><button style={tinyRedButton} onClick={() => handleDeleteWallet(wallet)}>Elimina</button></td></tr>)}
+                  {filteredWallets.map((wallet) => (
+  <tr key={wallet.id} style={tr}>
+    <td style={td}>{wallet.id}</td>
+    <td style={tdStrong}>{wallet.nome}</td>
+    <td style={td}>{wallet.intestatario || '-'}</td>
+    <td style={td}>{formatCurrency(wallet.saldo)}</td>
+    <td style={tdNote}>
+      <textarea
+        defaultValue={wallet.note || ''}
+        onBlur={(e) => updateNote('wallets', wallet.id, e.target.value)}
+        style={noteTextarea}
+      />
+    </td>
+    <td style={tdActions}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button
+          style={tinyOrangeButton}
+          onClick={() => {
+            setSelectedWallet(wallet)
+            resetAdjustWalletSaldoForm(wallet)
+            setShowAdjustWalletSaldoModal(true)
+          }}
+        >
+          Correggi saldo
+        </button>
+        <button
+          style={tinyRedButton}
+          onClick={() => handleDeleteWallet(wallet)}
+        >
+          Elimina
+        </button>
+      </div>
+    </td>
+  </tr>
+))}
                 </tbody></table>
               </div>
             </div>
@@ -1027,15 +1100,192 @@ if (auditPayload) {
 
         {showBookModal && <div style={modalOverlay} onClick={() => setShowBookModal(false)}><div style={modalCard} onClick={(e) => e.stopPropagation()}><div style={modalHeader}><div><h3 style={modalTitle}>Nuovo Book</h3><p style={modalSubtitle}>Inserisci un nuovo bookmaker</p></div><button style={modalClose} onClick={() => setShowBookModal(false)}>✕</button></div><form onSubmit={addBook}><input value={bookForm.nome} onChange={(e) => setBookForm({ ...bookForm, nome: e.target.value })} placeholder='Nome book' style={input} /><input value={bookForm.intestatario} onChange={(e) => setBookForm({ ...bookForm, intestatario: e.target.value })} placeholder='Intestatario' style={input} /><input value={bookForm.saldo} onChange={(e) => setBookForm({ ...bookForm, saldo: e.target.value })} placeholder='Saldo iniziale' style={input} /><textarea value={bookForm.note} onChange={(e) => setBookForm({ ...bookForm, note: e.target.value })} placeholder='Note' style={textarea} /><div style={modalActions}><button type='button' style={secondaryButton} onClick={() => setShowBookModal(false)}>Annulla</button><button type='submit' style={primaryButtonGreen}>Salva Book</button></div></form></div></div>}
 
-        {showWalletModal && <div style={modalOverlay} onClick={() => setShowWalletModal(false)}><div style={modalCard} onClick={(e) => e.stopPropagation()}><div style={modalHeader}><div><h3 style={modalTitle}>Nuovo Wallet</h3><p style={modalSubtitle}>Inserisci un nuovo wallet</p></div><button style={modalClose} onClick={() => setShowWalletModal(false)}>✕</button></div><form onSubmit={addWallet}><input value={walletForm.nome} onChange={(e) => setWalletForm({ ...walletForm, nome: e.target.value })} placeholder='Nome wallet' style={input} /><input value={walletForm.intestatario} onChange={(e) => setWalletForm({ ...walletForm, intestatario: e.target.value })} placeholder='Intestatario' style={input} /><input value={walletForm.saldo} onChange={(e) => setWalletForm({ ...walletForm, saldo: e.target.value })} placeholder='Saldo iniziale' style={input} /><textarea value={walletForm.note} onChange={(e) => setWalletForm({ ...walletForm, note: e.target.value })} placeholder='Note' style={textarea} /><div style={modalActions}><button type='button' style={secondaryButton} onClick={() => setShowWalletModal(false)}>Annulla</button><button type='submit' style={primaryButtonBlue}>Salva Wallet</button></div></form></div></div>}
-
-        {showAdjustSaldoModal && selectedBook && <div style={modalOverlay} onClick={() => setShowAdjustSaldoModal(false)}><div style={modalCard} onClick={(e) => e.stopPropagation()}><div style={modalHeader}><div><h3 style={modalTitle}>Correzione saldo book</h3><p style={modalSubtitle}>Book: <strong>{selectedBook.nome}</strong> · saldo attuale <strong>{formatCurrency(selectedBook.saldo)}</strong></p></div><button style={modalClose} onClick={() => setShowAdjustSaldoModal(false)}>✕</button></div><form onSubmit={handleAdjustSaldo}><input value={adjustSaldoForm.nuovo_saldo} onChange={(e) => setAdjustSaldoForm({ ...adjustSaldoForm, nuovo_saldo: e.target.value })} placeholder='Nuovo saldo' style={input} /><textarea value={adjustSaldoForm.note} onChange={(e) => setAdjustSaldoForm({ ...adjustSaldoForm, note: e.target.value })} placeholder='Motivo correzione saldo' style={textarea} /><div style={modalActions}><button type='button' style={secondaryButton} onClick={() => setShowAdjustSaldoModal(false)}>Annulla</button><button type='submit' style={tinyOrangeButtonLarge}>Salva correzione</button></div></form></div></div>}
-
-        {showQuickBookTxModal && selectedBook && <div style={modalOverlay} onClick={() => setShowQuickBookTxModal(false)}><div style={modalCard} onClick={(e) => e.stopPropagation()}><div style={modalHeader}><div><h3 style={modalTitle}>{quickBookTxForm.tipo === 'versa' ? 'Versa su book' : 'Preleva da book'}</h3><p style={modalSubtitle}>Book selezionato: <strong>{selectedBook.nome}</strong> · intestatario <strong>{selectedBook.intestatario}</strong></p></div><button style={modalClose} onClick={() => setShowQuickBookTxModal(false)}>✕</button></div><form onSubmit={handleQuickBookTransaction}><select value={quickBookTxForm.wallet_id} onChange={(e) => setQuickBookTxForm({ ...quickBookTxForm, wallet_id: e.target.value })} style={input}><option value=''>Seleziona wallet compatibile</option>{walletsCompatibiliQuick.map((wallet) => <option key={wallet.id} value={wallet.id}>{getEntityLabel(wallet)}</option>)}</select><input value={quickBookTxForm.importo} onChange={(e) => setQuickBookTxForm({ ...quickBookTxForm, importo: e.target.value })} placeholder='Importo' style={input} /><textarea value={quickBookTxForm.note} onChange={(e) => setQuickBookTxForm({ ...quickBookTxForm, note: e.target.value })} placeholder='Nota opzionale' style={textarea} /><div style={modalActions}><button type='button' style={secondaryButton} onClick={() => setShowQuickBookTxModal(false)}>Annulla</button><button type='submit' style={quickBookTxForm.tipo === 'versa' ? primaryButtonGreen : primaryButtonBlue}>{quickBookTxForm.tipo === 'versa' ? 'Conferma versa' : 'Conferma preleva'}</button></div></form></div></div>}
+        {showWalletModal && (
+  <div style={modalOverlay} onClick={() => setShowWalletModal(false)}>
+    <div style={modalCard} onClick={(e) => e.stopPropagation()}>
+      <div style={modalHeader}>
+        <div>
+          <h3 style={modalTitle}>Nuovo Wallet</h3>
+          <p style={modalSubtitle}>Inserisci un nuovo wallet</p>
+        </div>
+        <button style={modalClose} onClick={() => setShowWalletModal(false)}>✕</button>
       </div>
+      <form onSubmit={addWallet}>
+        <input
+          value={walletForm.nome}
+          onChange={(e) => setWalletForm({ ...walletForm, nome: e.target.value })}
+          placeholder='Nome wallet'
+          style={input}
+        />
+        <input
+          value={walletForm.intestatario}
+          onChange={(e) => setWalletForm({ ...walletForm, intestatario: e.target.value })}
+          placeholder='Intestatario'
+          style={input}
+        />
+        <input
+          value={walletForm.saldo}
+          onChange={(e) => setWalletForm({ ...walletForm, saldo: e.target.value })}
+          placeholder='Saldo iniziale'
+          style={input}
+        />
+        <textarea
+          value={walletForm.note}
+          onChange={(e) => setWalletForm({ ...walletForm, note: e.target.value })}
+          placeholder='Note'
+          style={textarea}
+        />
+        <div style={modalActions}>
+          <button type='button' style={secondaryButton} onClick={() => setShowWalletModal(false)}>
+            Annulla
+          </button>
+          <button type='submit' style={primaryButtonBlue}>
+            Salva Wallet
+          </button>
+        </div>
+      </form>
     </div>
-  )
-}
+  </div>
+)}
+
+{showAdjustSaldoModal && selectedBook && (
+  <div style={modalOverlay} onClick={() => setShowAdjustSaldoModal(false)}>
+    <div style={modalCard} onClick={(e) => e.stopPropagation()}>
+      <div style={modalHeader}>
+        <div>
+          <h3 style={modalTitle}>Correzione saldo book</h3>
+          <p style={modalSubtitle}>
+            Book: <strong>{selectedBook.nome}</strong> · saldo attuale <strong>{formatCurrency(selectedBook.saldo)}</strong>
+          </p>
+        </div>
+        <button style={modalClose} onClick={() => setShowAdjustSaldoModal(false)}>✕</button>
+      </div>
+      <form onSubmit={handleAdjustSaldo}>
+        <input
+          value={adjustSaldoForm.nuovo_saldo}
+          onChange={(e) => setAdjustSaldoForm({ ...adjustSaldoForm, nuovo_saldo: e.target.value })}
+          placeholder='Nuovo saldo'
+          style={input}
+        />
+        <textarea
+          value={adjustSaldoForm.note}
+          onChange={(e) => setAdjustSaldoForm({ ...adjustSaldoForm, note: e.target.value })}
+          placeholder='Motivo correzione saldo'
+          style={textarea}
+        />
+        <div style={modalActions}>
+          <button type='button' style={secondaryButton} onClick={() => setShowAdjustSaldoModal(false)}>
+            Annulla
+          </button>
+          <button type='submit' style={tinyOrangeButtonLarge}>
+            Salva correzione
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+)}
+
+{showAdjustWalletSaldoModal && selectedWallet && (
+  <div style={modalOverlay} onClick={() => setShowAdjustWalletSaldoModal(false)}>
+    <div style={modalCard} onClick={(e) => e.stopPropagation()}>
+      <div style={modalHeader}>
+        <div>
+          <h3 style={modalTitle}>Correzione saldo wallet</h3>
+          <p style={modalSubtitle}>
+            Wallet: <strong>{selectedWallet.nome}</strong> · saldo attuale <strong>{formatCurrency(selectedWallet.saldo)}</strong>
+          </p>
+        </div>
+        <button style={modalClose} onClick={() => setShowAdjustWalletSaldoModal(false)}>✕</button>
+      </div>
+      <form onSubmit={handleAdjustWalletSaldo}>
+        <input
+          value={adjustWalletSaldoForm.nuovo_saldo}
+          onChange={(e) =>
+            setAdjustWalletSaldoForm({
+              ...adjustWalletSaldoForm,
+              nuovo_saldo: e.target.value,
+            })
+          }
+          placeholder='Nuovo saldo'
+          style={input}
+        />
+        <textarea
+          value={adjustWalletSaldoForm.note}
+          onChange={(e) =>
+            setAdjustWalletSaldoForm({
+              ...adjustWalletSaldoForm,
+              note: e.target.value,
+            })
+          }
+          placeholder='Motivo correzione saldo wallet'
+          style={textarea}
+        />
+        <div style={modalActions}>
+          <button type='button' style={secondaryButton} onClick={() => setShowAdjustWalletSaldoModal(false)}>
+            Annulla
+          </button>
+          <button type='submit' style={tinyOrangeButtonLarge}>
+            Salva correzione
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+)}
+
+{showQuickBookTxModal && selectedBook && (
+  <div style={modalOverlay} onClick={() => setShowQuickBookTxModal(false)}>
+    <div style={modalCard} onClick={(e) => e.stopPropagation()}>
+      <div style={modalHeader}>
+        <div>
+          <h3 style={modalTitle}>{quickBookTxForm.tipo === 'versa' ? 'Versa su book' : 'Preleva da book'}</h3>
+          <p style={modalSubtitle}>
+            Book selezionato: <strong>{selectedBook.nome}</strong> · intestatario <strong>{selectedBook.intestatario}</strong>
+          </p>
+        </div>
+        <button style={modalClose} onClick={() => setShowQuickBookTxModal(false)}>✕</button>
+      </div>
+      <form onSubmit={handleQuickBookTransaction}>
+        <select
+          value={quickBookTxForm.wallet_id}
+          onChange={(e) => setQuickBookTxForm({ ...quickBookTxForm, wallet_id: e.target.value })}
+          style={input}
+        >
+          <option value=''>Seleziona wallet compatibile</option>
+          {walletsCompatibiliQuick.map((wallet) => (
+            <option key={wallet.id} value={wallet.id}>
+              {getEntityLabel(wallet)}
+            </option>
+          ))}
+        </select>
+        <input
+          value={quickBookTxForm.importo}
+          onChange={(e) => setQuickBookTxForm({ ...quickBookTxForm, importo: e.target.value })}
+          placeholder='Importo'
+          style={input}
+        />
+        <textarea
+          value={quickBookTxForm.note}
+          onChange={(e) => setQuickBookTxForm({ ...quickBookTxForm, note: e.target.value })}
+          placeholder='Nota opzionale'
+          style={textarea}
+        />
+        <div style={modalActions}>
+          <button type='button' style={secondaryButton} onClick={() => setShowQuickBookTxModal(false)}>
+            Annulla
+          </button>
+          <button
+            type='submit'
+            style={quickBookTxForm.tipo === 'versa' ? primaryButtonGreen : primaryButtonBlue}
+          >
+            {quickBookTxForm.tipo === 'versa' ? 'Conferma versa' : 'Conferma preleva'}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+)}
 
 const container = { minHeight: '100vh', background: 'linear-gradient(180deg, #020617 0%, #0f172a 100%)', color: '#e5eefb', padding: '24px 16px 48px' }
 const pageWrap = { maxWidth: 1500, margin: '0 auto' }
