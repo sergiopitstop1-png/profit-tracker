@@ -587,7 +587,52 @@ await loadData({ preserveMessages: true })
     setMessage('Saldo corretto e transazione registrata')
     await loadData({ preserveMessages: true })
   }
+async function handleAdjustWalletSaldoPrompt(wallet) {
+  setMessage('')
+  setErrorMessage('')
 
+  const nuovoSaldoInput = window.prompt(
+    `Nuovo saldo per ${wallet.nome}:`,
+    String(wallet.saldo ?? 0)
+  )
+  if (nuovoSaldoInput === null) return
+
+  const nuovoSaldo = Number(String(nuovoSaldoInput).replace(',', '.'))
+  if (Number.isNaN(nuovoSaldo) || nuovoSaldo < 0) {
+    setErrorMessage('Inserisci un saldo valido')
+    return
+  }
+
+  const nota = window.prompt('Motivo correzione saldo wallet:')
+  if (nota === null || !nota.trim()) {
+    setErrorMessage('Inserisci una nota per la correzione saldo')
+    return
+  }
+
+  const saldoPrecedente = Number(wallet.saldo || 0)
+  const differenza = nuovoSaldo - saldoPrecedente
+
+  let r = await updateSaldo('wallets', wallet.id, nuovoSaldo)
+  if (r.error) {
+    setErrorMessage(`Errore correzione saldo wallet: ${r.error.message}`)
+    return
+  }
+
+  r = await salvaLogTransazione({
+    tipo: 'correzione',
+    importo: Math.abs(differenza),
+    riferimento: `${wallet.nome} | ${formatCurrency(saldoPrecedente)} -> ${formatCurrency(nuovoSaldo)}`,
+    note: `Correzione saldo wallet manuale. Delta: ${formatCurrency(differenza)}. Motivo: ${nota.trim()}`,
+    azione: 'manual_balance_adjustment_wallet',
+  })
+  if (r.error) {
+    setErrorMessage(`Errore correzione saldo wallet: ${r.error.message}`)
+    return
+  }
+
+  setMessage('Saldo wallet corretto e transazione registrata')
+  await loadData({ preserveMessages: true })
+}
   async function handleAdjustWalletSaldo(e) {
   e.preventDefault()
   if (!selectedWallet) return setErrorMessage('Wallet non selezionato')
