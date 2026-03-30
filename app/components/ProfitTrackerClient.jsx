@@ -1037,9 +1037,8 @@ if (auditPayload) {
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button
           style={tinyOrangeButton}
-         onClick={() => handleAdjustWalletSaldoPrompt(wallet)}
-          }}
-        >
+         onClick={() => handleAdjustWalletSaldoPrompt(wallet)}          
+         >
           Correggi saldo
         </button>
         <button
