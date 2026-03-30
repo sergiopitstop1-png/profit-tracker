@@ -1037,10 +1037,7 @@ if (auditPayload) {
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button
           style={tinyOrangeButton}
-          onClick={() => {
-            setSelectedWallet(wallet)
-            resetAdjustWalletSaldoForm(wallet)
-            setShowAdjustWalletSaldoModal(true)
+         onClick={() => handleAdjustWalletSaldoPrompt(wallet)}
           }}
         >
           Correggi saldo
