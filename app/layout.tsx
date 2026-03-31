@@ -14,8 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "🔥 Sergio Apicella",
-  description: "Gestione avanzata profitti",
+  title: "🔥 Sergio Apicella | Metodo per Guadagnare Online con Strategia Reale",
+  description:
+    "Scopri un sistema concreto per guadagnare online con metodo, organizzazione e strumenti reali. Niente fuffa, solo strategia operativa.",
 };
 
 export default function RootLayout({
