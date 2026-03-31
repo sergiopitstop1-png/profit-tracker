@@ -28,20 +28,28 @@ export default function SergioApicellaHomepage() {
             Sergio Apicella — sistema reale per guadagnare online.
             Niente fumo. Niente frasi da guru. Solo strategia, organizzazione e strumenti pratici per costruire un sistema che lavori davvero.
             </p>
-          <div className="flex flex-col gap-4 sm:flex-row">
-            <a
-              href="mailto:TUAMAIL@ESEMPIO.IT?subject=Richiesta%20informazioni%20da%20sergioapicella.it"
-              className="rounded-2xl bg-orange-500 px-6 py-4 text-center font-semibold text-white shadow-lg shadow-orange-950/40 transition hover:scale-[1.02] hover:bg-orange-400"
-            >
-              Chiedimi come
-            </a>
-            <a
-              href="/profit-tracker"
-              className="rounded-2xl border border-white/15 bg-white/5 px-6 py-4 text-center font-semibold text-white transition hover:bg-white/10"
-            >
-              Area Riservata
-            </a>
-          </div>
+          <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap">
+  <a
+    href="mailto:sergio.apicella.lavoro@gmail.com?subject=Richiesta%20informazioni%20da%20sergioapicella.it"
+    className="rounded-2xl bg-orange-500 px-6 py-4 text-center font-semibold text-white shadow-lg shadow-orange-950/40 transition hover:scale-[1.02] hover:bg-orange-400"
+  >
+    Chiedimi come
+  </a>
+
+  <a
+    href="/guadagnare-online"
+    className="rounded-2xl border border-orange-400/30 bg-orange-500/10 px-6 py-4 text-center font-semibold text-orange-200 transition hover:bg-orange-500/20"
+  >
+    Guadagnare online
+  </a>
+
+  <a
+    href="/profit-tracker"
+    className="rounded-2xl border border-white/15 bg-white/5 px-6 py-4 text-center font-semibold text-white transition hover:bg-white/10"
+  >
+    Area Riservata
+  </a>
+</div>
           
         </div>
 
