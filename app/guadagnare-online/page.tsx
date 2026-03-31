@@ -1,6 +1,12 @@
 export default function GuadagnareOnline() {
   return (
     <main className="min-h-screen bg-black text-white p-10">
+     <a
+  href="/"
+  className="inline-block mb-6 px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white/70 hover:bg-orange-500/10 hover:text-orange-300 transition"
+>
+  ← Torna alla home
+</a>
       <h1 className="text-4xl font-bold mb-6">
         Guadagnare online: metodo reale
       </h1>
