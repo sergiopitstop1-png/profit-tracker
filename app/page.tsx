@@ -25,8 +25,9 @@ export default function SergioApicellaHomepage() {
             Vuoi fare soldi <span className="text-orange-400">online</span> con più metodo e meno caos?
           </h1>
           <p className="max-w-xl text-lg leading-8 text-white/75">
+            Sergio Apicella — sistema reale per guadagnare online.
             Niente fumo. Niente frasi da guru. Solo strategia, organizzazione e strumenti pratici per costruire un sistema che lavori davvero.
-          </p>
+            </p>
           <div className="flex flex-col gap-4 sm:flex-row">
             <a
               href="mailto:TUAMAIL@ESEMPIO.IT?subject=Richiesta%20informazioni%20da%20sergioapicella.it"
