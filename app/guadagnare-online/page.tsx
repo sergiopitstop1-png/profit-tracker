@@ -31,13 +31,15 @@ export default function GuadagnareOnline() {
     Non è fortuna. È costruzione. Ogni passo è parte di un sistema che cresce nel tempo.
   </p>
 </div>
-      <div className="mb-8 p-6 rounded-2xl bg-white/5 border border-green-400/20">
-  <p className="text-xl font-semibold text-green-400 mb-2">📈 Sistema in crescita</p>
+      <div className="mb-8 p-6 rounded-2xl bg-white/5 border border-white/10">
+  <p className="text-xl font-semibold text-orange-300 mb-2">
+    🧠 Approccio operativo
+  </p>
+
   <p className="text-white/70">
-    Non è fortuna. È costruzione. Ogni passo è parte di un sistema che cresce nel tempo.
+    Non è fortuna. È controllo. Ogni risultato nasce da un sistema preciso, non da tentativi casuali.
   </p>
 </div>
-
       <p className="mb-4">
         Sergio Apicella — sistema reale per guadagnare online con strategia,
         organizzazione e strumenti concreti.
@@ -53,7 +55,7 @@ export default function GuadagnareOnline() {
       </p>
 
       <a
-        href="mailto:TUAMAIL@ESEMPIO.IT"
+        href="mailto:sergio.apicella.lavoro@gmail.com"
         className="mt-6 inline-block bg-green-500 hover:bg-green-400 transition px-6 py-3 rounded-xl font-semibold"
       >
         Scrivimi
