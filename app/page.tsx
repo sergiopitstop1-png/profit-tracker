@@ -19,7 +19,7 @@ export default function SergioApicellaHomepage() {
       <section id="home" className="mx-auto grid min-h-[70vh] max-w-6xl items-center gap-10 px-6 py-16 md:grid-cols-2 md:py-24">
         <div className="space-y-6">
           <div className="inline-flex rounded-full border border-orange-400/30 bg-orange-500/10 px-4 py-1 text-sm text-orange-200">
-            Homepage provvisoria, impatto immediato
+            Chi ha un sistema vince. Gli altri sperano.
           </div>
           <h1 className="text-4xl font-bold leading-tight md:text-6xl">
             Vuoi fare soldi <span className="text-orange-400">online</span> con più metodo e meno caos?
@@ -29,7 +29,7 @@ export default function SergioApicellaHomepage() {
           </p>
           <div className="flex flex-col gap-4 sm:flex-row">
             <a
-              href="mailto:sergio.apicella.lavoro@gmail.com?subject=Richiesta%20informazioni%20da%20sergioapicella.it"
+              href="mailto:TUAMAIL@ESEMPIO.IT?subject=Richiesta%20informazioni%20da%20sergioapicella.it"
               className="rounded-2xl bg-orange-500 px-6 py-4 text-center font-semibold text-white shadow-lg shadow-orange-950/40 transition hover:scale-[1.02] hover:bg-orange-400"
             >
               Chiedimi come
@@ -41,9 +41,7 @@ export default function SergioApicellaHomepage() {
               Area Riservata
             </a>
           </div>
-          <p className="text-sm text-white/45">
-            Versione rapida online ora. Versione completa in arrivo.
-          </p>
+          
         </div>
 
         <div className="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-2xl shadow-black/30 backdrop-blur">
