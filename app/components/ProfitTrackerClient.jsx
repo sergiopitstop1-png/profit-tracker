@@ -1053,7 +1053,7 @@ const guadagnoCorrente =
         <header style={header}>
           <div>
             <h1 style={title}>🔥 Profit Tracker - La scalata al SUCCESSO</h1>
-            <p style={subtitle}>Versione stabile · books · wallets · transactions · guadagno corretto</p>
+            <p style={subtitle}>books · wallets · transactions</p>
           </div>
           <div style={copyrightBox}>© Sergio Apicella — Tutti i diritti riservati</div>
         </header>
