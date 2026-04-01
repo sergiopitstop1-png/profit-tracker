@@ -369,6 +369,27 @@ async function handleDeleteTransaction(tx) {
   const riferimento = String(tx.riferimento || '')
   const [left, right] = riferimento.split('->').map((s) => s?.trim())
 
+function parsePart(part) {
+  const value = String(part || '').trim()
+  if (!value) return null
+  if (value === 'esterno') return { tipo: 'esterno' }
+
+  const pieces = value.split(':')
+  if (pieces.length < 4) {
+    return { raw: value }
+  }
+
+  return {
+    tipo: pieces[0],
+    id: pieces[1],
+    nome: pieces[2],
+    intestatario: pieces.slice(3).join(':'),
+  }
+}
+
+const fromRef = parsePart(left)
+const toRef = parsePart(right)
+
   async function runWithRetry(fn, label, retries = 3) {
     let lastError
 
@@ -394,7 +415,9 @@ async function handleDeleteTransaction(tx) {
 
   try {
     if (tx.azione === 'wallet_to_book') {
-      const wallet = wallets.find((w) => w.nome === left)
+      const wallet = fromRef?.id
+  ? wallets.find((w) => String(w.id) === String(fromRef.id))
+  : wallets.find((w) => w.nome === fromRef?.raw)
       const book = books.find((b) => b.nome === right)
 
       if (!wallet || !book) throw new Error('Wallet o book non trovato per il rollback')
@@ -857,15 +880,15 @@ const basePeriodo = ultimoSnapshot
   ? Number(ultimoSnapshot.total_cash)
   : BASE_CASSA_MESE
 
-const totaleUsciteEsterne = useMemo(() =>
+const totalePrelieviEsterniStorici = useMemo(() =>
   transactions
-    .filter(tx => {
-      if (tx.azione !== 'wallet_to_external') return false
-      if (!ultimoSnapshot) return true
-      return new Date(tx.data) > new Date(ultimoSnapshot.created_at)
-    })
+    .filter(tx => tx.azione === 'wallet_to_external')
     .reduce((t, tx) => t + Number(tx.importo || 0), 0)
-, [transactions, ultimoSnapshot])
+, [transactions])
+
+const totaleUsciteEsterne = ultimoSnapshot
+  ? totalePrelieviEsterniStorici - Number(ultimoSnapshot.external_withdrawals || 0)
+  : totalePrelieviEsterniStorici
 
 const guadagnoCorrente =
   (totaleCassa - basePeriodo) + totaleUsciteEsterne
