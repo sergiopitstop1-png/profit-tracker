@@ -969,8 +969,8 @@ const guadagnoCorrente =
                 <div style={heroSub}>Guadagno corretto al netto dei prelievi esterni</div>
                 <div style={heroMiniRow}>
                   <div style={heroMiniBox}>
-                    <div style={heroMiniLabel}>Base mese</div>
-                    <div style={heroMiniValue}>{formatCurrency(BASE_CASSA_MESE)}</div>
+                    <div style={heroMiniLabel}>Base periodo</div>
+                    <div style={heroMiniValue}>{formatCurrency(basePeriodo)}</div>
                   </div>
                   <div style={heroMiniBox}>
                     <div style={heroMiniLabel}>Prelievi esterni</div>
