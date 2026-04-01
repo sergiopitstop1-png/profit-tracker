@@ -976,6 +976,7 @@ const guadagnoCorrente =
           <button style={activeTab === 'books' ? activeTabButton : tabButton} onClick={() => setActiveTab('books')}>Books</button>
           <button style={activeTab === 'wallets' ? activeTabButton : tabButton} onClick={() => setActiveTab('wallets')}>Wallets</button>
           <button style={activeTab === 'transactions' ? activeTabButton : tabButton} onClick={() => setActiveTab('transactions')}>Transactions</button>
+          <button style={activeTab === 'periodi' ? activeTabButton : tabButton} onClick={() => setActiveTab('periodi')}>Periodi</button>
         </nav>
 
        {activeTab === 'dashboard' && (
@@ -1070,7 +1071,54 @@ const guadagnoCorrente =
             </div>
           </div>
         )}
+        {activeTab === 'periodi' && (
+          <div style={tabContent}>
+            <div style={sectionTopBar}>
+              <div>
+                <h2 style={sectionTitle}>Periodi</h2>
+                <p style={sectionDescription}>Storico degli snapshot salvati con Salva Periodo</p>
+              </div>
+            </div>
 
+            <div style={panel}>
+              <div style={panelHeader}>
+                <div>
+                  <h2 style={panelTitle}>Storico periodi</h2>
+                  <p style={panelSubtitle}>Dati letti da weekly_snapshots</p>
+                </div>
+              </div>
+
+              <div style={tableWrap}>
+                <table style={tableLarge}>
+                  <thead>
+                    <tr>
+                      <th style={th}>ID</th>
+                      <th style={th}>Data periodo</th>
+                      <th style={th}>Ora salvataggio</th>
+                      <th style={th}>Cassa totale</th>
+                      <th style={th}>Prelievi esterni</th>
+                      <th style={th}>Base</th>
+                      <th style={th}>Profitto</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {weeklySnapshots.map((snap) => (
+                      <tr key={snap.id} style={tr}>
+                        <td style={td}>{snap.id}</td>
+                        <td style={td}>{snap.snapshot_date || '-'}</td>
+                        <td style={td}>{formatDate(snap.created_at)}</td>
+                        <td style={td}>{formatCurrency(snap.total_cash)}</td>
+                        <td style={td}>{formatCurrency(snap.external_withdrawals)}</td>
+                        <td style={td}>{formatCurrency(snap.base_cash_month)}</td>
+                        <td style={tdStrong}>{formatCurrency(snap.profit)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
         {activeTab === 'books' && (
           <div style={tabContent}>
             <div style={sectionTopBar}><div><h2 style={sectionTitle}>Books</h2><p style={sectionDescription}>Archivio bookmaker con filtri, note e azioni rapide</p></div><button style={primaryButtonGreen} onClick={() => setShowBookModal(true)}>+ Nuovo Book</button></div>
