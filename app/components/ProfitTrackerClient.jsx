@@ -1309,7 +1309,7 @@ const guadagnoCorrente =
                   <button type='button' style={secondaryButton} onClick={clearTxFilters}>Pulisci</button>
                 </div>
                 <div style={tableWrap}>
-                  <table style={tableLarge}><thead><tr><th style={th}>Data</th><th style={th}>Tipo</th><th style={th}>Importo</th><th style={th}>Riferimento</th><th style={th}>Azione</th><th style={th}>Note</th><th style={th}>Azioni</th></tr></thead><tbody>
+                  <table style={tableLarge}><thead><tr><th style={th}>Data</th><th style={th}>Tipo</th><th style={th}>Importo</th><th style={th}>Riferimento</th><th style={th}>Azione</th><th style={th}>Note</th><th style={thActions}>Azioni</th></tr></thead><tbody>
                     {filteredTransactions.map((tx) => <tr key={tx.id} style={tr}><td style={td}>{formatDate(tx.data)}</td><td style={td}><span style={badge(tx.tipo)}>{tx.tipo || '-'}</span></td><td style={td}>{formatCurrency(tx.importo)}</td><td style={td}>{tx.riferimento || '-'}</td><td style={td}>{tx.azione || '-'}</td><td style={tdNoteText}>{tx.note || '-'}</td><td style={tdActions}>{tx.azione !== 'manual_balance_adjustment' ? <button style={tinyRedButton} onClick={() => handleDeleteTransaction(tx)}>Elimina</button> : <span style={{ color: '#94a3b8', fontSize: 12 }}>Protetta</span>}</td></tr>)}
                   </tbody></table>
                 </div>
@@ -1558,16 +1558,38 @@ const input = { width: '100%', boxSizing: 'border-box', background: '#0b1220', c
 const textarea = { ...input, minHeight: 90, resize: 'vertical' }
 const filterInput = { flex: '1 1 160px', minWidth: 150, background: '#0b1220', color: '#f8fafc', border: '1px solid rgba(51,65,85,0.95)', borderRadius: 14, padding: '12px 14px', outline: 'none' }
 const filterInputWide = { ...filterInput, flex: '2 1 260px' }
-const tableWrap = { overflowX: 'auto', borderRadius: 18, border: '1px solid rgba(51,65,85,0.85)' }
+const tableWrap = { 
+  overflowX: 'auto', 
+  borderRadius: 18, 
+  border: '1px solid rgba(51,65,85,0.85)',
+  position: 'relative'
+}
 const table = { width: '100%', borderCollapse: 'collapse', minWidth: 760 }
 const tableLarge = { width: '100%', borderCollapse: 'collapse', minWidth: 1100 }
 const th = { textAlign: 'left', padding: '14px 14px', fontSize: 12, color: '#94a3b8', background: '#0b1220', borderBottom: '1px solid rgba(51,65,85,0.85)', textTransform: 'uppercase', letterSpacing: 0.7 }
+const thActions = {
+  ...th,
+  minWidth: 140,
+  position: 'sticky',
+  right: 0,
+  background: '#0b1220',
+  zIndex: 3,
+  boxShadow: '-8px 0 12px rgba(2,6,23,0.35)'
+}
 const tr = { borderBottom: '1px solid rgba(30,41,59,0.9)' }
 const td = { padding: '14px 14px', color: '#e2e8f0', verticalAlign: 'top', fontSize: 14 }
 const tdStrong = { ...td, fontWeight: 800, color: '#f8fafc' }
 const tdNote = { ...td, minWidth: 250 }
 const tdNoteText = { ...td, minWidth: 280 }
-const tdActions = { ...td, minWidth: 280 }
+const tdActions = { 
+  ...td, 
+  minWidth: 140,
+  position: 'sticky',
+  right: 0,
+  background: '#0b1220',
+  zIndex: 2,
+  boxShadow: '-8px 0 12px rgba(2,6,23,0.35)'
+}
 const noteTextarea = { width: '100%', maxWidth: '340px', background: '#0b1220', color: '#f8fafc', border: '1px solid rgba(51,65,85,0.9)', borderRadius: 10, padding: '8px 10px', minHeight: 52, resize: 'vertical', boxSizing: 'border-box', overflow: 'hidden' }
 const stackList = { display: 'flex', flexDirection: 'column', gap: 12 }
 const miniRowTitle = { color: '#f8fafc', fontWeight: 800 }
