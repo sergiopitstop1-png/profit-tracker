@@ -829,7 +829,7 @@ async function handleAdjustWalletSaldoPrompt(wallet) {
       if (r.error) return setErrorMessage(r.error.message)
       r = await updateSaldo('wallets', to.id, Number(to.saldo) + importo)
       if (r.error) return setErrorMessage(r.error.message)
-      r = await salvaLogTransazione({ tipo: 'trasferisci', importo, riferimento: `${from.nome} -> ${to.nome}`, note: txForm.note || `Trasferimento da wallet ${from.nome} a wallet ${to.nome}`, azione: 'wallet_to_wallet' })
+      r = await salvaLogTransazione({ tipo: 'trasferisci', importo, riferimento: `wallet:${from.id}:${from.nome}:${from.intestatario} -> wallet:${to.id}:${to.nome}:${to.intestatario}`, note: txForm.note || `Trasferimento da wallet ${from.nome} a wallet ${to.nome}`, azione: 'wallet_to_wallet' })
       if (r.error) return setErrorMessage(r.error.message)
     }
 if (auditPayload) {
