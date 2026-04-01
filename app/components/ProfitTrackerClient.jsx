@@ -357,38 +357,94 @@ async function handleDeleteTransaction(tx) {
   setMessage('')
   setErrorMessage('')
 
-  if (tx.azione === 'manual_balance_adjustment') {
+  if (
+    tx.azione === 'manual_balance_adjustment' ||
+    tx.azione === 'manual_balance_adjustment_wallet'
+  ) {
     setErrorMessage('Le correzioni saldo non sono eliminabili in sicurezza')
     return
   }
 
-  const ok = window.confirm(`Eliminare il movimento ${tx.riferimento}? L'operazione ripristinerà i saldi.`)
+  const ok = window.confirm(
+    `Eliminare il movimento ${tx.riferimento}? L'operazione ripristinerà i saldi.`
+  )
   if (!ok) return
 
   const importo = Number(tx.importo || 0)
   const riferimento = String(tx.riferimento || '')
-  const [left, right] = riferimento.split('->').map((s) => s?.trim())
 
-function parsePart(part) {
-  const value = String(part || '').trim()
-  if (!value) return null
-  if (value === 'esterno') return { tipo: 'esterno' }
+  function parseRefPart(part) {
+    const clean = String(part || '').trim()
 
-  const pieces = value.split(':')
-  if (pieces.length < 4) {
-    return { raw: value }
+    if (!clean) return null
+    if (clean === 'esterno') return { type: 'external' }
+
+    const pieces = clean.split(':')
+    const type = pieces[0] || null
+    const id = pieces[1] ? String(pieces[1]).trim() : null
+    const nome = pieces[2] ? String(pieces[2]).trim() : null
+    const intestatario = pieces.slice(3).join(':').trim() || null
+
+    return {
+      raw: clean,
+      type,
+      id,
+      nome,
+      intestatario
+    }
   }
 
-  return {
-    tipo: pieces[0],
-    id: pieces[1],
-    nome: pieces[2],
-    intestatario: pieces.slice(3).join(':'),
-  }
-}
+  const [leftRaw, rightRaw] = riferimento.split('->').map((s) => s?.trim())
+  const fromRef = parseRefPart(leftRaw)
+  const toRef = parseRefPart(rightRaw)
 
-const fromRef = parsePart(left)
-const toRef = parsePart(right)
+  function findWallet(ref) {
+    if (!ref) return null
+
+    if (ref.id) {
+      const byId = wallets.find((w) => String(w.id) === String(ref.id))
+      if (byId) return byId
+    }
+
+    if (ref.nome && ref.intestatario) {
+      const byCombo = wallets.find(
+        (w) =>
+          String(w.nome || '').trim() === ref.nome &&
+          String(w.intestatario || '').trim() === ref.intestatario
+      )
+      if (byCombo) return byCombo
+    }
+
+    if (ref.nome) {
+      return wallets.find((w) => String(w.nome || '').trim() === ref.nome) || null
+    }
+
+    return null
+  }
+
+  function findBook(ref) {
+    if (!ref) return null
+
+    if (ref.id) {
+      const byId = books.find((b) => String(b.id) === String(ref.id))
+      if (byId) return byId
+    }
+
+    if (ref.nome && ref.intestatario) {
+      const byCombo = books.find(
+        (b) =>
+          String(b.nome || '').trim() === ref.nome &&
+          String(b.intestatario || '').trim() === ref.intestatario
+      )
+      if (byCombo) return byCombo
+    }
+
+    if (ref.nome) {
+      return books.find((b) => String(b.nome || '').trim() === ref.nome) || null
+    }
+
+    return null
+  }
 
   async function runWithRetry(fn, label, retries = 3) {
     let lastError
@@ -415,13 +471,15 @@ const toRef = parsePart(right)
 
   try {
     if (tx.azione === 'wallet_to_book') {
-      const wallet = fromRef?.id
-  ? wallets.find((w) => String(w.id) === String(fromRef.id))
-  : wallets.find((w) => w.nome === fromRef?.raw)
-      const book = books.find((b) => b.nome === right)
+      const wallet = findWallet(fromRef)
+      const book = findBook(toRef)
 
-      if (!wallet || !book) throw new Error('Wallet o book non trovato per il rollback')
-      if (Number(book.saldo || 0) < importo) throw new Error('Saldo book insufficiente per annullare il movimento')
+      if (!wallet || !book) {
+        throw new Error('Wallet o book non trovato per il rollback')
+      }
+      if (Number(book.saldo || 0) < importo) {
+        throw new Error('Saldo book insufficiente per annullare il movimento')
+      }
 
       await runWithRetry(
         () => updateSaldo('books', book.id, Number(book.saldo) - importo),
@@ -435,11 +493,15 @@ const toRef = parsePart(right)
     }
 
     if (tx.azione === 'book_to_wallet') {
-      const book = books.find((b) => b.nome === left)
-      const wallet = wallets.find((w) => w.nome === right)
+      const book = findBook(fromRef)
+      const wallet = findWallet(toRef)
 
-      if (!wallet || !book) throw new Error('Book o wallet non trovato per il rollback')
-      if (Number(wallet.saldo || 0) < importo) throw new Error('Saldo wallet insufficiente per annullare il movimento')
+      if (!wallet || !book) {
+        throw new Error('Book o wallet non trovato per il rollback')
+      }
+      if (Number(wallet.saldo || 0) < importo) {
+        throw new Error('Saldo wallet insufficiente per annullare il movimento')
+      }
 
       await runWithRetry(
         () => updateSaldo('wallets', wallet.id, Number(wallet.saldo) - importo),
@@ -453,27 +515,33 @@ const toRef = parsePart(right)
     }
 
     if (tx.azione === 'wallet_to_wallet') {
-      const from = wallets.find((w) => w.nome === left)
-      const to = wallets.find((w) => w.nome === right)
+      const fromWallet = findWallet(fromRef)
+      const toWallet = findWallet(toRef)
 
-      if (!from || !to) throw new Error('Wallet non trovato per il rollback')
-      if (Number(to.saldo || 0) < importo) throw new Error('Saldo wallet destinazione insufficiente per annullare il movimento')
+      if (!fromWallet || !toWallet) {
+        throw new Error('Wallet non trovato per il rollback')
+      }
+      if (Number(toWallet.saldo || 0) < importo) {
+        throw new Error('Saldo wallet destinazione insufficiente per annullare il movimento')
+      }
 
       await runWithRetry(
-        () => updateSaldo('wallets', to.id, Number(to.saldo) - importo),
+        () => updateSaldo('wallets', toWallet.id, Number(toWallet.saldo) - importo),
         'Rollback saldo wallet destinazione'
       )
 
       await runWithRetry(
-        () => updateSaldo('wallets', from.id, Number(from.saldo) + importo),
+        () => updateSaldo('wallets', fromWallet.id, Number(fromWallet.saldo) + importo),
         'Rollback saldo wallet origine'
       )
     }
 
     if (tx.azione === 'wallet_to_external') {
-      const wallet = wallets.find((w) => w.nome === left)
+      const wallet = findWallet(fromRef)
 
-      if (!wallet) throw new Error('Wallet non trovato per il rollback')
+      if (!wallet) {
+        throw new Error('Wallet non trovato per il rollback')
+      }
 
       await runWithRetry(
         () => updateSaldo('wallets', wallet.id, Number(wallet.saldo) + importo),
@@ -512,7 +580,6 @@ const toRef = parsePart(right)
     setErrorMessage(`Errore eliminazione movimento: ${error.message}`)
   }
 }
-
   function resetTxForm() {
     setTxForm({ tipo: '', da_tipo: '', importo: '', da_id: '', a_id: '', note: '' })
   }
