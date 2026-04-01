@@ -1072,9 +1072,9 @@ const guadagnoCorrente =
        {activeTab === 'dashboard' && (
   <div style={tabContent}>
     <div style={{ marginBottom: '15px' }}>
-      <button onClick={saveWeeklySnapshot}>
-        Salva Periodo 
-      </button>
+      <button style={primaryButtonBlue} onClick={saveWeeklySnapshot}>
+  Salva Periodo
+</button>
     </div>
 
     <div style={heroGrid}>
