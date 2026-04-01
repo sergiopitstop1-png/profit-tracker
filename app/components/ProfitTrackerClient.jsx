@@ -756,7 +756,13 @@ async function handleAdjustWalletSaldoPrompt(wallet) {
       if (r.error) return setErrorMessage(r.error.message)
       r = await updateSaldo('books', book.id, Number(book.saldo) + importo)
       if (r.error) return setErrorMessage(r.error.message)
-      r = await salvaLogTransazione({ tipo: 'versa', importo, riferimento: `${wallet.nome} -> ${book.nome}`, note: txForm.note || `Versa da wallet ${wallet.nome} a book ${book.nome}`, azione: 'wallet_to_book' })
+      r = await salvaLogTransazione({
+  tipo: 'versa',
+  importo,
+  riferimento: `wallet:${wallet.id}:${wallet.nome}:${wallet.intestatario} -> book:${book.id}:${book.nome}:${book.intestatario}`,
+  note: txForm.note || `Versa da wallet ${wallet.nome} a book ${book.nome}`,
+  azione: 'wallet_to_book'
+})
       if (r.error) return setErrorMessage(r.error.message)
         auditPayload = {
   action: 'CREATE',
@@ -785,7 +791,13 @@ async function handleAdjustWalletSaldoPrompt(wallet) {
         if (r.error) return setErrorMessage(r.error.message)
         r = await updateSaldo('wallets', wallet.id, Number(wallet.saldo) + importo)
         if (r.error) return setErrorMessage(r.error.message)
-        r = await salvaLogTransazione({ tipo: 'preleva', importo, riferimento: `${book.nome} -> ${wallet.nome}`, note: txForm.note || `Prelievo da book ${book.nome} a wallet ${wallet.nome}`, azione: 'book_to_wallet' })
+        r = await salvaLogTransazione({
+  tipo: 'preleva',
+  importo,
+  riferimento: `book:${book.id}:${book.nome}:${book.intestatario} -> wallet:${wallet.id}:${wallet.nome}:${wallet.intestatario}`,
+  note: txForm.note || `Prelievo da book ${book.nome} a wallet ${wallet.nome}`,
+  azione: 'book_to_wallet'
+})
         if (r.error) return setErrorMessage(r.error.message)
       }
 
@@ -797,7 +809,7 @@ async function handleAdjustWalletSaldoPrompt(wallet) {
 
         r = await updateSaldo('wallets', wallet.id, Number(wallet.saldo) - importo)
         if (r.error) return setErrorMessage(r.error.message)
-        const riferimento = `${wallet.nome} -> esterno`
+        const riferimento = `wallet:${wallet.id}:${wallet.nome}:${wallet.intestatario} -> esterno`
         r = await salvaLogTransazione({ tipo: 'preleva', importo, riferimento, note: txForm.note || `Prelievo esterno da wallet ${wallet.nome}`, azione: 'wallet_to_external' })
         if (r.error) return setErrorMessage(r.error.message)
         r = await salvaSpesaGestione({ importo, riferimento, note: txForm.note || `Prelievo esterno da wallet ${wallet.nome}` })
