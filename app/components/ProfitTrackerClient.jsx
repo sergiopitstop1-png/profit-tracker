@@ -1053,7 +1053,7 @@ const guadagnoCorrente =
         <header style={header}>
           <div>
             <h1 style={title}>🔥 Profit Tracker - La scalata al SUCCESSO</h1>
-            <p style={subtitle}>Books · Wallets · Transactions</p>
+            <p style={subtitle}>Versione stabile · books · wallets · transactions · guadagno corretto</p>
           </div>
           <div style={copyrightBox}>© Sergio Apicella — Tutti i diritti riservati</div>
         </header>
@@ -1072,23 +1072,23 @@ const guadagnoCorrente =
        {activeTab === 'dashboard' && (
   <div style={tabContent}>
     <div style={{ marginBottom: '15px' }}>
-      <button className="btn-save" onClick={saveWeeklySnapshot}>
-  Salva Periodo
-</button>
+      <button onClick={saveWeeklySnapshot}>
+        Salva Periodo 
+      </button>
     </div>
 
     <div style={heroGrid}>
               <div style={heroCard}>
-                <div style={heroLabel}>Andamento mese</div>
+                <div style={heroLabel}>Panoramica mese</div>
                 <div style={heroValue}>{formatCurrency(guadagnoCorrente)}</div>
                 <div style={heroSub}>Guadagno corretto al netto dei prelievi esterni</div>
                 <div style={heroMiniRow}>
                   <div style={heroMiniBox}>
-                    <div style={heroMiniLabel}>Cassa di partenza</div>
+                    <div style={heroMiniLabel}>Base periodo</div>
                     <div style={heroMiniValue}>{formatCurrency(basePeriodo)}</div>
                   </div>
                   <div style={heroMiniBox}>
-                    <div style={heroMiniLabel}>Spese</div>
+                    <div style={heroMiniLabel}>Prelievi esterni</div>
                     <div style={heroMiniValue}>{formatCurrency(totaleUsciteEsterne)}</div>
                   </div>
                 </div>
@@ -1533,14 +1533,7 @@ const panel = { background: 'linear-gradient(180deg, rgba(15,23,42,0.94), rgba(2
 const panelForm = { ...panel, minWidth: 320 }
 const heroCard = { background: 'linear-gradient(135deg, rgba(34,197,94,0.12), rgba(56,189,248,0.08), rgba(15,23,42,0.96))', border: '1px solid rgba(56,189,248,0.22)', borderRadius: 26, padding: 24, boxShadow: '0 22px 52px rgba(0,0,0,0.28)' }
 const heroLabel = { fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.8, color: '#7dd3fc', marginBottom: 10 }
-const heroValue = { 
-  fontSize: 'clamp(30px, 3.2vw, 42px)', 
-  lineHeight: 1, 
-  fontWeight: 900, 
-  color: '#f8fafc', 
-  marginBottom: 10,
-  letterSpacing: '-1px'
-}
+const heroValue = { fontSize: 'clamp(34px, 4vw, 50px)', lineHeight: 1, fontWeight: 900, color: '#f8fafc', marginBottom: 10 }
 const heroSub = { color: '#cbd5e1', fontSize: 14, marginBottom: 18 }
 const heroMiniRow = { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }
 const heroMiniBox = { background: 'rgba(2,6,23,0.42)', border: '1px solid rgba(71,85,105,0.45)', borderRadius: 18, padding: '14px 16px' }
