@@ -295,7 +295,19 @@ function isSameOwner(a, b) {
   async function updateSaldo(table, id, saldo) {
     return supabase.from(table).update({ saldo }).eq('id', id)
   }
+async function updateStimaCassa(id, field, value) {
+  const { error } = await supabase
+    .from('stime_cassa')
+    .update({ [field]: value })
+    .eq('id', id)
 
+  if (error) {
+    setErrorMessage('Errore aggiornamento stima di cassa')
+    return
+  }
+
+  await loadData({ preserveMessages: true })
+}
   async function salvaLogTransazione({ tipo, importo, riferimento, note, azione }) {
     return supabase.from('transactions').insert([{
       tipo,
@@ -1295,11 +1307,45 @@ const totaleStimeMese = useMemo(() => {
           <tbody>
             {filteredStimeCassa.map((row) => (
               <tr key={row.id} style={tr}>
-                <td style={td}>{row.ordine ?? 0}</td>
-                <td style={tdStrong}>{row.voce || '-'}</td>
-                <td style={td}>{formatCurrency(row.importo)}</td>
-                <td style={td}>{row.stato || '-'}</td>
-                <td style={tdNoteText}>{row.note || '-'}</td>
+                <td style={td}>
+  <input
+    value={row.ordine ?? 0}
+    onChange={(e) => updateStimaCassa(row.id, 'ordine', Number(e.target.value))}
+    style={input}
+  />
+</td>
+
+<td style={td}>
+  <input
+    value={row.voce || ''}
+    onChange={(e) => updateStimaCassa(row.id, 'voce', e.target.value)}
+    style={input}
+  />
+</td>
+
+<td style={td}>
+  <input
+    value={row.importo ?? 0}
+    onChange={(e) => updateStimaCassa(row.id, 'importo', Number(e.target.value))}
+    style={input}
+  />
+</td>
+
+<td style={td}>
+  <input
+    value={row.stato || ''}
+    onChange={(e) => updateStimaCassa(row.id, 'stato', e.target.value)}
+    style={input}
+  />
+</td>
+
+<td style={td}>
+  <input
+    value={row.note || ''}
+    onChange={(e) => updateStimaCassa(row.id, 'note', e.target.value)}
+    style={input}
+  />
+</td>
               </tr>
             ))}
             {filteredStimeCassa.length === 0 && (
