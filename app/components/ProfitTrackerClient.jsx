@@ -19,7 +19,22 @@ export default function ProfitTrackerClient() {
   const [contabilita, setContabilita] = useState([])
 const [weeklySnapshots, setWeeklySnapshots] = useState([])
 const [monthlySnapshots, setMonthlySnapshots] = useState([])
+const [stimeCassa, setStimeCassa] = useState([])
 
+const [stimeFilters, setStimeFilters] = useState({
+  anno: new Date().getFullYear(),
+  mese: new Date().getMonth() + 1
+})
+
+const [stimaForm, setStimaForm] = useState({
+  anno: new Date().getFullYear(),
+  mese: new Date().getMonth() + 1,
+  voce: '',
+  importo: '',
+  stato: '',
+  note: '',
+  ordine: 0
+})
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
@@ -122,13 +137,18 @@ useEffect(() => {
       setErrorMessage('')
     }
 
-   const [booksRes, walletsRes, txRes, contRes, weeklyRes, monthlyRes] = await Promise.all([
+   const [booksRes, walletsRes, txRes, contRes, weeklyRes, monthlyRes, stimeRes] = await Promise.all([
       supabase.from('books').select('*').order('id', { ascending: true }),
       supabase.from('wallets').select('*').order('id', { ascending: true }),
       supabase.from('transactions').select('*').order('data', { ascending: false }),
       supabase.from('contabilita').select('*').order('data_movimento', { ascending: false }),
   supabase.from('weekly_snapshots').select('*').order('snapshot_date', { ascending: true }),
   supabase.from('monthly_snapshots').select('*').order('snapshot_month', { ascending: true }),
+     supabase.from('stime_cassa').select('*')
+  .order('anno', { ascending: true })
+  .order('mese', { ascending: true })
+  .order('ordine', { ascending: true })
+  .order('id', { ascending: true }),
     ])
 
     const errors = []
@@ -138,6 +158,7 @@ useEffect(() => {
     if (contRes.error) errors.push('contabilita'); else setContabilita(contRes.data || [])
 if (weeklyRes.error) errors.push('weekly_snapshots'); else setWeeklySnapshots(weeklyRes.data || [])
 if (monthlyRes.error) errors.push('monthly_snapshots'); else setMonthlySnapshots(monthlyRes.data || [])
+   if (stimeRes.error) errors.push('stime_cassa'); else setStimeCassa(stimeRes.data || []) 
 
     if (errors.length) setErrorMessage(`Errore caricamento: ${errors.join(', ')}`)
     setLoading(false)
