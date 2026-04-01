@@ -825,9 +825,26 @@ if (auditPayload) {
   const totaleBooks = useMemo(() => books.reduce((t, b) => t + Number(b.saldo || 0), 0), [books])
   const totaleWallets = useMemo(() => wallets.reduce((t, w) => t + Number(w.saldo || 0), 0), [wallets])
   const totaleCassa = totaleBooks + totaleWallets
-  const totaleUsciteEsterne = useMemo(() => transactions.filter((tx) => tx.azione === 'wallet_to_external').reduce((t, tx) => t + Number(tx.importo || 0), 0), [transactions])
-  const guadagnoCorrente = totaleCassa + totaleUsciteEsterne - BASE_CASSA_MESE
+  const ultimoSnapshot = weeklySnapshots.length > 0
+  ? weeklySnapshots[weeklySnapshots.length - 1]
+  : null
 
+const basePeriodo = ultimoSnapshot
+  ? Number(ultimoSnapshot.total_cash)
+  : BASE_CASSA_MESE
+
+const totaleUsciteEsterne = useMemo(() =>
+  transactions
+    .filter(tx => {
+      if (tx.azione !== 'wallet_to_external') return false
+      if (!ultimoSnapshot) return true
+      return new Date(tx.data) > new Date(ultimoSnapshot.created_at)
+    })
+    .reduce((t, tx) => t + Number(tx.importo || 0), 0)
+, [transactions, ultimoSnapshot])
+
+const guadagnoCorrente =
+  (totaleCassa - basePeriodo) + totaleUsciteEsterne
   const filteredBooks = useMemo(() => books.filter((book) => {
     const nomeMatch = (book.nome || '').toLowerCase().includes(bookFilters.nome.toLowerCase())
     const intestatarioMatch = (book.intestatario || '').toLowerCase().includes(bookFilters.intestatario.toLowerCase())
