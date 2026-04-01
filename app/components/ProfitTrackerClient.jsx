@@ -686,7 +686,13 @@ async function handleAdjustWalletSaldoPrompt(wallet) {
       if (r.error) return setErrorMessage(r.error.message)
       r = await updateSaldo('books', book.id, Number(book.saldo) + importo)
       if (r.error) return setErrorMessage(r.error.message)
-      r = await salvaLogTransazione({ tipo: 'versa', importo, riferimento: `${wallet.nome} -> ${book.nome}`, note: quickBookTxForm.note || `Versa rapido da wallet ${wallet.nome} a book ${book.nome}`, azione: 'wallet_to_book' })
+      r = await salvaLogTransazione({
+  tipo: 'versa',
+  importo,
+  riferimento: `wallet:${wallet.id}:${wallet.nome}:${wallet.intestatario} -> book:${book.id}:${book.nome}:${book.intestatario}`,
+  note: quickBookTxForm.note || `Versa rapido da wallet ${wallet.nome} a book ${book.nome}`,
+  azione: 'wallet_to_book'
+})
       if (r.error) return setErrorMessage(r.error.message)
     } else {
       if (Number(book.saldo || 0) < importo) return setErrorMessage('Saldo book insufficiente')
@@ -694,7 +700,13 @@ async function handleAdjustWalletSaldoPrompt(wallet) {
       if (r.error) return setErrorMessage(r.error.message)
       r = await updateSaldo('wallets', wallet.id, Number(wallet.saldo) + importo)
       if (r.error) return setErrorMessage(r.error.message)
-      r = await salvaLogTransazione({ tipo: 'preleva', importo, riferimento: `${book.nome} -> ${wallet.nome}`, note: quickBookTxForm.note || `Prelievo rapido da book ${book.nome} a wallet ${wallet.nome}`, azione: 'book_to_wallet' })
+      r = await salvaLogTransazione({
+  tipo: 'preleva',
+  importo,
+  riferimento: `book:${book.id}:${book.nome}:${book.intestatario} -> wallet:${wallet.id}:${wallet.nome}:${wallet.intestatario}`,
+  note: quickBookTxForm.note || `Prelievo rapido da book ${book.nome} a wallet ${wallet.nome}`,
+  azione: 'book_to_wallet'
+})
       if (r.error) return setErrorMessage(r.error.message)
     }
 
