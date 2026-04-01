@@ -1005,7 +1005,17 @@ const guadagnoCorrente =
     const importoMaxMatch = txFilters.importoMax === '' ? true : Number(tx.importo || 0) <= Number(txFilters.importoMax)
     return tipoMatch && azioneMatch && testoMatch && importoMinMatch && importoMaxMatch
   }), [transactions, txFilters])
+const filteredStimeCassa = useMemo(() => {
+  return stimeCassa.filter((row) => {
+    const annoMatch = Number(row.anno) === Number(stimeFilters.anno)
+    const meseMatch = Number(row.mese) === Number(stimeFilters.mese)
+    return annoMatch && meseMatch
+  })
+}, [stimeCassa, stimeFilters])
 
+const totaleStimeMese = useMemo(() => {
+  return filteredStimeCassa.reduce((sum, row) => sum + Number(row.importo || 0), 0)
+}, [filteredStimeCassa])
   const totaleBooksFiltrati = useMemo(() => filteredBooks.reduce((t, b) => t + Number(b.saldo || 0), 0), [filteredBooks])
   const totaleWalletsFiltrati = useMemo(() => filteredWallets.reduce((t, w) => t + Number(w.saldo || 0), 0), [filteredWallets])
   const ultimeTransazioni = useMemo(() => transactions.slice(0, 8), [transactions])
@@ -1088,6 +1098,7 @@ const guadagnoCorrente =
           <button style={activeTab === 'wallets' ? activeTabButton : tabButton} onClick={() => setActiveTab('wallets')}>Wallets</button>
           <button style={activeTab === 'transactions' ? activeTabButton : tabButton} onClick={() => setActiveTab('transactions')}>Transactions</button>
           <button style={activeTab === 'periodi' ? activeTabButton : tabButton} onClick={() => setActiveTab('periodi')}>Periodi</button>
+          <button style={activeTab === 'stime-cassa' ? activeTabButton : tabButton} onClick={() => setActiveTab('stime-cassa')}>Stime di Cassa</button>
         </nav>
 
        {activeTab === 'dashboard' && (
@@ -1230,6 +1241,78 @@ const guadagnoCorrente =
             </div>
           </div>
         )}
+       {activeTab === 'stime-cassa' && (
+  <div style={tabContent}>
+    <div style={sectionTopBar}>
+      <div>
+        <h2 style={sectionTitle}>Stime di Cassa</h2>
+        <p style={sectionDescription}>Pianificazione mese per mese delle uscite previste</p>
+      </div>
+    </div>
+
+    <div style={statsGridCompact}>
+      <StatCard
+        label='Righe del mese'
+        value={String(filteredStimeCassa.length)}
+        sub={`Anno ${stimeFilters.anno} · mese ${stimeFilters.mese}`}
+        accent='#f59e0b'
+      />
+      <StatCard
+        label='Totale mese'
+        value={formatCurrency(totaleStimeMese)}
+        sub='Somma di tutte le voci visibili'
+        accent='#38bdf8'
+      />
+    </div>
+
+    <div style={panel}>
+      <div style={filterRow}>
+        <input
+          value={stimeFilters.anno}
+          onChange={(e) => setStimeFilters({ ...stimeFilters, anno: e.target.value })}
+          placeholder='Anno'
+          style={filterInput}
+        />
+        <input
+          value={stimeFilters.mese}
+          onChange={(e) => setStimeFilters({ ...stimeFilters, mese: e.target.value })}
+          placeholder='Mese (1-12)'
+          style={filterInput}
+        />
+      </div>
+
+      <div style={tableWrap}>
+        <table style={tableLarge}>
+          <thead>
+            <tr>
+              <th style={th}>Ordine</th>
+              <th style={th}>Voce</th>
+              <th style={th}>Importo</th>
+              <th style={th}>Stato</th>
+              <th style={th}>Note</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredStimeCassa.map((row) => (
+              <tr key={row.id} style={tr}>
+                <td style={td}>{row.ordine ?? 0}</td>
+                <td style={tdStrong}>{row.voce || '-'}</td>
+                <td style={td}>{formatCurrency(row.importo)}</td>
+                <td style={td}>{row.stato || '-'}</td>
+                <td style={tdNoteText}>{row.note || '-'}</td>
+              </tr>
+            ))}
+            {filteredStimeCassa.length === 0 && (
+              <tr style={tr}>
+                <td style={td} colSpan={5}>Nessuna riga presente per questo mese</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+)} 
         {activeTab === 'books' && (
           <div style={tabContent}>
             <div style={sectionTopBar}><div><h2 style={sectionTitle}>Books</h2><p style={sectionDescription}>Archivio bookmaker con filtri, note e azioni rapide</p></div><button style={primaryButtonGreen} onClick={() => setShowBookModal(true)}>+ Nuovo Book</button></div>
