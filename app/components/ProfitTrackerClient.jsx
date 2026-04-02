@@ -1648,7 +1648,7 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
                 </div>
               </div>
 
-              <div style={panel}>
+                            <div style={panel}>
                 <div style={panelHeader}>
                   <div>
                     <h2 style={panelTitle}>Note prossimo anno</h2>
@@ -1666,11 +1666,31 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
                       </tr>
                     </thead>
                     <tbody>
-                      <tr style={tr}>
-                        <td style={td}>-</td>
-                        <td style={td}>-</td>
-                        <td style={td}>-</td>
-                      </tr>
+                      {memoFutureNotes.length === 0 ? (
+                        <tr style={tr}>
+                          <td style={td}>-</td>
+                          <td style={td}>-</td>
+                          <td style={td}>-</td>
+                        </tr>
+                      ) : (
+                        memoFutureNotes.map((row) => (
+                          <tr key={row.id} style={tr}>
+                            <td style={td}>{row.data_testo || '-'}</td>
+                            <td style={td}>
+                              {Number(row.importo || 0) === 0 ? '-' : formatCurrency(row.importo)}
+                            </td>
+                            <td
+                              style={{
+                                ...td,
+                                color: row.colore === 'red' ? '#f87171' : '#e2e8f0',
+                                fontWeight: row.colore === 'red' ? 800 : 400
+                              }}
+                            >
+                              {row.descrizione || '-'}
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
