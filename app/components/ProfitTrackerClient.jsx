@@ -1173,6 +1173,7 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
           <button style={activeTab === 'wallets' ? activeTabButton : tabButton} onClick={() => setActiveTab('wallets')}>Wallets</button>
           <button style={activeTab === 'transactions' ? activeTabButton : tabButton} onClick={() => setActiveTab('transactions')}>Transactions</button>
           <button style={activeTab === 'periodi' ? activeTabButton : tabButton} onClick={() => setActiveTab('periodi')}>Periodi</button>
+          <button style={activeTab === 'memo' ? activeTabButton : tabButton} onClick={() => setActiveTab('memo')}>Memo</button>
          <button
   style={activeTab === 'stime-cassa' ? activeTabButton : tabButton}
   onClick={() => {
@@ -1571,7 +1572,18 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
             </div>
           </div>
         )}
-
+        {activeTab === 'memo' && (
+          <div style={tabContent}>
+            <div style={panel}>
+              <div style={panelHeader}>
+                <div>
+                  <h2 style={panelTitle}>Memo</h2>
+                  <p style={panelSubtitle}>Sezione memo in costruzione</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         {showBookModal && (
   <div style={modalOverlay} onClick={() => setShowBookModal(false)}>
     <div style={modalCard} onClick={(e) => e.stopPropagation()}>
