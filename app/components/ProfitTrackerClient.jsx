@@ -1568,8 +1568,8 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
                       <React.Fragment key={`${account.id}_${anno}`}>
                         <td style={memoTd}>
                           <input
-                            value={entry.importo ?? 0}
-                            onChange={(e) => updateMemoRoyaltyEntry(entry.id, 'importo', Number(e.target.value))}
+                            defaultValue={entry.importo ?? 0}
+onBlur={(e) => updateMemoRoyaltyEntry(entry.id, 'importo', Number(e.target.value))}
                             style={{
                               ...memoInput,
                               color: Number(entry.importo || 0) < 0 ? '#f87171' : '#e2e8f0',
@@ -1579,15 +1579,15 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
                         </td>
                         <td style={memoTd}>
                           <input
-                            value={entry.mese || ''}
-                            onChange={(e) => updateMemoRoyaltyEntry(entry.id, 'mese', e.target.value)}
+                            defaultValue={entry.mese || ''}
+onBlur={(e) => updateMemoRoyaltyEntry(entry.id, 'mese', e.target.value)}
                             style={memoInput}
                           />
                         </td>
                         <td style={memoTd}>
                           <input
-                            value={entry.nota || ''}
-                            onChange={(e) => updateMemoRoyaltyEntry(entry.id, 'nota', e.target.value)}
+                            defaultValue={entry.nota || ''}
+onBlur={(e) => updateMemoRoyaltyEntry(entry.id, 'nota', e.target.value)}
                             style={memoInput}
                           />
                         </td>
@@ -1631,15 +1631,15 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
                     <td style={memoTdPeriod}>{String(row.periodo || '').replace(/a$|b$/i, '')}</td>
                     <td style={memoTd}>
                       <input
-                        value={row.risparmio ?? 0}
-                        onChange={(e) => updateMemoSavingsRow(row.id, 'risparmio', Number(e.target.value))}
+                        defaultValue={row.risparmio ?? 0}
+onBlur={(e) => updateMemoSavingsRow(row.id, 'risparmio', Number(e.target.value))}
                         style={memoInput}
                       />
                     </td>
                     <td style={memoTd}>
                       <input
-                        value={row.versamento ?? 0}
-                        onChange={(e) => updateMemoSavingsRow(row.id, 'versamento', Number(e.target.value))}
+                        defaultValue={row.versamento ?? 0}
+onBlur={(e) => updateMemoSavingsRow(row.id, 'versamento', Number(e.target.value))}
                         style={{
                           ...memoInput,
                           background: Number(row.versamento || 0) < 0 ? 'rgba(239,68,68,0.18)' : 'rgba(34,197,94,0.18)',
@@ -1650,15 +1650,15 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
                     </td>
                     <td style={memoTd}>
                       <input
-                        value={row.interesse ?? 0}
-                        onChange={(e) => updateMemoSavingsRow(row.id, 'interesse', Number(e.target.value))}
+                        defaultValue={row.interesse ?? 0}
+onBlur={(e) => updateMemoSavingsRow(row.id, 'interesse', Number(e.target.value))}
                         style={memoInput}
                       />
                     </td>
                     <td style={memoTd}>
                       <input
-                        value={row.montante ?? 0}
-                        onChange={(e) => updateMemoSavingsRow(row.id, 'montante', Number(e.target.value))}
+                        defaultValue={row.montante ?? 0}
+onBlur={(e) => updateMemoSavingsRow(row.id, 'montante', Number(e.target.value))}
                         style={memoInput}
                       />
                     </td>
