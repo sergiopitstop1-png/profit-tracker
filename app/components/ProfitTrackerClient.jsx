@@ -1182,13 +1182,17 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
   const ultimeTransazioni = useMemo(() => transactions.slice(0, 8), [transactions])
   const topBooks = useMemo(() => [...books].sort((a, b) => Number(b.saldo || 0) - Number(a.saldo || 0)).slice(0, 5), [books])
   const topWallets = useMemo(() => [...wallets].sort((a, b) => Number(b.saldo || 0) - Number(a.saldo || 0)).slice(0, 5), [wallets])
-  const totaleDaPagare = memoRoyaltyEntries
+ const annoCorrenteRoyalty = new Date().getFullYear()
+
+const totaleDaPagare = memoRoyaltyEntries
   .filter((r) =>
+    Number(r.anno) === annoCorrenteRoyalty &&
     String(r.nota || '').toLowerCase().includes('da pagare')
   )
   .reduce((sum, r) => sum + Number(r.importo || 0), 0)
 
 const totaleComplessivoRoyalty = memoRoyaltyEntries
+  .filter((r) => Number(r.anno) === annoCorrenteRoyalty)
   .reduce((sum, r) => sum + Number(r.importo || 0), 0)
 
 const mediaMensileRoyalty = totaleComplessivoRoyalty / 12
@@ -1709,7 +1713,7 @@ const mediaMensileRoyalty = totaleComplessivoRoyalty / 12
     }}
   >
     <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>
-      Totale da pagare
+      Da pagare {annoCorrenteRoyalty}
     </div>
     <div style={{ fontSize: 18, fontWeight: 900, color: '#f87171' }}>
       {formatCurrency(totaleDaPagare)}
@@ -1726,7 +1730,7 @@ const mediaMensileRoyalty = totaleComplessivoRoyalty / 12
     }}
   >
     <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>
-      Totale complessivo / 12
+      Media mensile {annoCorrenteRoyalty}
     </div>
     <div style={{ fontSize: 18, fontWeight: 900, color: '#38bdf8' }}>
       {formatCurrency(mediaMensileRoyalty)}
