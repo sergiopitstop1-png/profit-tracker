@@ -1690,6 +1690,55 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
 </div>
                 </div>
               </div>
+<div style={{ marginTop: 10, display: 'flex', gap: 12 }}>
+  <div style={{
+    padding: '6px 10px',
+    border: '1px solid #334155',
+    borderRadius: 6,
+    color: '#f87171',
+    fontWeight: 700
+  }}>
+    Da pagare: {
+      formatCurrency(
+        memoRoyaltyEntries
+          .filter(r =>
+            String(r.nota || '').toLowerCase().includes('da pagare')
+          )
+          .reduce((sum, r) => sum + Number(r.importo || 0), 0)
+      )
+    }
+  </div>
+
+  <div style={{
+    padding: '6px 10px',
+    border: '1px solid #334155',
+    borderRadius: 6,
+    color: '#38bdf8',
+    fontWeight: 700
+  }}>
+    Totale: {
+      formatCurrency(
+        memoRoyaltyEntries
+          .reduce((sum, r) => sum + Number(r.importo || 0), 0)
+      )
+    }
+  </div>
+
+  <div style={{
+    padding: '6px 10px',
+    border: '1px solid #334155',
+    borderRadius: 6,
+    color: '#22c55e',
+    fontWeight: 700
+  }}>
+    Media mese: {
+      formatCurrency(
+        memoRoyaltyEntries
+          .reduce((sum, r) => sum + Number(r.importo || 0), 0) / 12
+      )
+    }
+  </div>
+</div>                            
 
               <div style={tableWrap}>
                 <table style={tableLarge}>
