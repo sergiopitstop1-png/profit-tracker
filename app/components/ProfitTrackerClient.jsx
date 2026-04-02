@@ -1799,6 +1799,7 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
   <option value='pagato'>pagato</option>
   <option value='da pagare'>da pagare</option>
 </select>
+    </div>                           
                             ))}
                           </div>
                         )
