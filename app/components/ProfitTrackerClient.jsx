@@ -1158,7 +1158,7 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
     setActiveTab('stime-cassa')
   }}
 >
-  Stime di Cassa
+  Contabilità
 </button>
         </nav>
 
