@@ -22,6 +22,11 @@ export default function ProfitTrackerClient() {
 const [weeklySnapshots, setWeeklySnapshots] = useState([])
 const [monthlySnapshots, setMonthlySnapshots] = useState([])
 const [stimeCassa, setStimeCassa] = useState([])
+ const [memoRoyaltyAccounts, setMemoRoyaltyAccounts] = useState([])
+const [memoRoyaltyEntries, setMemoRoyaltyEntries] = useState([])
+const [memoSavingsRows, setMemoSavingsRows] = useState([])
+const [memoFutureNotes, setMemoFutureNotes] = useState([])
+const [memoFreeBoxes, setMemoFreeBoxes] = useState([]) 
 
 const [stimeFilters, setStimeFilters] = useState({
   anno: new Date().getFullYear(),
@@ -140,28 +145,51 @@ useEffect(() => {
       setErrorMessage('')
     }
 
-   const [booksRes, walletsRes, txRes, contRes, weeklyRes, monthlyRes, stimeRes] = await Promise.all([
-      supabase.from('books').select('*').order('id', { ascending: true }),
-      supabase.from('wallets').select('*').order('id', { ascending: true }),
-      supabase.from('transactions').select('*').order('data', { ascending: false }),
-      supabase.from('contabilita').select('*').order('data_movimento', { ascending: false }),
+   const [
+  booksRes,
+  walletsRes,
+  txRes,
+  contRes,
+  weeklyRes,
+  monthlyRes,
+  stimeRes,
+  memoRoyaltyAccountsRes,
+  memoRoyaltyEntriesRes,
+  memoSavingsRowsRes,
+  memoFutureNotesRes,
+  memoFreeBoxesRes
+] = await Promise.all([
+  supabase.from('books').select('*').order('id', { ascending: true }),
+  supabase.from('wallets').select('*').order('id', { ascending: true }),
+  supabase.from('transactions').select('*').order('data', { ascending: false }),
+  supabase.from('contabilita').select('*').order('data_movimento', { ascending: false }),
   supabase.from('weekly_snapshots').select('*').order('snapshot_date', { ascending: true }),
   supabase.from('monthly_snapshots').select('*').order('snapshot_month', { ascending: true }),
-     supabase.from('stime_cassa').select('*')
-  .order('anno', { ascending: true })
-  .order('mese', { ascending: true })
-  .order('ordine', { ascending: true })
-  .order('id', { ascending: true }),
-    ])
+  supabase.from('stime_cassa').select('*')
+    .order('anno', { ascending: true })
+    .order('mese', { ascending: true })
+    .order('ordine', { ascending: true })
+    .order('id', { ascending: true }),
+  supabase.from('memo_royalty_accounts').select('*').order('id', { ascending: true }),
+  supabase.from('memo_royalty_entries').select('*').order('id', { ascending: true }),
+  supabase.from('memo_savings_rows').select('*').order('id', { ascending: true }),
+  supabase.from('memo_future_notes').select('*').order('ordine', { ascending: true }).order('id', { ascending: true }),
+  supabase.from('memo_free_boxes').select('*').order('id', { ascending: true }),
+])
 
     const errors = []
-    if (booksRes.error) errors.push('books'); else setBooks(booksRes.data || [])
-    if (walletsRes.error) errors.push('wallets'); else setWallets(walletsRes.data || [])
-    if (txRes.error) errors.push('transactions'); else setTransactions(txRes.data || [])
-    if (contRes.error) errors.push('contabilita'); else setContabilita(contRes.data || [])
+if (booksRes.error) errors.push('books'); else setBooks(booksRes.data || [])
+if (walletsRes.error) errors.push('wallets'); else setWallets(walletsRes.data || [])
+if (txRes.error) errors.push('transactions'); else setTransactions(txRes.data || [])
+if (contRes.error) errors.push('contabilita'); else setContabilita(contRes.data || [])
 if (weeklyRes.error) errors.push('weekly_snapshots'); else setWeeklySnapshots(weeklyRes.data || [])
 if (monthlyRes.error) errors.push('monthly_snapshots'); else setMonthlySnapshots(monthlyRes.data || [])
-   if (stimeRes.error) errors.push('stime_cassa'); else setStimeCassa(stimeRes.data || []) 
+if (stimeRes.error) errors.push('stime_cassa'); else setStimeCassa(stimeRes.data || [])
+if (memoRoyaltyAccountsRes.error) errors.push('memo_royalty_accounts'); else setMemoRoyaltyAccounts(memoRoyaltyAccountsRes.data || [])
+if (memoRoyaltyEntriesRes.error) errors.push('memo_royalty_entries'); else setMemoRoyaltyEntries(memoRoyaltyEntriesRes.data || [])
+if (memoSavingsRowsRes.error) errors.push('memo_savings_rows'); else setMemoSavingsRows(memoSavingsRowsRes.data || [])
+if (memoFutureNotesRes.error) errors.push('memo_future_notes'); else setMemoFutureNotes(memoFutureNotesRes.data || [])
+if (memoFreeBoxesRes.error) errors.push('memo_free_boxes'); else setMemoFreeBoxes(memoFreeBoxesRes.data || [])
 
     if (errors.length) setErrorMessage(`Errore caricamento: ${errors.join(', ')}`)
     setLoading(false)
