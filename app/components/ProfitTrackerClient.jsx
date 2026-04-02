@@ -1572,13 +1572,176 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
             </div>
           </div>
         )}
-        {activeTab === 'memo' && (
+                {activeTab === 'memo' && (
           <div style={tabContent}>
+            <div style={sectionTopBar}>
+              <div>
+                <h2 style={sectionTitle}>Memo</h2>
+                <p style={sectionDescription}>Royalty, risparmi ragazzi e promemoria futuri</p>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 16 }}>
+              <div style={panel}>
+                <div style={panelHeader}>
+                  <div>
+                    <h2 style={panelTitle}>Royalty</h2>
+                    <p style={panelSubtitle}>Riepilogo rapido</p>
+                  </div>
+                </div>
+
+                <div style={tableWrap}>
+                  <table style={table}>
+                    <thead>
+                      <tr>
+                        <th style={th}>Voce</th>
+                        <th style={th}>Valore</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr style={tr}>
+                        <td style={td}>Da pagare a giugno</td>
+                        <td style={tdStrong}>-</td>
+                      </tr>
+                      <tr style={tr}>
+                        <td style={td}>Da pagare a dicembre</td>
+                        <td style={tdStrong}>-</td>
+                      </tr>
+                      <tr style={tr}>
+                        <td style={td}>Da pagare ogni mese</td>
+                        <td style={tdStrong}>-</td>
+                      </tr>
+                      <tr style={tr}>
+                        <td style={td}>Spesa mensile royalty</td>
+                        <td style={tdStrong}>-</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div style={panel}>
+                <div style={panelHeader}>
+                  <div>
+                    <h2 style={panelTitle}>Note prossimo anno</h2>
+                    <p style={panelSubtitle}>Scadenze e cose da ricordare</p>
+                  </div>
+                </div>
+
+                <div style={tableWrap}>
+                  <table style={table}>
+                    <thead>
+                      <tr>
+                        <th style={th}>Data</th>
+                        <th style={th}>Importo</th>
+                        <th style={th}>Descrizione</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr style={tr}>
+                        <td style={td}>-</td>
+                        <td style={td}>-</td>
+                        <td style={td}>-</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <div style={panel}>
+                <div style={panelHeader}>
+                  <div>
+                    <h2 style={panelTitle}>Risparmi Massimiliano</h2>
+                    <p style={panelSubtitle}>Situazione attuale</p>
+                  </div>
+                </div>
+
+                <div style={tableWrap}>
+                  <table style={table}>
+                    <thead>
+                      <tr>
+                        <th style={th}>Data</th>
+                        <th style={th}>Versamento</th>
+                        <th style={th}>Montante</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr style={tr}>
+                        <td style={td}>-</td>
+                        <td style={td}>-</td>
+                        <td style={tdStrong}>-</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div style={panel}>
+                <div style={panelHeader}>
+                  <div>
+                    <h2 style={panelTitle}>Risparmi Samuele</h2>
+                    <p style={panelSubtitle}>Situazione attuale</p>
+                  </div>
+                </div>
+
+                <div style={tableWrap}>
+                  <table style={table}>
+                    <thead>
+                      <tr>
+                        <th style={th}>Data</th>
+                        <th style={th}>Versamento</th>
+                        <th style={th}>Montante</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr style={tr}>
+                        <td style={td}>-</td>
+                        <td style={td}>-</td>
+                        <td style={tdStrong}>-</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
             <div style={panel}>
               <div style={panelHeader}>
                 <div>
-                  <h2 style={panelTitle}>Memo</h2>
-                  <p style={panelSubtitle}>Sezione memo in costruzione</p>
+                  <h2 style={panelTitle}>Memo libere</h2>
+                  <p style={panelSubtitle}>Appunti veloci e promemoria sparsi</p>
+                </div>
+              </div>
+
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+                gap: 16
+              }}>
+                <div style={{
+                  border: '1px solid rgba(56,189,248,0.35)',
+                  background: 'rgba(56,189,248,0.08)',
+                  borderRadius: 16,
+                  padding: 16,
+                  minHeight: 120,
+                  color: '#e2e8f0',
+                  fontWeight: 700
+                }}>
+                  Box memo 1
+                </div>
+
+                <div style={{
+                  border: '1px solid rgba(56,189,248,0.35)',
+                  background: 'rgba(56,189,248,0.08)',
+                  borderRadius: 16,
+                  padding: 16,
+                  minHeight: 120,
+                  color: '#e2e8f0',
+                  fontWeight: 700
+                }}>
+                  Box memo 2
                 </div>
               </div>
             </div>
