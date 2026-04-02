@@ -429,18 +429,17 @@ async function updateMemoSavingsRow(id, field, value) {
     return
   }
 
-  const parsedValue =
-    field === 'periodo'
-      ? value
-      : Number(String(value).replace(',', '.')) || 0
-
+  const parsedValue = Number(String(value).replace(',', '.')) || 0
   rows[targetIndex][field] = parsedValue
 
-  for (let i = targetIndex; i < rows.length; i++) {
+  for (let i = 0; i < rows.length; i++) {
     if (i === 0) {
-      const base = Number(rows[i].risparmio || 0) + Number(rows[i].versamento || 0)
-      rows[i].interesse = Number((base * 0.01).toFixed(2))
-      rows[i].montante = Number((base + rows[i].interesse).toFixed(2))
+      rows[i].interesse = Number((rows[i].risparmio * 0.01).toFixed(2))
+      rows[i].montante = Number((
+        Number(rows[i].risparmio || 0) +
+        Number(rows[i].versamento || 0) +
+        Number(rows[i].interesse || 0)
+      ).toFixed(2))
     } else {
       rows[i].risparmio = Number(rows[i - 1].montante || 0)
       rows[i].interesse = Number((rows[i].risparmio * 0.01).toFixed(2))
@@ -452,9 +451,7 @@ async function updateMemoSavingsRow(id, field, value) {
     }
   }
 
-  for (let i = targetIndex; i < rows.length; i++) {
-    const row = rows[i]
-
+  for (const row of rows) {
     const { error } = await supabase
       .from('memo_savings_rows')
       .update({
@@ -1695,41 +1692,49 @@ onBlur={(e) => updateMemoRoyaltyEntry(entry.id, 'nota', e.target.value)}
               <tbody>
                 {memoSavingsMassimiliano.map((row) => (
                   <tr key={row.id} style={tr}>
-                    <td style={memoTdPeriod}>{String(row.periodo || '').replace(/a$|b$/i, '')}</td>
-                    <td style={memoTd}>
-                      <input
-                        defaultValue={row.risparmio ?? 0}
-onBlur={(e) => updateMemoSavingsRow(row.id, 'risparmio', Number(e.target.value))}
-                        style={memoInput}
-                      />
-                    </td>
-                    <td style={memoTd}>
-                      <input
-                        defaultValue={row.versamento ?? 0}
-onBlur={(e) => updateMemoSavingsRow(row.id, 'versamento', Number(e.target.value))}
-                        style={{
-                          ...memoInput,
-                          background: Number(row.versamento || 0) < 0 ? 'rgba(239,68,68,0.18)' : 'rgba(34,197,94,0.18)',
-                          color: Number(row.versamento || 0) < 0 ? '#fecaca' : '#dcfce7',
-                          fontWeight: 800
-                        }}
-                      />
-                    </td>
-                    <td style={memoTd}>
-                      <input
-                        defaultValue={row.interesse ?? 0}
-onBlur={(e) => updateMemoSavingsRow(row.id, 'interesse', Number(e.target.value))}
-                        style={memoInput}
-                      />
-                    </td>
-                    <td style={memoTd}>
-                      <input
-                        defaultValue={row.montante ?? 0}
-onBlur={(e) => updateMemoSavingsRow(row.id, 'montante', Number(e.target.value))}
-                        style={memoInput}
-                      />
-                    </td>
-                  </tr>
+  <td style={memoTdPeriod}>{String(row.periodo || '').replace(/a$|b$/i, '')}</td>
+
+  <td style={memoTd}>
+    <div style={memoCellValue}>
+      {Number(row.risparmio || 0).toLocaleString('it-IT', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      })}
+    </div>
+  </td>
+
+  <td style={memoTd}>
+    <input
+      key={`massi-versa-${row.id}-${row.versamento}`}
+      defaultValue={row.versamento ?? 0}
+      onBlur={(e) => updateMemoSavingsRow(row.id, 'versamento', e.target.value)}
+      style={{
+        ...memoInput,
+        background: Number(row.versamento || 0) < 0 ? 'rgba(239,68,68,0.18)' : 'rgba(34,197,94,0.18)',
+        color: Number(row.versamento || 0) < 0 ? '#fecaca' : '#dcfce7',
+        fontWeight: 800
+      }}
+    />
+  </td>
+
+  <td style={memoTd}>
+    <div style={memoCellValue}>
+      {Number(row.interesse || 0).toLocaleString('it-IT', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      })}
+    </div>
+  </td>
+
+  <td style={memoTd}>
+    <div style={memoCellValue}>
+      {Number(row.montante || 0).toLocaleString('it-IT', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      })}
+    </div>
+  </td>
+</tr>
                 ))}
               </tbody>
             </table>
