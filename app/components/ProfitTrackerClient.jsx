@@ -393,16 +393,73 @@ async function updateMemoFutureNote(id, field, value) {
 }
 
 async function updateMemoSavingsRow(id, field, value) {
-  const payload = { [field]: value }
+  const currentRow = memoSavingsRows.find((row) => Number(row.id) === Number(id))
 
-  const { error } = await supabase
-    .from('memo_savings_rows')
-    .update(payload)
-    .eq('id', id)
-
-  if (error) {
-    setErrorMessage('Errore aggiornamento risparmi')
+  if (!currentRow) {
+    setErrorMessage('Riga risparmio non trovata')
     return
+  }
+
+  const persona = currentRow.persona
+
+  const rows = memoSavingsRows
+    .filter((row) => row.persona === persona)
+    .sort((a, b) => Number(a.ordine || 0) - Number(b.ordine || 0))
+    .map((row) => ({
+      ...row,
+      risparmio: Number(row.risparmio || 0),
+      versamento: Number(row.versamento || 0),
+      interesse: Number(row.interesse || 0),
+      montante: Number(row.montante || 0),
+    }))
+
+  const targetIndex = rows.findIndex((row) => Number(row.id) === Number(id))
+
+  if (targetIndex === -1) {
+    setErrorMessage('Riga risparmio non trovata')
+    return
+  }
+
+  const normalizedValue =
+    field === 'periodo'
+      ? value
+      : Number(String(value).replace(',', '.')) || 0
+
+  rows[targetIndex] = {
+    ...rows[targetIndex],
+    [field]: normalizedValue,
+  }
+
+  for (let i = 0; i < rows.length; i++) {
+    const prevMontante = i === 0 ? 0 : Number(rows[i - 1].montante || 0)
+
+    if (i > 0) {
+      rows[i].risparmio = prevMontante
+    }
+
+    rows[i].interesse = Number((prevMontante * 0.01).toFixed(2))
+    rows[i].montante = Number((
+      Number(rows[i].risparmio || 0) +
+      Number(rows[i].versamento || 0) +
+      Number(rows[i].interesse || 0)
+    ).toFixed(2))
+  }
+
+  for (const row of rows) {
+    const { error } = await supabase
+      .from('memo_savings_rows')
+      .update({
+        risparmio: row.risparmio,
+        versamento: row.versamento,
+        interesse: row.interesse,
+        montante: row.montante,
+      })
+      .eq('id', row.id)
+
+    if (error) {
+      setErrorMessage('Errore aggiornamento risparmi')
+      return
+    }
   }
 
   await loadData({ preserveMessages: true })
