@@ -1731,12 +1731,13 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
     color: '#22c55e',
     fontWeight: 700
   }}>
-    Media mese: {
-      formatCurrency(
-        memoRoyaltyEntries
-          .reduce((sum, r) => sum + Number(r.importo || 0), 0) / 12
-      )
-    }
+   Media mese: {
+  formatCurrency(
+    memoRoyaltyEntries
+      .filter(r => Number(r.anno) === 2026)
+      .reduce((sum, r) => sum + Number(r.importo || 0), 0) / 12
+  )
+}
   </div>
 </div>                            
 
