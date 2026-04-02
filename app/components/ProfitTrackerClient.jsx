@@ -1126,6 +1126,30 @@ const guadagnoCorrente =
     const importoMaxMatch = txFilters.importoMax === '' ? true : Number(tx.importo || 0) <= Number(txFilters.importoMax)
     return tipoMatch && azioneMatch && testoMatch && importoMinMatch && importoMaxMatch
   }), [transactions, txFilters])
+  const annoCorrenteRoyalty = new Date().getFullYear()
+
+const totaleDaPagare = memoRoyaltyEntries
+  .filter((r) =>
+    Number(r.anno) === annoCorrenteRoyalty &&
+    String(r.nota || '').toLowerCase().includes('da pagare')
+  )
+  .reduce((sum, r) => sum + Number(r.importo || 0), 0)
+
+const totaleComplessivoRoyalty = memoRoyaltyEntries
+  .filter((r) => Number(r.anno) === annoCorrenteRoyalty)
+  .reduce((sum, r) => sum + Number(r.importo || 0), 0)
+
+const mediaMensileRoyalty = totaleComplessivoRoyalty / 12
+
+function isAccantonamentoRoyaltyRow(row) {
+  return String(row?.voce || '').trim().toLowerCase() === 'accantonamento royalty'
+}
+
+function getStimaImporto(row) {
+  return isAccantonamentoRoyaltyRow(row)
+    ? mediaMensileRoyalty
+    : Number(row?.importo || 0)
+  }
 const stimeCassaByMonth = useMemo(() => {
   const grouped = stimeCassa.reduce((acc, row) => {
     const anno = Number(row.anno)
@@ -1182,29 +1206,7 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
   const ultimeTransazioni = useMemo(() => transactions.slice(0, 8), [transactions])
   const topBooks = useMemo(() => [...books].sort((a, b) => Number(b.saldo || 0) - Number(a.saldo || 0)).slice(0, 5), [books])
   const topWallets = useMemo(() => [...wallets].sort((a, b) => Number(b.saldo || 0) - Number(a.saldo || 0)).slice(0, 5), [wallets])
-  const annoCorrenteRoyalty = new Date().getFullYear()
-
-const totaleDaPagare = memoRoyaltyEntries
-  .filter((r) =>
-    Number(r.anno) === annoCorrenteRoyalty &&
-    String(r.nota || '').toLowerCase().includes('da pagare')
-  )
-  .reduce((sum, r) => sum + Number(r.importo || 0), 0)
-
-const totaleComplessivoRoyalty = memoRoyaltyEntries
-  .filter((r) => Number(r.anno) === annoCorrenteRoyalty)
-  .reduce((sum, r) => sum + Number(r.importo || 0), 0)
-
-const mediaMensileRoyalty = totaleComplessivoRoyalty / 12
-
-function isAccantonamentoRoyaltyRow(row) {
-  return String(row?.voce || '').trim().toLowerCase() === 'accantonamento royalty'
-}
-
-function getStimaImporto(row) {
-  return isAccantonamentoRoyaltyRow(row)
-    ? mediaMensileRoyalty
-    : Number(row?.importo || 0)
+  
 }
 
 
