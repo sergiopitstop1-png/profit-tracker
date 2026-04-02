@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { supabase } from '../profit-tracker/supabaseClient'
 const BASE_CASSA_MESE = 57229.62
