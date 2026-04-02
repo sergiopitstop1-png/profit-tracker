@@ -22,6 +22,11 @@ export default function ProfitTrackerClient() {
 const [weeklySnapshots, setWeeklySnapshots] = useState([])
 const [monthlySnapshots, setMonthlySnapshots] = useState([])
 const [stimeCassa, setStimeCassa] = useState([])
+ const [memoRoyaltyAccounts, setMemoRoyaltyAccounts] = useState([])
+const [memoRoyaltyEntries, setMemoRoyaltyEntries] = useState([])
+const [memoSavingsRows, setMemoSavingsRows] = useState([])
+const [memoFutureNotes, setMemoFutureNotes] = useState([])
+const [memoFreeBoxes, setMemoFreeBoxes] = useState([]) 
 
 const [stimeFilters, setStimeFilters] = useState({
   anno: new Date().getFullYear(),
@@ -140,28 +145,53 @@ useEffect(() => {
       setErrorMessage('')
     }
 
-   const [booksRes, walletsRes, txRes, contRes, weeklyRes, monthlyRes, stimeRes] = await Promise.all([
-      supabase.from('books').select('*').order('id', { ascending: true }),
-      supabase.from('wallets').select('*').order('id', { ascending: true }),
-      supabase.from('transactions').select('*').order('data', { ascending: false }),
-      supabase.from('contabilita').select('*').order('data_movimento', { ascending: false }),
+   const [
+  booksRes,
+  walletsRes,
+  txRes,
+  contRes,
+  weeklyRes,
+  monthlyRes,
+  stimeRes,
+  memoRoyaltyAccountsRes,
+  memoRoyaltyEntriesRes,
+  memoSavingsRowsRes,
+  memoFutureNotesRes,
+  memoFreeBoxesRes
+] = await Promise.all([
+  supabase.from('books').select('*').order('id', { ascending: true }),
+  supabase.from('wallets').select('*').order('id', { ascending: true }),
+  supabase.from('transactions').select('*').order('data', { ascending: false }),
+  supabase.from('contabilita').select('*').order('data_movimento', { ascending: false }),
   supabase.from('weekly_snapshots').select('*').order('snapshot_date', { ascending: true }),
   supabase.from('monthly_snapshots').select('*').order('snapshot_month', { ascending: true }),
-     supabase.from('stime_cassa').select('*')
-  .order('anno', { ascending: true })
-  .order('mese', { ascending: true })
-  .order('ordine', { ascending: true })
-  .order('id', { ascending: true }),
-    ])
+  supabase.from('stime_cassa').select('*')
+    .order('anno', { ascending: true })
+    .order('mese', { ascending: true })
+    .order('ordine', { ascending: true })
+    .order('id', { ascending: true }),
+
+  supabase.from('memo_royalty_accounts').select('*').order('ordine', { ascending: true }).order('id', { ascending: true }),
+  supabase.from('memo_royalty_entries').select('*').order('anno', { ascending: true }).order('id', { ascending: true }),
+  supabase.from('memo_savings_rows').select('*').order('persona', { ascending: true }).order('ordine', { ascending: true }).order('id', { ascending: true }),
+  supabase.from('memo_future_notes').select('*').order('ordine', { ascending: true }).order('id', { ascending: true }),
+  supabase.from('memo_free_boxes').select('*').order('ordine', { ascending: true }).order('id', { ascending: true }),
+])
 
     const errors = []
-    if (booksRes.error) errors.push('books'); else setBooks(booksRes.data || [])
-    if (walletsRes.error) errors.push('wallets'); else setWallets(walletsRes.data || [])
-    if (txRes.error) errors.push('transactions'); else setTransactions(txRes.data || [])
-    if (contRes.error) errors.push('contabilita'); else setContabilita(contRes.data || [])
+if (booksRes.error) errors.push('books'); else setBooks(booksRes.data || [])
+if (walletsRes.error) errors.push('wallets'); else setWallets(walletsRes.data || [])
+if (txRes.error) errors.push('transactions'); else setTransactions(txRes.data || [])
+if (contRes.error) errors.push('contabilita'); else setContabilita(contRes.data || [])
 if (weeklyRes.error) errors.push('weekly_snapshots'); else setWeeklySnapshots(weeklyRes.data || [])
 if (monthlyRes.error) errors.push('monthly_snapshots'); else setMonthlySnapshots(monthlyRes.data || [])
-   if (stimeRes.error) errors.push('stime_cassa'); else setStimeCassa(stimeRes.data || []) 
+if (stimeRes.error) errors.push('stime_cassa'); else setStimeCassa(stimeRes.data || [])
+
+if (memoRoyaltyAccountsRes.error) errors.push('memo_royalty_accounts'); else setMemoRoyaltyAccounts(memoRoyaltyAccountsRes.data || [])
+if (memoRoyaltyEntriesRes.error) errors.push('memo_royalty_entries'); else setMemoRoyaltyEntries(memoRoyaltyEntriesRes.data || [])
+if (memoSavingsRowsRes.error) errors.push('memo_savings_rows'); else setMemoSavingsRows(memoSavingsRowsRes.data || [])
+if (memoFutureNotesRes.error) errors.push('memo_future_notes'); else setMemoFutureNotes(memoFutureNotesRes.data || [])
+if (memoFreeBoxesRes.error) errors.push('memo_free_boxes'); else setMemoFreeBoxes(memoFreeBoxesRes.data || [])
 
     if (errors.length) setErrorMessage(`Errore caricamento: ${errors.join(', ')}`)
     setLoading(false)
@@ -330,6 +360,67 @@ async function updateStimaCassa(id, field, value) {
 
   await loadData({ preserveMessages: true })
 } 
+  async function updateMemoRoyaltyEntry(id, field, value) {
+  const payload = { [field]: value }
+
+  const { error } = await supabase
+    .from('memo_royalty_entries')
+    .update(payload)
+    .eq('id', id)
+
+  if (error) {
+    setErrorMessage('Errore aggiornamento memo royalty')
+    return
+  }
+
+  await loadData({ preserveMessages: true })
+}
+
+async function updateMemoFutureNote(id, field, value) {
+  const payload = { [field]: value }
+
+  const { error } = await supabase
+    .from('memo_future_notes')
+    .update(payload)
+    .eq('id', id)
+
+  if (error) {
+    setErrorMessage('Errore aggiornamento note future')
+    return
+  }
+
+  await loadData({ preserveMessages: true })
+}
+
+async function updateMemoSavingsRow(id, field, value) {
+  const payload = { [field]: value }
+
+  const { error } = await supabase
+    .from('memo_savings_rows')
+    .update(payload)
+    .eq('id', id)
+
+  if (error) {
+    setErrorMessage('Errore aggiornamento risparmi')
+    return
+  }
+
+  await loadData({ preserveMessages: true })
+}
+
+async function updateMemoFreeBox(id, value) {
+  const { error } = await supabase
+    .from('memo_free_boxes')
+    .update({ contenuto: value })
+    .eq('id', id)
+
+  if (error) {
+    setErrorMessage('Errore aggiornamento memo box')
+    return
+  }
+
+  await loadData({ preserveMessages: true })
+}
   async function salvaLogTransazione({ tipo, importo, riferimento, note, azione }) {
     return supabase.from('transactions').insert([{
       tipo,
@@ -1040,6 +1131,77 @@ const guadagnoCorrente =
     const importoMaxMatch = txFilters.importoMax === '' ? true : Number(tx.importo || 0) <= Number(txFilters.importoMax)
     return tipoMatch && azioneMatch && testoMatch && importoMinMatch && importoMaxMatch
   }), [transactions, txFilters])
+  const memoRoyaltyYears = [2022, 2023, 2024, 2025, 2026]
+
+const memoRoyaltyMatrix = useMemo(() => {
+  const map = {}
+
+  memoRoyaltyEntries.forEach((entry) => {
+    map[`${entry.account_id}_${entry.anno}`] = entry
+  })
+
+  return map
+}, [memoRoyaltyEntries])
+
+const memoRoyaltyAccountsWithTotals = useMemo(() => {
+  return memoRoyaltyAccounts.map((account) => {
+    const totale = memoRoyaltyYears.reduce((sum, anno) => {
+      const entry = memoRoyaltyMatrix[`${account.id}_${anno}`]
+      return sum + Number(entry?.importo || 0)
+    }, 0)
+
+    return {
+      ...account,
+      totale
+    }
+  })
+}, [memoRoyaltyAccounts, memoRoyaltyMatrix])
+
+const memoRoyaltyGrandTotal = useMemo(() => {
+  return memoRoyaltyAccountsWithTotals.reduce((sum, row) => sum + Number(row.totale || 0), 0)
+}, [memoRoyaltyAccountsWithTotals])
+
+const memoSavingsMassimiliano = useMemo(() => {
+  return memoSavingsRows.filter((row) => row.persona === 'massimiliano')
+}, [memoSavingsRows])
+
+const memoSavingsSamuele = useMemo(() => {
+  return memoSavingsRows.filter((row) => row.persona === 'samuele')
+}, [memoSavingsRows])
+
+const memoSavingsCombined = useMemo(() => {
+  const maxLen = Math.max(memoSavingsMassimiliano.length, memoSavingsSamuele.length)
+
+  return Array.from({ length: maxLen }).map((_, index) => {
+    const m = memoSavingsMassimiliano[index] || null
+    const s = memoSavingsSamuele[index] || null
+
+    return {
+      key: `${m?.id || 'm-none'}_${s?.id || 's-none'}_${index}`,
+      periodo: (m?.periodo || s?.periodo || '').replace(/a$|b$/i, ''),
+      massimiliano: m,
+      samuele: s,
+      totale: Number(m?.montante || 0) + Number(s?.montante || 0)
+    }
+  })
+}, [memoSavingsMassimiliano, memoSavingsSamuele])
+
+const memoVersatiMassimiliano = useMemo(() => {
+  return memoSavingsMassimiliano.reduce((sum, row) => sum + Number(row.versamento || 0), 0)
+}, [memoSavingsMassimiliano])
+
+const memoVersatiSamuele = useMemo(() => {
+  return memoSavingsSamuele.reduce((sum, row) => sum + Number(row.versamento || 0), 0)
+}, [memoSavingsSamuele])
+
+function getMemoColor(color, value) {
+  if (color === 'red') return '#f87171'
+  if (color === 'green') return '#4ade80'
+  if (color === 'yellow') return '#fde047'
+  if (Number(value || 0) < 0) return '#f87171'
+  if (Number(value || 0) > 0) return '#e2e8f0'
+  return '#e2e8f0'
+}
 const stimeCassaByMonth = useMemo(() => {
   const grouped = stimeCassa.reduce((acc, row) => {
     const anno = Number(row.anno)
@@ -1173,6 +1335,12 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
           <button style={activeTab === 'wallets' ? activeTabButton : tabButton} onClick={() => setActiveTab('wallets')}>Wallets</button>
           <button style={activeTab === 'transactions' ? activeTabButton : tabButton} onClick={() => setActiveTab('transactions')}>Transactions</button>
           <button style={activeTab === 'periodi' ? activeTabButton : tabButton} onClick={() => setActiveTab('periodi')}>Periodi</button>
+          <button
+  style={activeTab === 'memo' ? activeTabButton : tabButton}
+  onClick={() => setActiveTab('memo')}
+>
+  Memo
+</button>
          <button
   style={activeTab === 'stime-cassa' ? activeTabButton : tabButton}
   onClick={() => {
@@ -1345,6 +1513,321 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
             </div>
           </div>
         )}
+        {activeTab === 'memo' && (
+  <div style={tabContent}>
+    <div style={sectionTopBar}>
+      <div>
+        <h2 style={sectionTitle}>Memo</h2>
+        <p style={sectionDescription}>Pagina unica con royalty, risparmi, note e appunti liberi</p>
+      </div>
+    </div>
+
+    <div style={memoPageWrap}>
+      <div style={memoSection}>
+        <div style={memoSectionTitle}>ROYALTY</div>
+
+        <div style={memoTableWrap}>
+          <table style={memoRoyaltyTable}>
+            <thead>
+              <tr>
+                <th style={memoTh} rowSpan={2}>ACCOUNT</th>
+                {memoRoyaltyYears.map((anno) => (
+                  <th key={anno} style={memoThCenter} colSpan={3}>ANNO {anno}</th>
+                ))}
+                <th style={memoThCenter} rowSpan={2}>TOTALI</th>
+              </tr>
+              <tr>
+                {memoRoyaltyYears.map((anno) => (
+                  <React.Fragment key={`sub_${anno}`}>
+                    <th style={memoTh}>Importo</th>
+                    <th style={memoTh}>Mese</th>
+                    <th style={memoTh}>Note</th>
+                  </React.Fragment>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {memoRoyaltyAccountsWithTotals.map((account) => (
+                <tr key={account.id} style={tr}>
+                  <td style={memoTdName}>{account.nome}</td>
+
+                  {memoRoyaltyYears.map((anno) => {
+                    const entry = memoRoyaltyMatrix[`${account.id}_${anno}`]
+
+                    if (!entry) {
+                      return (
+                        <React.Fragment key={`${account.id}_${anno}`}>
+                          <td style={memoTd}>-</td>
+                          <td style={memoTd}>-</td>
+                          <td style={memoTd}>-</td>
+                        </React.Fragment>
+                      )
+                    }
+
+                    return (
+                      <React.Fragment key={`${account.id}_${anno}`}>
+                        <td style={memoTd}>
+                          <input
+                            value={entry.importo ?? 0}
+                            onChange={(e) => updateMemoRoyaltyEntry(entry.id, 'importo', Number(e.target.value))}
+                            style={{
+                              ...memoInput,
+                              color: Number(entry.importo || 0) < 0 ? '#f87171' : '#e2e8f0',
+                              fontWeight: 700
+                            }}
+                          />
+                        </td>
+                        <td style={memoTd}>
+                          <input
+                            value={entry.mese || ''}
+                            onChange={(e) => updateMemoRoyaltyEntry(entry.id, 'mese', e.target.value)}
+                            style={memoInput}
+                          />
+                        </td>
+                        <td style={memoTd}>
+                          <input
+                            value={entry.nota || ''}
+                            onChange={(e) => updateMemoRoyaltyEntry(entry.id, 'nota', e.target.value)}
+                            style={memoInput}
+                          />
+                        </td>
+                      </React.Fragment>
+                    )
+                  })}
+
+                  <td style={memoTdTotal}>{formatCurrency(account.totale)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div style={memoRoyaltyFooter}>
+          <div style={memoRoyaltyGrandBox}>
+            <span style={memoRoyaltyGrandValue}>{formatCurrency(memoRoyaltyGrandTotal)}</span>
+            <span style={memoRoyaltyGrandLabel}>ROYALTY PAGATE</span>
+          </div>
+        </div>
+      </div>
+
+      <div style={memoSavingsGrid}>
+        <div style={memoSection}>
+          <div style={memoSavingsTitleBlue}>MASSIMILIANO</div>
+
+          <div style={memoTableWrap}>
+            <table style={memoSavingsTable}>
+              <thead>
+                <tr>
+                  <th style={memoThYellow}>DATA</th>
+                  <th style={memoThYellow}>RISPARMI</th>
+                  <th style={memoThYellow}>VERSAMENTO</th>
+                  <th style={memoThYellow}>INTERESSI 1% Mensile</th>
+                  <th style={memoThYellow}>MONTANTE</th>
+                </tr>
+              </thead>
+              <tbody>
+                {memoSavingsMassimiliano.map((row) => (
+                  <tr key={row.id} style={tr}>
+                    <td style={memoTdPeriod}>{String(row.periodo || '').replace(/a$|b$/i, '')}</td>
+                    <td style={memoTd}>
+                      <input
+                        value={row.risparmio ?? 0}
+                        onChange={(e) => updateMemoSavingsRow(row.id, 'risparmio', Number(e.target.value))}
+                        style={memoInput}
+                      />
+                    </td>
+                    <td style={memoTd}>
+                      <input
+                        value={row.versamento ?? 0}
+                        onChange={(e) => updateMemoSavingsRow(row.id, 'versamento', Number(e.target.value))}
+                        style={{
+                          ...memoInput,
+                          background: Number(row.versamento || 0) < 0 ? 'rgba(239,68,68,0.18)' : 'rgba(34,197,94,0.18)',
+                          color: Number(row.versamento || 0) < 0 ? '#fecaca' : '#dcfce7',
+                          fontWeight: 800
+                        }}
+                      />
+                    </td>
+                    <td style={memoTd}>
+                      <input
+                        value={row.interesse ?? 0}
+                        onChange={(e) => updateMemoSavingsRow(row.id, 'interesse', Number(e.target.value))}
+                        style={memoInput}
+                      />
+                    </td>
+                    <td style={memoTd}>
+                      <input
+                        value={row.montante ?? 0}
+                        onChange={(e) => updateMemoSavingsRow(row.id, 'montante', Number(e.target.value))}
+                        style={memoInput}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={memoVersatiBox}>
+            <span style={memoVersatiLabel}>VERSATI</span>
+            <span style={memoVersatiValue}>{formatCurrency(memoVersatiMassimiliano)}</span>
+          </div>
+        </div>
+
+        <div style={memoSection}>
+          <div style={memoSavingsTitleBlue}>SAMUELE</div>
+
+          <div style={memoTableWrap}>
+            <table style={memoSavingsTable}>
+              <thead>
+                <tr>
+                  <th style={memoThYellow}>DATA</th>
+                  <th style={memoThYellow}>RISPARMI</th>
+                  <th style={memoThYellow}>VERSAMENTO</th>
+                  <th style={memoThYellow}>INTERESSI 1% Mensile</th>
+                  <th style={memoThYellow}>MONTANTE</th>
+                </tr>
+              </thead>
+              <tbody>
+                {memoSavingsSamuele.map((row) => (
+                  <tr key={row.id} style={tr}>
+                    <td style={memoTdPeriod}>{String(row.periodo || '').replace(/a$|b$/i, '')}</td>
+                    <td style={memoTd}>
+                      <input
+                        value={row.risparmio ?? 0}
+                        onChange={(e) => updateMemoSavingsRow(row.id, 'risparmio', Number(e.target.value))}
+                        style={memoInput}
+                      />
+                    </td>
+                    <td style={memoTd}>
+                      <input
+                        value={row.versamento ?? 0}
+                        onChange={(e) => updateMemoSavingsRow(row.id, 'versamento', Number(e.target.value))}
+                        style={{
+                          ...memoInput,
+                          background: Number(row.versamento || 0) < 0 ? 'rgba(239,68,68,0.18)' : 'rgba(34,197,94,0.18)',
+                          color: Number(row.versamento || 0) < 0 ? '#fecaca' : '#dcfce7',
+                          fontWeight: 800
+                        }}
+                      />
+                    </td>
+                    <td style={memoTd}>
+                      <input
+                        value={row.interesse ?? 0}
+                        onChange={(e) => updateMemoSavingsRow(row.id, 'interesse', Number(e.target.value))}
+                        style={memoInput}
+                      />
+                    </td>
+                    <td style={memoTd}>
+                      <input
+                        value={row.montante ?? 0}
+                        onChange={(e) => updateMemoSavingsRow(row.id, 'montante', Number(e.target.value))}
+                        style={memoInput}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={memoVersatiBox}>
+            <span style={memoVersatiLabel}>VERSATI</span>
+            <span style={memoVersatiValue}>{formatCurrency(memoVersatiSamuele)}</span>
+          </div>
+        </div>
+
+        <div style={memoSection}>
+          <div style={memoTotalsTitle}>TOTALI</div>
+
+          <div style={memoTableWrap}>
+            <table style={memoTotalsTable}>
+              <thead>
+                <tr>
+                  <th style={memoThYellow}>TOTALE</th>
+                  <th style={memoThYellow}>DATA</th>
+                </tr>
+              </thead>
+              <tbody>
+                {memoSavingsCombined.map((row) => (
+                  <tr key={row.key} style={tr}>
+                    <td style={memoTdTotal}>{formatCurrency(row.totale)}</td>
+                    <td style={memoTdPeriod}>{row.periodo}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div style={memoBottomGrid}>
+        <div style={memoSection}>
+          <div style={memoSectionTitleYellow}>NOTE PROSSIMO ANNO</div>
+
+          <div style={memoTableWrap}>
+            <table style={memoFutureTable}>
+              <thead>
+                <tr>
+                  <th style={memoTh}>ORDINA</th>
+                  <th style={memoTh}>IMPORTO</th>
+                  <th style={memoTh}>NOTE</th>
+                </tr>
+              </thead>
+              <tbody>
+                {memoFutureNotes.map((row) => (
+                  <tr key={row.id} style={tr}>
+                    <td style={memoTd}>
+                      <input
+                        value={row.data_testo || ''}
+                        onChange={(e) => updateMemoFutureNote(row.id, 'data_testo', e.target.value)}
+                        style={memoInput}
+                      />
+                    </td>
+                    <td style={memoTd}>
+                      <input
+                        value={row.importo ?? 0}
+                        onChange={(e) => updateMemoFutureNote(row.id, 'importo', Number(e.target.value))}
+                        style={{
+                          ...memoInput,
+                          color: getMemoColor(row.colore, row.importo),
+                          fontWeight: 700
+                        }}
+                      />
+                    </td>
+                    <td style={memoTd}>
+                      <input
+                        value={row.descrizione || ''}
+                        onChange={(e) => updateMemoFutureNote(row.id, 'descrizione', e.target.value)}
+                        style={{
+                          ...memoInput,
+                          color: getMemoColor(row.colore, row.importo)
+                        }}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div style={memoFreeBoxesCol}>
+          {memoFreeBoxes.map((box) => (
+            <div key={box.id} style={memoBoxCard}>
+              <div style={memoBoxTitle}>{box.titolo}</div>
+              <textarea
+                value={box.contenuto || ''}
+                onChange={(e) => updateMemoFreeBox(box.id, e.target.value)}
+                style={memoBoxTextarea}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  </div>
+)}
        {activeTab === 'stime-cassa' && canViewStimeCassa && (
   <div style={tabContent}>
     <div style={sectionTopBar}>
@@ -1967,3 +2450,247 @@ const modalActions = { display: 'flex', justifyContent: 'flex-end', gap: 10, fle
 const loadingScreen = { minHeight: '100vh', background: 'linear-gradient(180deg, #020617 0%, #0f172a 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }
 const loadingCard = { background: 'linear-gradient(180deg, rgba(15,23,42,0.95), rgba(2,6,23,1))', color: '#f8fafc', border: '1px solid rgba(51,65,85,0.95)', borderRadius: 20, padding: '24px 28px', fontWeight: 800, boxShadow: '0 24px 60px rgba(0,0,0,0.36)' }
 const hintBox = { marginTop: 10, border: '1px solid rgba(56,189,248,0.25)', background: 'rgba(56,189,248,0.08)', color: '#cfefff', padding: '12px 14px', borderRadius: 14, fontSize: 13, lineHeight: 1.5 }
+const memoPageWrap = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 20
+}
+
+const memoSection = {
+  background: 'linear-gradient(180deg, rgba(15,23,42,0.94), rgba(2,6,23,0.99))',
+  border: '1px solid rgba(51,65,85,0.95)',
+  borderRadius: 20,
+  padding: 16,
+  boxShadow: '0 20px 48px rgba(0,0,0,0.26)'
+}
+
+const memoSectionTitle = {
+  fontSize: 20,
+  fontWeight: 900,
+  color: '#f8fafc',
+  marginBottom: 14
+}
+
+const memoSectionTitleYellow = {
+  fontSize: 20,
+  fontWeight: 900,
+  color: '#fde047',
+  marginBottom: 14
+}
+
+const memoTableWrap = {
+  overflowX: 'auto',
+  border: '1px solid rgba(51,65,85,0.85)',
+  borderRadius: 16
+}
+
+const memoRoyaltyTable = {
+  width: '100%',
+  borderCollapse: 'collapse',
+  minWidth: 1600
+}
+
+const memoSavingsGrid = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(420px, 1fr) minmax(420px, 1fr) minmax(220px, 260px)',
+  gap: 18,
+  alignItems: 'start'
+}
+
+const memoSavingsTable = {
+  width: '100%',
+  borderCollapse: 'collapse',
+  minWidth: 620
+}
+
+const memoTotalsTable = {
+  width: '100%',
+  borderCollapse: 'collapse',
+  minWidth: 220
+}
+
+const memoFutureTable = {
+  width: '100%',
+  borderCollapse: 'collapse',
+  minWidth: 760
+}
+
+const memoBottomGrid = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(680px, 1fr) minmax(260px, 320px)',
+  gap: 18,
+  alignItems: 'start'
+}
+
+const memoFreeBoxesCol = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 16
+}
+
+const memoTh = {
+  textAlign: 'left',
+  padding: '10px 12px',
+  fontSize: 12,
+  color: '#0f172a',
+  background: '#f8fafc',
+  borderBottom: '1px solid #cbd5e1',
+  borderRight: '1px solid #cbd5e1',
+  textTransform: 'uppercase',
+  fontWeight: 900
+}
+
+const memoThCenter = {
+  ...memoTh,
+  textAlign: 'center'
+}
+
+const memoThYellow = {
+  ...memoTh,
+  background: '#facc15',
+  color: '#111827'
+}
+
+const memoTd = {
+  padding: '0',
+  borderBottom: '1px solid rgba(51,65,85,0.85)',
+  borderRight: '1px solid rgba(51,65,85,0.85)',
+  background: 'rgba(255,255,255,0.03)'
+}
+
+const memoTdName = {
+  ...memoTd,
+  padding: '10px 12px',
+  color: '#f8fafc',
+  fontWeight: 800,
+  whiteSpace: 'nowrap'
+}
+
+const memoTdTotal = {
+  ...memoTd,
+  padding: '10px 12px',
+  color: '#fde68a',
+  fontWeight: 900,
+  textAlign: 'right',
+  whiteSpace: 'nowrap'
+}
+
+const memoTdPeriod = {
+  ...memoTd,
+  padding: '10px 12px',
+  color: '#fde047',
+  fontWeight: 700,
+  whiteSpace: 'nowrap'
+}
+
+const memoInput = {
+  width: '100%',
+  boxSizing: 'border-box',
+  background: 'transparent',
+  color: '#f8fafc',
+  border: 'none',
+  outline: 'none',
+  padding: '10px 12px',
+  fontSize: 13
+}
+
+const memoRoyaltyFooter = {
+  display: 'flex',
+  justifyContent: 'flex-end',
+  marginTop: 14
+}
+
+const memoRoyaltyGrandBox = {
+  display: 'flex',
+  alignItems: 'center',
+  background: '#facc15',
+  color: '#111827',
+  fontWeight: 900,
+  borderRadius: 10,
+  overflow: 'hidden',
+  border: '1px solid #eab308'
+}
+
+const memoRoyaltyGrandValue = {
+  padding: '10px 14px',
+  background: '#fde047',
+  minWidth: 140,
+  textAlign: 'right'
+}
+
+const memoRoyaltyGrandLabel = {
+  padding: '10px 14px'
+}
+
+const memoSavingsTitleBlue = {
+  background: '#0ea5e9',
+  color: '#0f172a',
+  fontWeight: 900,
+  textAlign: 'center',
+  padding: '10px 12px',
+  borderRadius: '10px 10px 0 0',
+  marginBottom: 0
+}
+
+const memoTotalsTitle = {
+  background: '#fde047',
+  color: '#111827',
+  fontWeight: 900,
+  textAlign: 'center',
+  padding: '10px 12px',
+  borderRadius: '10px 10px 0 0',
+  marginBottom: 0
+}
+
+const memoVersatiBox = {
+  marginTop: 12,
+  display: 'inline-flex',
+  alignItems: 'center',
+  border: '1px solid rgba(236,72,153,0.45)',
+  borderRadius: 10,
+  overflow: 'hidden'
+}
+
+const memoVersatiLabel = {
+  background: 'rgba(255,255,255,0.08)',
+  color: '#f8fafc',
+  fontWeight: 800,
+  padding: '8px 12px'
+}
+
+const memoVersatiValue = {
+  background: '#d946ef',
+  color: '#111827',
+  fontWeight: 900,
+  padding: '8px 12px'
+}
+
+const memoBoxCard = {
+  border: '1px solid rgba(56,189,248,0.55)',
+  background: 'rgba(125,211,252,0.12)',
+  borderRadius: 16,
+  padding: 14
+}
+
+const memoBoxTitle = {
+  fontSize: 18,
+  fontWeight: 900,
+  textAlign: 'center',
+  marginBottom: 12,
+  color: '#e0f2fe'
+}
+
+const memoBoxTextarea = {
+  width: '100%',
+  minHeight: 180,
+  boxSizing: 'border-box',
+  resize: 'vertical',
+  background: 'rgba(255,255,255,0.75)',
+  color: '#0f172a',
+  border: '1px solid rgba(125,211,252,0.55)',
+  borderRadius: 10,
+  padding: '12px 14px',
+  outline: 'none',
+  fontSize: 14,
+  lineHeight: 1.5
+}
