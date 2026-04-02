@@ -369,7 +369,7 @@ async function updateStimaCassa(id, field, value) {
       anno: Number(year),
       importo: Number(value),
       mese: '',
-      nota: ''
+      nota: 'da pagare'
     }])
 
   if (error) {
@@ -1776,21 +1776,29 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
                                 <div style={{ fontSize: 12, color: '#94a3b8' }}>
                                   {item.mese || '-'}
                                 </div>
-                                <div
-                                  style={{
-                                    fontSize: 12,
-                                    color:
-                                      String(item.nota || '').toLowerCase().includes('da pagare')
-                                        ? '#f87171'
-                                        : String(item.nota || '').toLowerCase().includes('pagato')
-                                        ? '#4ade80'
-                                        : '#cbd5e1',
-                                    fontWeight: 700
-                                  }}
-                                >
-                                  {item.nota || '-'}
-                                </div>
-                              </div>
+                                <select
+  value={item.nota || ''}
+  onChange={(e) => updateRoyaltyEntry(item.id, 'nota', e.target.value)}
+  style={{
+    width: '100%',
+    background: 'transparent',
+    border: '1px solid #334155',
+    borderRadius: 6,
+    padding: '4px 6px',
+    color:
+      String(item.nota || '').toLowerCase().includes('da pagare')
+        ? '#f87171'
+        : String(item.nota || '').toLowerCase().includes('pagato')
+        ? '#4ade80'
+        : '#cbd5e1',
+    fontWeight: 700,
+    fontSize: 12
+  }}
+>
+  <option value=''>-</option>
+  <option value='pagato'>pagato</option>
+  <option value='da pagare'>da pagare</option>
+</select>
                             ))}
                           </div>
                         )
@@ -1859,6 +1867,18 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
                           )}
                         </td>
                       </tr>
+                      <tr style={tr}>
+  <td style={td}>Totale royalty da pagare</td>
+  <td style={tdStrong}>
+    {formatCurrency(
+      memoRoyaltyEntries
+        .filter((r) =>
+          String(r.nota || '').toLowerCase().includes('da pagare')
+        )
+        .reduce((sum, r) => sum + Number(r.importo || 0), 0)
+    )}
+  </td>
+</tr>
                       <tr style={tr}>
                         <td style={td}>Spesa mensile royalty</td>
                         <td style={tdStrong}>
