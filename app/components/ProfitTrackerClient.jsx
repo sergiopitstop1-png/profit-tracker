@@ -992,6 +992,9 @@ const totaleUsciteEsterne = ultimoSnapshot
 
 const guadagnoCorrente =
   (totaleCassa - basePeriodo) + totaleUsciteEsterne
+  const prelievoDelMese = Math.abs(Number(totaleSpeseMeseCorrente || 0))
+
+const cassaDisponibile = totaleCassa - prelievoDelMese
   const filteredBooks = useMemo(() => books.filter((book) => {
     const nomeMatch = (book.nome || '').toLowerCase().includes(bookFilters.nome.toLowerCase())
     const intestatarioMatch = (book.intestatario || '').toLowerCase().includes(bookFilters.intestatario.toLowerCase())
@@ -1170,10 +1173,25 @@ const totaleSpeseMeseCorrente = useMemo(() => {
               </div>
 
               <div style={heroSideGrid}>
-                <StatCard label='Cassa attuale' value={formatCurrency(totaleCassa)} sub={`Books ${formatCurrency(totaleBooks)} · Wallets ${formatCurrency(totaleWallets)}`} accent='#f59e0b' />
-                <StatCard label='Transazioni' value={String(transactions.length)} sub='Movimenti storici presenti' accent='#a78bfa' />
-              </div>
-            </div>
+  <StatCard
+    label='Cassa attuale'
+    value={formatCurrency(totaleCassa)}
+    sub={`Books ${formatCurrency(totaleBooks)} · Wallets ${formatCurrency(totaleWallets)}`}
+    accent='#f59e0b'
+  />
+  <StatCard
+    label='Prelievo del mese'
+    value={formatCurrency(prelievoDelMese)}
+    sub={`Letto da Stime di Cassa · ${currentMonthLabel()}`}
+    accent='#ef4444'
+  />
+  <StatCard
+    label='Cassa disponibile'
+    value={formatCurrency(cassaDisponibile)}
+    sub='Cassa attuale - prelievo del mese'
+    accent='#22c55e'
+  />
+</div>
 
             <div style={dashboardGrid}>
 <div style={panel}>
@@ -1757,7 +1775,7 @@ const statLabel = { fontSize: 13, color: '#94a3b8', marginBottom: 8, fontWeight:
 const statValue = { fontSize: 28, color: '#f8fafc', fontWeight: 900, lineHeight: 1.05 }
 const statSub = { marginTop: 8, color: '#aab8ce', fontSize: 13 }
 const heroGrid = { display: 'grid', gridTemplateColumns: 'minmax(420px, 1.25fr) minmax(280px, 0.75fr)', gap: 16 }
-const heroSideGrid = { display: 'grid', gridTemplateColumns: '1fr', gap: 16 }
+const heroSideGrid = { display: 'grid', gridTemplateColumns: '1fr', gap: 14, alignContent: 'start' }
 const dashboardGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16 }
 const transactionsLayout = { display: 'grid', gridTemplateColumns: 'minmax(320px, 420px) minmax(0, 1fr)', gap: 16 }
 const panel = { background: 'linear-gradient(180deg, rgba(15,23,42,0.94), rgba(2,6,23,0.99))', border: '1px solid rgba(51,65,85,0.95)', borderRadius: 22, padding: 18, boxShadow: '0 20px 48px rgba(0,0,0,0.26)', overflow: 'hidden' }
