@@ -1182,6 +1182,16 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
   const ultimeTransazioni = useMemo(() => transactions.slice(0, 8), [transactions])
   const topBooks = useMemo(() => [...books].sort((a, b) => Number(b.saldo || 0) - Number(a.saldo || 0)).slice(0, 5), [books])
   const topWallets = useMemo(() => [...wallets].sort((a, b) => Number(b.saldo || 0) - Number(a.saldo || 0)).slice(0, 5), [wallets])
+  const totaleDaPagare = memoRoyaltyEntries
+  .filter((r) =>
+    String(r.nota || '').toLowerCase().includes('da pagare')
+  )
+  .reduce((sum, r) => sum + Number(r.importo || 0), 0)
+
+const totaleComplessivoRoyalty = memoRoyaltyEntries
+  .reduce((sum, r) => sum + Number(r.importo || 0), 0)
+
+const mediaMensileRoyalty = totaleComplessivoRoyalty / 12
 
   function renderOrigineSelect() {
     if (txForm.tipo === 'versa') {
@@ -1673,13 +1683,14 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
                 <div>
                   <h2 style={panelTitle}>Royalty</h2>
                   <p style={panelSubtitle}>Dettaglio per account, anno e stato</p>
-                  <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'flex-start' }}>
+                  <div style={{ display: 'flex', gap: 12, marginTop: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
   <input
     value={newAccountName}
     onChange={(e) => setNewAccountName(e.target.value)}
     placeholder='Nuovo account'
     style={{ ...input, marginBottom: 0 }}
   />
+
   <button
     type='button'
     onClick={addRoyaltyAccount}
@@ -1687,6 +1698,40 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
   >
     + Aggiungi
   </button>
+
+  <div
+    style={{
+      border: '1px solid rgba(239,68,68,0.35)',
+      background: 'rgba(239,68,68,0.08)',
+      borderRadius: 14,
+      padding: '10px 14px',
+      minWidth: 170
+    }}
+  >
+    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>
+      Totale da pagare
+    </div>
+    <div style={{ fontSize: 18, fontWeight: 900, color: '#f87171' }}>
+      {formatCurrency(totaleDaPagare)}
+    </div>
+  </div>
+
+  <div
+    style={{
+      border: '1px solid rgba(56,189,248,0.35)',
+      background: 'rgba(56,189,248,0.08)',
+      borderRadius: 14,
+      padding: '10px 14px',
+      minWidth: 190
+    }}
+  >
+    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>
+      Totale complessivo / 12
+    </div>
+    <div style={{ fontSize: 18, fontWeight: 900, color: '#38bdf8' }}>
+      {formatCurrency(mediaMensileRoyalty)}
+    </div>
+  </div>
 </div>
                 </div>
               </div>
