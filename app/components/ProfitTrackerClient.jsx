@@ -992,9 +992,7 @@ const totaleUsciteEsterne = ultimoSnapshot
 
 const guadagnoCorrente =
   (totaleCassa - basePeriodo) + totaleUsciteEsterne
-  const prelievoDelMese = Math.abs(Number(totaleSpeseMeseCorrente || 0))
-
-const cassaDisponibile = totaleCassa - prelievoDelMese
+  
   const filteredBooks = useMemo(() => books.filter((book) => {
     const nomeMatch = (book.nome || '').toLowerCase().includes(bookFilters.nome.toLowerCase())
     const intestatarioMatch = (book.intestatario || '').toLowerCase().includes(bookFilters.intestatario.toLowerCase())
@@ -1062,6 +1060,8 @@ const totaleSpeseMeseCorrente = useMemo(() => {
   const meseCorrente = stimeCassaByMonth.find((item) => item.key === meseCorrenteKey)
   return meseCorrente ? Number(meseCorrente.totale || 0) : 0
 }, [stimeCassaByMonth, meseCorrenteKey])
+ const prelievoDelMese = Math.abs(Number(totaleSpeseMeseCorrente || 0))
+const cassaDisponibile = totaleCassa - prelievoDelMese 
   const totaleBooksFiltrati = useMemo(() => filteredBooks.reduce((t, b) => t + Number(b.saldo || 0), 0), [filteredBooks])
   const totaleWalletsFiltrati = useMemo(() => filteredWallets.reduce((t, w) => t + Number(w.saldo || 0), 0), [filteredWallets])
   const ultimeTransazioni = useMemo(() => transactions.slice(0, 8), [transactions])
