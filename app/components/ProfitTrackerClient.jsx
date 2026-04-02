@@ -369,7 +369,7 @@ async function updateStimaCassa(id, field, value) {
       anno: Number(year),
       importo: Number(value),
       mese: '',
-      nota: 'da pagare'
+      nota: ''
     }])
 
   if (error) {
@@ -1118,40 +1118,14 @@ const guadagnoCorrente =
   }), [wallets, walletFilters])
 
   const filteredTransactions = useMemo(() => transactions.filter((tx) => {
-  const tipoMatch = txFilters.tipo ? tx.tipo === txFilters.tipo : true
-  const azioneMatch = txFilters.azione ? (tx.azione || '') === txFilters.azione : true
-  const text = `${tx.riferimento || ''} ${tx.note || ''} ${tx.azione || ''}`.toLowerCase()
-  const testoMatch = text.includes(txFilters.testo.toLowerCase())
-  const importoMinMatch = txFilters.importoMin === '' ? true : Number(tx.importo || 0) >= Number(txFilters.importoMin)
-  const importoMaxMatch = txFilters.importoMax === '' ? true : Number(tx.importo || 0) <= Number(txFilters.importoMax)
-  return tipoMatch && azioneMatch && testoMatch && importoMinMatch && importoMaxMatch
-}), [transactions, txFilters])
-
-const annoCorrenteRoyalty = new Date().getFullYear()
-
-const totaleDaPagare = memoRoyaltyEntries
-  .filter((r) =>
-    Number(r.anno) === annoCorrenteRoyalty &&
-    String(r.nota || '').toLowerCase().includes('da pagare')
-  )
-  .reduce((sum, r) => sum + Number(r.importo || 0), 0)
-
-const totaleComplessivoRoyalty = memoRoyaltyEntries
-  .filter((r) => Number(r.anno) === annoCorrenteRoyalty)
-  .reduce((sum, r) => sum + Number(r.importo || 0), 0)
-
-const mediaMensileRoyalty = totaleComplessivoRoyalty / 12
-
-function isAccantonamentoRoyaltyRow(row) {
-  return String(row?.voce || '').trim().toLowerCase() === 'accantonamento royalty'
-}
-
-function getStimaImporto(row) {
-  return isAccantonamentoRoyaltyRow(row)
-    ? mediaMensileRoyalty
-    : Number(row?.importo || 0)
-}
-
+    const tipoMatch = txFilters.tipo ? tx.tipo === txFilters.tipo : true
+    const azioneMatch = txFilters.azione ? (tx.azione || '') === txFilters.azione : true
+    const text = `${tx.riferimento || ''} ${tx.note || ''} ${tx.azione || ''}`.toLowerCase()
+    const testoMatch = text.includes(txFilters.testo.toLowerCase())
+    const importoMinMatch = txFilters.importoMin === '' ? true : Number(tx.importo || 0) >= Number(txFilters.importoMin)
+    const importoMaxMatch = txFilters.importoMax === '' ? true : Number(tx.importo || 0) <= Number(txFilters.importoMax)
+    return tipoMatch && azioneMatch && testoMatch && importoMinMatch && importoMaxMatch
+  }), [transactions, txFilters])
 const stimeCassaByMonth = useMemo(() => {
   const grouped = stimeCassa.reduce((acc, row) => {
     const anno = Number(row.anno)
@@ -1180,7 +1154,7 @@ const stimeCassaByMonth = useMemo(() => {
         if (ordineA !== ordineB) return ordineA - ordineB
         return Number(a.id) - Number(b.id)
       }),
-      totale: monthGroup.rows.reduce((sum, row) => sum + getStimaImporto(row), 0)
+      totale: monthGroup.rows.reduce((sum, row) => sum + Number(row.importo || 0), 0)
     }))
     .sort((a, b) => {
       if (a.anno !== b.anno) return a.anno - b.anno
@@ -1197,20 +1171,17 @@ const totaleSpeseMeseCorrente = useMemo(() => {
 
   return meseCorrente.rows.reduce((sum, row) => {
     return row.stato === 'previsto'
-      ? sum + getStimaImporto(row)
+      ? sum + Number(row.importo || 0)
       : sum
   }, 0)
 }, [stimeCassaByMonth, meseCorrenteKey])
+ const prelievoDelMese = Math.abs(Number(totaleSpeseMeseCorrente || 0))
 const cassaDisponibile = totaleCassa - prelievoDelMese 
   const totaleBooksFiltrati = useMemo(() => filteredBooks.reduce((t, b) => t + Number(b.saldo || 0), 0), [filteredBooks])
   const totaleWalletsFiltrati = useMemo(() => filteredWallets.reduce((t, w) => t + Number(w.saldo || 0), 0), [filteredWallets])
   const ultimeTransazioni = useMemo(() => transactions.slice(0, 8), [transactions])
   const topBooks = useMemo(() => [...books].sort((a, b) => Number(b.saldo || 0) - Number(a.saldo || 0)).slice(0, 5), [books])
   const topWallets = useMemo(() => [...wallets].sort((a, b) => Number(b.saldo || 0) - Number(a.saldo || 0)).slice(0, 5), [wallets])
-  
-}
-
-
 
   function renderOrigineSelect() {
     if (txForm.tipo === 'versa') {
@@ -1553,36 +1524,22 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
 
                   <div style={stimeImportoCol}>
                     <input
-  value={isAccantonamentoRoyaltyRow(row) ? mediaMensileRoyalty.toFixed(2) : (row.importo ?? 0)}
-  onChange={(e) => {
-    if (isAccantonamentoRoyaltyRow(row)) return
-    updateStimaCassa(row.id, 'importo', Number(e.target.value))
-  }}
-  readOnly={isAccantonamentoRoyaltyRow(row)}
-  style={{
-    ...stimeMiniInput,
-    color: isAccantonamentoRoyaltyRow(row)
-      ? '#38bdf8'
-      : Number(row.importo || 0) < 0
-      ? '#f87171'
-      : '#e2e8f0',
-    fontWeight: 700,
-    opacity: isAccantonamentoRoyaltyRow(row) ? 0.95 : 1,
-    cursor: isAccantonamentoRoyaltyRow(row) ? 'not-allowed' : 'text'
-  }}
-/>
+                      value={row.importo ?? 0}
+                      onChange={(e) => updateStimaCassa(row.id, 'importo', Number(e.target.value))}
+                      style={{
+                        ...stimeMiniInput,
+                        color: Number(row.importo || 0) < 0 ? '#f87171' : '#e2e8f0',
+                        fontWeight: 700
+                      }}
+                    />
                   </div>
 
                   <div style={stimeVoceCol}>
-                   <input
-  value={row.voce || ''}
-  onChange={(e) => updateStimaCassa(row.id, 'voce', e.target.value)}
-  style={{
-    ...stimeMiniInput,
-    color: isAccantonamentoRoyaltyRow(row) ? '#7dd3fc' : '#e2e8f0',
-    fontWeight: isAccantonamentoRoyaltyRow(row) ? 800 : 400
-  }}
-/>
+                    <input
+                      value={row.voce || ''}
+                      onChange={(e) => updateStimaCassa(row.id, 'voce', e.target.value)}
+                      style={stimeMiniInput}
+                    />
                   </div>
                 </div>
               ))}
@@ -1716,14 +1673,13 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
                 <div>
                   <h2 style={panelTitle}>Royalty</h2>
                   <p style={panelSubtitle}>Dettaglio per account, anno e stato</p>
-                  <div style={{ display: 'flex', gap: 12, marginTop: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'flex-start' }}>
   <input
     value={newAccountName}
     onChange={(e) => setNewAccountName(e.target.value)}
     placeholder='Nuovo account'
     style={{ ...input, marginBottom: 0 }}
   />
-
   <button
     type='button'
     onClick={addRoyaltyAccount}
@@ -1731,40 +1687,6 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
   >
     + Aggiungi
   </button>
-
-  <div
-    style={{
-      border: '1px solid rgba(239,68,68,0.35)',
-      background: 'rgba(239,68,68,0.08)',
-      borderRadius: 14,
-      padding: '10px 14px',
-      minWidth: 170
-    }}
-  >
-    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>
-      Da pagare {annoCorrenteRoyalty}
-    </div>
-    <div style={{ fontSize: 18, fontWeight: 900, color: '#f87171' }}>
-      {formatCurrency(totaleDaPagare)}
-    </div>
-  </div>
-
-  <div
-    style={{
-      border: '1px solid rgba(56,189,248,0.35)',
-      background: 'rgba(56,189,248,0.08)',
-      borderRadius: 14,
-      padding: '10px 14px',
-      minWidth: 190
-    }}
-  >
-    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>
-      Media mensile {annoCorrenteRoyalty}
-    </div>
-    <div style={{ fontSize: 18, fontWeight: 900, color: '#38bdf8' }}>
-      {formatCurrency(mediaMensileRoyalty)}
-    </div>
-  </div>
 </div>
                 </div>
               </div>
@@ -1854,30 +1776,21 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
                                 <div style={{ fontSize: 12, color: '#94a3b8' }}>
                                   {item.mese || '-'}
                                 </div>
-                                <select
-  value={item.nota || ''}
-  onChange={(e) => updateRoyaltyEntry(item.id, 'nota', e.target.value)}
-  style={{
-    width: '100%',
-    background: 'transparent',
-    border: '1px solid #334155',
-    borderRadius: 6,
-    padding: '4px 6px',
-    color:
-      String(item.nota || '').toLowerCase().includes('da pagare')
-        ? '#f87171'
-        : String(item.nota || '').toLowerCase().includes('pagato')
-        ? '#4ade80'
-        : '#cbd5e1',
-    fontWeight: 700,
-    fontSize: 12
-  }}
->
-  <option value=''>-</option>
-  <option value='pagato'>pagato</option>
-  <option value='da pagare'>da pagare</option>
-</select>
-    </div>                           
+                                <div
+                                  style={{
+                                    fontSize: 12,
+                                    color:
+                                      String(item.nota || '').toLowerCase().includes('da pagare')
+                                        ? '#f87171'
+                                        : String(item.nota || '').toLowerCase().includes('pagato')
+                                        ? '#4ade80'
+                                        : '#cbd5e1',
+                                    fontWeight: 700
+                                  }}
+                                >
+                                  {item.nota || '-'}
+                                </div>
+                              </div>
                             ))}
                           </div>
                         )
@@ -1946,18 +1859,6 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
                           )}
                         </td>
                       </tr>
-                      <tr style={tr}>
-  <td style={td}>Totale royalty da pagare</td>
-  <td style={tdStrong}>
-    {formatCurrency(
-      memoRoyaltyEntries
-        .filter((r) =>
-          String(r.nota || '').toLowerCase().includes('da pagare')
-        )
-        .reduce((sum, r) => sum + Number(r.importo || 0), 0)
-    )}
-  </td>
-</tr>
                       <tr style={tr}>
                         <td style={td}>Spesa mensile royalty</td>
                         <td style={tdStrong}>
