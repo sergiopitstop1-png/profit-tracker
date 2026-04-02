@@ -353,6 +353,32 @@ async function updateStimaCassa(id, field, value) {
 
   await loadData({ preserveMessages: true })
 }
+ async function upsertRoyaltyEntry(accountId, year, value) {
+  const existing = memoRoyaltyEntries.find(
+    (r) => Number(r.account_id) === Number(accountId) && Number(r.anno) === Number(year)
+  )
+
+  if (existing) {
+    return updateRoyaltyEntry(existing.id, 'importo', value)
+  }
+
+  const { error } = await supabase
+    .from('memo_royalty_entries')
+    .insert([{
+      account_id: Number(accountId),
+      anno: Number(year),
+      importo: Number(value),
+      mese: '',
+      nota: ''
+    }])
+
+  if (error) {
+    setErrorMessage('Errore creazione voce royalty')
+    return
+  }
+
+  await loadData({ preserveMessages: true })
+} 
  async function updateStatoStima(row, nuovoStato) {
   const payload = { stato: nuovoStato }
 
@@ -1697,9 +1723,32 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
                       const renderYearCell = (year) => {
                         const items = byYear(year)
 
-                        if (items.length === 0) {
-                          return <span style={{ color: '#64748b' }}>-</span>
-                        }
+                       if (items.length === 0) {
+  if (year >= 2026) {
+    return (
+     <input
+  defaultValue=''
+  placeholder='0'
+  onBlur={(e) => {
+    const v = Number(e.target.value)
+    if (!v) return
+    upsertRoyaltyEntry(account.id, year, v)
+  }}
+  style={{
+    width: '100%',
+    background: 'transparent',
+    border: '1px solid #334155',
+    borderRadius: 6,
+    padding: '4px 6px',
+    color: '#f8fafc',
+    fontWeight: 800
+  }}
+/>
+    )
+  }
+
+  return <span style={{ color: '#64748b' }}>-</span>
+}
 
                         return (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
