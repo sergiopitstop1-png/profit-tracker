@@ -1118,15 +1118,16 @@ const guadagnoCorrente =
   }), [wallets, walletFilters])
 
   const filteredTransactions = useMemo(() => transactions.filter((tx) => {
-    const tipoMatch = txFilters.tipo ? tx.tipo === txFilters.tipo : true
-    const azioneMatch = txFilters.azione ? (tx.azione || '') === txFilters.azione : true
-    const text = `${tx.riferimento || ''} ${tx.note || ''} ${tx.azione || ''}`.toLowerCase()
-    const testoMatch = text.includes(txFilters.testo.toLowerCase())
-    const importoMinMatch = txFilters.importoMin === '' ? true : Number(tx.importo || 0) >= Number(txFilters.importoMin)
-    const importoMaxMatch = txFilters.importoMax === '' ? true : Number(tx.importo || 0) <= Number(txFilters.importoMax)
-    return tipoMatch && azioneMatch && testoMatch && importoMinMatch && importoMaxMatch
-  }), [transactions, txFilters])
-  const annoCorrenteRoyalty = new Date().getFullYear()
+  const tipoMatch = txFilters.tipo ? tx.tipo === txFilters.tipo : true
+  const azioneMatch = txFilters.azione ? (tx.azione || '') === txFilters.azione : true
+  const text = `${tx.riferimento || ''} ${tx.note || ''} ${tx.azione || ''}`.toLowerCase()
+  const testoMatch = text.includes(txFilters.testo.toLowerCase())
+  const importoMinMatch = txFilters.importoMin === '' ? true : Number(tx.importo || 0) >= Number(txFilters.importoMin)
+  const importoMaxMatch = txFilters.importoMax === '' ? true : Number(tx.importo || 0) <= Number(txFilters.importoMax)
+  return tipoMatch && azioneMatch && testoMatch && importoMinMatch && importoMaxMatch
+}), [transactions, txFilters])
+
+const annoCorrenteRoyalty = new Date().getFullYear()
 
 const totaleDaPagare = memoRoyaltyEntries
   .filter((r) =>
@@ -1149,7 +1150,8 @@ function getStimaImporto(row) {
   return isAccantonamentoRoyaltyRow(row)
     ? mediaMensileRoyalty
     : Number(row?.importo || 0)
-  }
+}
+
 const stimeCassaByMonth = useMemo(() => {
   const grouped = stimeCassa.reduce((acc, row) => {
     const anno = Number(row.anno)
@@ -1178,7 +1180,7 @@ const stimeCassaByMonth = useMemo(() => {
         if (ordineA !== ordineB) return ordineA - ordineB
         return Number(a.id) - Number(b.id)
       }),
-     totale: monthGroup.rows.reduce((sum, row) => sum + getStimaImporto(row), 0)
+      totale: monthGroup.rows.reduce((sum, row) => sum + getStimaImporto(row), 0)
     }))
     .sort((a, b) => {
       if (a.anno !== b.anno) return a.anno - b.anno
@@ -1194,12 +1196,11 @@ const totaleSpeseMeseCorrente = useMemo(() => {
   if (!meseCorrente) return 0
 
   return meseCorrente.rows.reduce((sum, row) => {
-  return row.stato === 'previsto'
-  ? sum + getStimaImporto(row)
-  : sum  
+    return row.stato === 'previsto'
+      ? sum + getStimaImporto(row)
+      : sum
   }, 0)
 }, [stimeCassaByMonth, meseCorrenteKey])
- const prelievoDelMese = Math.abs(Number(totaleSpeseMeseCorrente || 0))
 const cassaDisponibile = totaleCassa - prelievoDelMese 
   const totaleBooksFiltrati = useMemo(() => filteredBooks.reduce((t, b) => t + Number(b.saldo || 0), 0), [filteredBooks])
   const totaleWalletsFiltrati = useMemo(() => filteredWallets.reduce((t, w) => t + Number(w.saldo || 0), 0), [filteredWallets])
