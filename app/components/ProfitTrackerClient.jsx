@@ -311,6 +311,25 @@ async function updateStimaCassa(id, field, value) {
 
   await loadData({ preserveMessages: true })
 }
+ async function updateStatoStima(row, nuovoStato) {
+  const payload = { stato: nuovoStato }
+
+  if (nuovoStato === 'annullato') {
+    payload.importo = 0
+  }
+
+  const { error } = await supabase
+    .from('stime_cassa')
+    .update(payload)
+    .eq('id', row.id)
+
+  if (error) {
+    setErrorMessage('Errore aggiornamento stato contabilità')
+    return
+  }
+
+  await loadData({ preserveMessages: true })
+} 
   async function salvaLogTransazione({ tipo, importo, riferimento, note, azione }) {
     return supabase.from('transactions').insert([{
       tipo,
@@ -1061,7 +1080,14 @@ const meseCorrenteKey = formatMonthKey()
 
 const totaleSpeseMeseCorrente = useMemo(() => {
   const meseCorrente = stimeCassaByMonth.find((item) => item.key === meseCorrenteKey)
-  return meseCorrente ? Number(meseCorrente.totale || 0) : 0
+
+  if (!meseCorrente) return 0
+
+  return meseCorrente.rows.reduce((sum, row) => {
+    return row.stato === 'previsto'
+      ? sum + Number(row.importo || 0)
+      : sum
+  }, 0)
 }, [stimeCassaByMonth, meseCorrenteKey])
  const prelievoDelMese = Math.abs(Number(totaleSpeseMeseCorrente || 0))
 const cassaDisponibile = totaleCassa - prelievoDelMese 
@@ -1373,12 +1399,41 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
               {monthGroup.rows.map((row) => (
                 <div key={row.id} style={stimeRow}>
                   <div style={stimeDoneCol}>
-                    <input
-                      value={row.stato || ''}
-                      onChange={(e) => updateStimaCassa(row.id, 'stato', e.target.value)}
-                      style={stimeMiniInput}
-                    />
-                  </div>
+  <div style={stimeStatusButtons}>
+    <button
+      type='button'
+      onClick={() => updateStatoStima(row, 'previsto')}
+      style={{
+        ...stimeStatusButton,
+        ...(row.stato === 'previsto' ? stimeStatusButtonPrevisto : {})
+      }}
+    >
+      Prev.
+    </button>
+
+    <button
+      type='button'
+      onClick={() => updateStatoStima(row, 'fatto')}
+      style={{
+        ...stimeStatusButton,
+        ...(row.stato === 'fatto' ? stimeStatusButtonFatto : {})
+      }}
+    >
+      Fatto
+    </button>
+
+    <button
+      type='button'
+      onClick={() => updateStatoStima(row, 'annullato')}
+      style={{
+        ...stimeStatusButton,
+        ...(row.stato === 'annullato' ? stimeStatusButtonAnnullato : {})
+      }}
+    >
+      Ann.
+    </button>
+  </div>
+</div>
 
                   <div style={stimeImportoCol}>
                     <input
@@ -1772,7 +1827,42 @@ const stimeRow = {
   alignItems: 'center'
 }
 
-const stimeDoneCol = {}
+const stimeDoneCol = { minWidth: 170 }
+
+const stimeStatusButtons = {
+  display: 'flex',
+  gap: 6,
+  flexWrap: 'wrap'
+}
+
+const stimeStatusButton = {
+  border: '1px solid rgba(71,85,105,0.95)',
+  background: 'rgba(15,23,42,0.82)',
+  color: '#e2e8f0',
+  fontWeight: 700,
+  padding: '6px 8px',
+  borderRadius: 10,
+  cursor: 'pointer',
+  fontSize: 11
+}
+
+const stimeStatusButtonPrevisto = {
+  background: 'rgba(59,130,246,0.22)',
+  border: '1px solid rgba(59,130,246,0.50)',
+  color: '#dbeafe'
+}
+
+const stimeStatusButtonFatto = {
+  background: 'rgba(34,197,94,0.22)',
+  border: '1px solid rgba(34,197,94,0.50)',
+  color: '#dcfce7'
+}
+
+const stimeStatusButtonAnnullato = {
+  background: 'rgba(239,68,68,0.22)',
+  border: '1px solid rgba(239,68,68,0.50)',
+  color: '#fecaca'
+}
 const stimeImportoCol = {}
 const stimeVoceCol = {}
 
