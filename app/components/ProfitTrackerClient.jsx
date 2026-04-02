@@ -23,6 +23,7 @@ const [weeklySnapshots, setWeeklySnapshots] = useState([])
 const [monthlySnapshots, setMonthlySnapshots] = useState([])
 const [stimeCassa, setStimeCassa] = useState([])
  const [memoRoyaltyAccounts, setMemoRoyaltyAccounts] = useState([])
+  const [newAccountName, setNewAccountName] = useState('')
 const [memoRoyaltyEntries, setMemoRoyaltyEntries] = useState([])
 const [memoSavingsRows, setMemoSavingsRows] = useState([])
 const [memoFutureNotes, setMemoFutureNotes] = useState([])
@@ -702,7 +703,25 @@ setBookForm({ nome: '', intestatario: '', saldo: '', note: '' })
 setMessage('Book salvato correttamente')
 await loadData({ preserveMessages: true })
   }
+async function addRoyaltyAccount() {
+  if (!newAccountName.trim()) {
+    setErrorMessage('Inserisci un nome account')
+    return
+  }
 
+  const { error } = await supabase
+    .from('memo_royalty_accounts')
+    .insert([{ nome: newAccountName.trim() }])
+
+  if (error) {
+    setErrorMessage('Errore creazione account')
+    return
+  }
+
+  setNewAccountName('')
+  setMessage('Account aggiunto')
+  await loadData({ preserveMessages: true })
+}
   async function addWallet(e) {
     e.preventDefault()
     if (!walletForm.nome.trim() || !walletForm.intestatario.trim() || walletForm.saldo === '') {
@@ -1615,6 +1634,21 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
                 <div>
                   <h2 style={panelTitle}>Royalty</h2>
                   <p style={panelSubtitle}>Dettaglio per account, anno e stato</p>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'flex-start' }}>
+  <input
+    value={newAccountName}
+    onChange={(e) => setNewAccountName(e.target.value)}
+    placeholder='Nuovo account'
+    style={{ ...input, marginBottom: 0 }}
+  />
+  <button
+    type='button'
+    onClick={addRoyaltyAccount}
+    style={primaryButtonGreen}
+  >
+    + Aggiungi
+  </button>
+</div>
                 </div>
               </div>
 
