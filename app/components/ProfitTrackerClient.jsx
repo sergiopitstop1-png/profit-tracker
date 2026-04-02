@@ -1017,17 +1017,48 @@ const guadagnoCorrente =
     const importoMaxMatch = txFilters.importoMax === '' ? true : Number(tx.importo || 0) <= Number(txFilters.importoMax)
     return tipoMatch && azioneMatch && testoMatch && importoMinMatch && importoMaxMatch
   }), [transactions, txFilters])
-const filteredStimeCassa = useMemo(() => {
-  return stimeCassa.filter((row) => {
-    const annoMatch = Number(row.anno) === Number(stimeFilters.anno)
-    const meseMatch = Number(row.mese) === Number(stimeFilters.mese)
-    return annoMatch && meseMatch
-  })
-}, [stimeCassa, stimeFilters])
+const stimeCassaByMonth = useMemo(() => {
+  const grouped = stimeCassa.reduce((acc, row) => {
+    const anno = Number(row.anno)
+    const mese = Number(row.mese)
+    const key = `${anno}-${String(mese).padStart(2, '0')}`
 
-const totaleStimeMese = useMemo(() => {
-  return filteredStimeCassa.reduce((sum, row) => sum + Number(row.importo || 0), 0)
-}, [filteredStimeCassa])
+    if (!acc[key]) {
+      acc[key] = {
+        key,
+        anno,
+        mese,
+        rows: []
+      }
+    }
+
+    acc[key].rows.push(row)
+    return acc
+  }, {})
+
+  return Object.values(grouped)
+    .map((monthGroup) => ({
+      ...monthGroup,
+      rows: [...monthGroup.rows].sort((a, b) => {
+        const ordineA = Number(a.ordine ?? 0)
+        const ordineB = Number(b.ordine ?? 0)
+        if (ordineA !== ordineB) return ordineA - ordineB
+        return Number(a.id) - Number(b.id)
+      }),
+      totale: monthGroup.rows.reduce((sum, row) => sum + Number(row.importo || 0), 0)
+    }))
+    .sort((a, b) => {
+      if (a.anno !== b.anno) return a.anno - b.anno
+      return a.mese - b.mese
+    })
+}, [stimeCassa])
+
+const meseCorrenteKey = formatMonthKey()
+
+const totaleSpeseMeseCorrente = useMemo(() => {
+  const meseCorrente = stimeCassaByMonth.find((item) => item.key === meseCorrenteKey)
+  return meseCorrente ? Number(meseCorrente.totale || 0) : 0
+}, [stimeCassaByMonth, meseCorrenteKey])
   const totaleBooksFiltrati = useMemo(() => filteredBooks.reduce((t, b) => t + Number(b.saldo || 0), 0), [filteredBooks])
   const totaleWalletsFiltrati = useMemo(() => filteredWallets.reduce((t, w) => t + Number(w.saldo || 0), 0), [filteredWallets])
   const ultimeTransazioni = useMemo(() => transactions.slice(0, 8), [transactions])
@@ -1258,129 +1289,90 @@ const totaleStimeMese = useMemo(() => {
     <div style={sectionTopBar}>
       <div>
         <h2 style={sectionTitle}>Stime di Cassa</h2>
-        <p style={sectionDescription}>Pianificazione mese per mese delle uscite previste</p>
+        <p style={sectionDescription}>Vista annuale a riquadri: almeno 4 mesi visibili, ogni mese modificabile</p>
       </div>
     </div>
 
     <div style={statsGridCompact}>
       <StatCard
-        label='Righe del mese'
-        value={String(filteredStimeCassa.length)}
-        sub={`Anno ${stimeFilters.anno} · mese ${stimeFilters.mese}`}
+        label='Mesi presenti'
+        value={String(stimeCassaByMonth.length)}
+        sub='Riquadri mese disponibili'
         accent='#f59e0b'
       />
       <StatCard
-        label='Totale mese'
-        value={formatCurrency(totaleStimeMese)}
-        sub='Somma di tutte le voci visibili'
+        label='Spese mese corrente'
+        value={formatCurrency(totaleSpeseMeseCorrente)}
+        sub={`Valore da usare in dashboard per ${currentMonthLabel()}`}
         accent='#38bdf8'
       />
     </div>
 
-    <div style={panel}>
-      <div style={filterRow}>
-        <input
-          value={stimeFilters.anno}
-          onChange={(e) => setStimeFilters({ ...stimeFilters, anno: e.target.value })}
-          placeholder='Anno'
-          style={filterInput}
-        />
-        <input
-          value={stimeFilters.mese}
-          onChange={(e) => setStimeFilters({ ...stimeFilters, mese: e.target.value })}
-          placeholder='Mese (1-12)'
-          style={filterInput}
-        />
-      </div>
+    <div style={stimeMonthsGrid}>
+      {stimeCassaByMonth.map((monthGroup) => {
+        const meseLabel = new Date(monthGroup.anno, monthGroup.mese - 1, 1).toLocaleDateString('it-IT', {
+          month: 'short',
+          year: '2-digit'
+        })
 
-      <div style={tableWrap}>
-        <table style={tableLarge}>
-          <thead>
-            <tr>
-              <th style={th}>Ordine</th>
-              <th style={th}>Voce</th>
-              <th style={th}>Importo</th>
-              <th style={th}>Stato</th>
-              <th style={th}>Note</th>
-            </tr>
-          </thead>
-          <tbody>
-            {Object.entries(
-  stimeCassa.reduce((acc, row) => {
-    const key = `${row.anno}-${row.mese}`
-    if (!acc[key]) acc[key] = []
-    acc[key].push(row)
-    return acc
-  }, {})
-).map(([key, rows]) => {
-  const [anno, mese] = key.split('-')
-  const totaleMese = rows.reduce((sum, r) => sum + Number(r.importo || 0), 0)
+        const isCurrentMonth = monthGroup.key === meseCorrenteKey
 
-  return (
-    <React.Fragment key={key}>
-      <tr style={{ background: '#020617' }}>
-        <td colSpan={5} style={{ padding: '10px', fontWeight: 'bold', color: '#38bdf8' }}>
-          📅 {mese}/{anno} — Totale: {formatCurrency(totaleMese)}
-        </td>
-      </tr>
+        return (
+          <div
+            key={monthGroup.key}
+            style={{
+              ...stimeMonthCard,
+              border: isCurrentMonth
+                ? '1px solid rgba(56,189,248,0.55)'
+                : '1px solid rgba(51,65,85,0.95)'
+            }}
+          >
+            <div style={stimeMonthHeader}>
+              <div style={stimeMonthTitle}>{meseLabel}</div>
+              <div style={stimeMonthTotal}>
+                {formatCurrency(monthGroup.totale)}
+              </div>
+            </div>
 
-      {rows.map((row) => (
-        <tr key={row.id} style={tr}>
-          <td style={td}>
-            <input
-              value={row.ordine ?? 0}
-              onChange={(e) => updateStimaCassa(row.id, 'ordine', Number(e.target.value))}
-              style={input}
-            />
-          </td>
+            <div style={stimeMonthBody}>
+              {monthGroup.rows.map((row) => (
+                <div key={row.id} style={stimeRow}>
+                  <div style={stimeDoneCol}>
+                    <input
+                      value={row.stato || ''}
+                      onChange={(e) => updateStimaCassa(row.id, 'stato', e.target.value)}
+                      style={stimeMiniInput}
+                    />
+                  </div>
 
-          <td style={td}>
-            <input
-              value={row.voce || ''}
-              onChange={(e) => updateStimaCassa(row.id, 'voce', e.target.value)}
-              style={input}
-            />
-          </td>
+                  <div style={stimeImportoCol}>
+                    <input
+                      value={row.importo ?? 0}
+                      onChange={(e) => updateStimaCassa(row.id, 'importo', Number(e.target.value))}
+                      style={{
+                        ...stimeMiniInput,
+                        color: Number(row.importo || 0) < 0 ? '#f87171' : '#e2e8f0',
+                        fontWeight: 700
+                      }}
+                    />
+                  </div>
 
-          <td style={td}>
-            <input
-              value={row.importo ?? 0}
-              onChange={(e) => updateStimaCassa(row.id, 'importo', Number(e.target.value))}
-              style={input}
-            />
-          </td>
-
-          <td style={td}>
-            <input
-              value={row.stato || ''}
-              onChange={(e) => updateStimaCassa(row.id, 'stato', e.target.value)}
-              style={input}
-            />
-          </td>
-
-          <td style={td}>
-            <input
-              value={row.note || ''}
-              onChange={(e) => updateStimaCassa(row.id, 'note', e.target.value)}
-              style={input}
-            />
-          </td>
-        </tr>
-      ))}
-    </React.Fragment>
-  )
-})}
-            {filteredStimeCassa.length === 0 && (
-              <tr style={tr}>
-                <td style={td} colSpan={5}>Nessuna riga presente per questo mese</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                  <div style={stimeVoceCol}>
+                    <input
+                      value={row.voce || ''}
+                      onChange={(e) => updateStimaCassa(row.id, 'voce', e.target.value)}
+                      style={stimeMiniInput}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })}
     </div>
   </div>
-)} 
+)}
         {activeTab === 'books' && (
           <div style={tabContent}>
             <div style={sectionTopBar}><div><h2 style={sectionTitle}>Books</h2><p style={sectionDescription}>Archivio bookmaker con filtri, note e azioni rapide</p></div><button style={primaryButtonGreen} onClick={() => setShowBookModal(true)}>+ Nuovo Book</button></div>
@@ -1693,6 +1685,73 @@ const errorBox = { background: 'rgba(239,68,68,0.14)', border: '1px solid rgba(2
 const tabContent = { display: 'flex', flexDirection: 'column', gap: 16 }
 const statsGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }
 const statsGridCompact = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }
+const stimeMonthsGrid = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gap: 16,
+  alignItems: 'start'
+}
+
+const stimeMonthCard = {
+  background: 'linear-gradient(180deg, rgba(15,23,42,0.94), rgba(2,6,23,0.99))',
+  borderRadius: 20,
+  padding: 14,
+  boxShadow: '0 20px 48px rgba(0,0,0,0.24)',
+  minHeight: 320
+}
+
+const stimeMonthHeader = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  gap: 12,
+  marginBottom: 12,
+  paddingBottom: 8,
+  borderBottom: '1px solid rgba(51,65,85,0.75)'
+}
+
+const stimeMonthTitle = {
+  fontSize: 16,
+  fontWeight: 900,
+  color: '#f8fafc',
+  textTransform: 'lowercase'
+}
+
+const stimeMonthTotal = {
+  fontSize: 16,
+  fontWeight: 900,
+  color: '#fde68a',
+  whiteSpace: 'nowrap'
+}
+
+const stimeMonthBody = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6
+}
+
+const stimeRow = {
+  display: 'grid',
+  gridTemplateColumns: '70px 95px minmax(0, 1fr)',
+  gap: 8,
+  alignItems: 'center'
+}
+
+const stimeDoneCol = {}
+const stimeImportoCol = {}
+const stimeVoceCol = {}
+
+const stimeMiniInput = {
+  width: '100%',
+  boxSizing: 'border-box',
+  background: '#0b1220',
+  color: '#f8fafc',
+  border: '1px solid rgba(51,65,85,0.95)',
+  borderRadius: 10,
+  padding: '7px 8px',
+  outline: 'none',
+  fontSize: 12
+}
 const statCard = { background: 'linear-gradient(180deg, rgba(15,23,42,0.92), rgba(2,6,23,0.98))', border: '1px solid rgba(51,65,85,0.95)', borderRadius: 20, padding: 18, boxShadow: '0 18px 44px rgba(0,0,0,0.28)' }
 const statLabel = { fontSize: 13, color: '#94a3b8', marginBottom: 8, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.6 }
 const statValue = { fontSize: 28, color: '#f8fafc', fontWeight: 900, lineHeight: 1.05 }
