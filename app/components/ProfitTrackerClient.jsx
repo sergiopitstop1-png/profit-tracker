@@ -1822,7 +1822,7 @@ const stimeMonthBody = {
 
 const stimeRow = {
   display: 'grid',
-  gridTemplateColumns: '70px 95px minmax(0, 1fr)',
+  gridTemplateColumns: '170px 95px minmax(0, 1fr)',
   gap: 8,
   alignItems: 'center'
 }
@@ -1830,9 +1830,10 @@ const stimeRow = {
 const stimeDoneCol = { minWidth: 170 }
 
 const stimeStatusButtons = {
-  display: 'flex',
+  display: 'grid',
+  gridTemplateColumns: 'repeat(3, 1fr)',
   gap: 6,
-  flexWrap: 'wrap'
+  width: '100%'
 }
 
 const stimeStatusButton = {
@@ -1843,7 +1844,9 @@ const stimeStatusButton = {
   padding: '6px 8px',
   borderRadius: 10,
   cursor: 'pointer',
-  fontSize: 11
+  fontSize: 11,
+  width: '100%',
+  textAlign: 'center'
 }
 
 const stimeStatusButtonPrevisto = {
