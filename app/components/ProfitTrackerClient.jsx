@@ -393,25 +393,34 @@ async function updateMemoFutureNote(id, field, value) {
 }
 
 async function updateMemoSavingsRow(id, field, value) {
-  const currentRow = memoSavingsRows.find((row) => Number(row.id) === Number(id))
+  const rowInState = memoSavingsRows.find((row) => Number(row.id) === Number(id))
 
-  if (!currentRow) {
+  if (!rowInState) {
     setErrorMessage('Riga risparmio non trovata')
     return
   }
 
-  const persona = currentRow.persona
+  const persona = rowInState.persona
 
-  const rows = memoSavingsRows
-    .filter((row) => row.persona === persona)
-    .sort((a, b) => Number(a.ordine || 0) - Number(b.ordine || 0))
-    .map((row) => ({
-      ...row,
-      risparmio: Number(row.risparmio || 0),
-      versamento: Number(row.versamento || 0),
-      interesse: Number(row.interesse || 0),
-      montante: Number(row.montante || 0),
-    }))
+  const { data: freshRows, error: loadError } = await supabase
+    .from('memo_savings_rows')
+    .select('*')
+    .eq('persona', persona)
+    .order('ordine', { ascending: true })
+    .order('id', { ascending: true })
+
+  if (loadError || !freshRows) {
+    setErrorMessage('Errore caricamento risparmi')
+    return
+  }
+
+  const rows = freshRows.map((row) => ({
+    ...row,
+    risparmio: Number(row.risparmio || 0),
+    versamento: Number(row.versamento || 0),
+    interesse: Number(row.interesse || 0),
+    montante: Number(row.montante || 0),
+  }))
 
   const targetIndex = rows.findIndex((row) => Number(row.id) === Number(id))
 
@@ -420,32 +429,32 @@ async function updateMemoSavingsRow(id, field, value) {
     return
   }
 
-  const normalizedValue =
+  const parsedValue =
     field === 'periodo'
       ? value
       : Number(String(value).replace(',', '.')) || 0
 
-  rows[targetIndex] = {
-    ...rows[targetIndex],
-    [field]: normalizedValue,
-  }
+  rows[targetIndex][field] = parsedValue
 
-  for (let i = 0; i < rows.length; i++) {
-    const prevMontante = i === 0 ? 0 : Number(rows[i - 1].montante || 0)
-
-    if (i > 0) {
-      rows[i].risparmio = prevMontante
+  for (let i = targetIndex; i < rows.length; i++) {
+    if (i === 0) {
+      const base = Number(rows[i].risparmio || 0) + Number(rows[i].versamento || 0)
+      rows[i].interesse = Number((base * 0.01).toFixed(2))
+      rows[i].montante = Number((base + rows[i].interesse).toFixed(2))
+    } else {
+      rows[i].risparmio = Number(rows[i - 1].montante || 0)
+      rows[i].interesse = Number((rows[i].risparmio * 0.01).toFixed(2))
+      rows[i].montante = Number((
+        Number(rows[i].risparmio || 0) +
+        Number(rows[i].versamento || 0) +
+        Number(rows[i].interesse || 0)
+      ).toFixed(2))
     }
-
-    rows[i].interesse = Number((prevMontante * 0.01).toFixed(2))
-    rows[i].montante = Number((
-      Number(rows[i].risparmio || 0) +
-      Number(rows[i].versamento || 0) +
-      Number(rows[i].interesse || 0)
-    ).toFixed(2))
   }
 
-  for (const row of rows) {
+  for (let i = targetIndex; i < rows.length; i++) {
+    const row = rows[i]
+
     const { error } = await supabase
       .from('memo_savings_rows')
       .update({
@@ -462,6 +471,8 @@ async function updateMemoSavingsRow(id, field, value) {
     }
   }
 
+  await loadData({ preserveMessages: true })
+}
   await loadData({ preserveMessages: true })
 }
 
