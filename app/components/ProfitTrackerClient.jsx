@@ -1192,6 +1192,7 @@ const totaleSpeseMeseCorrente = useMemo(() => {
     accent='#22c55e'
   />
 </div>
+    </div>
 
             <div style={dashboardGrid}>
 <div style={panel}>
