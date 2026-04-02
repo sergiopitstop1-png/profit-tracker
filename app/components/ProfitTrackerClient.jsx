@@ -1669,10 +1669,16 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
                 <table style={tableLarge}>
                   <thead>
                     <tr>
-                      <th style={th}>Account</th>
-{royaltyYears.map((year) => (
-  <th key={year} style={th}>{year}</th>
-))}
+                     <th style={th}>Account</th>
+<th style={th}>2022</th>
+<th style={th}>2023</th>
+<th style={th}>2024</th>
+<th style={th}>2025</th>
+<th style={th}>2026</th>
+<th style={th}>2027</th>
+<th style={th}>2028</th>
+<th style={th}>2029</th>
+<th style={th}>2030</th>
 <th style={th}>Totale</th>
                     </tr>
                   </thead>
