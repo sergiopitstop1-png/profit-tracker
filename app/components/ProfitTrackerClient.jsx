@@ -473,8 +473,7 @@ async function updateMemoSavingsRow(id, field, value) {
 
   await loadData({ preserveMessages: true })
 }
-  await loadData({ preserveMessages: true })
-}
+  
 
 async function updateMemoFreeBox(id, value) {
   const { error } = await supabase
