@@ -15,6 +15,8 @@ export default function ProfitTrackerClient() {
   const [wallets, setWallets] = useState([])
   const [sessionToken, setSessionToken] = useState(null)
   const [userId, setUserId] = useState(null)
+  const [accessDenied, setAccessDenied] = useState('')
+  const [userEmail, setUserEmail] = useState('')
   const [transactions, setTransactions] = useState([])
   const [contabilita, setContabilita] = useState([])
 const [weeklySnapshots, setWeeklySnapshots] = useState([])
@@ -71,6 +73,7 @@ async function initSession() {
   if (!user) return
 
   setUserId(user.id)
+  setUserEmail((user.email || '').toLowerCase())
 
   const token = crypto.randomUUID()
   setSessionToken(token)
@@ -217,7 +220,7 @@ const weeklyProfitColor =
   weeklyChartData[weeklyChartData.length - 1].profit < 0
     ? '#ef4444'
     : '#22c55e'
-
+const canViewStimeCassa = userEmail === 'sergiopitstop1@gmail.com'
 function normalizeOwner(value) {
   return String(value || '').trim().toLowerCase()
 }
@@ -1144,11 +1147,24 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
           <button style={activeTab === 'wallets' ? activeTabButton : tabButton} onClick={() => setActiveTab('wallets')}>Wallets</button>
           <button style={activeTab === 'transactions' ? activeTabButton : tabButton} onClick={() => setActiveTab('transactions')}>Transactions</button>
           <button style={activeTab === 'periodi' ? activeTabButton : tabButton} onClick={() => setActiveTab('periodi')}>Periodi</button>
-          <button style={activeTab === 'stime-cassa' ? activeTabButton : tabButton} onClick={() => setActiveTab('stime-cassa')}>Stime di Cassa</button>
+         <button
+  style={activeTab === 'stime-cassa' ? activeTabButton : tabButton}
+  onClick={() => {
+   if (!canViewStimeCassa) {
+  setAccessDenied('⛔ Accesso non consentito')
+  setTimeout(() => setAccessDenied(''), 2500)
+  return
+}
+    setActiveTab('stime-cassa')
+  }}
+>
+  Stime di Cassa
+</button>
         </nav>
 
        {activeTab === 'dashboard' && (
   <div style={tabContent}>
+     {accessDenied && <div style={errorBox}>{accessDenied}</div>}
     <div style={{ marginBottom: '15px' }}>
       <button style={primaryButtonBlue} onClick={saveWeeklySnapshot}>
   Salva Periodo
@@ -1303,7 +1319,7 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
             </div>
           </div>
         )}
-       {activeTab === 'stime-cassa' && (
+       {activeTab === 'stime-cassa' && canViewStimeCassa && (
   <div style={tabContent}>
     <div style={sectionTopBar}>
       <div>
