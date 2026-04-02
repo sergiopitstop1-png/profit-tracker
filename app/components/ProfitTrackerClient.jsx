@@ -340,6 +340,19 @@ async function updateStimaCassa(id, field, value) {
 
   await loadData({ preserveMessages: true })
 }
+  async function updateRoyaltyEntry(id, field, value) {
+  const { error } = await supabase
+    .from('memo_royalty_entries')
+    .update({ [field]: value })
+    .eq('id', id)
+
+  if (error) {
+    setErrorMessage('Errore aggiornamento royalty')
+    return
+  }
+
+  await loadData({ preserveMessages: true })
+}
  async function updateStatoStima(row, nuovoStato) {
   const payload = { stato: nuovoStato }
 
@@ -1687,9 +1700,19 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                             {items.map((item) => (
                               <div key={item.id} style={{ lineHeight: 1.25 }}>
-                                <div style={{ fontWeight: 800, color: '#f8fafc' }}>
-                                  {formatCurrency(item.importo)}
-                                </div>
+                                <input
+  value={item.importo ?? 0}
+  onChange={(e) => updateRoyaltyEntry(item.id, 'importo', Number(e.target.value))}
+  style={{
+    width: '100%',
+    background: 'transparent',
+    border: '1px solid #334155',
+    borderRadius: 6,
+    padding: '4px 6px',
+    color: '#f8fafc',
+    fontWeight: 800
+  }}
+/>
                                 <div style={{ fontSize: 12, color: '#94a3b8' }}>
                                   {item.mese || '-'}
                                 </div>
