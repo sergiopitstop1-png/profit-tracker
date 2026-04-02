@@ -1207,35 +1207,7 @@ function getStimaImporto(row) {
     : Number(row?.importo || 0)
 }
 
-const totaleComplessivoRoyalty = memoRoyaltyEntries
-  .filter((r) => Number(r.anno) === annoCorrenteRoyalty)
-  .reduce((sum, r) => sum + Number(r.importo || 0), 0)
 
-const mediaMensileRoyalty = totaleComplessivoRoyalty / 12
-
-function isAccantonamentoRoyaltyRow(row) {
-  return String(row?.voce || '').trim().toLowerCase() === 'accantonamento royalty'
-}
-
-function getStimaImporto(row) {
-  return isAccantonamentoRoyaltyRow(row)
-    ? mediaMensileRoyalty
-    : Number(row?.importo || 0)
-}
- const annoCorrenteRoyalty = new Date().getFullYear()
-
-const totaleDaPagare = memoRoyaltyEntries
-  .filter((r) =>
-    Number(r.anno) === annoCorrenteRoyalty &&
-    String(r.nota || '').toLowerCase().includes('da pagare')
-  )
-  .reduce((sum, r) => sum + Number(r.importo || 0), 0)
-
-const totaleComplessivoRoyalty = memoRoyaltyEntries
-  .filter((r) => Number(r.anno) === annoCorrenteRoyalty)
-  .reduce((sum, r) => sum + Number(r.importo || 0), 0)
-
-const mediaMensileRoyalty = totaleComplessivoRoyalty / 12
 
   function renderOrigineSelect() {
     if (txForm.tipo === 'versa') {
