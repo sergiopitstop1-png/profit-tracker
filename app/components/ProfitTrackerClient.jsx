@@ -1305,49 +1305,71 @@ const totaleStimeMese = useMemo(() => {
             </tr>
           </thead>
           <tbody>
-            {filteredStimeCassa.map((row) => (
-              <tr key={row.id} style={tr}>
-                <td style={td}>
-  <input
-    value={row.ordine ?? 0}
-    onChange={(e) => updateStimaCassa(row.id, 'ordine', Number(e.target.value))}
-    style={input}
-  />
-</td>
+            {Object.entries(
+  stimeCassa.reduce((acc, row) => {
+    const key = `${row.anno}-${row.mese}`
+    if (!acc[key]) acc[key] = []
+    acc[key].push(row)
+    return acc
+  }, {})
+).map(([key, rows]) => {
+  const [anno, mese] = key.split('-')
+  const totaleMese = rows.reduce((sum, r) => sum + Number(r.importo || 0), 0)
 
-<td style={td}>
-  <input
-    value={row.voce || ''}
-    onChange={(e) => updateStimaCassa(row.id, 'voce', e.target.value)}
-    style={input}
-  />
-</td>
+  return (
+    <React.Fragment key={key}>
+      <tr style={{ background: '#020617' }}>
+        <td colSpan={5} style={{ padding: '10px', fontWeight: 'bold', color: '#38bdf8' }}>
+          📅 {mese}/{anno} — Totale: {formatCurrency(totaleMese)}
+        </td>
+      </tr>
 
-<td style={td}>
-  <input
-    value={row.importo ?? 0}
-    onChange={(e) => updateStimaCassa(row.id, 'importo', Number(e.target.value))}
-    style={input}
-  />
-</td>
+      {rows.map((row) => (
+        <tr key={row.id} style={tr}>
+          <td style={td}>
+            <input
+              value={row.ordine ?? 0}
+              onChange={(e) => updateStimaCassa(row.id, 'ordine', Number(e.target.value))}
+              style={input}
+            />
+          </td>
 
-<td style={td}>
-  <input
-    value={row.stato || ''}
-    onChange={(e) => updateStimaCassa(row.id, 'stato', e.target.value)}
-    style={input}
-  />
-</td>
+          <td style={td}>
+            <input
+              value={row.voce || ''}
+              onChange={(e) => updateStimaCassa(row.id, 'voce', e.target.value)}
+              style={input}
+            />
+          </td>
 
-<td style={td}>
-  <input
-    value={row.note || ''}
-    onChange={(e) => updateStimaCassa(row.id, 'note', e.target.value)}
-    style={input}
-  />
-</td>
-              </tr>
-            ))}
+          <td style={td}>
+            <input
+              value={row.importo ?? 0}
+              onChange={(e) => updateStimaCassa(row.id, 'importo', Number(e.target.value))}
+              style={input}
+            />
+          </td>
+
+          <td style={td}>
+            <input
+              value={row.stato || ''}
+              onChange={(e) => updateStimaCassa(row.id, 'stato', e.target.value)}
+              style={input}
+            />
+          </td>
+
+          <td style={td}>
+            <input
+              value={row.note || ''}
+              onChange={(e) => updateStimaCassa(row.id, 'note', e.target.value)}
+              style={input}
+            />
+          </td>
+        </tr>
+      ))}
+    </React.Fragment>
+  )
+})}
             {filteredStimeCassa.length === 0 && (
               <tr style={tr}>
                 <td style={td} colSpan={5}>Nessuna riga presente per questo mese</td>
