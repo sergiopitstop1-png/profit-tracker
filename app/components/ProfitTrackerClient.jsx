@@ -1323,7 +1323,7 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
   <div style={tabContent}>
     <div style={sectionTopBar}>
       <div>
-        <h2 style={sectionTitle}>Stime di Cassa</h2>
+        <h2 style={sectionTitle}>Contabilità</h2>
         <p style={sectionDescription}>Vista annuale a riquadri: almeno 4 mesi visibili, ogni mese modificabile</p>
       </div>
     </div>
