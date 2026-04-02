@@ -1627,23 +1627,37 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
                       </tr>
                     </thead>
                     <tbody>
-                      <tr style={tr}>
-                        <td style={td}>Da pagare a giugno</td>
-                        <td style={tdStrong}>-</td>
-                      </tr>
-                      <tr style={tr}>
-                        <td style={td}>Da pagare a dicembre</td>
-                        <td style={tdStrong}>-</td>
-                      </tr>
-                      <tr style={tr}>
-                        <td style={td}>Da pagare ogni mese</td>
-                        <td style={tdStrong}>-</td>
-                      </tr>
-                      <tr style={tr}>
-                        <td style={td}>Spesa mensile royalty</td>
-                        <td style={tdStrong}>-</td>
-                      </tr>
-                    </tbody>
+  <tr style={tr}>
+    <td style={td}>Numero account</td>
+    <td style={tdStrong}>{memoRoyaltyAccounts.length}</td>
+  </tr>
+
+  <tr style={tr}>
+    <td style={td}>Totale movimenti</td>
+    <td style={tdStrong}>{memoRoyaltyEntries.length}</td>
+  </tr>
+
+  <tr style={tr}>
+    <td style={td}>Totale importi</td>
+    <td style={tdStrong}>
+      {formatCurrency(
+        memoRoyaltyEntries.reduce((sum, r) => sum + Number(r.importo || 0), 0)
+      )}
+    </td>
+  </tr>
+
+  <tr style={tr}>
+    <td style={td}>Media per account</td>
+    <td style={tdStrong}>
+      {memoRoyaltyAccounts.length === 0
+        ? '-'
+        : formatCurrency(
+            memoRoyaltyEntries.reduce((sum, r) => sum + Number(r.importo || 0), 0) /
+            memoRoyaltyAccounts.length
+          )}
+    </td>
+  </tr>
+</tbody>
                   </table>
                 </div>
               </div>
