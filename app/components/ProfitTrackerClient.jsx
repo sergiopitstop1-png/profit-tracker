@@ -1154,7 +1154,7 @@ const stimeCassaByMonth = useMemo(() => {
         if (ordineA !== ordineB) return ordineA - ordineB
         return Number(a.id) - Number(b.id)
       }),
-      totale: monthGroup.rows.reduce((sum, row) => sum + Number(row.importo || 0), 0)
+     totale: monthGroup.rows.reduce((sum, row) => sum + getStimaImporto(row), 0)
     }))
     .sort((a, b) => {
       if (a.anno !== b.anno) return a.anno - b.anno
@@ -1170,9 +1170,7 @@ const totaleSpeseMeseCorrente = useMemo(() => {
   if (!meseCorrente) return 0
 
   return meseCorrente.rows.reduce((sum, row) => {
-    return row.stato === 'previsto'
-      ? sum + Number(row.importo || 0)
-      : sum
+    
   }, 0)
 }, [stimeCassaByMonth, meseCorrenteKey])
  const prelievoDelMese = Math.abs(Number(totaleSpeseMeseCorrente || 0))
@@ -1182,6 +1180,23 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
   const ultimeTransazioni = useMemo(() => transactions.slice(0, 8), [transactions])
   const topBooks = useMemo(() => [...books].sort((a, b) => Number(b.saldo || 0) - Number(a.saldo || 0)).slice(0, 5), [books])
   const topWallets = useMemo(() => [...wallets].sort((a, b) => Number(b.saldo || 0) - Number(a.saldo || 0)).slice(0, 5), [wallets])
+  const annoCorrenteRoyalty = new Date().getFullYear()
+
+const totaleComplessivoRoyalty = memoRoyaltyEntries
+  .filter((r) => Number(r.anno) === annoCorrenteRoyalty)
+  .reduce((sum, r) => sum + Number(r.importo || 0), 0)
+
+const mediaMensileRoyalty = totaleComplessivoRoyalty / 12
+
+function isAccantonamentoRoyaltyRow(row) {
+  return String(row?.voce || '').trim().toLowerCase() === 'accantonamento royalty'
+}
+
+function getStimaImporto(row) {
+  return isAccantonamentoRoyaltyRow(row)
+    ? mediaMensileRoyalty
+    : Number(row?.importo || 0)
+}
  const annoCorrenteRoyalty = new Date().getFullYear()
 
 const totaleDaPagare = memoRoyaltyEntries
@@ -1538,22 +1553,36 @@ const mediaMensileRoyalty = totaleComplessivoRoyalty / 12
 
                   <div style={stimeImportoCol}>
                     <input
-                      value={row.importo ?? 0}
-                      onChange={(e) => updateStimaCassa(row.id, 'importo', Number(e.target.value))}
-                      style={{
-                        ...stimeMiniInput,
-                        color: Number(row.importo || 0) < 0 ? '#f87171' : '#e2e8f0',
-                        fontWeight: 700
-                      }}
-                    />
+  value={isAccantonamentoRoyaltyRow(row) ? mediaMensileRoyalty.toFixed(2) : (row.importo ?? 0)}
+  onChange={(e) => {
+    if (isAccantonamentoRoyaltyRow(row)) return
+    updateStimaCassa(row.id, 'importo', Number(e.target.value))
+  }}
+  readOnly={isAccantonamentoRoyaltyRow(row)}
+  style={{
+    ...stimeMiniInput,
+    color: isAccantonamentoRoyaltyRow(row)
+      ? '#38bdf8'
+      : Number(row.importo || 0) < 0
+      ? '#f87171'
+      : '#e2e8f0',
+    fontWeight: 700,
+    opacity: isAccantonamentoRoyaltyRow(row) ? 0.95 : 1,
+    cursor: isAccantonamentoRoyaltyRow(row) ? 'not-allowed' : 'text'
+  }}
+/>
                   </div>
 
                   <div style={stimeVoceCol}>
-                    <input
-                      value={row.voce || ''}
-                      onChange={(e) => updateStimaCassa(row.id, 'voce', e.target.value)}
-                      style={stimeMiniInput}
-                    />
+                   <input
+  value={row.voce || ''}
+  onChange={(e) => updateStimaCassa(row.id, 'voce', e.target.value)}
+  style={{
+    ...stimeMiniInput,
+    color: isAccantonamentoRoyaltyRow(row) ? '#7dd3fc' : '#e2e8f0',
+    fontWeight: isAccantonamentoRoyaltyRow(row) ? 800 : 400
+  }}
+/>
                   </div>
                 </div>
               ))}
