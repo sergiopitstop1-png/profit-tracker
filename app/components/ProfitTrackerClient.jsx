@@ -1670,12 +1670,10 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
                   <thead>
                     <tr>
                       <th style={th}>Account</th>
-                      <th style={th}>2022</th>
-                      <th style={th}>2023</th>
-                      <th style={th}>2024</th>
-                      <th style={th}>2025</th>
-                      <th style={th}>2026</th>
-                      <th style={th}>Totale</th>
+{royaltyYears.map((year) => (
+  <th key={year} style={th}>{year}</th>
+))}
+<th style={th}>Totale</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1688,7 +1686,8 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
                         rows.filter((r) => Number(r.anno) === year && Number(r.importo || 0) !== 0)
 
                       const total = rows.reduce((sum, r) => sum + Number(r.importo || 0), 0)
-
+           const royaltyYears = [2022, 2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030] 
+           
                       const renderYearCell = (year) => {
                         const items = byYear(year)
 
@@ -1699,20 +1698,26 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
                         return (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                             {items.map((item) => (
-                              <div key={item.id} style={{ lineHeight: 1.25 }}>
-                                <input
-  value={item.importo ?? 0}
-  onChange={(e) => updateRoyaltyEntry(item.id, 'importo', Number(e.target.value))}
-  style={{
-    width: '100%',
-    background: 'transparent',
-    border: '1px solid #334155',
-    borderRadius: 6,
-    padding: '4px 6px',
-    color: '#f8fafc',
-    fontWeight: 800
-  }}
-/>
+                             <div key={item.id} style={{ lineHeight: 1.25 }}>
+  {year >= 2026 ? (
+    <input
+      value={item.importo ?? 0}
+      onChange={(e) => updateRoyaltyEntry(item.id, 'importo', Number(e.target.value))}
+      style={{
+        width: '100%',
+        background: 'transparent',
+        border: '1px solid #334155',
+        borderRadius: 6,
+        padding: '4px 6px',
+        color: '#f8fafc',
+        fontWeight: 800
+      }}
+    />
+  ) : (
+    <div style={{ fontWeight: 800, color: '#f8fafc' }}>
+      {formatCurrency(item.importo)}
+    </div>
+  )}
                                 <div style={{ fontSize: 12, color: '#94a3b8' }}>
                                   {item.mese || '-'}
                                 </div>
@@ -1738,14 +1743,12 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
 
                       return (
                         <tr key={account.id} style={tr}>
-                          <td style={tdStrong}>{account.nome}</td>
-                          <td style={td}>{renderYearCell(2022)}</td>
-                          <td style={td}>{renderYearCell(2023)}</td>
-                          <td style={td}>{renderYearCell(2024)}</td>
-                          <td style={td}>{renderYearCell(2025)}</td>
-                          <td style={td}>{renderYearCell(2026)}</td>
-                          <td style={tdStrong}>{total === 0 ? '-' : formatCurrency(total)}</td>
-                        </tr>
+  <td style={tdStrong}>{account.nome}</td>
+  {royaltyYears.map((year) => (
+    <td key={year} style={td}>{renderYearCell(year)}</td>
+  ))}
+  <td style={tdStrong}>{total === 0 ? '-' : formatCurrency(total)}</td>
+</tr>
                       )
                     })}
                   </tbody>
