@@ -1610,14 +1610,92 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 16 }}>
-              <div style={panel}>
-                <div style={panelHeader}>
-                  <div>
-                    <h2 style={panelTitle}>Royalty</h2>
-                    <p style={panelSubtitle}>Riepilogo rapido</p>
-                  </div>
+                          <div style={panel}>
+              <div style={panelHeader}>
+                <div>
+                  <h2 style={panelTitle}>Royalty</h2>
+                  <p style={panelSubtitle}>Dettaglio per account, anno e stato</p>
                 </div>
+              </div>
 
+              <div style={tableWrap}>
+                <table style={tableLarge}>
+                  <thead>
+                    <tr>
+                      <th style={th}>Account</th>
+                      <th style={th}>2022</th>
+                      <th style={th}>2023</th>
+                      <th style={th}>2024</th>
+                      <th style={th}>2025</th>
+                      <th style={th}>2026</th>
+                      <th style={th}>Totale</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {memoRoyaltyAccounts.map((account) => {
+                      const rows = memoRoyaltyEntries.filter(
+                        (r) => Number(r.account_id) === Number(account.id)
+                      )
+
+                      const byYear = (year) =>
+                        rows.filter((r) => Number(r.anno) === year && Number(r.importo || 0) !== 0)
+
+                      const total = rows.reduce((sum, r) => sum + Number(r.importo || 0), 0)
+
+                      const renderYearCell = (year) => {
+                        const items = byYear(year)
+
+                        if (items.length === 0) {
+                          return <span style={{ color: '#64748b' }}>-</span>
+                        }
+
+                        return (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            {items.map((item) => (
+                              <div key={item.id} style={{ lineHeight: 1.25 }}>
+                                <div style={{ fontWeight: 800, color: '#f8fafc' }}>
+                                  {formatCurrency(item.importo)}
+                                </div>
+                                <div style={{ fontSize: 12, color: '#94a3b8' }}>
+                                  {item.mese || '-'}
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: 12,
+                                    color:
+                                      String(item.nota || '').toLowerCase().includes('da pagare')
+                                        ? '#f87171'
+                                        : String(item.nota || '').toLowerCase().includes('pagato')
+                                        ? '#4ade80'
+                                        : '#cbd5e1',
+                                    fontWeight: 700
+                                  }}
+                                >
+                                  {item.nota || '-'}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )
+                      }
+
+                      return (
+                        <tr key={account.id} style={tr}>
+                          <td style={tdStrong}>{account.nome}</td>
+                          <td style={td}>{renderYearCell(2022)}</td>
+                          <td style={td}>{renderYearCell(2023)}</td>
+                          <td style={td}>{renderYearCell(2024)}</td>
+                          <td style={td}>{renderYearCell(2025)}</td>
+                          <td style={td}>{renderYearCell(2026)}</td>
+                          <td style={tdStrong}>{total === 0 ? '-' : formatCurrency(total)}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div style={{ marginTop: 18, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 <div style={tableWrap}>
                   <table style={table}>
                     <thead>
@@ -1627,40 +1705,91 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
                       </tr>
                     </thead>
                     <tbody>
-  <tr style={tr}>
-    <td style={td}>Numero account</td>
-    <td style={tdStrong}>{memoRoyaltyAccounts.length}</td>
-  </tr>
-
-  <tr style={tr}>
-    <td style={td}>Totale movimenti</td>
-    <td style={tdStrong}>{memoRoyaltyEntries.length}</td>
-  </tr>
-
-  <tr style={tr}>
-    <td style={td}>Totale importi</td>
-    <td style={tdStrong}>
-      {formatCurrency(
-        memoRoyaltyEntries.reduce((sum, r) => sum + Number(r.importo || 0), 0)
-      )}
-    </td>
-  </tr>
-
-  <tr style={tr}>
-    <td style={td}>Media per account</td>
-    <td style={tdStrong}>
-      {memoRoyaltyAccounts.length === 0
-        ? '-'
-        : formatCurrency(
-            memoRoyaltyEntries.reduce((sum, r) => sum + Number(r.importo || 0), 0) /
-            memoRoyaltyAccounts.length
-          )}
-    </td>
-  </tr>
-</tbody>
+                      <tr style={tr}>
+                        <td style={td}>Da pagare a giugno</td>
+                        <td style={tdStrong}>
+                          {formatCurrency(
+                            memoRoyaltyEntries
+                              .filter((r) =>
+                                String(r.mese || '').toLowerCase().includes('giugno') &&
+                                String(r.nota || '').toLowerCase().includes('da pagare')
+                              )
+                              .reduce((sum, r) => sum + Number(r.importo || 0), 0)
+                          )}
+                        </td>
+                      </tr>
+                      <tr style={tr}>
+                        <td style={td}>Da pagare a dicembre</td>
+                        <td style={tdStrong}>
+                          {formatCurrency(
+                            memoRoyaltyEntries
+                              .filter((r) =>
+                                String(r.mese || '').toLowerCase().includes('dicembre') &&
+                                String(r.nota || '').toLowerCase().includes('da pagare')
+                              )
+                              .reduce((sum, r) => sum + Number(r.importo || 0), 0)
+                          )}
+                        </td>
+                      </tr>
+                      <tr style={tr}>
+                        <td style={td}>Da pagare ogni mese</td>
+                        <td style={tdStrong}>
+                          {formatCurrency(
+                            memoRoyaltyEntries
+                              .filter((r) =>
+                                String(r.mese || '').toLowerCase().includes('ogni mese') &&
+                                String(r.nota || '').toLowerCase().includes('da pagare')
+                              )
+                              .reduce((sum, r) => sum + Number(r.importo || 0), 0)
+                          )}
+                        </td>
+                      </tr>
+                      <tr style={tr}>
+                        <td style={td}>Spesa mensile royalty</td>
+                        <td style={tdStrong}>
+                          {formatCurrency(
+                            (
+                              memoRoyaltyEntries
+                                .filter((r) => String(r.nota || '').toLowerCase().includes('da pagare'))
+                                .reduce((sum, r) => sum + Number(r.importo || 0), 0)
+                            ) / 12
+                          )}
+                        </td>
+                      </tr>
+                      <tr style={tr}>
+                        <td style={td}>Totale royalty pagate</td>
+                        <td style={tdStrong}>
+                          {formatCurrency(
+                            memoRoyaltyEntries
+                              .filter((r) => !String(r.nota || '').toLowerCase().includes('da pagare'))
+                              .reduce((sum, r) => sum + Number(r.importo || 0), 0)
+                          )}
+                        </td>
+                      </tr>
+                    </tbody>
                   </table>
                 </div>
+
+                <div
+                  style={{
+                    border: '1px solid rgba(56,189,248,0.25)',
+                    background: 'rgba(56,189,248,0.06)',
+                    borderRadius: 18,
+                    padding: 16,
+                    color: '#cbd5e1'
+                  }}
+                >
+                  <div style={{ fontSize: 13, fontWeight: 800, color: '#7dd3fc', marginBottom: 10 }}>
+                    LETTURA RAPIDA
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 14 }}>
+                    <div>Verde = pagato</div>
+                    <div>Rosso = da pagare</div>
+                    <div>Ogni riga mostra importo, mese e nota per ciascun anno</div>
+                  </div>
+                </div>
               </div>
+            </div>
 
                             <div style={panel}>
                 <div style={panelHeader}>
