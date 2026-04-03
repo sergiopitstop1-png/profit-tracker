@@ -1518,15 +1518,26 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
 </div>
 
                   <div style={stimeImportoCol}>
-                    <input
-                      value={row.importo ?? 0}
-                      onChange={(e) => updateStimaCassa(row.id, 'importo', Number(e.target.value))}
-                      style={{
-                        ...stimeMiniInput,
-                        color: Number(row.importo || 0) < 0 ? '#f87171' : '#e2e8f0',
-                        fontWeight: 700
-                      }}
-                    />
+                   <input
+  defaultValue={row.importo ?? 0}
+  onBlur={(e) => updateStimaCassa(row.id, 'importo', Number(e.target.value))}
+  onKeyDown={(e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      updateStimaCassa(row.id, 'importo', Number(e.target.value))
+      e.target.blur()
+    }
+    if (e.key === 'Escape') {
+      e.target.value = row.importo ?? 0
+      e.target.blur()
+    }
+  }}
+  style={{
+    ...stimeMiniInput,
+    color: Number(row.importo || 0) < 0 ? '#f87171' : '#e2e8f0',
+    fontWeight: 700
+  }}
+/>
                   </div>
 
                   <div style={stimeVoceCol}>
