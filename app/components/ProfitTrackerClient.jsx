@@ -28,6 +28,7 @@ const [memoRoyaltyEntries, setMemoRoyaltyEntries] = useState([])
 const [memoSavingsRows, setMemoSavingsRows] = useState([])
 const [memoFutureNotes, setMemoFutureNotes] = useState([])
 const [memoFreeBoxes, setMemoFreeBoxes] = useState([]) 
+  const [dashboardSettings, setDashboardSettings] = useState({ accantonamento_royalty: 0, risparmi_samu_massi: 0 })
 
 const [stimeFilters, setStimeFilters] = useState({
   anno: new Date().getFullYear(),
@@ -159,6 +160,7 @@ useEffect(() => {
   memoSavingsRowsRes,
   memoFutureNotesRes,
   memoFreeBoxesRes
+     dashboardSettingsRes,
 ] = await Promise.all([
   supabase.from('books').select('*').order('id', { ascending: true }),
   supabase.from('wallets').select('*').order('id', { ascending: true }),
@@ -176,6 +178,7 @@ useEffect(() => {
   supabase.from('memo_savings_rows').select('*').order('id', { ascending: true }),
   supabase.from('memo_future_notes').select('*').order('ordine', { ascending: true }).order('id', { ascending: true }),
   supabase.from('memo_free_boxes').select('*').order('id', { ascending: true }),
+     supabase.from('dashboard_settings').select('*').eq('id', 1).single(),
 ])
 
     const errors = []
@@ -191,6 +194,7 @@ if (memoRoyaltyEntriesRes.error) errors.push('memo_royalty_entries'); else setMe
 if (memoSavingsRowsRes.error) errors.push('memo_savings_rows'); else setMemoSavingsRows(memoSavingsRowsRes.data || [])
 if (memoFutureNotesRes.error) errors.push('memo_future_notes'); else setMemoFutureNotes(memoFutureNotesRes.data || [])
 if (memoFreeBoxesRes.error) errors.push('memo_free_boxes'); else setMemoFreeBoxes(memoFreeBoxesRes.data || [])
+    if (dashboardSettingsRes.error) errors.push('dashboard_settings'); else setDashboardSettings(dashboardSettingsRes.data || { accantonamento_royalty: 0, risparmi_samu_massi: 0 })
 
     if (errors.length) setErrorMessage(`Errore caricamento: ${errors.join(', ')}`)
     setLoading(false)
@@ -353,6 +357,29 @@ async function updateStimaCassa(id, field, value) {
 
   await loadData({ preserveMessages: true })
 }
+async function updateDashboardSetting(field, value) {
+  const numericValue = Number(value)
+
+  if (Number.isNaN(numericValue)) {
+    setErrorMessage('Inserisci un valore valido')
+    return
+  }
+
+  const { error } = await supabase
+    .from('dashboard_settings')
+    .update({ [field]: numericValue })
+    .eq('id', 1)
+
+  if (error) {
+    setErrorMessage('Errore aggiornamento dashboard settings')
+    return
+  }
+
+  setDashboardSettings((prev) => ({
+    ...prev,
+    [field]: numericValue
+  }))
+}  
  async function upsertRoyaltyEntry(accountId, year, value) {
   const existing = memoRoyaltyEntries.find(
     (r) => Number(r.account_id) === Number(accountId) && Number(r.anno) === Number(year)
@@ -1171,7 +1198,14 @@ const totaleSpeseMeseCorrente = useMemo(() => {
   }, 0)
 }, [stimeCassaByMonth, meseCorrenteKey])
  const prelievoDelMese = Math.abs(Number(totaleSpeseMeseCorrente || 0))
-const cassaDisponibile = totaleCassa - prelievoDelMese 
+const accantonamentoRoyalty = Number(dashboardSettings.accantonamento_royalty || 0)
+const risparmiSamuMassi = Number(dashboardSettings.risparmi_samu_massi || 0)
+
+const cassaDisponibile =
+  totaleCassa -
+  prelievoDelMese -
+  accantonamentoRoyalty -
+  risparmiSamuMassi
   const totaleBooksFiltrati = useMemo(() => filteredBooks.reduce((t, b) => t + Number(b.saldo || 0), 0), [filteredBooks])
   const totaleWalletsFiltrati = useMemo(() => filteredWallets.reduce((t, w) => t + Number(w.saldo || 0), 0), [filteredWallets])
   const ultimeTransazioni = useMemo(() => transactions.slice(0, 8), [transactions])
@@ -1297,22 +1331,82 @@ const cassaDisponibile = totaleCassa - prelievoDelMese
               </div>
 
               <div style={heroSideGrid}>
+  <div style={panel}>
+    <div style={panelHeader}>
+      <div>
+        <h2 style={panelTitle}>Accantonamento royalty</h2>
+      </div>
+    </div>
+
+    <input
+      defaultValue={accantonamentoRoyalty}
+      onBlur={(e) => updateDashboardSetting('accantonamento_royalty', e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          updateDashboardSetting('accantonamento_royalty', e.target.value)
+          e.target.blur()
+        }
+        if (e.key === 'Escape') {
+          e.target.value = accantonamentoRoyalty
+          e.target.blur()
+        }
+      }}
+      style={{
+        ...input,
+        fontSize: 26,
+        fontWeight: 800
+      }}
+    />
+  </div>
+
+  <div style={panel}>
+    <div style={panelHeader}>
+      <div>
+        <h2 style={panelTitle}>Risparmi Samu e Massi</h2>
+      </div>
+    </div>
+
+    <input
+      defaultValue={risparmiSamuMassi}
+      onBlur={(e) => updateDashboardSetting('risparmi_samu_massi', e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          updateDashboardSetting('risparmi_samu_massi', e.target.value)
+          e.target.blur()
+        }
+        if (e.key === 'Escape') {
+          e.target.value = risparmiSamuMassi
+          e.target.blur()
+        }
+      }}
+      style={{
+        ...input,
+        fontSize: 26,
+        fontWeight: 800
+      }}
+    />
+  </div>
+
   <StatCard
     label='Cassa attuale'
     value={formatCurrency(totaleCassa)}
     sub={`Books ${formatCurrency(totaleBooks)} · Wallets ${formatCurrency(totaleWallets)}`}
     accent='#f59e0b'
   />
+
   <StatCard
     label='Prelievo del mese'
     value={formatCurrency(prelievoDelMese)}
     sub={`Letto da Stime di Cassa · ${currentMonthLabel()}`}
     accent='#ef4444'
   />
+
   <StatCard
     label='Cassa disponibile'
     value={formatCurrency(cassaDisponibile)}
-    sub='Cassa attuale - prelievo del mese'
+    sub='Cassa attuale - prelievo - royalty - risparmi'
     accent='#22c55e'
   />
 </div>
