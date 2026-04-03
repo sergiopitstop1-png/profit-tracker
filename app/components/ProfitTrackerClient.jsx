@@ -796,7 +796,7 @@ await loadData({ preserveMessages: true })
     if (!selectedBook) return setErrorMessage('Book non selezionato')
     const nuovoSaldo = Number(adjustSaldoForm.nuovo_saldo)
     if (Number.isNaN(nuovoSaldo) || nuovoSaldo < 0) return setErrorMessage('Inserisci un saldo valido')
-    if (!adjustSaldoForm.note.trim()) return setErrorMessage('Inserisci una nota per la correzione saldo')
+    
 
     const saldoPrecedente = Number(selectedBook.saldo || 0)
     const differenza = nuovoSaldo - saldoPrecedente
@@ -808,7 +808,7 @@ await loadData({ preserveMessages: true })
       tipo: 'correzione',
       importo: Math.abs(differenza),
       riferimento: `${selectedBook.nome} | ${formatCurrency(saldoPrecedente)} -> ${formatCurrency(nuovoSaldo)}`,
-      note: `Correzione saldo manuale. Delta: ${formatCurrency(differenza)}. Motivo: ${adjustSaldoForm.note.trim()}`,
+      note: `Correzione saldo manuale. Delta: ${formatCurrency(differenza)}${adjustSaldoForm.note.trim() ? `. Motivo: ${adjustSaldoForm.note.trim()}` : ''}`,
       azione: 'manual_balance_adjustment',
     })
     if (r.error) return setErrorMessage(`Errore correzione saldo: ${r.error.message}`)
@@ -834,11 +834,8 @@ async function handleAdjustWalletSaldoPrompt(wallet) {
     return
   }
 
-  const nota = window.prompt('Motivo correzione saldo wallet:')
-  if (nota === null || !nota.trim()) {
-    setErrorMessage('Inserisci una nota per la correzione saldo')
-    return
-  }
+ const nota = window.prompt('Motivo correzione saldo wallet:')
+if (nota === null) return
 
   const saldoPrecedente = Number(wallet.saldo || 0)
   const differenza = nuovoSaldo - saldoPrecedente
@@ -853,7 +850,7 @@ async function handleAdjustWalletSaldoPrompt(wallet) {
     tipo: 'correzione',
     importo: Math.abs(differenza),
     riferimento: `${wallet.nome} | ${formatCurrency(saldoPrecedente)} -> ${formatCurrency(nuovoSaldo)}`,
-    note: `Correzione saldo wallet manuale. Delta: ${formatCurrency(differenza)}. Motivo: ${nota.trim()}`,
+    note: `Correzione saldo wallet manuale. Delta: ${formatCurrency(differenza)}${nota.trim() ? `. Motivo: ${nota.trim()}` : ''}`,
     azione: 'manual_balance_adjustment_wallet',
   })
   if (r.error) {
@@ -872,9 +869,7 @@ async function handleAdjustWalletSaldoPrompt(wallet) {
   if (Number.isNaN(nuovoSaldo) || nuovoSaldo < 0) {
     return setErrorMessage('Inserisci un saldo valido')
   }
-  if (!adjustWalletSaldoForm.note.trim()) {
-    return setErrorMessage('Inserisci una nota per la correzione saldo')
-  }
+  
 
   const saldoPrecedente = Number(selectedWallet.saldo || 0)
   const differenza = nuovoSaldo - saldoPrecedente
@@ -886,7 +881,7 @@ async function handleAdjustWalletSaldoPrompt(wallet) {
     tipo: 'correzione',
     importo: Math.abs(differenza),
     riferimento: `${selectedWallet.nome} | ${formatCurrency(saldoPrecedente)} -> ${formatCurrency(nuovoSaldo)}`,
-    note: `Correzione saldo wallet manuale. Delta: ${formatCurrency(differenza)}. Motivo: ${adjustWalletSaldoForm.note.trim()}`,
+    note: `Correzione saldo wallet manuale. Delta: ${formatCurrency(differenza)}${adjustWalletSaldoForm.note.trim() ? `. Motivo: ${adjustWalletSaldoForm.note.trim()}` : ''}`,
     azione: 'manual_balance_adjustment_wallet',
   })
   if (r.error) return setErrorMessage(`Errore correzione saldo wallet: ${r.error.message}`)
