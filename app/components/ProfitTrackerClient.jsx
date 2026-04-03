@@ -1392,24 +1392,8 @@ const cassaDisponibile =
     ))}
 
   </div>
- 
-  <div style={{
-    fontSize: 14,
-    color: '#94a3b8',
-    marginBottom: 10,
-    letterSpacing: '1px'
-  }}>
-    ACCESSO RAPIDO
-  </div>
-
-  <div style={{
-    display: 'grid',
-    gridTemplateColumns: 'repeat(3, 1fr)',
-    gap: 12
-  }}>
-
-    {[/* NON SCRIVERE NIENTE */]}
-
+ </div>
+</div>
 
               <div style={heroSideGrid}>
   <div style={panel}>
