@@ -357,14 +357,25 @@ async function updateStimaCassa(id, field, value) {
 
   await loadData({ preserveMessages: true })
 }
-async function updateDashboardSetting(field, value) {
-  const raw = String(value || '')
+function parseEuroInput(value) {
+  let raw = String(value || '')
     .replace(/€/g, '')
     .replace(/\s/g, '')
-    .replace(/\./g, '')
-    .replace(',', '.')
 
-  const numericValue = Number(raw)
+  const hasDot = raw.includes('.')
+  const hasComma = raw.includes(',')
+
+  if (hasDot && hasComma) {
+    raw = raw.replace(/\./g, '').replace(',', '.')
+  } else if (hasComma) {
+    raw = raw.replace(',', '.')
+  }
+
+  return Number(raw)
+}
+
+async function updateDashboardSetting(field, value) {
+  const numericValue = parseEuroInput(value)
 
   if (Number.isNaN(numericValue)) {
     setErrorMessage('Inserisci un valore valido')
@@ -385,6 +396,7 @@ async function updateDashboardSetting(field, value) {
     ...prev,
     [field]: numericValue
   }))
+}
 }
  async function upsertRoyaltyEntry(accountId, year, value) {
   const existing = memoRoyaltyEntries.find(
