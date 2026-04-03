@@ -1411,7 +1411,7 @@ const cassaDisponibile =
       </div>
     </div>
 
-    <input
+   
      <div style={{ position: 'relative' }}>
   <input
     defaultValue={Number(accantonamentoRoyalty || 0).toLocaleString('it-IT', {
