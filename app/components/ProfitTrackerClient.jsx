@@ -1361,8 +1361,10 @@ const cassaDisponibile =
       { name: 'Eplay24', url: 'https://www.eplay24.it' },
       { name: 'NetBet', url: 'https://www.netbet.it' },
       { name: 'QuiGioco', url: 'https://www.quigioco.it' },
-
+    { name: 'Tradingview', url: 'https://it.tradingview.com/chart/QfJdmqCy/?symbol=OANDA%3AXAUUSD' },
+{ name: 'Broker Ultima', url: 'https://myaccount.ultimamarkets.com/login' },
       { name: 'Dutching', url: 'https://www.giochinazionali.com/scommesse-online/scommesse-sicure-calcolatore/' }
+    
     ].map((item, i) => (
       <div
         key={i}
