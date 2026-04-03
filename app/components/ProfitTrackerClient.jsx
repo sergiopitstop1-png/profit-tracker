@@ -1330,7 +1330,7 @@ const cassaDisponibile =
                   </div>
                 </div>
               </div>
-      <div>
+      
      <div style={{ marginTop: 20 }}>
   <div style={{
     fontSize: 14,
