@@ -1521,20 +1521,20 @@ const cassaDisponibile =
       }
     }}
     onKeyDown={(e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault()
-        updateDashboardSetting('risparmi_samu_massi', e.target.value)
-        const raw = String(e.target.value || '')
-          .replace(/€/g, '')
-          .replace(/\s/g, '')
-          .replace(/\./g, '')
-          .replace(',', '.')
-        const num = parseEuroInput(e.target.value)
-        }
-        e.target.blur()
-      }
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    updateDashboardSetting('risparmi_samu_massi', e.target.value)
+    const num = parseEuroInput(e.target.value)
+    if (!Number.isNaN(num)) {
+      e.target.value = num.toLocaleString('it-IT', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2
+      })
+    }
+    e.target.blur()
+  }
 
-      if (e.key === 'Escape') {
+  if (e.key === 'Escape') {
         e.target.value = Number(risparmiSamuMassi || 0).toLocaleString('it-IT', {
           minimumFractionDigits: 0,
           maximumFractionDigits: 2
