@@ -397,8 +397,7 @@ async function updateDashboardSetting(field, value) {
     [field]: numericValue
   }))
 }
-}
- async function upsertRoyaltyEntry(accountId, year, value) {
+async function upsertRoyaltyEntry(accountId, year, value) {
   const existing = memoRoyaltyEntries.find(
     (r) => Number(r.account_id) === Number(accountId) && Number(r.anno) === Number(year)
   )
