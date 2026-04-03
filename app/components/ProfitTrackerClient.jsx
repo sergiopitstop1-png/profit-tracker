@@ -1451,12 +1451,7 @@ const cassaDisponibile =
       if (e.key === 'Enter') {
         e.preventDefault()
         updateDashboardSetting('accantonamento_royalty', e.target.value)
-        const raw = String(e.target.value || '')
-          .replace(/€/g, '')
-          .replace(/\s/g, '')
-          .replace(/\./g, '')
-          .replace(',', '.')
-        const num = Number(raw)
+        const num = parseEuroInput(e.target.value)
         if (!Number.isNaN(num)) {
           e.target.value = num.toLocaleString('it-IT', {
             minimumFractionDigits: 0,
@@ -1517,12 +1512,7 @@ const cassaDisponibile =
     }}
     onBlur={(e) => {
       updateDashboardSetting('risparmi_samu_massi', e.target.value)
-      const raw = String(e.target.value || '')
-        .replace(/€/g, '')
-        .replace(/\s/g, '')
-        .replace(/\./g, '')
-        .replace(',', '.')
-      const num = Number(raw)
+      const num = parseEuroInput(e.target.value)
       if (!Number.isNaN(num)) {
         e.target.value = num.toLocaleString('it-IT', {
           minimumFractionDigits: 0,
@@ -1539,12 +1529,7 @@ const cassaDisponibile =
           .replace(/\s/g, '')
           .replace(/\./g, '')
           .replace(',', '.')
-        const num = Number(raw)
-        if (!Number.isNaN(num)) {
-          e.target.value = num.toLocaleString('it-IT', {
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 2
-          })
+        const num = parseEuroInput(e.target.value)
         }
         e.target.blur()
       }
