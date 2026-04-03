@@ -1330,7 +1330,7 @@ const cassaDisponibile =
                 </div>
               </div>
       
-</div>
+
 
               <div style={heroSideGrid}>
   <div style={panel}>
@@ -1473,6 +1473,7 @@ const cassaDisponibile =
       </div>
     ))}
 
+  </div>
   </div>
             <div style={dashboardGrid}>
 <div style={panel}>
