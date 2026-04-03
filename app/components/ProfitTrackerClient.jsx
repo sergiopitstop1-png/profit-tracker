@@ -1314,7 +1314,8 @@ const cassaDisponibile =
     </div>
 
     <div style={heroGrid}>
-              <div style={heroCard}>
+  <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={heroCard}>
                 <div style={heroLabel}>Panoramica mese</div>
                 <div style={heroValue}>{formatCurrency(guadagnoCorrente)}</div>
                 <div style={heroSub}>Profitto al netto dei prelievi esterni</div>
@@ -1329,7 +1330,85 @@ const cassaDisponibile =
                   </div>
                 </div>
               </div>
-      
+      <div>
+     <div style={{ marginTop: 20 }}>
+  <div style={{
+    fontSize: 14,
+    color: '#94a3b8',
+    marginBottom: 10,
+    letterSpacing: '1px'
+  }}>
+    ACCESSO RAPIDO
+  </div>
+
+  <div style={{
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, 1fr)',
+    gap: 12
+  }}>
+
+    {[
+      { name: 'A.d.P.', url: 'https://accademiadelprofitto.com/matcher/#/matcher' },
+
+      { name: 'Bet365', url: 'https://bet365.it/#/HO/' },
+      { name: 'Sisal', url: 'https://www.sisal.it' },
+      { name: 'Eurobet', url: 'https://www.eurobet.it/it/' },
+      { name: 'Snai', url: 'https://www.snai.it/home' },
+      { name: 'Lottomatica', url: 'https://www.lottomatica.it' },
+      { name: 'Planetwin365', url: 'https://www.planetwin365.it/scommesse/sport/' },
+      { name: 'PokerStars', url: 'https://www.pokerstars.it' },
+      { name: 'DaznBet', url: 'https://www.daznbet.it' },
+      { name: 'Eplay24', url: 'https://www.eplay24.it' },
+      { name: 'NetBet', url: 'https://www.netbet.it' },
+      { name: 'QuiGioco', url: 'https://www.quigioco.it' },
+
+      { name: 'Dutching', url: 'https://www.giochinazionali.com/scommesse-online/scommesse-sicure-calcolatore/' }
+    ].map((item, i) => (
+      <div
+        key={i}
+        onClick={() => window.open(item.url, '_blank')}
+        style={{
+          background: '#020617',
+          border: '1px solid #1e293b',
+          borderRadius: 12,
+          padding: '12px 10px',
+          textAlign: 'center',
+          cursor: 'pointer',
+          transition: '0.2s',
+          fontWeight: 600,
+          color: '#e2e8f0'
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.border = '1px solid #38bdf8'
+          e.currentTarget.style.transform = 'translateY(-2px)'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.border = '1px solid #1e293b'
+          e.currentTarget.style.transform = 'translateY(0px)'
+        }}
+      >
+        {item.name}
+      </div>
+    ))}
+
+  </div>
+ 
+  <div style={{
+    fontSize: 14,
+    color: '#94a3b8',
+    marginBottom: 10,
+    letterSpacing: '1px'
+  }}>
+    ACCESSO RAPIDO
+  </div>
+
+  <div style={{
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, 1fr)',
+    gap: 12
+  }}>
+
+    {[/* NON SCRIVERE NIENTE */]}
 
 
               <div style={heroSideGrid}>
@@ -1413,68 +1492,7 @@ const cassaDisponibile =
   />
 </div>
     </div>
-<div style={{ marginTop: 20 }}>
-  <div style={{
-    fontSize: 14,
-    color: '#94a3b8',
-    marginBottom: 10,
-    letterSpacing: '1px'
-  }}>
-    ACCESSO RAPIDO
-  </div>
 
-  <div style={{
-    display: 'grid',
-    gridTemplateColumns: 'repeat(3, 1fr)',
-    gap: 12
-  }}>
-
-    {[
-      { name: 'A.d.P.', url: 'https://accademiadelprofitto.com/matcher/#/matcher' },
-
-      { name: 'Bet365', url: 'https://bet365.it/#/HO/' },
-      { name: 'Sisal', url: 'https://www.sisal.it' },
-      { name: 'Eurobet', url: 'https://www.eurobet.it/it/' },
-      { name: 'Snai', url: 'https://www.snai.it/home' },
-      { name: 'Lottomatica', url: 'https://www.lottomatica.it' },
-      { name: 'Planetwin365', url: 'https://www.planetwin365.it/scommesse/sport/' },
-      { name: 'PokerStars', url: 'https://www.pokerstars.it' },
-      { name: 'DaznBet', url: 'https://www.daznbet.it' },
-      { name: 'Eplay24', url: 'https://www.eplay24.it' },
-      { name: 'NetBet', url: 'https://www.netbet.it' },
-      { name: 'QuiGioco', url: 'https://www.quigioco.it' },
-
-      { name: 'Dutching', url: 'https://www.giochinazionali.com/scommesse-online/scommesse-sicure-calcolatore/' }
-    ].map((item, i) => (
-      <div
-        key={i}
-        onClick={() => window.open(item.url, '_blank')}
-        style={{
-          background: '#020617',
-          border: '1px solid #1e293b',
-          borderRadius: 12,
-          padding: '12px 10px',
-          textAlign: 'center',
-          cursor: 'pointer',
-          transition: '0.2s',
-          fontWeight: 600,
-          color: '#e2e8f0'
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.border = '1px solid #38bdf8'
-          e.currentTarget.style.transform = 'translateY(-2px)'
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.border = '1px solid #1e293b'
-          e.currentTarget.style.transform = 'translateY(0px)'
-        }}
-      >
-        {item.name}
-      </div>
-    ))}
-
-  </div>
-  </div>
             <div style={dashboardGrid}>
 <div style={panel}>
   <div style={panelHeader}>
