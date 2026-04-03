@@ -1426,7 +1426,7 @@ const cassaDisponibile =
      <div style={{ position: 'relative' }}>
   <input
     defaultValue={Number(accantonamentoRoyalty || 0).toLocaleString('it-IT', {
-      minimumFractionDigits: 0,
+      minimumFractionDigits: 2,
       maximumFractionDigits: 2
     })}
     onFocus={(e) => {
@@ -1504,9 +1504,9 @@ const cassaDisponibile =
     <div style={{ position: 'relative' }}>
   <input
     defaultValue={Number(risparmiSamuMassi || 0).toLocaleString('it-IT', {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2
-    })}
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2
+})}
     onFocus={(e) => {
       e.target.value = String(risparmiSamuMassi ?? 0).replace('.', ',')
     }}
