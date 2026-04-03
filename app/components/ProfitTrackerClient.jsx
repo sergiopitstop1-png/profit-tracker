@@ -159,7 +159,7 @@ useEffect(() => {
   memoRoyaltyEntriesRes,
   memoSavingsRowsRes,
   memoFutureNotesRes,
-  memoFreeBoxesRes
+  memoFreeBoxesRes,
      dashboardSettingsRes,
 ] = await Promise.all([
   supabase.from('books').select('*').order('id', { ascending: true }),
