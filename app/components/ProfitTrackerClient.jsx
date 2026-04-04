@@ -1140,13 +1140,17 @@ const totaleUsciteEsterne = ultimoSnapshot
 const guadagnoCorrente =
   (totaleCassa - basePeriodo) + totaleUsciteEsterne
   
-  const filteredBooks = useMemo(() => books.filter((book) => {
-    const nomeMatch = (book.nome || '').toLowerCase().includes(bookFilters.nome.toLowerCase())
-    const intestatarioMatch = (book.intestatario || '').toLowerCase().includes(bookFilters.intestatario.toLowerCase())
-    const saldoMinMatch = bookFilters.saldoMin === '' ? true : Number(book.saldo || 0) >= Number(bookFilters.saldoMin)
-    const saldoMaxMatch = bookFilters.saldoMax === '' ? true : Number(book.saldo || 0) <= Number(bookFilters.saldoMax)
-    return nomeMatch && intestatarioMatch && saldoMinMatch && saldoMaxMatch
-  }), [books, bookFilters])
+  const filteredBooks = useMemo(() =>
+  books
+    .filter((book) => {
+      const nomeMatch = (book.nome || '').toLowerCase().includes(bookFilters.nome.toLowerCase())
+      const intestatarioMatch = (book.intestatario || '').toLowerCase().includes(bookFilters.intestatario.toLowerCase())
+      const saldoMinMatch = bookFilters.saldoMin === '' ? true : Number(book.saldo || 0) >= Number(bookFilters.saldoMin)
+      const saldoMaxMatch = bookFilters.saldoMax === '' ? true : Number(book.saldo || 0) <= Number(bookFilters.saldoMax)
+      return nomeMatch && intestatarioMatch && saldoMinMatch && saldoMaxMatch
+    })
+    .sort((a, b) => Number(b.saldo || 0) - Number(a.saldo || 0))
+, [books, bookFilters])
 
   const filteredWallets = useMemo(() => wallets.filter((wallet) => {
     const nomeMatch = (wallet.nome || '').toLowerCase().includes(walletFilters.nome.toLowerCase())
