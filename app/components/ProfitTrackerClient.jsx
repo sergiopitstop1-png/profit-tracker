@@ -1598,7 +1598,7 @@ const cassaDisponibile =
 <div style={panel}>
   <div style={panelHeader}>
     <div>
-      <h2 style={panelTitle}>Andamento settimanale</h2>
+      <h2 style={panelTitle}>Andamento Profitti - Cassa </h2>
       <p style={panelSubtitle}>Profitto nel tempo</p>
     </div>
   </div>
