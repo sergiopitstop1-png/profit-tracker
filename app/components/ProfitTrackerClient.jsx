@@ -1343,7 +1343,17 @@ const cassaDisponibile =
     <div style={heroCard}>
                 <div style={heroLabel}>Panoramica mese</div>
                 <div style={heroValue}>{formatCurrency(guadagnoCorrente)}</div>
-                <div style={heroSub}>Profitto al netto dei prelievi esterni</div>
+               <div style={{
+  ...heroSub,
+  fontSize: 26,
+  fontWeight: 800,
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8
+}}>
+  <span style={{ fontSize: 30 }}>💰</span>
+  <span>PROFITTO</span>
+</div>
                 <div style={heroMiniRow}>
                   <div style={heroMiniBox}>
                     <div style={heroMiniLabel}>Cassa di partenza</div>
