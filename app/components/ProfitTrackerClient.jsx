@@ -1152,13 +1152,17 @@ const guadagnoCorrente =
     .sort((a, b) => Number(b.saldo || 0) - Number(a.saldo || 0))
 , [books, bookFilters])
 
-  const filteredWallets = useMemo(() => wallets.filter((wallet) => {
-    const nomeMatch = (wallet.nome || '').toLowerCase().includes(walletFilters.nome.toLowerCase())
-    const intestatarioMatch = (wallet.intestatario || '').toLowerCase().includes(walletFilters.intestatario.toLowerCase())
-    const saldoMinMatch = walletFilters.saldoMin === '' ? true : Number(wallet.saldo || 0) >= Number(walletFilters.saldoMin)
-    const saldoMaxMatch = walletFilters.saldoMax === '' ? true : Number(wallet.saldo || 0) <= Number(walletFilters.saldoMax)
-    return nomeMatch && intestatarioMatch && saldoMinMatch && saldoMaxMatch
-  }), [wallets, walletFilters])
+  const filteredWallets = useMemo(() =>
+  wallets
+    .filter((wallet) => {
+      const nomeMatch = (wallet.nome || '').toLowerCase().includes(walletFilters.nome.toLowerCase())
+      const intestatarioMatch = (wallet.intestatario || '').toLowerCase().includes(walletFilters.intestatario.toLowerCase())
+      const saldoMinMatch = walletFilters.saldoMin === '' ? true : Number(wallet.saldo || 0) >= Number(walletFilters.saldoMin)
+      const saldoMaxMatch = walletFilters.saldoMax === '' ? true : Number(wallet.saldo || 0) <= Number(walletFilters.saldoMax)
+      return nomeMatch && intestatarioMatch && saldoMinMatch && saldoMaxMatch
+    })
+    .sort((a, b) => Number(b.saldo || 0) - Number(a.saldo || 0))
+, [wallets, walletFilters])
 
   const filteredTransactions = useMemo(() => transactions.filter((tx) => {
     const tipoMatch = txFilters.tipo ? tx.tipo === txFilters.tipo : true
