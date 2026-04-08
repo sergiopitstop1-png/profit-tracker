@@ -965,7 +965,7 @@ if (nota === null) return
 })
       if (r.error) return setErrorMessage(r.error.message)
     } else {
-      if (Number(book.saldo || 0) < importo) return setErrorMessage('Saldo book insufficiente')
+      // book_to_wallet: il book può andare in negativo, nessun controllo saldo
       r = await updateSaldo('books', book.id, Number(book.saldo) - importo)
       if (r.error) return setErrorMessage(r.error.message)
       r = await updateSaldo('wallets', wallet.id, Number(wallet.saldo) + importo)
@@ -1055,7 +1055,7 @@ if (nota === null) return
         const wallet = wallets.find((w) => String(w.id) === String(txForm.a_id))
         if (!book || !wallet) return setErrorMessage('Book o wallet non trovato')
         if (!isSameOwner(book.intestatario, wallet.intestatario)) return setErrorMessage('Book e wallet hanno intestatari diversi')
-        if (Number(book.saldo || 0) < importo) return setErrorMessage('Saldo book insufficiente')
+        
 
         r = await updateSaldo('books', book.id, Number(book.saldo) - importo)
         if (r.error) return setErrorMessage(r.error.message)
