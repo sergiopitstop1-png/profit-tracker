@@ -1443,12 +1443,9 @@ const cassaDisponibile =
    
      <div style={{ position: 'relative' }}>
   <input
-    defaultValue={Number(accantonamentoRoyalty || 0).toLocaleString('it-IT', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    })}
+    defaultValue={Number(accantonamentoRoyalty || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'}
     onFocus={(e) => {
-      e.target.value = String(accantonamentoRoyalty ?? 0).replace('.', ',')
+      e.target.value = Number(accantonamentoRoyalty ?? 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     }}
     onBlur={(e) => {
       updateDashboardSetting('accantonamento_royalty', e.target.value)
@@ -1460,9 +1457,9 @@ const cassaDisponibile =
       const num = Number(raw)
       if (!Number.isNaN(num)) {
         e.target.value = num.toLocaleString('it-IT', {
-          minimumFractionDigits: 0,
-          maximumFractionDigits: 2
-        })
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2
+}) + ' €'
       }
     }}
     onKeyDown={(e) => {
@@ -1472,18 +1469,18 @@ const cassaDisponibile =
         const num = parseEuroInput(e.target.value)
         if (!Number.isNaN(num)) {
           e.target.value = num.toLocaleString('it-IT', {
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 2
-          })
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2
+}) + ' €'
         }
         e.target.blur()
       }
 
       if (e.key === 'Escape') {
         e.target.value = Number(accantonamentoRoyalty || 0).toLocaleString('it-IT', {
-          minimumFractionDigits: 0,
-          maximumFractionDigits: 2
-        })
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2
+}) + ' €'
         e.target.blur()
       }
     }}
@@ -1495,20 +1492,7 @@ const cassaDisponibile =
     }}
   />
 
-  <span
-    style={{
-      position: 'absolute',
-      right: 15,
-      top: '50%',
-      transform: 'translateY(-50%)',
-      color: '#94a3b8',
-      fontSize: 22,
-      fontWeight: 800,
-      pointerEvents: 'none'
-    }}
-  >
-    €
-  </span>
+  
 </div>
   </div>
 
@@ -1526,7 +1510,7 @@ const cassaDisponibile =
   maximumFractionDigits: 2
 })}
     onFocus={(e) => {
-      e.target.value = String(risparmiSamuMassi ?? 0).replace('.', ',')
+      e.target.value = Number(risparmiSamuMassi ?? 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     }}
     onBlur={(e) => {
       updateDashboardSetting('risparmi_samu_massi', e.target.value)
