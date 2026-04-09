@@ -1832,10 +1832,21 @@ const cassaDisponibile =
 
                   <div style={stimeVoceCol}>
                     <input
-                      value={row.voce || ''}
-                      onChange={(e) => updateStimaCassa(row.id, 'voce', e.target.value)}
-                      style={stimeMiniInput}
-                    />
+  defaultValue={row.voce || ''}
+  onBlur={(e) => updateStimaCassa(row.id, 'voce', e.target.value)}
+  onKeyDown={(e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      updateStimaCassa(row.id, 'voce', e.target.value)
+      e.target.blur()
+    }
+    if (e.key === 'Escape') {
+      e.target.value = row.voce || ''
+      e.target.blur()
+    }
+  }}
+  style={stimeMiniInput}
+/>
                   </div>
                 </div>
               ))}
