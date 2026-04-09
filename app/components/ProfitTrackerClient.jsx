@@ -1507,7 +1507,7 @@ const cassaDisponibile =
   <input
     defaultValue={Number(risparmiSamuMassi || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'}
     onFocus={(e) => {
-      e.target.value = Number(risparmiSamuMassi ?? 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      e.target.value = Number(risparmiSamuMassi ?? 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
     }}
     onBlur={(e) => {
       updateDashboardSetting('risparmi_samu_massi', e.target.value)
