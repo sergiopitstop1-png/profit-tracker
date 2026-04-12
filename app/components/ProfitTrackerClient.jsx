@@ -317,7 +317,7 @@ useEffect(() => {
 async function handleVoiceCommand(transcript) {
   setVoiceStatus('Elaborazione...')
   try {
-    const response = await fetch(''/api/voice'', {
+    const response = await fetch('/api/voice', {
       method: 'POST',
       headers: { 
   'Content-Type': 'application/json',
