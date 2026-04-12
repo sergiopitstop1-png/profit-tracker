@@ -320,7 +320,7 @@ function isSameOwner(a, b) {
 
   function clearTxFilters() {
   setTxFilters({ tipo: '', azione: '', testo: '', importoMin: '', importoMax: '', dataFrom: '', dataTo: '' })
-
+}
   async function updateNote(table, id, newNote) {
     const { error } = await supabase.from(table).update({ note: newNote }).eq('id', id)
     if (error) setErrorMessage(`Errore aggiornamento note ${table}`)
