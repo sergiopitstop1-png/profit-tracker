@@ -435,12 +435,12 @@ function startListening() {
 
 // riferimento al recognizer continuo per poterlo fermare
 const continuousRecRef = React.useRef(null)
-
+ const listBufferRef = React.useRef('') 
 function startContinuousListening() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition
   if (!SR) { speak('Microfono non supportato'); return }
 
-  let buffer = ''
+  listBufferRef.current = ''
   setListBuffer('')
   setIsListeningContinuous(true)
   setVoiceStatus('🔴 Modalità lista attiva — parla, poi di\' "fatto"')
@@ -462,16 +462,16 @@ function startContinuousListening() {
         setIsListeningContinuous(false)
         setVoiceStatus('Elaborazione lista...')
         speak('Perfetto, elaboro la lista.')
-        handleVoiceCommand(buffer.trim())
-        buffer = ''
+        handleVoiceCommand(listBufferRef.current.trim())
+listBufferRef.current = ''
         setListBuffer('')
         return
       }
 
       // accumula nel buffer
-      buffer = buffer ? buffer + ', ' + t : t
-      setListBuffer(buffer)
-      setVoiceStatus(`🔴 In ascolto... (${buffer})`)
+     listBufferRef.current = listBufferRef.current ? listBufferRef.current + ', ' + t : t
+setListBuffer(listBufferRef.current)
+setVoiceStatus(`🔴 In ascolto... (${listBufferRef.current})`)
     }
 
     rec.onerror = (e) => {
