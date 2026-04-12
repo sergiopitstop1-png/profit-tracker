@@ -70,6 +70,8 @@ const [memoForm, setMemoForm] = useState({ data_reale: '', data_testo: '', impor
 const [isListening, setIsListening] = useState(false)
 const [voiceTranscript, setVoiceTranscript] = useState('')
 const [voiceStatus, setVoiceStatus] = useState('')
+  const [isListeningContinuous, setIsListeningContinuous] = useState(false)
+const [listBuffer, setListBuffer] = useState('')
   useEffect(() => {
   initSession()
   loadData()
@@ -424,6 +426,75 @@ function startListening() {
   rec.onerror = () => { setIsListening(false); setVoiceStatus('Errore microfono') }
   rec.onend = () => setIsListening(false)
   rec.start()
+}
+
+// riferimento al recognizer continuo per poterlo fermare
+const continuousRecRef = React.useRef(null)
+
+function startContinuousListening() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+  if (!SR) { speak('Microfono non supportato'); return }
+
+  let buffer = ''
+  setListBuffer('')
+  setIsListeningContinuous(true)
+  setVoiceStatus('🔴 Modalità lista attiva — parla, poi di\' "fatto"')
+  speak('Modalità lista attiva. Parla e di\' fatto quando hai finito.')
+
+  function avvia() {
+    const rec = new SR()
+    continuousRecRef.current = rec
+    rec.lang = 'it-IT'
+    rec.interimResults = false
+    rec.maxAlternatives = 1
+
+    rec.onresult = (e) => {
+      const t = e.results[0][0].transcript.trim()
+      setVoiceTranscript(t)
+
+      if (t.toLowerCase().includes('fatto') || t.toLowerCase().includes('fine')) {
+        // ha detto "fatto" → processa tutto il buffer
+        setIsListeningContinuous(false)
+        setVoiceStatus('Elaborazione lista...')
+        speak('Perfetto, elaboro la lista.')
+        handleVoiceCommand(buffer.trim())
+        buffer = ''
+        setListBuffer('')
+        return
+      }
+
+      // accumula nel buffer
+      buffer = buffer ? buffer + ', ' + t : t
+      setListBuffer(buffer)
+      setVoiceStatus(`🔴 In ascolto... (${buffer})`)
+    }
+
+    rec.onerror = (e) => {
+      if (e.error === 'no-speech') {
+        // silenzio temporaneo — riavvia automaticamente
+        if (continuousRecRef.current) avvia()
+        return
+      }
+      setIsListeningContinuous(false)
+      setVoiceStatus('Errore microfono')
+    }
+
+    rec.onend = () => {
+      // riavvia automaticamente se ancora in modalità lista
+      if (continuousRecRef.current) avvia()
+    }
+
+    rec.start()
+  }
+
+  avvia()
+}
+
+function stopContinuousListening() {
+  continuousRecRef.current = null
+  setIsListeningContinuous(false)
+  setListBuffer('')
+  setVoiceStatus('Modalità lista interrotta')
 }
   async function addMemoFutureNote() {
   if (!memoForm.descrizione.trim()) { setErrorMessage('Inserisci almeno la descrizione'); return }
@@ -2760,28 +2831,60 @@ const cassaDisponibile =
 )}
  {/* MICROFONO VOCALE - fisso in basso a destra */}
 <div style={{ position: 'fixed', bottom: 28, right: 28, zIndex: 2000, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10 }}>
-  {(voiceTranscript || voiceStatus) && (
-    <div style={{ background: 'rgba(15,23,42,0.97)', border: '1px solid rgba(56,189,248,0.35)', borderRadius: 16, padding: '12px 16px', maxWidth: 320, boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
+  {(voiceTranscript || voiceStatus || listBuffer) && (
+    <div style={{ background: 'rgba(15,23,42,0.97)', border: '1px solid rgba(56,189,248,0.35)', borderRadius: 16, padding: '12px 16px', maxWidth: 340, boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
+      {listBuffer && <div style={{ fontSize: 12, color: '#fde68a', marginBottom: 6, lineHeight: 1.4 }}>📋 {listBuffer}</div>}
       {voiceTranscript && <div style={{ fontSize: 13, color: '#7dd3fc', marginBottom: 4 }}>"{voiceTranscript}"</div>}
       {voiceStatus && <div style={{ fontSize: 13, color: '#e2e8f0', fontWeight: 700 }}>{voiceStatus}</div>}
     </div>
   )}
-  <button
-    onClick={startListening}
-    style={{
-      width: 60, height: 60, borderRadius: 999, border: 'none', cursor: 'pointer',
-      background: isListening
-        ? 'linear-gradient(135deg, #dc2626, #ef4444)'
-        : 'linear-gradient(135deg, #2563eb, #38bdf8)',
-      boxShadow: isListening ? '0 0 0 6px rgba(239,68,68,0.3)' : '0 8px 24px rgba(37,99,235,0.4)',
-      fontSize: 26, display: 'flex', alignItems: 'center', justifyContent: 'center',
-      transition: 'all 0.2s'
-    }}
-    title='Comando vocale'
-  >
-    🎤
-  </button>
-</div>       
+  <div style={{ display: 'flex', gap: 10 }}>
+    {isListeningContinuous ? (
+      <button
+        onClick={stopContinuousListening}
+        style={{
+          width: 60, height: 60, borderRadius: 999, border: 'none', cursor: 'pointer',
+          background: 'linear-gradient(135deg, #dc2626, #ef4444)',
+          boxShadow: '0 0 0 6px rgba(239,68,68,0.3)',
+          fontSize: 22, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          transition: 'all 0.2s'
+        }}
+        title='Ferma modalità lista'
+      >
+        ⏹️
+      </button>
+    ) : (
+      <button
+        onClick={startContinuousListening}
+        style={{
+          width: 60, height: 60, borderRadius: 999, border: 'none', cursor: 'pointer',
+          background: 'linear-gradient(135deg, #7c3aed, #a855f7)',
+          boxShadow: '0 8px 24px rgba(124,58,237,0.4)',
+          fontSize: 22, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          transition: 'all 0.2s'
+        }}
+        title='Modalità lista (continua fino a "fatto")'
+      >
+        📋
+      </button>
+    )}
+    <button
+      onClick={startListening}
+      style={{
+        width: 60, height: 60, borderRadius: 999, border: 'none', cursor: 'pointer',
+        background: isListening
+          ? 'linear-gradient(135deg, #dc2626, #ef4444)'
+          : 'linear-gradient(135deg, #2563eb, #38bdf8)',
+        boxShadow: isListening ? '0 0 0 6px rgba(239,68,68,0.3)' : '0 8px 24px rgba(37,99,235,0.4)',
+        fontSize: 26, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        transition: 'all 0.2s'
+      }}
+      title='Comando singolo'
+    >
+      🎤
+    </button>
+  </div>
+</div>
  </div>    
   </div>     
     )
