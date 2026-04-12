@@ -277,11 +277,12 @@ function isSameOwner(a, b) {
 }
 
   function formatDate(value) {
-    if (!value) return '-'
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return value
-    return date.toLocaleString('it-IT')
-  }
+  if (!value) return '-'
+  const normalized = value.endsWith('Z') || value.includes('+') ? value : value + 'Z'
+  const date = new Date(normalized)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('it-IT')
+}
 
   function currentMonthLabel(dateValue = new Date()) {
     const date = new Date(dateValue)
