@@ -317,11 +317,11 @@ useEffect(() => {
 async function handleVoiceCommand(transcript) {
   setVoiceStatus('Elaborazione...')
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetch(''/api/voice'', {
       method: 'POST',
       headers: { 
   'Content-Type': 'application/json',
-  'x-api-key': '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',
+ 'x-api-key': process.env.NEXT_PUBLIC_ANTHROPIC_API_KEY,
   'anthropic-version': '2023-06-01'
 },
       body: JSON.stringify({
