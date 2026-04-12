@@ -551,8 +551,8 @@ function startContinuousListening() {
         const testo = data.text || ''
         setVoiceTranscript(testo)
         setListBuffer(testo)
-        setVoiceStatus('Elaborazione comando...')
-        await handleVoiceCommand(correggiTrascrizione(testo))
+        setVoiceStatus('Trascritto: ' + testo)
+await handleVoiceCommand(correggiTrascrizione(testo))
       } catch (err) {
         setVoiceStatus('Errore trascrizione: ' + err.message)
         speak('Errore nella trascrizione')
