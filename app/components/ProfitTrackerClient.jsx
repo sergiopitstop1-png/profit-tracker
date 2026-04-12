@@ -65,7 +65,7 @@ const [stimaForm, setStimaForm] = useState({
 
   const [bookFilters, setBookFilters] = useState({ nome: '', intestatario: '', saldoMin: '', saldoMax: '' })
   const [walletFilters, setWalletFilters] = useState({ nome: '', intestatario: '', saldoMin: '', saldoMax: '' })
-  const [txFilters, setTxFilters] = useState({ tipo: '', azione: '', testo: '', importoMin: '', importoMax: '' })
+  const [txFilters, setTxFilters] = useState({ tipo: '', azione: '', testo: '', importoMin: '', importoMax: '', dataFrom: '', dataTo: '' })
 
   useEffect(() => {
   initSession()
@@ -319,8 +319,7 @@ function isSameOwner(a, b) {
   }
 
   function clearTxFilters() {
-    setTxFilters({ tipo: '', azione: '', testo: '', importoMin: '', importoMax: '' })
-  }
+  setTxFilters({ tipo: '', azione: '', testo: '', importoMin: '', importoMax: '', dataFrom: '', dataTo: '' })
 
   async function updateNote(table, id, newNote) {
     const { error } = await supabase.from(table).update({ note: newNote }).eq('id', id)
@@ -1165,14 +1164,17 @@ const guadagnoCorrente =
 , [wallets, walletFilters])
 
   const filteredTransactions = useMemo(() => transactions.filter((tx) => {
-    const tipoMatch = txFilters.tipo ? tx.tipo === txFilters.tipo : true
-    const azioneMatch = txFilters.azione ? (tx.azione || '') === txFilters.azione : true
-    const text = `${tx.riferimento || ''} ${tx.note || ''} ${tx.azione || ''}`.toLowerCase()
-    const testoMatch = text.includes(txFilters.testo.toLowerCase())
-    const importoMinMatch = txFilters.importoMin === '' ? true : Number(tx.importo || 0) >= Number(txFilters.importoMin)
-    const importoMaxMatch = txFilters.importoMax === '' ? true : Number(tx.importo || 0) <= Number(txFilters.importoMax)
-    return tipoMatch && azioneMatch && testoMatch && importoMinMatch && importoMaxMatch
-  }), [transactions, txFilters])
+  const tipoMatch = txFilters.tipo ? tx.tipo === txFilters.tipo : true
+  const azioneMatch = txFilters.azione ? (tx.azione || '') === txFilters.azione : true
+  const text = `${tx.riferimento || ''} ${tx.note || ''} ${tx.azione || ''}`.toLowerCase()
+  const testoMatch = text.includes(txFilters.testo.toLowerCase())
+  const importoMinMatch = txFilters.importoMin === '' ? true : Number(tx.importo || 0) >= Number(txFilters.importoMin)
+  const importoMaxMatch = txFilters.importoMax === '' ? true : Number(tx.importo || 0) <= Number(txFilters.importoMax)
+  const txDate = tx.data ? new Date(tx.data) : null
+  const dataFromMatch = txFilters.dataFrom === '' ? true : txDate && txDate >= new Date(txFilters.dataFrom + 'T00:00:00')
+  const dataToMatch = txFilters.dataTo === '' ? true : txDate && txDate <= new Date(txFilters.dataTo + 'T23:59:59')
+  return tipoMatch && azioneMatch && testoMatch && importoMinMatch && importoMaxMatch && dataFromMatch && dataToMatch
+}), [transactions, txFilters])
 const stimeCassaByMonth = useMemo(() => {
   const grouped = stimeCassa.reduce((acc, row) => {
     const anno = Number(row.anno)
@@ -1835,6 +1837,7 @@ const cassaDisponibile =
                 <input value={bookFilters.intestatario} onChange={(e) => setBookFilters({ ...bookFilters, intestatario: e.target.value })} placeholder='Filtra per intestatario...' style={filterInput} />
                 <input value={bookFilters.saldoMin} onChange={(e) => setBookFilters({ ...bookFilters, saldoMin: e.target.value })} placeholder='Saldo min' style={filterInput} />
                 <input value={bookFilters.saldoMax} onChange={(e) => setBookFilters({ ...bookFilters, saldoMax: e.target.value })} placeholder='Saldo max' style={filterInput} />
+                
                 <button type='button' style={secondaryButton} onClick={clearBookFilters}>Pulisci</button>
               </div>
               <div style={tableWrap}>
@@ -1922,6 +1925,8 @@ const cassaDisponibile =
                   <input value={txFilters.importoMin} onChange={(e) => setTxFilters({ ...txFilters, importoMin: e.target.value })} placeholder='Importo min' style={filterInput} />
                   <input value={txFilters.importoMax} onChange={(e) => setTxFilters({ ...txFilters, importoMax: e.target.value })} placeholder='Importo max' style={filterInput} />
                   <input value={txFilters.testo} onChange={(e) => setTxFilters({ ...txFilters, testo: e.target.value })} placeholder='Cerca in riferimento, note, azione...' style={filterInputWide} />
+                  <input type='date' value={txFilters.dataFrom} onChange={(e) => setTxFilters({ ...txFilters, dataFrom: e.target.value })} style={filterInput} title='Data dal' />
+<input type='date' value={txFilters.dataTo} onChange={(e) => setTxFilters({ ...txFilters, dataTo: e.target.value })} style={filterInput} title='Data al' />
                   <button type='button' style={secondaryButton} onClick={clearTxFilters}>Pulisci</button>
                 </div>
                 <div style={tableWrap}>
