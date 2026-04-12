@@ -340,9 +340,10 @@ Wallets disponibili: ${wallets.map(w => w.nome + ' (' + w.intestatario + ')').jo
     const cmd = JSON.parse(clean)
     await executeVoiceCommand(cmd, transcript)
   } catch (err) {
-    setVoiceStatus('Errore interpretazione comando')
-    speak('Non ho capito il comando, riprova')
-  }
+  setVoiceStatus('Errore: ' + err.message)
+  speak('Errore')
+  console.error('Voice error:', err)
+}
 }
 
 async function executeVoiceCommand(cmd) {
