@@ -66,7 +66,10 @@ const [stimaForm, setStimaForm] = useState({
   const [bookFilters, setBookFilters] = useState({ nome: '', intestatario: '', saldoMin: '', saldoMax: '' })
   const [walletFilters, setWalletFilters] = useState({ nome: '', intestatario: '', saldoMin: '', saldoMax: '' })
   const [txFilters, setTxFilters] = useState({ tipo: '', azione: '', testo: '', importoMin: '', importoMax: '', dataFrom: '', dataTo: '' })
-
+const [memoForm, setMemoForm] = useState({ data_reale: '', data_testo: '', importo: '', descrizione: '', colore: 'normal' })
+const [isListening, setIsListening] = useState(false)
+const [voiceTranscript, setVoiceTranscript] = useState('')
+const [voiceStatus, setVoiceStatus] = useState('')
   useEffect(() => {
   initSession()
   loadData()
@@ -283,7 +286,166 @@ function isSameOwner(a, b) {
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleString('it-IT')
 }
+function speak(text) {
+  if (!window.speechSynthesis) return
+  window.speechSynthesis.cancel()
+  const utt = new SpeechSynthesisUtterance(text)
+  utt.lang = 'it-IT'
+  utt.rate = 0.95
+  window.speechSynthesis.speak(utt)
+}
 
+useEffect(() => {
+  if (memoFutureNotes.length === 0) return
+  const oggi = new Date()
+  const scadenzeProssime = memoFutureNotes.filter(row => {
+    if (!row.data_reale) return false
+    const diff = (new Date(row.data_reale) - oggi) / (1000 * 60 * 60 * 24)
+    return diff >= 0 && diff <= 30
+  })
+  if (scadenzeProssime.length === 0) return
+  const messaggi = scadenzeProssime.map(row => {
+    const giorni = Math.ceil((new Date(row.data_reale) - oggi) / (1000 * 60 * 60 * 24))
+    return giorni === 0 ? `Oggi scade: ${row.descrizione}` : `Tra ${giorni} giorni: ${row.descrizione}`
+  })
+  const testo = `Attenzione. Hai ${scadenzeProssime.length} scadenze in arrivo. ${messaggi.join('. ')}`
+  setTimeout(() => speak(testo), 1500)
+}, [memoFutureNotes])
+
+async function handleVoiceCommand(transcript) {
+  setVoiceStatus('Elaborazione...')
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 500,
+        system: `Sei un assistente per un profit tracker. Interpreta il comando vocale e restituisci SOLO un JSON valido (nessun testo extra) con questa struttura:
+{ "azione": "versa|preleva|trasferisci|correggi_book|correggi_wallet|sconosciuto", "intestatario": "nome o null", "book_nome": "nome book o null", "wallet_nome": "nome wallet o null", "importo": numero o null, "nuovo_saldo": numero o null, "note": "testo o null" }
+Books disponibili: ${books.map(b => b.nome + ' (' + b.intestatario + ')').join(', ')}
+Wallets disponibili: ${wallets.map(w => w.nome + ' (' + w.intestatario + ')').join(', ')}`,
+        messages: [{ role: 'user', content: transcript }]
+      })
+    })
+    const data = await response.json()
+    const raw = data.content?.[0]?.text || '{}'
+    const clean = raw.replace(/```json|```/g, '').trim()
+    const cmd = JSON.parse(clean)
+    await executeVoiceCommand(cmd, transcript)
+  } catch (err) {
+    setVoiceStatus('Errore interpretazione comando')
+    speak('Non ho capito il comando, riprova')
+  }
+}
+
+async function executeVoiceCommand(cmd) {
+  if (cmd.azione === 'sconosciuto') {
+    setVoiceStatus('Comando non riconosciuto')
+    speak('Comando non riconosciuto')
+    return
+  }
+  if (cmd.azione === 'versa') {
+    const wallet = wallets.find(w =>
+      (w.nome || '').toLowerCase().includes((cmd.wallet_nome || '').toLowerCase()) &&
+      (!cmd.intestatario || (w.intestatario || '').toLowerCase().includes(cmd.intestatario.toLowerCase()))
+    )
+    const book = books.find(b =>
+      (b.nome || '').toLowerCase().includes((cmd.book_nome || '').toLowerCase()) &&
+      (!cmd.intestatario || (b.intestatario || '').toLowerCase().includes(cmd.intestatario.toLowerCase()))
+    )
+    if (!wallet || !book || !cmd.importo) {
+      setVoiceStatus('Wallet o book non trovato')
+      speak('Non ho trovato il wallet o il book indicato')
+      return
+    }
+    if (Number(wallet.saldo) < cmd.importo) { speak('Saldo wallet insufficiente'); return }
+    await updateSaldo('wallets', wallet.id, Number(wallet.saldo) - cmd.importo)
+    await updateSaldo('books', book.id, Number(book.saldo) + cmd.importo)
+    await salvaLogTransazione({
+      tipo: 'versa', importo: cmd.importo,
+      riferimento: `wallet:${wallet.id}:${wallet.nome}:${wallet.intestatario} -> book:${book.id}:${book.nome}:${book.intestatario}`,
+      note: cmd.note || `Versamento vocale da ${wallet.nome} a ${book.nome}`,
+      azione: 'wallet_to_book'
+    })
+    await loadData({ preserveMessages: true })
+    setVoiceStatus(`✅ Versati ${cmd.importo}€ da ${wallet.nome} a ${book.nome}`)
+    speak(`Fatto. Versati ${cmd.importo} euro da ${wallet.nome} a ${book.nome}`)
+    return
+  }
+  if (cmd.azione === 'correggi_book') {
+    const book = books.find(b =>
+      (b.nome || '').toLowerCase().includes((cmd.book_nome || '').toLowerCase()) &&
+      (!cmd.intestatario || (b.intestatario || '').toLowerCase().includes(cmd.intestatario.toLowerCase()))
+    )
+    if (!book || cmd.nuovo_saldo == null) { speak('Book non trovato o saldo mancante'); return }
+    await updateSaldo('books', book.id, cmd.nuovo_saldo)
+    await salvaLogTransazione({
+      tipo: 'correzione', importo: cmd.nuovo_saldo,
+      riferimento: `book:${book.id}:${book.nome}:${book.intestatario}`,
+      note: `Correzione saldo vocale → ${cmd.nuovo_saldo}`,
+      azione: 'manual_balance_adjustment'
+    })
+    await loadData({ preserveMessages: true })
+    setVoiceStatus(`✅ Saldo ${book.nome} aggiornato a ${cmd.nuovo_saldo}€`)
+    speak(`Fatto. Saldo di ${book.nome} aggiornato a ${cmd.nuovo_saldo} euro`)
+    return
+  }
+  if (cmd.azione === 'correggi_wallet') {
+    const wallet = wallets.find(w =>
+      (w.nome || '').toLowerCase().includes((cmd.wallet_nome || '').toLowerCase()) &&
+      (!cmd.intestatario || (w.intestatario || '').toLowerCase().includes(cmd.intestatario.toLowerCase()))
+    )
+    if (!wallet || cmd.nuovo_saldo == null) { speak('Wallet non trovato o saldo mancante'); return }
+    await updateSaldo('wallets', wallet.id, cmd.nuovo_saldo)
+    await loadData({ preserveMessages: true })
+    setVoiceStatus(`✅ Saldo ${wallet.nome} aggiornato a ${cmd.nuovo_saldo}€`)
+    speak(`Fatto. Saldo di ${wallet.nome} aggiornato a ${cmd.nuovo_saldo} euro`)
+    return
+  }
+  setVoiceStatus('Azione non ancora supportata: ' + cmd.azione)
+  speak('Azione non ancora supportata')
+}
+
+function startListening() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+  if (!SR) { speak('Microfono non supportato da questo browser'); return }
+  const rec = new SR()
+  rec.lang = 'it-IT'
+  rec.interimResults = false
+  rec.maxAlternatives = 1
+  rec.onstart = () => { setIsListening(true); setVoiceStatus('In ascolto...'); setVoiceTranscript('') }
+  rec.onresult = (e) => {
+    const t = e.results[0][0].transcript
+    setVoiceTranscript(t)
+    setIsListening(false)
+    handleVoiceCommand(t)
+  }
+  rec.onerror = () => { setIsListening(false); setVoiceStatus('Errore microfono') }
+  rec.onend = () => setIsListening(false)
+  rec.start()
+}
+  async function addMemoFutureNote() {
+  if (!memoForm.descrizione.trim()) { setErrorMessage('Inserisci almeno la descrizione'); return }
+  const { error } = await supabase.from('memo_future_notes').insert([{
+    data_reale: memoForm.data_reale || null,
+    data_testo: memoForm.data_testo || memoForm.data_reale || '',
+    importo: memoForm.importo ? Number(memoForm.importo) : 0,
+    descrizione: memoForm.descrizione.trim(),
+    colore: memoForm.colore,
+    ordine: memoFutureNotes.length + 1
+  }])
+  if (error) { setErrorMessage('Errore salvataggio memo'); return }
+  setMemoForm({ data_reale: '', data_testo: '', importo: '', descrizione: '', colore: 'normal' })
+  await loadData({ preserveMessages: true })
+}
+
+async function deleteMemoFutureNote(id) {
+  if (!confirm('Eliminare questa memo?')) return
+  const { error } = await supabase.from('memo_future_notes').delete().eq('id', id)
+  if (error) { setErrorMessage('Errore eliminazione memo'); return }
+  await loadData({ preserveMessages: true })
+}
   function currentMonthLabel(dateValue = new Date()) {
     const date = new Date(dateValue)
     if (Number.isNaN(date.getTime())) return ''
@@ -2238,52 +2400,79 @@ const cassaDisponibile =
             </div>
 
                             <div style={panel}>
-                <div style={panelHeader}>
-                  <div>
-                    <h2 style={panelTitle}>Note prossimo anno</h2>
-                    <p style={panelSubtitle}>Scadenze e cose da ricordare</p>
-                  </div>
-                </div>
-
-                <div style={tableWrap}>
-                  <table style={table}>
-                    <thead>
-                      <tr>
-                        <th style={th}>Data</th>
-                        <th style={th}>Importo</th>
-                        <th style={th}>Descrizione</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {memoFutureNotes.length === 0 ? (
-                        <tr style={tr}>
-                          <td style={td}>-</td>
-                          <td style={td}>-</td>
-                          <td style={td}>-</td>
-                        </tr>
-                      ) : (
-                        memoFutureNotes.map((row) => (
-                          <tr key={row.id} style={tr}>
-                            <td style={td}>{row.data_testo || '-'}</td>
-                            <td style={td}>
-                              {Number(row.importo || 0) === 0 ? '-' : formatCurrency(row.importo)}
-                            </td>
-                            <td
-                              style={{
-                                ...td,
-                                color: row.colore === 'red' ? '#f87171' : '#e2e8f0',
-                                fontWeight: row.colore === 'red' ? 800 : 400
-                              }}
-                            >
-                              {row.descrizione || '-'}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+  <div style={panelHeader}>
+    <div>
+      <h2 style={panelTitle}>Note prossimo anno</h2>
+      <p style={panelSubtitle}>Scadenze e cose da ricordare</p>
+    </div>
+  </div>
+  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 2fr auto auto', gap: 8, marginBottom: 16, alignItems: 'end' }}>
+    <div>
+      <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Data reale</div>
+      <input type='date' value={memoForm.data_reale} onChange={e => setMemoForm({ ...memoForm, data_reale: e.target.value })} style={{ ...filterInput, width: '100%' }} />
+    </div>
+    <div>
+      <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Testo data (es. "gen. 2027")</div>
+      <input value={memoForm.data_testo} onChange={e => setMemoForm({ ...memoForm, data_testo: e.target.value })} placeholder='Opzionale' style={{ ...filterInput, width: '100%' }} />
+    </div>
+    <div>
+      <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Importo €</div>
+      <input value={memoForm.importo} onChange={e => setMemoForm({ ...memoForm, importo: e.target.value })} placeholder='0' style={{ ...filterInput, width: '100%' }} />
+    </div>
+    <div>
+      <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Descrizione</div>
+      <input value={memoForm.descrizione} onChange={e => setMemoForm({ ...memoForm, descrizione: e.target.value })} placeholder='Es. Assicurazione auto...' style={{ ...filterInput, width: '100%' }} />
+    </div>
+    <div>
+      <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Colore</div>
+      <select value={memoForm.colore} onChange={e => setMemoForm({ ...memoForm, colore: e.target.value })} style={{ ...filterInput, width: '100%' }}>
+        <option value='normal'>Normale</option>
+        <option value='red'>Rosso</option>
+      </select>
+    </div>
+    <button type='button' style={{ ...tinyGreenButton, alignSelf: 'flex-end' }} onClick={addMemoFutureNote}>+ Aggiungi</button>
+  </div>
+  <div style={tableWrap}>
+    <table style={table}>
+      <thead>
+        <tr>
+          <th style={th}>Data</th>
+          <th style={th}>Importo</th>
+          <th style={th}>Descrizione</th>
+          <th style={th}>Gg mancanti</th>
+          <th style={thActions}>Azioni</th>
+        </tr>
+      </thead>
+      <tbody>
+        {memoFutureNotes.length === 0 ? (
+          <tr style={tr}><td style={td} colSpan={5}>Nessuna memo</td></tr>
+        ) : (
+          memoFutureNotes.map((row) => {
+            const oggi = new Date()
+            const dataReale = row.data_reale ? new Date(row.data_reale + 'T00:00:00') : null
+            const giorni = dataReale ? Math.ceil((dataReale - oggi) / (1000 * 60 * 60 * 24)) : null
+            const vicina = giorni !== null && giorni >= 0 && giorni <= 30
+            return (
+              <tr key={row.id} style={tr}>
+                <td style={td}>{row.data_testo || row.data_reale || '-'}</td>
+                <td style={td}>{Number(row.importo || 0) === 0 ? '-' : formatCurrency(row.importo)}</td>
+                <td style={{ ...td, color: row.colore === 'red' ? '#f87171' : '#e2e8f0', fontWeight: row.colore === 'red' ? 800 : 400 }}>
+                  {row.descrizione || '-'}
+                </td>
+                <td style={{ ...td, color: vicina ? '#f97316' : '#94a3b8', fontWeight: vicina ? 800 : 400 }}>
+                  {giorni === null ? '-' : giorni < 0 ? 'Scaduta' : giorni === 0 ? '⚠️ Oggi!' : `${giorni} gg`}
+                </td>
+                <td style={tdActions}>
+                  <button style={tinyRedButton} onClick={() => deleteMemoFutureNote(row.id)}>Elimina</button>
+                </td>
+              </tr>
+            )
+          })
+        )}
+      </tbody>
+    </table>
+  </div>
+</div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
@@ -2569,6 +2758,30 @@ const cassaDisponibile =
     </div>
   </div>    
 )}
+ {/* MICROFONO VOCALE - fisso in basso a destra */}
+<div style={{ position: 'fixed', bottom: 28, right: 28, zIndex: 2000, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10 }}>
+  {(voiceTranscript || voiceStatus) && (
+    <div style={{ background: 'rgba(15,23,42,0.97)', border: '1px solid rgba(56,189,248,0.35)', borderRadius: 16, padding: '12px 16px', maxWidth: 320, boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
+      {voiceTranscript && <div style={{ fontSize: 13, color: '#7dd3fc', marginBottom: 4 }}>"{voiceTranscript}"</div>}
+      {voiceStatus && <div style={{ fontSize: 13, color: '#e2e8f0', fontWeight: 700 }}>{voiceStatus}</div>}
+    </div>
+  )}
+  <button
+    onClick={startListening}
+    style={{
+      width: 60, height: 60, borderRadius: 999, border: 'none', cursor: 'pointer',
+      background: isListening
+        ? 'linear-gradient(135deg, #dc2626, #ef4444)'
+        : 'linear-gradient(135deg, #2563eb, #38bdf8)',
+      boxShadow: isListening ? '0 0 0 6px rgba(239,68,68,0.3)' : '0 8px 24px rgba(37,99,235,0.4)',
+      fontSize: 26, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      transition: 'all 0.2s'
+    }}
+    title='Comando vocale'
+  >
+    🎤
+  </button>
+</div>       
  </div>    
   </div>     
     )
