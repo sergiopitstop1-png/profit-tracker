@@ -508,75 +508,71 @@ function startListening() {
 // riferimento al recognizer continuo per poterlo fermare
 const continuousRecRef = React.useRef(null)
  const listBufferRef = React.useRef('') 
+const mediaRecorderRef = React.useRef(null)
+const audioChunksRef = React.useRef([])
+
 function startContinuousListening() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-  if (!SR) { speak('Microfono non supportato'); return }
-
-  listBufferRef.current = ''
-  setListBuffer('')
-  setIsListeningContinuous(true)
-  setVoiceStatus('🔴 Modalità lista attiva — parla, poi di\' "fatto"')
-  speak('Modalità lista attiva. Parla e di\' fatto quando hai finito.')
-
-  function avvia() {
-    const rec = new SR()
-    continuousRecRef.current = rec
-    rec.lang = 'it-IT'
-    rec.interimResults = false
-    rec.maxAlternatives = 1
-
-    rec.onresult = (e) => {
-      const t = e.results[0][0].transcript.trim()
-      setVoiceTranscript(t)
-
-      if (t.toLowerCase().includes('fatto') || t.toLowerCase().includes('fine')) {
-  const bufferFinale = listBufferRef.current.trim()
-  if (!bufferFinale) {
-    setVoiceStatus('🔴 In ascolto... (buffer vuoto, continua a parlare)')
+  if (!navigator.mediaDevices) {
+    speak('Microfono non supportato')
     return
   }
-  continuousRecRef.current = null
-  setIsListeningContinuous(false)
-  setVoiceStatus('Elaborazione lista...')
-  speak('Perfetto, elaboro la lista.')
-  handleVoiceCommand(correggiTrascrizione(bufferFinale))
-  listBufferRef.current = ''
+
+  setIsListeningContinuous(true)
   setListBuffer('')
-  return
-}
+  setVoiceStatus('🔴 Registrazione attiva — parla, poi premi stop')
+  speak('Registrazione attiva. Parla e premi stop quando hai finito.')
 
-      // accumula nel buffer
-     listBufferRef.current = listBufferRef.current ? listBufferRef.current + ', ' + t : t
-setListBuffer(listBufferRef.current)
-setVoiceStatus(`🔴 In ascolto... (${listBufferRef.current})`)
+  navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+    const mediaRecorder = new MediaRecorder(stream)
+    mediaRecorderRef.current = mediaRecorder
+    audioChunksRef.current = []
+
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) audioChunksRef.current.push(e.data)
     }
 
-    rec.onerror = (e) => {
-      if (e.error === 'no-speech') {
-        // silenzio temporaneo — riavvia automaticamente
-        if (continuousRecRef.current) avvia()
-        return
+    mediaRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop())
+      setVoiceStatus('Trascrizione in corso...')
+      speak('Elaboro la lista.')
+
+      const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+      const formData = new FormData()
+      formData.append('file', blob, 'audio.webm')
+      formData.append('model', 'whisper-1')
+      formData.append('language', 'it')
+
+      try {
+        const res = await fetch('/api/whisper', {
+          method: 'POST',
+          body: formData
+        })
+        const data = await res.json()
+        const testo = data.text || ''
+        setVoiceTranscript(testo)
+        setListBuffer(testo)
+        setVoiceStatus('Elaborazione comando...')
+        await handleVoiceCommand(correggiTrascrizione(testo))
+      } catch (err) {
+        setVoiceStatus('Errore trascrizione: ' + err.message)
+        speak('Errore nella trascrizione')
       }
-      setIsListeningContinuous(false)
-      setVoiceStatus('Errore microfono')
     }
 
-    rec.onend = () => {
-      // riavvia automaticamente se ancora in modalità lista
-      if (continuousRecRef.current) setTimeout(() => avvia(), 300)
-    }
-
-    rec.start()
-  }
-
-  avvia()
+    mediaRecorder.start()
+  }).catch(() => {
+    setIsListeningContinuous(false)
+    setVoiceStatus('Errore accesso microfono')
+  })
 }
 
 function stopContinuousListening() {
-  continuousRecRef.current = null
+  if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+    mediaRecorderRef.current.stop()
+  }
+  mediaRecorderRef.current = null
   setIsListeningContinuous(false)
   setListBuffer('')
-  setVoiceStatus('Modalità lista interrotta')
 }
   async function addMemoFutureNote() {
   if (!memoForm.descrizione.trim()) { setErrorMessage('Inserisci almeno la descrizione'); return }
