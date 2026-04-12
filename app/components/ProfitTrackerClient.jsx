@@ -313,7 +313,26 @@ useEffect(() => {
   const testo = `Attenzione. Hai ${scadenzeProssime.length} scadenze in arrivo. ${messaggi.join('. ')}`
   setTimeout(() => speak(testo), 1500)
 }, [memoFutureNotes])
-
+function correggiTrascrizione(testo) {
+  const correzioni = {
+    'bazzocchi': 'Bozoki',
+    'bazzochi': 'Bozoki',
+    'bazoki': 'Bozoki',
+    'bazzoco': 'Bozoki',
+    'evaristo': 'Evariste',
+    'letizia': 'Leatizia',
+    'genevieve': 'Genevieve',
+    'bouah': 'Bouah',
+    'boa ': 'Bouah ',
+    'bua ': 'Bouah ',
+  }
+  let risultato = testo
+  Object.entries(correzioni).forEach(([sbagliato, corretto]) => {
+    const regex = new RegExp(sbagliato, 'gi')
+    risultato = risultato.replace(regex, corretto)
+  })
+  return risultato
+}
 async function handleVoiceCommand(transcript) {
   setVoiceStatus('Elaborazione...')
   try {
@@ -479,7 +498,7 @@ function startListening() {
     const t = e.results[0][0].transcript
     setVoiceTranscript(t)
     setIsListening(false)
-    handleVoiceCommand(t)
+    handleVoiceCommand(correggiTrascrizione(t))
   }
   rec.onerror = () => { setIsListening(false); setVoiceStatus('Errore microfono') }
   rec.onend = () => setIsListening(false)
@@ -520,7 +539,7 @@ function startContinuousListening() {
   setIsListeningContinuous(false)
   setVoiceStatus('Elaborazione lista...')
   speak('Perfetto, elaboro la lista.')
-  handleVoiceCommand(bufferFinale)
+  handleVoiceCommand(correggiTrascrizione(bufferFinale))
   listBufferRef.current = ''
   setListBuffer('')
   return
