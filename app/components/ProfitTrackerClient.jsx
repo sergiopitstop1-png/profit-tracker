@@ -325,14 +325,29 @@ async function handleVoiceCommand(transcript) {
   'anthropic-version': '2023-06-01'
 },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 500,
-        system: `Sei un assistente per un profit tracker. Interpreta il comando vocale e restituisci SOLO un JSON valido (nessun testo extra) con questa struttura:
-{ "azione": "versa|preleva|trasferisci|correggi_book|correggi_wallet|sconosciuto", "intestatario": "nome o null", "book_nome": "nome book o null", "wallet_nome": "nome wallet o null", "importo": numero o null, "nuovo_saldo": numero o null, "note": "testo o null" }
+  model: 'claude-sonnet-4-20250514',
+  max_tokens: 1000,
+  system: `Sei un assistente per un profit tracker. Interpreta il comando vocale e restituisci SOLO un JSON valido (nessun testo extra).
+
+Se il comando contiene UN SOLO book/wallet da correggere, usa questa struttura:
+{ "tipo": "singolo", "azione": "versa|preleva|trasferisci|correggi_book|correggi_wallet|sconosciuto", "intestatario": "nome cognome esatto o null", "book_nome": "nome book o null", "wallet_nome": "nome wallet o null", "importo": numero o null, "nuovo_saldo": numero o null, "note": "testo o null" }
+
+Se il comando contiene UNA LISTA di correzioni saldi (es. "Bet365 Alfonso 577, Federico 647..."), usa questa struttura:
+{ "tipo": "lista", "book_nome": "nome book", "correzioni": [ { "intestatario": "nome cognome esatto", "nuovo_saldo": numero }, ... ] }
+
+REGOLE FONDAMENTALI per il matching dei nomi:
+- Abbina SEMPRE il nome detto con il nome PIÙ SIMILE nella lista books
+- Se dici "Alfonso" cerca "Alfonso ..." tra i books del book indicato
+- Se dici "Federico" cerca "Federico ..." tra i books del book indicato  
+- Se dici "Laura" cerca qualsiasi intestatario con nome "Laura"
+- Se dici "Michela" cerca qualsiasi intestatario con nome "Michela"
+- Usa il cognome ESATTO dalla lista books disponibili
+- NON inventare nomi — usa solo quelli dalla lista books
+
 Books disponibili: ${books.map(b => b.nome + ' (' + b.intestatario + ')').join(', ')}
 Wallets disponibili: ${wallets.map(w => w.nome + ' (' + w.intestatario + ')').join(', ')}`,
-        messages: [{ role: 'user', content: transcript }]
-      })
+  messages: [{ role: 'user', content: transcript }]
+})
     })
     const data = await response.json()
     const raw = data.content?.[0]?.text || '{}'
@@ -347,6 +362,45 @@ Wallets disponibili: ${wallets.map(w => w.nome + ' (' + w.intestatario + ')').jo
 }
 
 async function executeVoiceCommand(cmd) {
+  // MODALITÀ LISTA
+  if (cmd.tipo === 'lista') {
+    if (!cmd.correzioni || cmd.correzioni.length === 0) {
+      setVoiceStatus('Nessuna correzione trovata nella lista')
+      speak('Non ho trovato correzioni nella lista')
+      return
+    }
+    const risultati = []
+    const errori = []
+    for (const correzione of cmd.correzioni) {
+      const book = books.find(b =>
+        (b.nome || '').toLowerCase().includes((cmd.book_nome || '').toLowerCase()) &&
+        (b.intestatario || '').toLowerCase().includes((correzione.intestatario || '').toLowerCase())
+      )
+      if (!book) {
+        errori.push(correzione.intestatario)
+        continue
+      }
+      await updateSaldo('books', book.id, correzione.nuovo_saldo)
+      await salvaLogTransazione({
+        tipo: 'correzione',
+        importo: correzione.nuovo_saldo,
+        riferimento: `book:${book.id}:${book.nome}:${book.intestatario}`,
+        note: `Correzione saldo vocale → ${correzione.nuovo_saldo}`,
+        azione: 'manual_balance_adjustment'
+      })
+      risultati.push(`${book.intestatario} → ${correzione.nuovo_saldo}€`)
+    }
+    await loadData({ preserveMessages: true })
+    const msg = risultati.length > 0
+      ? `✅ Aggiornati ${risultati.length}: ${risultati.join(', ')}`
+      : '❌ Nessun book trovato'
+    const errMsg = errori.length > 0 ? ` | Non trovati: ${errori.join(', ')}` : ''
+    setVoiceStatus(msg + errMsg)
+    speak(`Fatto. Aggiornati ${risultati.length} saldi su ${cmd.book_nome}.${errori.length > 0 ? ' Non trovati: ' + errori.join(', ') : ''}`)
+    return
+  }
+
+  // MODALITÀ SINGOLA
   if (cmd.azione === 'sconosciuto') {
     setVoiceStatus('Comando non riconosciuto')
     speak('Comando non riconosciuto')
@@ -413,7 +467,6 @@ async function executeVoiceCommand(cmd) {
   setVoiceStatus('Azione non ancora supportata: ' + cmd.azione)
   speak('Azione non ancora supportata')
 }
-
 function startListening() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition
   if (!SR) { speak('Microfono non supportato da questo browser'); return }
