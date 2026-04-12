@@ -458,15 +458,20 @@ function startContinuousListening() {
       setVoiceTranscript(t)
 
       if (t.toLowerCase().includes('fatto') || t.toLowerCase().includes('fine')) {
-        // ha detto "fatto" → processa tutto il buffer
-        setIsListeningContinuous(false)
-        setVoiceStatus('Elaborazione lista...')
-        speak('Perfetto, elaboro la lista.')
-        handleVoiceCommand(listBufferRef.current.trim())
-listBufferRef.current = ''
-        setListBuffer('')
-        return
-      }
+  const bufferFinale = listBufferRef.current.trim()
+  if (!bufferFinale) {
+    setVoiceStatus('🔴 In ascolto... (buffer vuoto, continua a parlare)')
+    return
+  }
+  continuousRecRef.current = null
+  setIsListeningContinuous(false)
+  setVoiceStatus('Elaborazione lista...')
+  speak('Perfetto, elaboro la lista.')
+  handleVoiceCommand(bufferFinale)
+  listBufferRef.current = ''
+  setListBuffer('')
+  return
+}
 
       // accumula nel buffer
      listBufferRef.current = listBufferRef.current ? listBufferRef.current + ', ' + t : t
@@ -486,7 +491,7 @@ setVoiceStatus(`🔴 In ascolto... (${listBufferRef.current})`)
 
     rec.onend = () => {
       // riavvia automaticamente se ancora in modalità lista
-      if (continuousRecRef.current) avvia()
+      if (continuousRecRef.current) setTimeout(() => avvia(), 300)
     }
 
     rec.start()
