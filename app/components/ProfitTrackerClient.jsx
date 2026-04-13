@@ -497,8 +497,7 @@ const walletTo = wallets.find(w =>
 ) || wallets.find(w =>
   (w.nome || '').toLowerCase().includes(cleanNome(cmd.wallet_dest))
 )
-  (w.nome || '').toLowerCase().includes(cleanNome(cmd.wallet_dest))
-)
+
   const debugMsg = `from: "${cmd.wallet_nome}" int_from: "${cmd.intestatario_from}" | to: "${cmd.wallet_dest}" int_to: "${cmd.intestatario_to}" | importo: ${cmd.importo} | walletFrom: ${walletFrom?.nome} | walletTo: ${walletTo?.nome}`
 setVoiceStatus(debugMsg)
 if (!walletFrom || !walletTo || !cmd.importo) {
