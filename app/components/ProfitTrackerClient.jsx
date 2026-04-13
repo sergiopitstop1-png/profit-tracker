@@ -476,29 +476,38 @@ async function executeVoiceCommand(cmd) {
     return
   }
   if (cmd.azione === 'trasferisci') {
-    const walletFrom = wallets.find(w =>
-      (w.nome || '').toLowerCase().includes((cmd.wallet_nome || '').toLowerCase()) &&
-      (!cmd.intestatario || (w.intestatario || '').toLowerCase().includes(cmd.intestatario.toLowerCase()))
-    )
-    const walletTo = wallets.find(w =>
-      (w.nome || '').toLowerCase().includes((cmd.wallet_dest || '').toLowerCase()) &&
-      (!cmd.intestatario || (w.intestatario || '').toLowerCase().includes(cmd.intestatario.toLowerCase()))
-    )
-    if (!walletFrom || !walletTo || !cmd.importo) { speak('Wallet non trovato o importo mancante'); return }
-    if (String(walletFrom.id) === String(walletTo.id)) { speak('Origine e destinazione uguali'); return }
-    if (Number(walletFrom.saldo) < cmd.importo) { speak('Saldo insufficiente'); return }
-    await updateSaldo('wallets', walletFrom.id, Number(walletFrom.saldo) - cmd.importo)
-    await updateSaldo('wallets', walletTo.id, Number(walletTo.saldo) + cmd.importo)
-    await salvaLogTransazione({
-      tipo: 'trasferisci', importo: cmd.importo,
-      riferimento: `wallet:${walletFrom.id}:${walletFrom.nome}:${walletFrom.intestatario} -> wallet:${walletTo.id}:${walletTo.nome}:${walletTo.intestatario}`,
-      note: cmd.note || `Trasferimento vocale da ${walletFrom.nome} a ${walletTo.nome}`,
-      azione: 'wallet_to_wallet'
-    })
-    await loadData({ preserveMessages: true })
-    setVoiceStatus(`✅ Trasferiti ${cmd.importo}€ da ${walletFrom.nome} a ${walletTo.nome}`)
-    speak(`Fatto. Trasferiti ${cmd.importo} euro da ${walletFrom.nome} a ${walletTo.nome}`)
+  const walletFrom = wallets.find(w =>
+    (w.nome || '').toLowerCase().includes((cmd.wallet_nome || '').toLowerCase()) &&
+    (!cmd.intestatario_from || (w.intestatario || '').toLowerCase().includes(cmd.intestatario_from.toLowerCase()))
+  ) || wallets.find(w =>
+    (w.nome || '').toLowerCase().includes((cmd.wallet_nome || '').toLowerCase())
+  )
+  const walletTo = wallets.find(w =>
+    (w.nome || '').toLowerCase().includes((cmd.wallet_dest || '').toLowerCase()) &&
+    (!cmd.intestatario_to || (w.intestatario || '').toLowerCase().includes(cmd.intestatario_to.toLowerCase()))
+  ) || wallets.find(w =>
+    (w.nome || '').toLowerCase().includes((cmd.wallet_dest || '').toLowerCase())
+  )
+  if (!walletFrom || !walletTo || !cmd.importo) {
+    setVoiceStatus(`Wallet non trovato — from: ${cmd.wallet_nome}, to: ${cmd.wallet_dest}`)
+    speak('Wallet non trovato')
     return
+  }
+  if (String(walletFrom.id) === String(walletTo.id)) { speak('Origine e destinazione uguali'); return }
+  if (Number(walletFrom.saldo) < cmd.importo) { speak('Saldo insufficiente'); return }
+  await updateSaldo('wallets', walletFrom.id, Number(walletFrom.saldo) - cmd.importo)
+  await updateSaldo('wallets', walletTo.id, Number(walletTo.saldo) + cmd.importo)
+  await salvaLogTransazione({
+    tipo: 'trasferisci', importo: cmd.importo,
+    riferimento: `wallet:${walletFrom.id}:${walletFrom.nome}:${walletFrom.intestatario} -> wallet:${walletTo.id}:${walletTo.nome}:${walletTo.intestatario}`,
+    note: cmd.note || `Trasferimento vocale da ${walletFrom.nome} a ${walletTo.nome}`,
+    azione: 'wallet_to_wallet'
+  })
+  await loadData({ preserveMessages: true })
+  setVoiceStatus(`✅ Trasferiti ${cmd.importo}€ da ${walletFrom.nome} (${walletFrom.intestatario}) a ${walletTo.nome} (${walletTo.intestatario})`)
+  speak(`Fatto. Trasferiti ${cmd.importo} euro da ${walletFrom.nome} a ${walletTo.nome}`)
+  return
+}
   }
   if (cmd.azione === 'preleva_book') {
     const book = books.find(b =>
