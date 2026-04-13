@@ -357,19 +357,29 @@ async function handleVoiceCommand(transcript) {
   max_tokens: 1000,
   system: `Sei un assistente per un profit tracker. Interpreta il comando vocale e restituisci SOLO un JSON valido (nessun testo extra).
 
-STRUTTURA 1 - Comando singolo (versa, preleva, trasferisci, correggi):
+STRUTTURA 1 - Comando singolo:
 { "tipo": "singolo", "azione": "versa|preleva_book|preleva_esterno|trasferisci|correggi_book|correggi_wallet|sconosciuto", "intestatario": "nome cognome o null", "book_nome": "nome book o null", "wallet_nome": "nome wallet origine o null", "wallet_dest": "nome wallet destinazione o null", "importo": numero o null, "nuovo_saldo": numero o null, "note": "testo o null" }
 
-STRUTTURA 2 - Lista correzioni saldi (es. "Bet365 Alfonso 577, Federico 647..."):
+REGOLE AZIONI:
+- "versa X euro da [wallet] a [book]" → azione: "versa", wallet_nome: wallet, book_nome: book
+- "preleva X euro da [book] a [wallet]" → azione: "preleva_book", book_nome: book, wallet_nome: wallet destinazione
+- "preleva esterno X euro da [wallet]" → azione: "preleva_esterno", wallet_nome: wallet
+- "trasferisci X euro da [wallet1] a [wallet2]" → azione: "trasferisci", wallet_nome: wallet1, wallet_dest: wallet2
+- "correggi saldo [book] [intestatario] nuovo saldo X" → azione: "correggi_book"
+- "correggi saldo wallet [wallet] [intestatario] nuovo saldo X" → azione: "correggi_wallet"
+
+DISTINZIONE CHIAVE:
+- Se preleva DA un BOOK (Bet365, Sisal, Betpoint ecc.) → preleva_book
+- Se preleva DA un WALLET (Revolut, PayPal, Contanti ecc.) verso esterno → preleva_esterno
+- I BOOK sono bookmaker, i WALLET sono metodi di pagamento
+
+STRUTTURA 2 - Lista correzioni saldi:
 { "tipo": "lista", "book_nome": "nome book", "correzioni": [ { "intestatario": "nome cognome", "nuovo_saldo": numero }, ... ] }
 
-STRUTTURA 3 - Lista versamenti misti (es. "Versamenti Sisal: Annarosa 150 da Revolut, Sergio 1000 da PayPal..."):
+STRUTTURA 3 - Lista versamenti misti:
 { "tipo": "lista_versamenti", "book_nome": "nome book", "versamenti": [ { "intestatario": "nome cognome", "importo": numero, "wallet_nome": "nome wallet" }, ... ] }
 
-REGOLE per il matching dei nomi:
-- Abbina SEMPRE il nome con il più simile nella lista
-- Usa il cognome ESATTO dalla lista books/wallets
-- NON inventare nomi
+REGOLE nomi: usa il nome PIÙ SIMILE dalla lista, NON inventare nomi.
 
 Books disponibili: ${books.map(b => b.nome + ' (' + b.intestatario + ')').join(', ')}
 Wallets disponibili: ${wallets.map(w => w.nome + ' (' + w.intestatario + ')').join(', ')}`,
