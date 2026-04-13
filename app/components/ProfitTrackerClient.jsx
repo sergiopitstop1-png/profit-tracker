@@ -2765,7 +2765,7 @@ const cassaDisponibile =
     </div>
   </td>
 </tr>
-              </tr>
+             
             )
           })
         )}
