@@ -302,24 +302,26 @@ useEffect(() => {
 
   const oggi = new Date()
   const oggiStr = oggi.toISOString().split('T')[0]
-  const ultimoAvviso = localStorage.getItem('ultimoAvvisoScadenze')
-  if (ultimoAvviso === oggiStr) return // già detto oggi!
-
   const scadenzeProssime = memoFutureNotes.filter(row => {
     if (!row.data_reale) return false
-    const diff = (new Date(row.data_reale) - oggi) / (1000 * 60 * 60 * 24)
-    return diff >= 0 && diff <= 30
+    const diff = (new Date(row.data_reale + 'T00:00:00') - oggi) / (1000 * 60 * 60 * 24)
+    return diff >= -1 && diff <= 30
   })
   if (scadenzeProssime.length === 0) return
 
+  const hashAttuale = oggiStr + '|' + scadenzeProssime.map(r => r.id + ':' + r.data_reale + ':' + r.descrizione).join(',')
+  const ultimoAvviso = localStorage.getItem('ultimoAvvisoScadenze')
+  if (ultimoAvviso === hashAttuale) return
+
   const messaggi = scadenzeProssime.map(row => {
-    const giorni = Math.ceil((new Date(row.data_reale) - oggi) / (1000 * 60 * 60 * 24))
+    const giorni = Math.ceil((new Date(row.data_reale + 'T00:00:00') - oggi) / (1000 * 60 * 60 * 24))
+    if (giorni < 0) return `SCADUTA: ${row.descrizione}, provvedere`
     return giorni === 0 ? `Oggi scade: ${row.descrizione}` : `Tra ${giorni} giorni: ${row.descrizione}`
   })
   const testo = `Attenzione. Hai ${scadenzeProssime.length} scadenze in arrivo. ${messaggi.join('. ')}`
   setTimeout(() => {
     speak(testo)
-    localStorage.setItem('ultimoAvvisoScadenze', oggiStr)
+    localStorage.setItem('ultimoAvvisoScadenze', hashAttuale)
   }, 1500)
 }, [memoFutureNotes])
 function correggiTrascrizione(testo) {
