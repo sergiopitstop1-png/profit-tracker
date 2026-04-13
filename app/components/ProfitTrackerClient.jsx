@@ -476,18 +476,20 @@ async function executeVoiceCommand(cmd) {
     return
   }
   if (cmd.azione === 'trasferisci') {
-  const walletFrom = wallets.find(w =>
-    (w.nome || '').toLowerCase().includes((cmd.wallet_nome || '').toLowerCase()) &&
-    (!cmd.intestatario_from || (w.intestatario || '').toLowerCase().includes(cmd.intestatario_from.toLowerCase()))
-  ) || wallets.find(w =>
-    (w.nome || '').toLowerCase().includes((cmd.wallet_nome || '').toLowerCase())
-  )
-  const walletTo = wallets.find(w =>
-    (w.nome || '').toLowerCase().includes((cmd.wallet_dest || '').toLowerCase()) &&
-    (!cmd.intestatario_to || (w.intestatario || '').toLowerCase().includes(cmd.intestatario_to.toLowerCase()))
-  ) || wallets.find(w =>
-    (w.nome || '').toLowerCase().includes((cmd.wallet_dest || '').toLowerCase())
-  )
+  const cleanNome = (s) => (s || '').replace(/\s*\(.*?\)/g, '').trim().toLowerCase()
+
+const walletFrom = wallets.find(w =>
+  (w.nome || '').toLowerCase().includes(cleanNome(cmd.wallet_nome)) &&
+  (!cmd.intestatario_from || (w.intestatario || '').toLowerCase().includes(cleanNome(cmd.intestatario_from)))
+) || wallets.find(w =>
+  (w.nome || '').toLowerCase().includes(cleanNome(cmd.wallet_nome))
+)
+const walletTo = wallets.find(w =>
+  (w.nome || '').toLowerCase().includes(cleanNome(cmd.wallet_dest)) &&
+  (!cmd.intestatario_to || (w.intestatario || '').toLowerCase().includes(cleanNome(cmd.intestatario_to)))
+) || wallets.find(w =>
+  (w.nome || '').toLowerCase().includes(cleanNome(cmd.wallet_dest))
+)
   const debugMsg = `from: "${cmd.wallet_nome}" int_from: "${cmd.intestatario_from}" | to: "${cmd.wallet_dest}" int_to: "${cmd.intestatario_to}" | importo: ${cmd.importo} | walletFrom: ${walletFrom?.nome} | walletTo: ${walletTo?.nome}`
 setVoiceStatus(debugMsg)
 if (!walletFrom || !walletTo || !cmd.importo) {
