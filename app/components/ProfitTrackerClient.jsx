@@ -348,20 +348,19 @@ async function handleVoiceCommand(transcript) {
   max_tokens: 1000,
   system: `Sei un assistente per un profit tracker. Interpreta il comando vocale e restituisci SOLO un JSON valido (nessun testo extra).
 
-Se il comando contiene UN SOLO book/wallet da correggere, usa questa struttura:
-{ "tipo": "singolo", "azione": "versa|preleva|trasferisci|correggi_book|correggi_wallet|sconosciuto", "intestatario": "nome cognome esatto o null", "book_nome": "nome book o null", "wallet_nome": "nome wallet o null", "importo": numero o null, "nuovo_saldo": numero o null, "note": "testo o null" }
+STRUTTURA 1 - Comando singolo (versa, preleva, trasferisci, correggi):
+{ "tipo": "singolo", "azione": "versa|preleva_book|preleva_esterno|trasferisci|correggi_book|correggi_wallet|sconosciuto", "intestatario": "nome cognome o null", "book_nome": "nome book o null", "wallet_nome": "nome wallet origine o null", "wallet_dest": "nome wallet destinazione o null", "importo": numero o null, "nuovo_saldo": numero o null, "note": "testo o null" }
 
-Se il comando contiene UNA LISTA di correzioni saldi (es. "Bet365 Alfonso 577, Federico 647..."), usa questa struttura:
-{ "tipo": "lista", "book_nome": "nome book", "correzioni": [ { "intestatario": "nome cognome esatto", "nuovo_saldo": numero }, ... ] }
+STRUTTURA 2 - Lista correzioni saldi (es. "Bet365 Alfonso 577, Federico 647..."):
+{ "tipo": "lista", "book_nome": "nome book", "correzioni": [ { "intestatario": "nome cognome", "nuovo_saldo": numero }, ... ] }
 
-REGOLE FONDAMENTALI per il matching dei nomi:
-- Abbina SEMPRE il nome detto con il nome PIÙ SIMILE nella lista books
-- Se dici "Alfonso" cerca "Alfonso ..." tra i books del book indicato
-- Se dici "Federico" cerca "Federico ..." tra i books del book indicato  
-- Se dici "Laura" cerca qualsiasi intestatario con nome "Laura"
-- Se dici "Michela" cerca qualsiasi intestatario con nome "Michela"
-- Usa il cognome ESATTO dalla lista books disponibili
-- NON inventare nomi — usa solo quelli dalla lista books
+STRUTTURA 3 - Lista versamenti misti (es. "Versamenti Sisal: Annarosa 150 da Revolut, Sergio 1000 da PayPal..."):
+{ "tipo": "lista_versamenti", "book_nome": "nome book", "versamenti": [ { "intestatario": "nome cognome", "importo": numero, "wallet_nome": "nome wallet" }, ... ] }
+
+REGOLE per il matching dei nomi:
+- Abbina SEMPRE il nome con il più simile nella lista
+- Usa il cognome ESATTO dalla lista books/wallets
+- NON inventare nomi
 
 Books disponibili: ${books.map(b => b.nome + ' (' + b.intestatario + ')').join(', ')}
 Wallets disponibili: ${wallets.map(w => w.nome + ' (' + w.intestatario + ')').join(', ')}`,
@@ -413,10 +412,40 @@ async function executeVoiceCommand(cmd) {
     speak(`Fatto. Aggiornati ${risultati.length} saldi su ${cmd.book_nome}.${errori.length > 0 ? ' Non trovati: ' + errori.join(', ') : ''}`)
     return
   }
+// LISTA VERSAMENTI MISTI
+  if (cmd.tipo === 'lista_versamenti' && cmd.versamenti && cmd.versamenti.length > 0) {
+    const risultati = []
+    const errori = []
+    for (const v of cmd.versamenti) {
+      const wallet = wallets.find(w =>
+        (w.nome || '').toLowerCase().includes((v.wallet_nome || '').toLowerCase()) &&
+        (w.intestatario || '').toLowerCase().includes((v.intestatario || '').toLowerCase())
+      )
+      const book = books.find(b =>
+        (b.nome || '').toLowerCase().includes((cmd.book_nome || '').toLowerCase()) &&
+        (b.intestatario || '').toLowerCase().includes((v.intestatario || '').toLowerCase())
+      )
+      if (!wallet || !book) { errori.push(v.intestatario); continue }
+      if (Number(wallet.saldo) < v.importo) { errori.push(`${v.intestatario} (saldo insufficiente)`); continue }
+      await updateSaldo('wallets', wallet.id, Number(wallet.saldo) - v.importo)
+      await updateSaldo('books', book.id, Number(book.saldo) + v.importo)
+      await salvaLogTransazione({
+        tipo: 'versa', importo: v.importo,
+        riferimento: `wallet:${wallet.id}:${wallet.nome}:${wallet.intestatario} -> book:${book.id}:${book.nome}:${book.intestatario}`,
+        note: `Versamento vocale da ${wallet.nome} a ${book.nome}`,
+        azione: 'wallet_to_book'
+      })
+      risultati.push(`${v.intestatario} ${v.importo}€`)
+    }
+    await loadData({ preserveMessages: true })
+    const msg = risultati.length > 0 ? `✅ Versati ${risultati.length}: ${risultati.join(', ')}` : '❌ Nessun versamento eseguito'
+    const errMsg = errori.length > 0 ? ` | Errori: ${errori.join(', ')}` : ''
+    setVoiceStatus(msg + errMsg)
+    speak(`Fatto. Eseguiti ${risultati.length} versamenti su ${cmd.book_nome}.${errori.length > 0 ? ' Errori: ' + errori.join(', ') : ''}`)
+    return
+  }
 
-  // MODALITÀ SINGOLA
-
-  // MODALITÀ SINGOLA
+  // COMANDO SINGOLO
   if (cmd.azione === 'sconosciuto') {
     setVoiceStatus('Comando non riconosciuto')
     speak('Comando non riconosciuto')
@@ -431,11 +460,7 @@ async function executeVoiceCommand(cmd) {
       (b.nome || '').toLowerCase().includes((cmd.book_nome || '').toLowerCase()) &&
       (!cmd.intestatario || (b.intestatario || '').toLowerCase().includes(cmd.intestatario.toLowerCase()))
     )
-    if (!wallet || !book || !cmd.importo) {
-      setVoiceStatus('Wallet o book non trovato')
-      speak('Non ho trovato il wallet o il book indicato')
-      return
-    }
+    if (!wallet || !book || !cmd.importo) { setVoiceStatus('Wallet o book non trovato'); speak('Non ho trovato il wallet o il book'); return }
     if (Number(wallet.saldo) < cmd.importo) { speak('Saldo wallet insufficiente'); return }
     await updateSaldo('wallets', wallet.id, Number(wallet.saldo) - cmd.importo)
     await updateSaldo('books', book.id, Number(book.saldo) + cmd.importo)
@@ -448,6 +473,75 @@ async function executeVoiceCommand(cmd) {
     await loadData({ preserveMessages: true })
     setVoiceStatus(`✅ Versati ${cmd.importo}€ da ${wallet.nome} a ${book.nome}`)
     speak(`Fatto. Versati ${cmd.importo} euro da ${wallet.nome} a ${book.nome}`)
+    return
+  }
+  if (cmd.azione === 'trasferisci') {
+    const walletFrom = wallets.find(w =>
+      (w.nome || '').toLowerCase().includes((cmd.wallet_nome || '').toLowerCase()) &&
+      (!cmd.intestatario || (w.intestatario || '').toLowerCase().includes(cmd.intestatario.toLowerCase()))
+    )
+    const walletTo = wallets.find(w =>
+      (w.nome || '').toLowerCase().includes((cmd.wallet_dest || '').toLowerCase()) &&
+      (!cmd.intestatario || (w.intestatario || '').toLowerCase().includes(cmd.intestatario.toLowerCase()))
+    )
+    if (!walletFrom || !walletTo || !cmd.importo) { speak('Wallet non trovato o importo mancante'); return }
+    if (String(walletFrom.id) === String(walletTo.id)) { speak('Origine e destinazione uguali'); return }
+    if (Number(walletFrom.saldo) < cmd.importo) { speak('Saldo insufficiente'); return }
+    await updateSaldo('wallets', walletFrom.id, Number(walletFrom.saldo) - cmd.importo)
+    await updateSaldo('wallets', walletTo.id, Number(walletTo.saldo) + cmd.importo)
+    await salvaLogTransazione({
+      tipo: 'trasferisci', importo: cmd.importo,
+      riferimento: `wallet:${walletFrom.id}:${walletFrom.nome}:${walletFrom.intestatario} -> wallet:${walletTo.id}:${walletTo.nome}:${walletTo.intestatario}`,
+      note: cmd.note || `Trasferimento vocale da ${walletFrom.nome} a ${walletTo.nome}`,
+      azione: 'wallet_to_wallet'
+    })
+    await loadData({ preserveMessages: true })
+    setVoiceStatus(`✅ Trasferiti ${cmd.importo}€ da ${walletFrom.nome} a ${walletTo.nome}`)
+    speak(`Fatto. Trasferiti ${cmd.importo} euro da ${walletFrom.nome} a ${walletTo.nome}`)
+    return
+  }
+  if (cmd.azione === 'preleva_book') {
+    const book = books.find(b =>
+      (b.nome || '').toLowerCase().includes((cmd.book_nome || '').toLowerCase()) &&
+      (!cmd.intestatario || (b.intestatario || '').toLowerCase().includes(cmd.intestatario.toLowerCase()))
+    )
+    const wallet = wallets.find(w =>
+      (w.nome || '').toLowerCase().includes((cmd.wallet_nome || '').toLowerCase()) &&
+      (!cmd.intestatario || (w.intestatario || '').toLowerCase().includes(cmd.intestatario.toLowerCase()))
+    )
+    if (!book || !wallet || !cmd.importo) { speak('Book o wallet non trovato'); return }
+    if (Number(book.saldo) < cmd.importo) { speak('Saldo book insufficiente'); return }
+    await updateSaldo('books', book.id, Number(book.saldo) - cmd.importo)
+    await updateSaldo('wallets', wallet.id, Number(wallet.saldo) + cmd.importo)
+    await salvaLogTransazione({
+      tipo: 'preleva', importo: cmd.importo,
+      riferimento: `book:${book.id}:${book.nome}:${book.intestatario} -> wallet:${wallet.id}:${wallet.nome}:${wallet.intestatario}`,
+      note: cmd.note || `Prelievo vocale da ${book.nome} a ${wallet.nome}`,
+      azione: 'book_to_wallet'
+    })
+    await loadData({ preserveMessages: true })
+    setVoiceStatus(`✅ Prelevati ${cmd.importo}€ da ${book.nome} a ${wallet.nome}`)
+    speak(`Fatto. Prelevati ${cmd.importo} euro da ${book.nome} a ${wallet.nome}`)
+    return
+  }
+  if (cmd.azione === 'preleva_esterno') {
+    const wallet = wallets.find(w =>
+      (w.nome || '').toLowerCase().includes((cmd.wallet_nome || '').toLowerCase()) &&
+      (!cmd.intestatario || (w.intestatario || '').toLowerCase().includes(cmd.intestatario.toLowerCase()))
+    )
+    if (!wallet || !cmd.importo) { speak('Wallet non trovato o importo mancante'); return }
+    if (Number(wallet.saldo) < cmd.importo) { speak('Saldo wallet insufficiente'); return }
+    await updateSaldo('wallets', wallet.id, Number(wallet.saldo) - cmd.importo)
+    const riferimento = `wallet:${wallet.id}:${wallet.nome}:${wallet.intestatario} -> esterno`
+    await salvaLogTransazione({
+      tipo: 'preleva', importo: cmd.importo, riferimento,
+      note: cmd.note || `Prelievo esterno vocale da ${wallet.nome}`,
+      azione: 'wallet_to_external'
+    })
+    await salvaSpesaGestione({ importo: cmd.importo, riferimento, note: cmd.note || `Prelievo esterno vocale da ${wallet.nome}` })
+    await loadData({ preserveMessages: true })
+    setVoiceStatus(`✅ Prelevati ${cmd.importo}€ da ${wallet.nome} verso esterno`)
+    speak(`Fatto. Prelevati ${cmd.importo} euro da ${wallet.nome}`)
     return
   }
   if (cmd.azione === 'correggi_book') {
