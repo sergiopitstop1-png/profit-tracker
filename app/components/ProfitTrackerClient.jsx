@@ -305,7 +305,7 @@ useEffect(() => {
   const scadenzeProssime = memoFutureNotes.filter(row => {
     if (!row.data_reale) return false
     const diff = (new Date(row.data_reale + 'T00:00:00') - oggi) / (1000 * 60 * 60 * 24)
-    return diff >= -1 && diff <= 30
+    return diff <= 30
   })
   if (scadenzeProssime.length === 0) return
 
