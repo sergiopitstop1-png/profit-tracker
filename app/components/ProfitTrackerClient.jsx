@@ -508,7 +508,7 @@ async function executeVoiceCommand(cmd) {
   speak(`Fatto. Trasferiti ${cmd.importo} euro da ${walletFrom.nome} a ${walletTo.nome}`)
   return
 }
-  }
+  
   if (cmd.azione === 'preleva_book') {
     const book = books.find(b =>
       (b.nome || '').toLowerCase().includes((cmd.book_nome || '').toLowerCase()) &&
