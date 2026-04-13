@@ -382,12 +382,7 @@ Wallets disponibili: ${wallets.map(w => w.nome + ' (' + w.intestatario + ')').jo
 
 async function executeVoiceCommand(cmd) {
   // MODALITÀ LISTA
-  if (cmd.tipo === 'lista') {
-    if (!cmd.correzioni || cmd.correzioni.length === 0) {
-      setVoiceStatus('Nessuna correzione trovata nella lista')
-      speak('Non ho trovato correzioni nella lista')
-      return
-    }
+  if (cmd.tipo === 'lista' && cmd.correzioni && cmd.correzioni.length > 0) {
     const risultati = []
     const errori = []
     for (const correzione of cmd.correzioni) {
@@ -418,6 +413,8 @@ async function executeVoiceCommand(cmd) {
     speak(`Fatto. Aggiornati ${risultati.length} saldi su ${cmd.book_nome}.${errori.length > 0 ? ' Non trovati: ' + errori.join(', ') : ''}`)
     return
   }
+
+  // MODALITÀ SINGOLA
 
   // MODALITÀ SINGOLA
   if (cmd.azione === 'sconosciuto') {
