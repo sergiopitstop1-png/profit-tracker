@@ -380,7 +380,8 @@ STRUTTURA 3 - Lista versamenti misti:
 { "tipo": "lista_versamenti", "book_nome": "nome book", "versamenti": [ { "intestatario": "nome cognome", "importo": numero, "wallet_nome": "nome wallet" }, ... ] }
 
 REGOLE nomi: usa il nome PIÙ SIMILE dalla lista, NON inventare nomi.
-
+const cleanN = (s) => (s || '').replace(/\s*\(.*?\)/g, '').trim().toLowerCase()
+const extInt = (s) => { const m = (s || '').match(/\(([^)]+)\)/); return m ? m[1].toLowerCase() : '' }
 Books disponibili: ${books.map(b => b.nome + ' (' + b.intestatario + ')').join(', ')}
 Wallets disponibili: ${wallets.map(w => w.nome + ' (' + w.intestatario + ')').join(', ')}`,
   messages: [{ role: 'user', content: transcript }]
@@ -471,14 +472,16 @@ async function executeVoiceCommand(cmd) {
     return
   }
   if (cmd.azione === 'versa') {
-    const wallet = wallets.find(w =>
-      (w.nome || '').toLowerCase().includes((cmd.wallet_nome || '').toLowerCase()) &&
-      (!cmd.intestatario || (w.intestatario || '').toLowerCase().includes(cmd.intestatario.toLowerCase()))
-    )
-    const book = books.find(b =>
-      (b.nome || '').toLowerCase().includes((cmd.book_nome || '').toLowerCase()) &&
-      (!cmd.intestatario || (b.intestatario || '').toLowerCase().includes(cmd.intestatario.toLowerCase()))
-    )
+  const intW = extInt(cmd.wallet_nome) || (cmd.intestatario || '').toLowerCase()
+  const intB = extInt(cmd.book_nome) || (cmd.intestatario || '').toLowerCase()
+  const wallet = wallets.find(w =>
+    (w.nome || '').toLowerCase().includes(cleanN(cmd.wallet_nome)) &&
+    (!intW || (w.intestatario || '').toLowerCase().includes(intW))
+  ) || wallets.find(w => (w.nome || '').toLowerCase().includes(cleanN(cmd.wallet_nome)))
+  const book = books.find(b =>
+    (b.nome || '').toLowerCase().includes(cleanN(cmd.book_nome)) &&
+    (!intB || (b.intestatario || '').toLowerCase().includes(intB))
+  ) || books.find(b => (b.nome || '').toLowerCase().includes(cleanN(cmd.book_nome)))
     if (!wallet || !book || !cmd.importo) { setVoiceStatus('Wallet o book non trovato'); speak('Non ho trovato il wallet o il book'); return }
     if (Number(wallet.saldo) < cmd.importo) { speak('Saldo wallet insufficiente'); return }
     await updateSaldo('wallets', wallet.id, Number(wallet.saldo) - cmd.importo)
