@@ -380,8 +380,6 @@ STRUTTURA 3 - Lista versamenti misti:
 { "tipo": "lista_versamenti", "book_nome": "nome book", "versamenti": [ { "intestatario": "nome cognome", "importo": numero, "wallet_nome": "nome wallet" }, ... ] }
 
 REGOLE nomi: usa il nome PIÙ SIMILE dalla lista, NON inventare nomi.
-const cleanN = (s) => (s || '').replace(/\s*\(.*?\)/g, '').trim().toLowerCase()
-const extInt = (s) => { const m = (s || '').match(/\(([^)]+)\)/); return m ? m[1].toLowerCase() : '' }
 Books disponibili: ${books.map(b => b.nome + ' (' + b.intestatario + ')').join(', ')}
 Wallets disponibili: ${wallets.map(w => w.nome + ' (' + w.intestatario + ')').join(', ')}`,
   messages: [{ role: 'user', content: transcript }]
@@ -398,7 +396,8 @@ Wallets disponibili: ${wallets.map(w => w.nome + ' (' + w.intestatario + ')').jo
   console.error('Voice error:', err)
 }
 }
-
+const cleanN = (s) => (s || '').replace(/\s*\(.*?\)/g, '').trim().toLowerCase()
+const extInt = (s) => { const m = (s || '').match(/\(([^)]+)\)/); return m ? m[1].toLowerCase() : '' }
 async function executeVoiceCommand(cmd) {
   // MODALITÀ LISTA
   if (cmd.tipo === 'lista' && cmd.correzioni && cmd.correzioni.length > 0) {
