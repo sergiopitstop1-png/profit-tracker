@@ -2735,17 +2735,36 @@ const cassaDisponibile =
             const vicina = giorni !== null && giorni >= 0 && giorni <= 30
             return (
               <tr key={row.id} style={tr}>
-                <td style={td}>{row.data_testo || row.data_reale || '-'}</td>
-                <td style={td}>{Number(row.importo || 0) === 0 ? '-' : formatCurrency(row.importo)}</td>
-                <td style={{ ...td, color: row.colore === 'red' ? '#f87171' : '#e2e8f0', fontWeight: row.colore === 'red' ? 800 : 400 }}>
-                  {row.descrizione || '-'}
-                </td>
-                <td style={{ ...td, color: vicina ? '#f97316' : '#94a3b8', fontWeight: vicina ? 800 : 400 }}>
-                  {giorni === null ? '-' : giorni < 0 ? 'Scaduta' : giorni === 0 ? '⚠️ Oggi!' : `${giorni} gg`}
-                </td>
-                <td style={tdActions}>
-                  <button style={tinyRedButton} onClick={() => deleteMemoFutureNote(row.id)}>Elimina</button>
-                </td>
+  <td style={td}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <input type='date' defaultValue={row.data_reale || ''} onBlur={e => updateMemoFutureNote(row.id, 'data_reale', e.target.value || null)}
+        style={{ background: '#0b1220', color: '#f8fafc', border: '1px solid rgba(51,65,85,0.9)', borderRadius: 8, padding: '4px 6px', fontSize: 12, width: '100%' }} />
+      <input defaultValue={row.data_testo || ''} onBlur={e => updateMemoFutureNote(row.id, 'data_testo', e.target.value)}
+        placeholder='Testo data' style={{ background: '#0b1220', color: '#94a3b8', border: '1px solid rgba(51,65,85,0.9)', borderRadius: 8, padding: '4px 6px', fontSize: 11, width: '100%' }} />
+    </div>
+  </td>
+  <td style={td}>
+    <input defaultValue={row.importo || ''} onBlur={e => updateMemoFutureNote(row.id, 'importo', Number(e.target.value) || 0)}
+      placeholder='0' style={{ background: '#0b1220', color: '#f8fafc', border: '1px solid rgba(51,65,85,0.9)', borderRadius: 8, padding: '4px 6px', fontSize: 13, width: 90 }} />
+  </td>
+  <td style={td}>
+    <input defaultValue={row.descrizione || ''} onBlur={e => updateMemoFutureNote(row.id, 'descrizione', e.target.value)}
+      style={{ background: '#0b1220', color: row.colore === 'red' ? '#f87171' : '#e2e8f0', border: '1px solid rgba(51,65,85,0.9)', borderRadius: 8, padding: '4px 6px', fontSize: 13, width: '100%', fontWeight: row.colore === 'red' ? 800 : 400 }} />
+  </td>
+  <td style={{ ...td, color: vicina ? '#f97316' : '#94a3b8', fontWeight: vicina ? 800 : 400 }}>
+    {giorni === null ? '-' : giorni < 0 ? 'Scaduta' : giorni === 0 ? '⚠️ Oggi!' : `${giorni} gg`}
+  </td>
+  <td style={tdActions}>
+    <div style={{ display: 'flex', gap: 6, flexDirection: 'column' }}>
+      <select defaultValue={row.colore || 'normal'} onChange={e => updateMemoFutureNote(row.id, 'colore', e.target.value)}
+        style={{ background: '#0b1220', color: '#f8fafc', border: '1px solid rgba(51,65,85,0.9)', borderRadius: 8, padding: '4px 6px', fontSize: 11 }}>
+        <option value='normal'>Normale</option>
+        <option value='red'>Rosso</option>
+      </select>
+      <button style={tinyRedButton} onClick={() => deleteMemoFutureNote(row.id)}>Elimina</button>
+    </div>
+  </td>
+</tr>
               </tr>
             )
           })
