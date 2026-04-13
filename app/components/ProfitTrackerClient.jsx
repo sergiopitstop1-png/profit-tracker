@@ -488,11 +488,12 @@ async function executeVoiceCommand(cmd) {
   ) || wallets.find(w =>
     (w.nome || '').toLowerCase().includes((cmd.wallet_dest || '').toLowerCase())
   )
-  if (!walletFrom || !walletTo || !cmd.importo) {
-    setVoiceStatus(`Wallet non trovato — from: ${cmd.wallet_nome}, to: ${cmd.wallet_dest}`)
-    speak('Wallet non trovato')
-    return
-  }
+  const debugMsg = `from: "${cmd.wallet_nome}" int_from: "${cmd.intestatario_from}" | to: "${cmd.wallet_dest}" int_to: "${cmd.intestatario_to}" | importo: ${cmd.importo} | walletFrom: ${walletFrom?.nome} | walletTo: ${walletTo?.nome}`
+setVoiceStatus(debugMsg)
+if (!walletFrom || !walletTo || !cmd.importo) {
+  speak('Wallet non trovato')
+  return
+}
   if (String(walletFrom.id) === String(walletTo.id)) { speak('Origine e destinazione uguali'); return }
   if (Number(walletFrom.saldo) < cmd.importo) { speak('Saldo insufficiente'); return }
   await updateSaldo('wallets', walletFrom.id, Number(walletFrom.saldo) - cmd.importo)
