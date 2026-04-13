@@ -727,6 +727,11 @@ async function deleteMemoFutureNote(id) {
   if (error) { setErrorMessage('Errore eliminazione memo'); return }
   await loadData({ preserveMessages: true })
 }
+  async function updateMemoFutureNote(id, campo, valore) {
+  const { error } = await supabase.from('memo_future_notes').update({ [campo]: valore }).eq('id', id)
+  if (error) { setErrorMessage('Errore aggiornamento memo'); return }
+  await loadData({ preserveMessages: true })
+}
   function currentMonthLabel(dateValue = new Date()) {
     const date = new Date(dateValue)
     if (Number.isNaN(date.getTime())) return ''
@@ -1739,8 +1744,14 @@ const cassaDisponibile =
 
   if (loading) return <div style={loadingScreen}><div style={loadingCard}>Caricamento in corso...</div></div>
 
-  return (
+ return (
     <div style={container}>
+      <style>{`
+        @keyframes blinkBorder {
+          0%, 100% { border-color: #ef4444; }
+          50% { border-color: transparent; }
+        }
+      `}</style>
       <div style={pageWrap}>
         <header style={header}>
           <div>
@@ -1778,6 +1789,38 @@ const cassaDisponibile =
        {activeTab === 'dashboard' && (
   <div style={tabContent}>
      {accessDenied && <div style={errorBox}>{accessDenied}</div>}
+    {(() => {
+  const oggi = new Date()
+  const scadute = memoFutureNotes.filter(row => {
+    if (!row.data_reale) return false
+    const diff = Math.ceil((new Date(row.data_reale + 'T00:00:00') - oggi) / (1000 * 60 * 60 * 24))
+    return diff <= 4
+  })
+  if (scadute.length === 0) return null
+  const righe = scadute.map(row => {
+    const diff = Math.ceil((new Date(row.data_reale + 'T00:00:00') - oggi) / (1000 * 60 * 60 * 24))
+    if (diff < 0) return `⛔ ${row.descrizione.toUpperCase()} — SCADUTO, PROVVEDERE`
+    if (diff === 0) return `🔴 ${row.descrizione.toUpperCase()} — SCADE OGGI`
+    return `⚠️ ${row.descrizione.toUpperCase()} — mancano ${diff} giorni`
+  })
+  return (
+    <div style={{
+      background: '#1e0a0a',
+      border: '2px solid #ef4444',
+      borderRadius: 12,
+      padding: '14px 20px',
+      marginBottom: 16,
+      animation: 'blinkBorder 1s step-start infinite',
+      color: '#fca5a5',
+      fontWeight: 700,
+      fontSize: 14,
+      lineHeight: 2
+    }}>
+      🔔 AVVISI SCADENZE
+      {righe.map((r, i) => <div key={i}>{r}</div>)}
+    </div>
+  )
+})()}
     <div style={{ marginBottom: '15px' }}>
       <button style={primaryButtonBlue} onClick={saveWeeklySnapshot}>
   Salva Periodo
@@ -2761,6 +2804,7 @@ const cassaDisponibile =
         <option value='normal'>Normale</option>
         <option value='red'>Rosso</option>
       </select>
+      <button style={{ ...tinyRedButton, background: '#16a34a', marginBottom: 4 }} onClick={() => deleteMemoFutureNote(row.id)}>✅ Fatto</button>
       <button style={tinyRedButton} onClick={() => deleteMemoFutureNote(row.id)}>Elimina</button>
     </div>
   </td>
