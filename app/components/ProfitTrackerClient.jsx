@@ -299,19 +299,28 @@ function speak(text) {
 
 useEffect(() => {
   if (memoFutureNotes.length === 0) return
+
   const oggi = new Date()
+  const oggiStr = oggi.toISOString().split('T')[0]
+  const ultimoAvviso = localStorage.getItem('ultimoAvvisoScadenze')
+  if (ultimoAvviso === oggiStr) return // già detto oggi!
+
   const scadenzeProssime = memoFutureNotes.filter(row => {
     if (!row.data_reale) return false
     const diff = (new Date(row.data_reale) - oggi) / (1000 * 60 * 60 * 24)
     return diff >= 0 && diff <= 30
   })
   if (scadenzeProssime.length === 0) return
+
   const messaggi = scadenzeProssime.map(row => {
     const giorni = Math.ceil((new Date(row.data_reale) - oggi) / (1000 * 60 * 60 * 24))
     return giorni === 0 ? `Oggi scade: ${row.descrizione}` : `Tra ${giorni} giorni: ${row.descrizione}`
   })
   const testo = `Attenzione. Hai ${scadenzeProssime.length} scadenze in arrivo. ${messaggi.join('. ')}`
-  setTimeout(() => speak(testo), 1500)
+  setTimeout(() => {
+    speak(testo)
+    localStorage.setItem('ultimoAvvisoScadenze', oggiStr)
+  }, 1500)
 }, [memoFutureNotes])
 function correggiTrascrizione(testo) {
   const correzioni = {
