@@ -2717,11 +2717,11 @@ const cassaDisponibile =
     <table style={table}>
       <thead>
         <tr>
-          <th style={th}>Data</th>
-          <th style={th}>Importo</th>
-          <th style={th}>Descrizione</th>
-          <th style={th}>Gg mancanti</th>
-          <th style={thActions}>Azioni</th>
+          <th style={{ ...th, minWidth: 160 }}>Data</th>
+<th style={{ ...th, minWidth: 110 }}>Importo</th>
+<th style={{ ...th, minWidth: 260 }}>Descrizione</th>
+<th style={{ ...th, minWidth: 100 }}>Gg mancanti</th>
+<th style={{ ...thActions, minWidth: 130 }}>Azioni</th>
         </tr>
       </thead>
       <tbody>
@@ -2737,19 +2737,19 @@ const cassaDisponibile =
               <tr key={row.id} style={tr}>
   <td style={td}>
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <input type='date' defaultValue={row.data_reale || ''} onBlur={e => updateMemoFutureNote(row.id, 'data_reale', e.target.value || null)}
-        style={{ background: '#0b1220', color: '#f8fafc', border: '1px solid rgba(51,65,85,0.9)', borderRadius: 8, padding: '4px 6px', fontSize: 12, width: '100%' }} />
+     <input type='date' defaultValue={row.data_reale || ''} onBlur={e => updateMemoFutureNote(row.id, 'data_reale', e.target.value || null)}
+  style={{ background: '#0b1220', color: '#f8fafc', border: '1px solid rgba(51,65,85,0.9)', borderRadius: 8, padding: '4px 6px', fontSize: 12, width: '100%', minWidth: 140 }} />
       <input defaultValue={row.data_testo || ''} onBlur={e => updateMemoFutureNote(row.id, 'data_testo', e.target.value)}
         placeholder='Testo data' style={{ background: '#0b1220', color: '#94a3b8', border: '1px solid rgba(51,65,85,0.9)', borderRadius: 8, padding: '4px 6px', fontSize: 11, width: '100%' }} />
     </div>
   </td>
   <td style={td}>
     <input defaultValue={row.importo || ''} onBlur={e => updateMemoFutureNote(row.id, 'importo', Number(e.target.value) || 0)}
-      placeholder='0' style={{ background: '#0b1220', color: '#f8fafc', border: '1px solid rgba(51,65,85,0.9)', borderRadius: 8, padding: '4px 6px', fontSize: 13, width: 90 }} />
+  placeholder='0' style={{ background: '#0b1220', color: '#f8fafc', border: '1px solid rgba(51,65,85,0.9)', borderRadius: 8, padding: '4px 6px', fontSize: 13, width: 100 }} />
   </td>
   <td style={td}>
-    <input defaultValue={row.descrizione || ''} onBlur={e => updateMemoFutureNote(row.id, 'descrizione', e.target.value)}
-      style={{ background: '#0b1220', color: row.colore === 'red' ? '#f87171' : '#e2e8f0', border: '1px solid rgba(51,65,85,0.9)', borderRadius: 8, padding: '4px 6px', fontSize: 13, width: '100%', fontWeight: row.colore === 'red' ? 800 : 400 }} />
+   <input defaultValue={row.descrizione || ''} onBlur={e => updateMemoFutureNote(row.id, 'descrizione', e.target.value)}
+  style={{ background: '#0b1220', color: row.colore === 'red' ? '#f87171' : '#e2e8f0', border: '1px solid rgba(51,65,85,0.9)', borderRadius: 8, padding: '4px 6px', fontSize: 13, width: '100%', fontWeight: row.colore === 'red' ? 800 : 400, minWidth: 240 }} />
   </td>
   <td style={{ ...td, color: vicina ? '#f97316' : '#94a3b8', fontWeight: vicina ? 800 : 400 }}>
     {giorni === null ? '-' : giorni < 0 ? 'Scaduta' : giorni === 0 ? '⚠️ Oggi!' : `${giorni} gg`}
