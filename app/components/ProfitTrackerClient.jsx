@@ -326,6 +326,8 @@ useEffect(() => {
 }, [memoFutureNotes])
 function correggiTrascrizione(testo) {
   const correzioni = {
+    'aggiornasaldi': 'aggiornaS saldi',
+    'premisto': 'premi stop',
     'bazzocchi': 'Bozoki',
     'bazzochi': 'Bozoki',
     'bazoki': 'Bozoki',
@@ -686,14 +688,14 @@ function startContinuousListening() {
         setVoiceTranscript(testo)
         setListBuffer(testo)
         setVoiceStatus('Trascritto: ' + testo)
-await handleVoiceCommand(correggiTrascrizione(testo))
+        await handleVoiceCommand(correggiTrascrizione(testo))
       } catch (err) {
         setVoiceStatus('Errore trascrizione: ' + err.message)
         speak('Errore nella trascrizione')
       }
     }
 
-    mediaRecorder.start()
+    setTimeout(() => mediaRecorder.start(), 2000)
   }).catch(() => {
     setIsListeningContinuous(false)
     setVoiceStatus('Errore accesso microfono')
