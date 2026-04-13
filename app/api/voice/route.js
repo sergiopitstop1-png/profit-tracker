@@ -8,8 +8,10 @@ export async function POST(req) {
       'x-api-key': process.env.ANTHROPIC_API_KEY,
       'anthropic-version': '2023-06-01'
     },
-    body: JSON.stringify(body)
-  })
+    body: JSON.stringify({
+  ...body,
+  system: (body.system || '') + '\n\nRISPONDI SOLO CON JSON VALIDO. NESSUN TESTO AGGIUNTIVO. NESSUNA SPIEGAZIONE.'
+})
   
   const data = await response.json()
   return Response.json(data)
