@@ -169,7 +169,7 @@ useEffect(() => {
 ] = await Promise.all([
   supabase.from('books').select('*').order('id', { ascending: true }),
   supabase.from('wallets').select('*').order('id', { ascending: true }),
-  supabase.from('transactions').select('*').order('data', { ascending: false }),
+  supabase.from('transactions').select('*').order('data', { ascending: false }).range(0, 4999),
   supabase.from('contabilita').select('*').order('data_movimento', { ascending: false }),
   supabase.from('weekly_snapshots').select('*').order('snapshot_date', { ascending: true }),
   supabase.from('monthly_snapshots').select('*').order('snapshot_month', { ascending: true }),
