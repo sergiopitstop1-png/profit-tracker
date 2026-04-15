@@ -18,6 +18,7 @@ export default function ProfitTrackerClient() {
   const [accessDenied, setAccessDenied] = useState('')
   const [userEmail, setUserEmail] = useState('')
   const [transactions, setTransactions] = useState([])
+  const [totaleEsterni, setTotaleEsterni] = useState(0)
   const [contabilita, setContabilita] = useState([])
 const [weeklySnapshots, setWeeklySnapshots] = useState([])
 const [monthlySnapshots, setMonthlySnapshots] = useState([])
@@ -169,7 +170,7 @@ useEffect(() => {
 ] = await Promise.all([
   supabase.from('books').select('*').order('id', { ascending: true }),
   supabase.from('wallets').select('*').order('id', { ascending: true }),
-  supabase.from('transactions').select('*').order('data', { ascending: false }).range(0, 4999),
+  supabase.from('transactions').select('*').order('data', { ascending: false }).limit(500),
   supabase.from('contabilita').select('*').order('data_movimento', { ascending: false }),
   supabase.from('weekly_snapshots').select('*').order('snapshot_date', { ascending: true }),
   supabase.from('monthly_snapshots').select('*').order('snapshot_month', { ascending: true }),
@@ -185,7 +186,14 @@ useEffect(() => {
   supabase.from('memo_free_boxes').select('*').order('id', { ascending: true }),
      supabase.from('dashboard_settings').select('*').eq('id', 1).single(),
 ])
+const { data: esterniData } = await supabase
+  .from('transactions')
+  .select('importo')
+  .eq('azione', 'wallet_to_external')
 
+const sommaEsterni = (esterniData || [])
+  .reduce((t, tx) => t + Number(tx.importo || 0), 0)
+setTotaleEsterni(sommaEsterni)
     const errors = []
 if (booksRes.error) errors.push('books'); else setBooks(booksRes.data || [])
 if (walletsRes.error) errors.push('wallets'); else setWallets(walletsRes.data || [])
@@ -1579,11 +1587,7 @@ const basePeriodo = ultimoSnapshot
   ? Number(ultimoSnapshot.total_cash)
   : BASE_CASSA_MESE
 
-const totalePrelieviEsterniStorici = useMemo(() =>
-  transactions
-    .filter(tx => tx.azione === 'wallet_to_external')
-    .reduce((t, tx) => t + Number(tx.importo || 0), 0)
-, [transactions])
+const totalePrelieviEsterniStorici = totaleEsterni
 
 const totaleUsciteEsterne = ultimoSnapshot
   ? totalePrelieviEsterniStorici - Number(ultimoSnapshot.external_withdrawals || 0)
