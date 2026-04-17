@@ -1685,7 +1685,12 @@ const totaleSpeseMeseCorrente = useMemo(() => {
   }, 0)
 }, [stimeCassaByMonth, meseCorrenteKey])
  const prelievoDelMese = Math.abs(Number(totaleSpeseMeseCorrente || 0))
-const accantonamentoRoyalty = Number(dashboardSettings.accantonamento_royalty || 0)
+const meseCorrenteNum = new Date().getMonth() + 1
+const royaltyDaPagare2026 = memoRoyaltyEntries
+  .filter(r => Number(r.anno) === 2026 && String(r.nota || '').toLowerCase().includes('da pagare'))
+  .reduce((sum, r) => sum + Number(r.importo || 0), 0)
+const mediaMensileRoyalty = royaltyDaPagare2026 / 12
+const accantonamentoRoyalty = mediaMensileRoyalty * meseCorrenteNum
 const risparmiSamuMassi = Number(dashboardSettings.risparmi_samu_massi || 0)
 
 const cassaDisponibile =
@@ -1944,9 +1949,8 @@ const cassaDisponibile =
      <div style={{ position: 'relative' }}>
   <input
     value={Number(accantonamentoRoyalty || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'}
-onChange={(e) => {
-  setDashboardSettings(prev => ({ ...prev, accantonamento_royalty: parseEuroInput(e.target.value) }))
-}}
+    readOnly
+    onChange={() => {}}
     onFocus={(e) => {
       e.target.value = Number(accantonamentoRoyalty ?? 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     }}
@@ -1997,6 +2001,9 @@ onChange={(e) => {
 
   
 </div>
+  <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>
+    {formatCurrency(mediaMensileRoyalty)} × {meseCorrenteNum} mesi
+  </div>
   </div>
 
   <div style={panel}>
@@ -2486,7 +2493,8 @@ onChange={(e) => {
       formatCurrency(
         memoRoyaltyEntries
           .filter(r =>
-            String(r.nota || '').toLowerCase().includes('da pagare')
+  Number(r.anno) === 2026 && String(r.nota || '').toLowerCase().includes('da pagare')
+)
           )
           .reduce((sum, r) => sum + Number(r.importo || 0), 0)
       )
@@ -2518,8 +2526,8 @@ onChange={(e) => {
    Media mese: {
   formatCurrency(
     memoRoyaltyEntries
-      .filter(r => Number(r.anno) === 2026)
-      .reduce((sum, r) => sum + Number(r.importo || 0), 0) / 12
+  .filter(r => Number(r.anno) === 2026 && String(r.nota || '').toLowerCase().includes('da pagare'))
+  .reduce((sum, r) => sum + Number(r.importo || 0), 0) / 12
   )
 }
   </div>
