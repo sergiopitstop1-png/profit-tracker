@@ -1940,7 +1940,10 @@ const cassaDisponibile =
    
      <div style={{ position: 'relative' }}>
   <input
-    defaultValue={Number(accantonamentoRoyalty || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'}
+    value={Number(accantonamentoRoyalty || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'}
+onChange={(e) => {
+  setDashboardSettings(prev => ({ ...prev, accantonamento_royalty: parseEuroInput(e.target.value) }))
+}}
     onFocus={(e) => {
       e.target.value = Number(accantonamentoRoyalty ?? 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     }}
@@ -2002,7 +2005,10 @@ const cassaDisponibile =
 
     <div style={{ position: 'relative' }}>
   <input
-    defaultValue={Number(risparmiSamuMassi || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'}
+   value={Number(risparmiSamuMassi || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'}
+onChange={(e) => {
+  setDashboardSettings(prev => ({ ...prev, risparmi_samu_massi: parseEuroInput(e.target.value) }))
+}}
     onFocus={(e) => {
       e.target.value = Number(risparmiSamuMassi ?? 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
     }}
