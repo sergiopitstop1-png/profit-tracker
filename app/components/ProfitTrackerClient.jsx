@@ -3171,6 +3171,36 @@ onChange={(e) => {
     </button>
   </div>
 </div>
+    </div>
+
+{/* BOTTONE TORNA SU */}
+<button
+  onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+  style={{
+    position: 'fixed',
+    bottom: 100,
+    right: 28,
+    zIndex: 2000,
+    width: 44,
+    height: 44,
+    borderRadius: 999,
+    border: 'none',
+    cursor: 'pointer',
+    background: 'linear-gradient(135deg, #16a34a, #22c55e)',
+    color: '#fff',
+    fontSize: 20,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 8px 24px rgba(34,197,94,0.4)',
+  }}
+  title='Torna su'
+>
+  ↑
+</button>
+
+ </div>    
+  </div>    
  </div>    
   </div>     
     )
