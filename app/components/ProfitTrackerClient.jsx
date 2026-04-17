@@ -868,25 +868,50 @@ async function addSavingsRow(persona, periodo, versamento) {
   const rows = memoSavingsRows
     .filter(r => r.persona === persona)
     .sort((a, b) => a.ordine - b.ordine)
-  
-  const last = rows[rows.length - 1]
-  const risparmio = last ? Number(last.montante || 0) : 0
-  const interesse = Math.round(risparmio * 0.01 * 100) / 100
-  const montante = Math.round((risparmio + Number(versamento) + interesse) * 100) / 100
-  const ordine = last ? last.ordine + 1 : 1
 
-  const { data, error } = await supabase
-    .from('memo_savings_rows')
-    .insert([{ persona, periodo, versamento: Number(versamento), risparmio, interesse, montante, ordine }])
-    .select()
-    .single()
+  const existing = rows.find(r => r.periodo === periodo)
 
-  if (error) {
-    setErrorMessage('Errore salvataggio risparmio')
-    return
+  if (existing) {
+    // Aggiorna riga esistente
+    const prevRow = rows.find(r => r.ordine === existing.ordine - 1)
+    const risparmio = prevRow ? Number(prevRow.montante || 0) : 0
+    const interesse = Math.round(risparmio * 0.01 * 100) / 100
+    const montante = Math.round((risparmio + Number(versamento) + interesse) * 100) / 100
+
+    const { error } = await supabase
+      .from('memo_savings_rows')
+      .update({ versamento: Number(versamento), risparmio, interesse, montante })
+      .eq('id', existing.id)
+
+    if (error) {
+      setErrorMessage('Errore aggiornamento risparmio')
+      return
+    }
+
+    setMemoSavingsRows(prev =>
+      prev.map(r => r.id === existing.id ? { ...r, versamento: Number(versamento), risparmio, interesse, montante } : r)
+    )
+  } else {
+    // Inserisce nuova riga
+    const last = rows[rows.length - 1]
+    const risparmio = last ? Number(last.montante || 0) : 0
+    const interesse = Math.round(risparmio * 0.01 * 100) / 100
+    const montante = Math.round((risparmio + Number(versamento) + interesse) * 100) / 100
+    const ordine = last ? last.ordine + 1 : 1
+
+    const { data, error } = await supabase
+      .from('memo_savings_rows')
+      .insert([{ persona, periodo, versamento: Number(versamento), risparmio, interesse, montante, ordine }])
+      .select()
+      .single()
+
+    if (error) {
+      setErrorMessage('Errore salvataggio risparmio')
+      return
+    }
+
+    setMemoSavingsRows(prev => [...prev, data])
   }
-
-  setMemoSavingsRows(prev => [...prev, data])
 }
 
 async function upsertRoyaltyEntry(accountId, year, value) {
