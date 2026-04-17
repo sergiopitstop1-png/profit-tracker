@@ -2821,7 +2821,7 @@ onChange={(e) => {
                             ...tr,
                             background: i === rows.length - 1 ? 'rgba(34,197,94,0.08)' : undefined
                           }}>
-                            <<td style={td}>{row.periodo}</td>
+                            <td style={td}>{row.periodo}</td>
                             <td style={{ ...td, color: '#94a3b8', fontSize: 12 }}>{row.causale || '-'}</td>
                             <td style={{ ...td, color: Number(row.versamento) >= 0 ? '#4ade80' : '#f87171', fontWeight: 800 }}>
                               {Number(row.versamento) >= 0 ? '+' : ''}{formatCurrency(row.versamento)}
