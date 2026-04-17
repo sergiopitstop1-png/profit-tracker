@@ -1686,11 +1686,14 @@ const totaleSpeseMeseCorrente = useMemo(() => {
 }, [stimeCassaByMonth, meseCorrenteKey])
  const prelievoDelMese = Math.abs(Number(totaleSpeseMeseCorrente || 0))
 const meseCorrenteNum = new Date().getMonth() + 1
-const royaltyDaPagare2026 = memoRoyaltyEntries
-  .filter(r => Number(r.anno) === 2026 && String(r.nota || '').toLowerCase().includes('da pagare'))
+const royaltyTotale2026 = memoRoyaltyEntries
+  .filter(r => Number(r.anno) === 2026)
   .reduce((sum, r) => sum + Number(r.importo || 0), 0)
-const mediaMensileRoyalty = royaltyDaPagare2026 / 12
-const accantonamentoRoyalty = mediaMensileRoyalty * meseCorrenteNum
+const royaltyPagato2026 = memoRoyaltyEntries
+  .filter(r => Number(r.anno) === 2026)
+  .reduce((sum, r) => sum + Number(r.pagato || 0), 0)
+const mediaMensileRoyalty = royaltyTotale2026 / 12
+const accantonamentoRoyalty = (mediaMensileRoyalty * meseCorrenteNum) - royaltyPagato2026
 const risparmiSamuMassi = Number(dashboardSettings.risparmi_samu_massi || 0)
 
 const cassaDisponibile =
@@ -2489,15 +2492,7 @@ onChange={(e) => {
     color: '#f87171',
     fontWeight: 700
   }}>
-    Da pagare: {
-      formatCurrency(
-        memoRoyaltyEntries
-          .filter(r =>
-  Number(r.anno) === 2026 && String(r.nota || '').toLowerCase().includes('da pagare')
-)          
-          .reduce((sum, r) => sum + Number(r.importo || 0), 0)
-      )
-    }
+    Da pagare: {formatCurrency(Math.max(0, accantonamentoRoyalty))}
   </div>
 
   <div style={{
@@ -2522,13 +2517,7 @@ onChange={(e) => {
     color: '#22c55e',
     fontWeight: 700
   }}>
-   Media mese: {
-  formatCurrency(
-    memoRoyaltyEntries
-  .filter(r => Number(r.anno) === 2026 && String(r.nota || '').toLowerCase().includes('da pagare'))
-  .reduce((sum, r) => sum + Number(r.importo || 0), 0) / 12
-  )
-}
+  Media mese: {formatCurrency(mediaMensileRoyalty)}
   </div>
 </div>                            
 
@@ -2595,20 +2584,39 @@ onChange={(e) => {
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                             {items.map((item) => (
                              <div key={item.id} style={{ lineHeight: 1.25 }}>
-  {year >= 2026 ? (
-    <input
-      value={item.importo ?? 0}
-      onChange={(e) => updateRoyaltyEntry(item.id, 'importo', Number(e.target.value))}
-      style={{
-        width: '100%',
-        background: 'transparent',
-        border: '1px solid #334155',
-        borderRadius: 6,
-        padding: '4px 6px',
-        color: '#f8fafc',
-        fontWeight: 800
-      }}
-    />
+ {year >= 2026 ? (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <input
+        value={item.importo ?? 0}
+        onChange={(e) => updateRoyaltyEntry(item.id, 'importo', Number(e.target.value))}
+        style={{
+          width: '100%',
+          background: 'transparent',
+          border: '1px solid #334155',
+          borderRadius: 6,
+          padding: '4px 6px',
+          color: '#f8fafc',
+          fontWeight: 800
+        }}
+      />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <span style={{ fontSize: 11, color: '#94a3b8' }}>Pagato:</span>
+        <input
+          value={item.pagato ?? 0}
+          onChange={(e) => updateRoyaltyEntry(item.id, 'pagato', Number(e.target.value))}
+          style={{
+            width: '100%',
+            background: 'transparent',
+            border: '1px solid #22c55e',
+            borderRadius: 6,
+            padding: '4px 6px',
+            color: '#4ade80',
+            fontWeight: 800,
+            fontSize: 12
+          }}
+        />
+      </div>
+    </div>
   ) : (
     <div style={{ fontWeight: 800, color: '#f8fafc' }}>
       {formatCurrency(item.importo)}
