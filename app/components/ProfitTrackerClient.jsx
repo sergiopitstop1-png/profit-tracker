@@ -27,8 +27,8 @@ const [stimeCassa, setStimeCassa] = useState([])
   const [newAccountName, setNewAccountName] = useState('')
 const [memoRoyaltyEntries, setMemoRoyaltyEntries] = useState([])
 const [memoSavingsRows, setMemoSavingsRows] = useState([])
-const [savingsFormMassi, setSavingsFormMassi] = useState({ periodo: '', versamento: '' })
-const [savingsFormSamu, setSavingsFormSamu] = useState({ periodo: '', versamento: '' })
+const [savingsFormMassi, setSavingsFormMassi] = useState({ periodo: '', versamento: '', causale: '' })
+const [savingsFormSamu, setSavingsFormSamu] = useState({ periodo: '', versamento: '', causale: '' })
 const [memoFutureNotes, setMemoFutureNotes] = useState([])
 const [memoFreeBoxes, setMemoFreeBoxes] = useState([]) 
   const [dashboardSettings, setDashboardSettings] = useState({ accantonamento_royalty: 0, risparmi_samu_massi: 0 })
@@ -864,54 +864,29 @@ async function updateDashboardSetting(field, value) {
     [field]: numericValue
   }))
 }
-async function addSavingsRow(persona, periodo, versamento) {
+async function addSavingsRow(persona, periodo, versamento, causale = '') {
   const rows = memoSavingsRows
     .filter(r => r.persona === persona)
     .sort((a, b) => a.ordine - b.ordine)
 
-  const existing = rows.find(r => r.periodo === periodo)
+  const last = rows[rows.length - 1]
+  const risparmio = last ? Number(last.montante || 0) : 0
+  const interesse = Math.round(risparmio * 0.01 * 100) / 100
+  const montante = Math.round((risparmio + Number(versamento) + interesse) * 100) / 100
+  const ordine = last ? last.ordine + 1 : 1
 
-  if (existing) {
-    // Aggiorna riga esistente
-    const prevRow = rows.find(r => r.ordine === existing.ordine - 1)
-    const risparmio = prevRow ? Number(prevRow.montante || 0) : 0
-    const interesse = Math.round(risparmio * 0.01 * 100) / 100
-    const montante = Math.round((risparmio + Number(versamento) + interesse) * 100) / 100
+  const { data, error } = await supabase
+    .from('memo_savings_rows')
+    .insert([{ persona, periodo, versamento: Number(versamento), risparmio, interesse, montante, ordine, causale }])
+    .select()
+    .single()
 
-    const { error } = await supabase
-      .from('memo_savings_rows')
-      .update({ versamento: Number(versamento), risparmio, interesse, montante })
-      .eq('id', existing.id)
-
-    if (error) {
-      setErrorMessage('Errore aggiornamento risparmio')
-      return
-    }
-
-    setMemoSavingsRows(prev =>
-      prev.map(r => r.id === existing.id ? { ...r, versamento: Number(versamento), risparmio, interesse, montante } : r)
-    )
-  } else {
-    // Inserisce nuova riga
-    const last = rows[rows.length - 1]
-    const risparmio = last ? Number(last.montante || 0) : 0
-    const interesse = Math.round(risparmio * 0.01 * 100) / 100
-    const montante = Math.round((risparmio + Number(versamento) + interesse) * 100) / 100
-    const ordine = last ? last.ordine + 1 : 1
-
-    const { data, error } = await supabase
-      .from('memo_savings_rows')
-      .insert([{ persona, periodo, versamento: Number(versamento), risparmio, interesse, montante, ordine }])
-      .select()
-      .single()
-
-    if (error) {
-      setErrorMessage('Errore salvataggio risparmio')
-      return
-    }
-
-    setMemoSavingsRows(prev => [...prev, data])
+  if (error) {
+    setErrorMessage('Errore salvataggio risparmio')
+    return
   }
+
+  setMemoSavingsRows(prev => [...prev, data])
 }
 
 async function upsertRoyaltyEntry(accountId, year, value) {
@@ -2834,9 +2809,10 @@ onChange={(e) => {
                       <thead>
                         <tr>
                           <th style={th}>Periodo</th>
-                          <th style={th}>Versamento</th>
-                          <th style={th}>Interessi 1%</th>
-                          <th style={th}>Montante</th>
+                        <th style={th}>Causale</th>
+                        <th style={th}>Versamento</th>
+                        <th style={th}>Interessi 1%</th>
+                        <th style={th}>Montante</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2845,7 +2821,8 @@ onChange={(e) => {
                             ...tr,
                             background: i === rows.length - 1 ? 'rgba(34,197,94,0.08)' : undefined
                           }}>
-                            <td style={td}>{row.periodo}</td>
+                            <<td style={td}>{row.periodo}</td>
+                            <td style={{ ...td, color: '#94a3b8', fontSize: 12 }}>{row.causale || '-'}</td>
                             <td style={{ ...td, color: Number(row.versamento) >= 0 ? '#4ade80' : '#f87171', fontWeight: 800 }}>
                               {Number(row.versamento) >= 0 ? '+' : ''}{formatCurrency(row.versamento)}
                             </td>
@@ -2859,18 +2836,6 @@ onChange={(e) => {
 
                   <div style={{ marginTop: 16, display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
                     <div>
-                      <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Periodo</div>
-                      <input
-                        placeholder='es. mag-26'
-                        value={persona === 'massimiliano' ? savingsFormMassi.periodo : savingsFormSamu.periodo}
-                        onChange={e => persona === 'massimiliano'
-                          ? setSavingsFormMassi(prev => ({ ...prev, periodo: e.target.value }))
-                          : setSavingsFormSamu(prev => ({ ...prev, periodo: e.target.value }))
-                        }
-                        style={{ ...filterInput, width: 100 }}
-                      />
-                    </div>
-                    <div>
                       <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Versamento (- per prelievo)</div>
                       <input
                         placeholder='es. 200 o -150'
@@ -2882,18 +2847,30 @@ onChange={(e) => {
                         style={{ ...filterInput, width: 150 }}
                       />
                     </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Causale (opzionale)</div>
+                      <input
+                        placeholder='es. regalo, prelievo...'
+                        value={persona === 'massimiliano' ? savingsFormMassi.causale : savingsFormSamu.causale}
+                        onChange={e => persona === 'massimiliano'
+                          ? setSavingsFormMassi(prev => ({ ...prev, causale: e.target.value }))
+                          : setSavingsFormSamu(prev => ({ ...prev, causale: e.target.value }))
+                        }
+                        style={{ ...filterInput, width: 160 }}
+                      />
+                    </div>
                     <button
                       style={tinyGreenButton}
                       onClick={async () => {
                         const form = persona === 'massimiliano' ? savingsFormMassi : savingsFormSamu
                         if (!form.periodo || !form.versamento) return
-                        await addSavingsRow(persona, form.periodo, form.versamento)
+                        await addSavingsRow(persona, form.periodo, form.versamento, form.causale)
                         persona === 'massimiliano'
-                          ? setSavingsFormMassi({ periodo: '', versamento: '' })
-                          : setSavingsFormSamu({ periodo: '', versamento: '' })
+                          ? setSavingsFormMassi({ periodo: '', versamento: '', causale: '' })
+                          : setSavingsFormSamu({ periodo: '', versamento: '', causale: '' })
                       }}
                     >
-                      + Aggiungi mese
+                      + Aggiungi
                     </button>
                   </div>
                 </div>
