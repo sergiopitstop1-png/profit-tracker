@@ -2589,8 +2589,11 @@ onChange={(e) => {
  {year >= 2026 ? (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       <input
-        value={item.importo ?? 0}
-        onChange={(e) => updateRoyaltyEntry(item.id, 'importo', Number(e.target.value))}
+        defaultValue={item.importo ?? 0}
+        onBlur={(e) => {
+          const v = Number(e.target.value)
+          if (!isNaN(v)) updateRoyaltyEntry(item.id, 'importo', v)
+        }}
         style={{
           width: '100%',
           background: 'transparent',
@@ -2604,8 +2607,11 @@ onChange={(e) => {
       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
         <span style={{ fontSize: 11, color: '#94a3b8' }}>Pagato:</span>
         <input
-          value={item.pagato ?? 0}
-          onChange={(e) => updateRoyaltyEntry(item.id, 'pagato', Number(e.target.value))}
+          defaultValue={item.pagato ?? 0}
+          onBlur={(e) => {
+            const v = Number(e.target.value)
+            if (!isNaN(v)) updateRoyaltyEntry(item.id, 'pagato', v)
+          }}
           style={{
             width: '100%',
             background: 'transparent',
