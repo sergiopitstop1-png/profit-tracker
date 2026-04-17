@@ -27,6 +27,7 @@ const [stimeCassa, setStimeCassa] = useState([])
   const [newAccountName, setNewAccountName] = useState('')
 const [memoRoyaltyEntries, setMemoRoyaltyEntries] = useState([])
 const [memoSavingsRows, setMemoSavingsRows] = useState([])
+const [savingsForm, setSavingsForm] = useState({ persona: 'massimiliano', periodo: '', versamento: '' })
 const [memoFutureNotes, setMemoFutureNotes] = useState([])
 const [memoFreeBoxes, setMemoFreeBoxes] = useState([]) 
   const [dashboardSettings, setDashboardSettings] = useState({ accantonamento_royalty: 0, risparmi_samu_massi: 0 })
@@ -862,6 +863,31 @@ async function updateDashboardSetting(field, value) {
     [field]: numericValue
   }))
 }
+async function addSavingsRow(persona, periodo, versamento) {
+  const rows = memoSavingsRows
+    .filter(r => r.persona === persona)
+    .sort((a, b) => a.ordine - b.ordine)
+  
+  const last = rows[rows.length - 1]
+  const risparmio = last ? Number(last.montante || 0) : 0
+  const interesse = Math.round(risparmio * 0.01 * 100) / 100
+  const montante = Math.round((risparmio + Number(versamento) + interesse) * 100) / 100
+  const ordine = last ? last.ordine + 1 : 1
+
+  const { data, error } = await supabase
+    .from('memo_savings_rows')
+    .insert([{ persona, periodo, versamento: Number(versamento), risparmio, interesse, montante, ordine }])
+    .select()
+    .single()
+
+  if (error) {
+    setErrorMessage('Errore salvataggio risparmio')
+    return
+  }
+
+  setMemoSavingsRows(prev => [...prev, data])
+}
+
 async function upsertRoyaltyEntry(accountId, year, value) {
   const existing = memoRoyaltyEntries.find(
     (r) => Number(r.account_id) === Number(accountId) && Number(r.anno) === Number(year)
@@ -1696,7 +1722,11 @@ const royaltyPagato2026 = memoRoyaltyEntries
   .reduce((sum, r) => sum + Number(r.pagato || 0), 0)
 const mediaMensileRoyalty = royaltyTotale2026 / 12
 const accantonamentoRoyalty = (mediaMensileRoyalty * meseCorrenteNum) - royaltyPagato2026
-const risparmiSamuMassi = Number(dashboardSettings.risparmi_samu_massi || 0)
+const massiRows = memoSavingsRows.filter(r => r.persona === 'massimiliano').sort((a, b) => a.ordine - b.ordine)
+const samuRows = memoSavingsRows.filter(r => r.persona === 'samuele').sort((a, b) => a.ordine - b.ordine)
+const massiMontante = massiRows.length > 0 ? Number(massiRows[massiRows.length - 1].montante || 0) : 0
+const samuMontante = samuRows.length > 0 ? Number(samuRows[samuRows.length - 1].montante || 0) : 0
+const risparmiSamuMassi = massiMontante + samuMontante
 
 const cassaDisponibile =
   totaleCassa -
@@ -2758,63 +2788,82 @@ onChange={(e) => {
 </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              <div style={panel}>
-                <div style={panelHeader}>
-                  <div>
-                    <h2 style={panelTitle}>Risparmi Massimiliano</h2>
-                    <p style={panelSubtitle}>Situazione attuale</p>
+            {['massimiliano', 'samuele'].map(persona => {
+              const rows = memoSavingsRows
+                .filter(r => r.persona === persona)
+                .sort((a, b) => a.ordine - b.ordine)
+              const ultimoMontante = rows.length > 0 ? Number(rows[rows.length - 1].montante || 0) : 0
+              const nome = persona === 'massimiliano' ? 'Massimiliano' : 'Samuele'
+              return (
+                <div key={persona} style={panel}>
+                  <div style={panelHeader}>
+                    <div>
+                      <h2 style={panelTitle}>Risparmi {nome}</h2>
+                      <p style={panelSubtitle}>Montante attuale: <strong style={{ color: '#4ade80' }}>{formatCurrency(ultimoMontante)}</strong></p>
+                    </div>
+                  </div>
+
+                  <div style={tableWrap}>
+                    <table style={table}>
+                      <thead>
+                        <tr>
+                          <th style={th}>Periodo</th>
+                          <th style={th}>Versamento</th>
+                          <th style={th}>Interessi 1%</th>
+                          <th style={th}>Montante</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((row, i) => (
+                          <tr key={row.id} style={{
+                            ...tr,
+                            background: i === rows.length - 1 ? 'rgba(34,197,94,0.08)' : undefined
+                          }}>
+                            <td style={td}>{row.periodo}</td>
+                            <td style={{ ...td, color: Number(row.versamento) >= 0 ? '#4ade80' : '#f87171', fontWeight: 800 }}>
+                              {Number(row.versamento) >= 0 ? '+' : ''}{formatCurrency(row.versamento)}
+                            </td>
+                            <td style={{ ...td, color: '#94a3b8' }}>{formatCurrency(row.interesse)}</td>
+                            <td style={tdStrong}>{formatCurrency(row.montante)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div style={{ marginTop: 16, display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Periodo</div>
+                      <input
+                        placeholder='es. mag-26'
+                        value={savingsForm.persona === persona ? savingsForm.periodo : ''}
+                        onChange={e => setSavingsForm({ persona, periodo: e.target.value, versamento: savingsForm.persona === persona ? savingsForm.versamento : '' })}
+                        style={{ ...filterInput, width: 100 }}
+                      />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Versamento (- per prelievo)</div>
+                      <input
+                        placeholder='es. 200 o -150'
+                        value={savingsForm.persona === persona ? savingsForm.versamento : ''}
+                        onChange={e => setSavingsForm({ persona, periodo: savingsForm.persona === persona ? savingsForm.periodo : '', versamento: e.target.value })}
+                        style={{ ...filterInput, width: 150 }}
+                      />
+                    </div>
+                    <button
+                      style={tinyGreenButton}
+                      onClick={async () => {
+                        if (!savingsForm.periodo || !savingsForm.versamento) return
+                        await addSavingsRow(persona, savingsForm.periodo, savingsForm.versamento)
+                        setSavingsForm({ persona: 'massimiliano', periodo: '', versamento: '' })
+                      }}
+                    >
+                      + Aggiungi mese
+                    </button>
                   </div>
                 </div>
-
-                <div style={tableWrap}>
-                  <table style={table}>
-                    <thead>
-                      <tr>
-                        <th style={th}>Data</th>
-                        <th style={th}>Versamento</th>
-                        <th style={th}>Montante</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr style={tr}>
-                        <td style={td}>-</td>
-                        <td style={td}>-</td>
-                        <td style={tdStrong}>-</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div style={panel}>
-                <div style={panelHeader}>
-                  <div>
-                    <h2 style={panelTitle}>Risparmi Samuele</h2>
-                    <p style={panelSubtitle}>Situazione attuale</p>
-                  </div>
-                </div>
-
-                <div style={tableWrap}>
-                  <table style={table}>
-                    <thead>
-                      <tr>
-                        <th style={th}>Data</th>
-                        <th style={th}>Versamento</th>
-                        <th style={th}>Montante</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr style={tr}>
-                        <td style={td}>-</td>
-                        <td style={td}>-</td>
-                        <td style={tdStrong}>-</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
+              )
+            })}
 
             <div style={panel}>
               <div style={panelHeader}>
