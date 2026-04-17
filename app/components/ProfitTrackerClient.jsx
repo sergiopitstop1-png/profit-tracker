@@ -184,7 +184,7 @@ useEffect(() => {
   supabase.from('memo_savings_rows').select('*').order('id', { ascending: true }),
   supabase.from('memo_future_notes').select('*').order('ordine', { ascending: true }).order('id', { ascending: true }),
   supabase.from('memo_free_boxes').select('*').order('id', { ascending: true }),
-     supabase.from('dashboard_settings').select('*').eq('id', 1).single(),
+    supabase.from('dashboard_settings').select('*').eq('id', 1).maybeSingle(),
 ])
 const { data: esterniData } = await supabase
   .from('transactions')
@@ -207,8 +207,11 @@ if (memoRoyaltyEntriesRes.error) errors.push('memo_royalty_entries'); else setMe
 if (memoSavingsRowsRes.error) errors.push('memo_savings_rows'); else setMemoSavingsRows(memoSavingsRowsRes.data || [])
 if (memoFutureNotesRes.error) errors.push('memo_future_notes'); else setMemoFutureNotes(memoFutureNotesRes.data || [])
 if (memoFreeBoxesRes.error) errors.push('memo_free_boxes'); else setMemoFreeBoxes(memoFreeBoxesRes.data || [])
-    if (dashboardSettingsRes.error) errors.push('dashboard_settings'); else setDashboardSettings(dashboardSettingsRes.data || { accantonamento_royalty: 0, risparmi_samu_massi: 0 })
-
+    if (dashboardSettingsRes.error) {
+  errors.push('dashboard_settings')
+} else {
+  setDashboardSettings(dashboardSettingsRes.data || { accantonamento_royalty: 0, risparmi_samu_massi: 0 })
+}
     if (errors.length) setErrorMessage(`Errore caricamento: ${errors.join(', ')}`)
     setLoading(false)
   }
