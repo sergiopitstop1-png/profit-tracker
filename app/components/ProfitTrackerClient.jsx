@@ -871,7 +871,8 @@ async function addSavingsRow(persona, periodo, versamento, causale = '') {
 
   const last = rows[rows.length - 1]
   const risparmio = last ? Number(last.montante || 0) : 0
-  const interesse = Math.round(risparmio * 0.01 * 100) / 100
+  const stessoPeriodo = rows.some(r => r.periodo === periodo)
+  const interesse = stessoPeriodo ? 0 : Math.round(risparmio * 0.01 * 100) / 100
   const montante = Math.round((risparmio + Number(versamento) + interesse) * 100) / 100
   const ordine = last ? last.ordine + 1 : 1
 
