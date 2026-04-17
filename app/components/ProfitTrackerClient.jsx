@@ -2836,6 +2836,18 @@ onChange={(e) => {
 
                   <div style={{ marginTop: 16, display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
                     <div>
+                      <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Periodo</div>
+                      <input
+                        placeholder='es. apr-26'
+                        value={persona === 'massimiliano' ? savingsFormMassi.periodo : savingsFormSamu.periodo}
+                        onChange={e => persona === 'massimiliano'
+                          ? setSavingsFormMassi(prev => ({ ...prev, periodo: e.target.value }))
+                          : setSavingsFormSamu(prev => ({ ...prev, periodo: e.target.value }))
+                        }
+                        style={{ ...filterInput, width: 100 }}
+                      />
+                    </div>
+                    <div>
                       <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Versamento (- per prelievo)</div>
                       <input
                         placeholder='es. 200 o -150'
