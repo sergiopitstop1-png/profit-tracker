@@ -2487,15 +2487,7 @@ onChange={(e) => {
                 </div>
               </div>
 <div style={{ marginTop: 10, display: 'flex', gap: 12 }}>
-  <div style={{
-    padding: '6px 10px',
-    border: '1px solid #334155',
-    borderRadius: 6,
-    color: '#f87171',
-    fontWeight: 700
-  }}>
-    Da pagare: {formatCurrency(Math.max(0, accantonamentoRoyalty))}
-  </div>
+  
 
   <div style={{
     padding: '6px 10px',
