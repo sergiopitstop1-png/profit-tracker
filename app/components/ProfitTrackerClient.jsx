@@ -27,7 +27,8 @@ const [stimeCassa, setStimeCassa] = useState([])
   const [newAccountName, setNewAccountName] = useState('')
 const [memoRoyaltyEntries, setMemoRoyaltyEntries] = useState([])
 const [memoSavingsRows, setMemoSavingsRows] = useState([])
-const [savingsForm, setSavingsForm] = useState({ persona: 'massimiliano', periodo: '', versamento: '' })
+const [savingsFormMassi, setSavingsFormMassi] = useState({ periodo: '', versamento: '' })
+const [savingsFormSamu, setSavingsFormSamu] = useState({ periodo: '', versamento: '' })
 const [memoFutureNotes, setMemoFutureNotes] = useState([])
 const [memoFreeBoxes, setMemoFreeBoxes] = useState([]) 
   const [dashboardSettings, setDashboardSettings] = useState({ accantonamento_royalty: 0, risparmi_samu_massi: 0 })
@@ -2836,8 +2837,11 @@ onChange={(e) => {
                       <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Periodo</div>
                       <input
                         placeholder='es. mag-26'
-                        value={savingsForm.persona === persona ? savingsForm.periodo : ''}
-                        onChange={e => setSavingsForm({ persona, periodo: e.target.value, versamento: savingsForm.persona === persona ? savingsForm.versamento : '' })}
+                        value={persona === 'massimiliano' ? savingsFormMassi.periodo : savingsFormSamu.periodo}
+                        onChange={e => persona === 'massimiliano'
+                          ? setSavingsFormMassi(prev => ({ ...prev, periodo: e.target.value }))
+                          : setSavingsFormSamu(prev => ({ ...prev, periodo: e.target.value }))
+                        }
                         style={{ ...filterInput, width: 100 }}
                       />
                     </div>
@@ -2845,17 +2849,23 @@ onChange={(e) => {
                       <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Versamento (- per prelievo)</div>
                       <input
                         placeholder='es. 200 o -150'
-                        value={savingsForm.persona === persona ? savingsForm.versamento : ''}
-                        onChange={e => setSavingsForm({ persona, periodo: savingsForm.persona === persona ? savingsForm.periodo : '', versamento: e.target.value })}
+                        value={persona === 'massimiliano' ? savingsFormMassi.versamento : savingsFormSamu.versamento}
+                        onChange={e => persona === 'massimiliano'
+                          ? setSavingsFormMassi(prev => ({ ...prev, versamento: e.target.value }))
+                          : setSavingsFormSamu(prev => ({ ...prev, versamento: e.target.value }))
+                        }
                         style={{ ...filterInput, width: 150 }}
                       />
                     </div>
                     <button
                       style={tinyGreenButton}
                       onClick={async () => {
-                        if (!savingsForm.periodo || !savingsForm.versamento) return
-                        await addSavingsRow(persona, savingsForm.periodo, savingsForm.versamento)
-                        setSavingsForm({ persona: 'massimiliano', periodo: '', versamento: '' })
+                        const form = persona === 'massimiliano' ? savingsFormMassi : savingsFormSamu
+                        if (!form.periodo || !form.versamento) return
+                        await addSavingsRow(persona, form.periodo, form.versamento)
+                        persona === 'massimiliano'
+                          ? setSavingsFormMassi({ periodo: '', versamento: '' })
+                          : setSavingsFormSamu({ periodo: '', versamento: '' })
                       }}
                     >
                       + Aggiungi mese
