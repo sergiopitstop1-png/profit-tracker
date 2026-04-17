@@ -818,7 +818,9 @@ async function updateStimaCassa(id, field, value) {
     return
   }
 
-  await loadData({ preserveMessages: true })
+  setMemoRoyaltyEntries(prev =>
+    prev.map(r => r.id === id ? { ...r, [field]: value } : r)
+  )
 }
 function parseEuroInput(value) {
   let raw = String(value || '')
