@@ -3173,7 +3173,6 @@ onChange={(e) => {
 </div>
     </div>
 
-{/* BOTTONE TORNA SU */}
 <button
   onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
   style={{
@@ -3200,9 +3199,7 @@ onChange={(e) => {
 </button>
 
  </div>    
-  </div>    
- </div>    
-  </div>     
+  </div>
     )
   }
 const container = { minHeight: '100vh', background: 'linear-gradient(180deg, #020617 0%, #0f172a 100%)', color: '#e5eefb', padding: '24px 16px 48px' }
