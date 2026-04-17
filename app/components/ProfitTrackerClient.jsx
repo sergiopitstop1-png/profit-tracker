@@ -2494,8 +2494,7 @@ onChange={(e) => {
         memoRoyaltyEntries
           .filter(r =>
   Number(r.anno) === 2026 && String(r.nota || '').toLowerCase().includes('da pagare')
-)
-          )
+)          
           .reduce((sum, r) => sum + Number(r.importo || 0), 0)
       )
     }
