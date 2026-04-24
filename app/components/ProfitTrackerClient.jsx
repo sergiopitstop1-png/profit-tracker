@@ -2354,10 +2354,12 @@ onChange={(e) => {
     }
   }}
   style={{
-    ...stimeMiniInput,
-    color: Number(row.importo || 0) < 0 ? '#f87171' : '#e2e8f0',
-    fontWeight: 700
-  }}
+  ...stimeMiniInput,
+  color: Number(row.importo || 0) < 0 ? '#f87171' : '#e2e8f0',
+  fontWeight: row.stato === 'previsto' ? 900 : 700,
+  textShadow: row.stato === 'previsto' ? '0 0 8px rgba(59,130,246,0.8)' : 'none',
+  border: row.stato === 'previsto' ? '1px solid rgba(59,130,246,0.6)' : undefined
+}}
 />
                   </div>
 
