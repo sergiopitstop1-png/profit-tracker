@@ -1803,6 +1803,11 @@ const cassaDisponibile =
         @keyframes blinkBorder {
           0%, 100% { border-color: #ef4444; }
           50% { border-color: transparent; }
+          }
+@keyframes blinkPrevisto {
+  0%, 100% { box-shadow: 0 0 0px rgba(59,130,246,0); }
+  50%       { box-shadow: 0 0 10px rgba(59,130,246,0.55); }
+}
         }
       `}</style>
       <div style={pageWrap}>
@@ -2287,7 +2292,15 @@ onChange={(e) => {
 
             <div style={stimeMonthBody}>
               {monthGroup.rows.map((row) => (
-                <div key={row.id} style={stimeRow}>
+               <div key={row.id} style={{
+  ...stimeRow,
+  ...(row.stato === 'previsto' ? {
+    background: 'rgba(59,130,246,0.10)',
+    border: '1px solid rgba(59,130,246,0.40)',
+    borderRadius: 10,
+    animation: 'blinkPrevisto 1.8s ease-in-out infinite'
+  } : {})
+}}>
                   <div style={stimeDoneCol}>
   <div style={stimeStatusButtons}>
     <button
