@@ -143,7 +143,10 @@ export default function Oggi() {
           PRONO<span style={{ color: "#c8f135" }}>X</span>
           <span style={{ fontSize: 13, fontWeight: 400, color: "#6b7490" }}> · partite del giorno</span>
         </h1>
-        <a href="/pronosticatore" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>← analisi manuale</a>
+       <div style={{ display: "flex", gap: 16, marginBottom: 4 }}>
+  <a href="/" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>← home</a>
+  <a href="/pronosticatore" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>⚽ analisi manuale</a>
+</div>
 
         <div style={{ background: "#161920", border: "1px solid #2a2f3f", borderRadius: 14, padding: 20, marginTop: 20, marginBottom: 16 }}>
           <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 14 }}>
