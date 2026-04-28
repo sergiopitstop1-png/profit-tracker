@@ -120,7 +120,7 @@ export default function Piano() {
       activePlan.cassa_attuale, activePlan.obiettivo_perc,
       activePlan.num_partite, activePlan.vittorie_attese, bets
     );
-    const puntata = Math.round(calcPuntataConQuota(puntataBase, bet.quota) * 100) / 100;
+    const puntata = Math.round(calcPuntataConQuota(puntataBase, bet.quota));
 
     await supabase.from("pronox_bets").update({ puntata, status: "IN_CORSO" }).eq("id", bet.id);
     await supabase.from("pronox_plans").update({ cassa_attuale: activePlan.cassa_attuale - puntata }).eq("id", activePlan.id);
