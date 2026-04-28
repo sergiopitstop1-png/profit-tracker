@@ -106,10 +106,12 @@ export default function Piano() {
     loadData();
   };
 
-  const updateBetQuota = async (betId, quota) => {
-    await supabase.from("pronox_bets").update({ quota: parseFloat(quota) }).eq("id", betId);
-    setBets(prev => prev.map(b => b.id === betId ? { ...b, quota: parseFloat(quota) } : b));
-  };
+ const updateBetQuota = async (betId, quota) => {
+  const val = parseFloat(quota.replace(",", "."));
+  if (isNaN(val) || val <= 1) return;
+  await supabase.from("pronox_bets").update({ quota: val }).eq("id", betId);
+  setBets(prev => prev.map(b => b.id === betId ? { ...b, quota: val } : b));
+};
 
   const confirmBet = async (bet) => {
     if (!bet.quota || bet.quota <= 1) { alert("Inserisci una quota valida!"); return; }
@@ -391,10 +393,10 @@ export default function Piano() {
                         <div>
                           <label style={lbl}>Quota</label>
                           {bet.status === "PENDING" ? (
-                            <input type="number" step="0.01" placeholder="Es. 1.85"
-                              value={bet.quota || ""}
-                              onChange={e => updateBetQuota(bet.id, e.target.value)}
-                              style={inp} />
+                           <input type="text" placeholder="Es. 1.85"
+  defaultValue=""
+  onBlur={e => updateBetQuota(bet.id, e.target.value)}
+  style={inp} />
                           ) : (
                             <div style={{ ...inp, color: "#ffd060" }}>{bet.quota || "—"}</div>
                           )}
