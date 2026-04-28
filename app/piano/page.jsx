@@ -362,9 +362,9 @@ export default function Piano() {
                           <label style={lbl}>Quota</label>
                           {bet.status === "PENDING" ? (
                             <input type="text" placeholder="Es. 1.85"
-                              value={bet.quota || ""}
-                              onChange={e => updateBetQuota(bet.id, e.target.value)}
-                              style={inp} />
+  defaultValue={bet.quota || ""}
+  onBlur={e => updateBetQuota(bet.id, e.target.value)}
+  style={inp} />
                           ) : (
                             <div style={{ ...inp, color: "#ffd060" }}>{bet.quota || "—"}</div>
                           )}
