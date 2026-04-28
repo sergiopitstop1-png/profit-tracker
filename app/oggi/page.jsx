@@ -24,6 +24,10 @@ const LEAGUES = [
   { code: "WC", name: "FIFA World Cup", flag: "🌍" },
 ];
 
+// Leghe domestiche da usare come fallback per coppe internazionali
+const DOMESTIC_LEAGUES = ["SA", "PL", "BL1", "PD", "FL1", "ELC", "DED", "PPL"];
+const CUP_LEAGUES = ["CL", "EC", "WC", "CLI"];
+
 function poisson(k, lambda) {
   let p = Math.exp(-lambda);
   for (let i = 1; i <= k; i++) p *= lambda / i;
@@ -51,7 +55,9 @@ function calcRatings(matches) {
   const finished = matches.filter(m =>
     m.status === "FINISHED" &&
     m.score?.fullTime?.home !== null &&
-    m.score?.fullTime?.away !== null
+    m.score?.fullTime?.away !== null &&
+    m.score?.fullTime?.home >= 0 &&
+    m.score?.fullTime?.away >= 0
   );
   if (finished.length === 0) return { teams, lgAvgHome: 1.35, lgAvgAway: 1.1 };
   finished.forEach(m => {
@@ -92,6 +98,12 @@ function getSignals(probs) {
   return signals;
 }
 
+async function fetchLeagueMatches(code) {
+  const r = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&season=2025`);
+  const d = await r.json();
+  return d.matches || [];
+}
+
 export default function Oggi() {
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [selectedLeagues, setSelectedLeagues] = useState(["SA", "PL", "BL1", "PD", "FL1", "CL", "ELC", "DED", "PPL", "BSA", "CLI", "EC", "WC"]);
@@ -112,46 +124,107 @@ export default function Oggi() {
     setLoading(true);
     setMatches([]);
     setSavedMap({});
+    setPianoMap({});
     const all = [];
 
+    // Prima carica le leghe domestiche (sempre, servono come fallback per le coppe)
+    const domesticRatings = {};
+    const domesticAvgs = {};
+    const leaguesToLoad = selectedLeagues.includes("CL") || selectedLeagues.includes("EC") || 
+                          selectedLeagues.includes("WC") || selectedLeagues.includes("CLI")
+      ? [...new Set([...selectedLeagues, ...DOMESTIC_LEAGUES])]
+      : selectedLeagues;
+
+    for (const code of leaguesToLoad) {
+      const league = LEAGUES.find(l => l.code === code);
+      if (!league) continue;
+      setProgress(`Carico statistiche ${league.flag} ${league.name}...`);
+      const seasonMatches = await fetchLeagueMatches(code);
+      const { teams, lgAvgHome, lgAvgAway } = calcRatings(seasonMatches);
+      domesticRatings[code] = teams;
+      domesticAvgs[code] = { lgAvgHome, lgAvgAway };
+    }
+
+    // Funzione per trovare i rating di una squadra — cerca prima nella lega corrente, poi nelle domestiche
+    const findTeamRating = (teamId, teamName, primaryCode) => {
+      // Prima prova nella lega corrente
+      if (domesticRatings[primaryCode]?.[teamId]) {
+        return { rating: domesticRatings[primaryCode][teamId], leagueCode: primaryCode };
+      }
+      // Per le coppe, cerca nelle leghe domestiche per nome
+      for (const code of DOMESTIC_LEAGUES) {
+        if (!domesticRatings[code]) continue;
+        // Cerca per ID
+        if (domesticRatings[code][teamId]) {
+          return { rating: domesticRatings[code][teamId], leagueCode: code };
+        }
+        // Cerca per nome (parziale)
+        const found = Object.entries(domesticRatings[code]).find(([, t]) =>
+          t.name.toLowerCase().includes(teamName.toLowerCase().split(' ')[0]) ||
+          teamName.toLowerCase().includes(t.name.toLowerCase().split(' ')[0])
+        );
+        if (found) return { rating: found[1], leagueCode: code };
+      }
+      return null;
+    };
+
+    // Ora carica le fixture per le leghe selezionate
     for (const code of selectedLeagues) {
       const league = LEAGUES.find(l => l.code === code);
-      setProgress(`Carico statistiche ${league.flag} ${league.name}...`);
-      const rSeason = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&season=2025`);
-      const dSeason = await rSeason.json();
-      const { teams, lgAvgHome, lgAvgAway } = calcRatings(dSeason.matches || []);
-
+      if (!league) continue;
       setProgress(`Cerco partite ${league.flag} ${league.name}...`);
+
       let fixtures = [];
-for (let attempt = 0; attempt < 3; attempt++) {
-  const rToday = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&dateFrom=${date}&dateTo=${date}`);
-  const dToday = await rToday.json();
-  fixtures = dToday.matches || [];
-  if (fixtures.length > 0 || dToday.error) break;
-  if (attempt < 2) await new Promise(r => setTimeout(r, 2000));
-}
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const rToday = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&dateFrom=${date}&dateTo=${date}`);
+        const dToday = await rToday.json();
+        fixtures = dToday.matches || [];
+        if (fixtures.length > 0) break;
+        if (attempt < 2) await new Promise(r => setTimeout(r, 2000));
+      }
+
+      // Calcola media lega per coppe (usa media delle leghe domestiche)
+      let lgAvgHome, lgAvgAway;
+      if (CUP_LEAGUES.includes(code)) {
+        const avgs = DOMESTIC_LEAGUES.filter(c => domesticAvgs[c]);
+        lgAvgHome = avgs.reduce((s, c) => s + domesticAvgs[c].lgAvgHome, 0) / (avgs.length || 1);
+        lgAvgAway = avgs.reduce((s, c) => s + domesticAvgs[c].lgAvgAway, 0) / (avgs.length || 1);
+      } else {
+        lgAvgHome = domesticAvgs[code]?.lgAvgHome || 1.35;
+        lgAvgAway = domesticAvgs[code]?.lgAvgAway || 1.1;
+      }
 
       for (const fix of fixtures) {
         const hId = fix.homeTeam.id;
         const aId = fix.awayTeam.id;
-        const teamH = teams[hId];
-        const teamA = teams[aId];
+        const hName = fix.homeTeam.name;
+        const aName = fix.awayTeam.name;
+
+        const resH = findTeamRating(hId, hName, code);
+        const resA = findTeamRating(aId, aName, code);
+
         let lH = lgAvgHome;
         let lA = lgAvgAway;
-        if (teamH && teamA) {
-          lH = teamH.attH * teamA.defA * lgAvgHome;
-          lA = teamA.attA * teamH.defH * lgAvgAway;
+        let hasRatings = false;
+
+        if (resH && resA) {
+          lH = resH.rating.attH * resA.rating.defA * lgAvgHome;
+          lA = resA.rating.attA * resH.rating.defH * lgAvgAway;
+          hasRatings = true;
         }
+
         const probs = calcProbs(lH, lA);
         const signals = getSignals(probs);
         const time = fix.utcDate ? new Date(fix.utcDate).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }) : "--:--";
+
         all.push({
           id: fix.id,
-          home: { name: fix.homeTeam.name, crest: fix.homeTeam.crest },
-          away: { name: fix.awayTeam.name, crest: fix.awayTeam.crest },
+          home: { name: hName, crest: fix.homeTeam.crest },
+          away: { name: aName, crest: fix.awayTeam.crest },
           time, league, probs, lH, lA, signals,
-          hasRatings: !!(teamH && teamA),
+          hasRatings,
           fdId: fix.id,
+          ratingSource: resH ? resH.leagueCode : null,
         });
       }
     }
@@ -192,11 +265,7 @@ for (let attempt = 0; attempt < 3; attempt++) {
       const r = await fetch(`${API_FD}?endpoint=matches/${match.fdId}`);
       const d = await r.json();
       const m = d.match || d;
-      if (!m || m.status !== "FINISHED") {
-        alert("Partita non ancora terminata!");
-        setCheckingId(null);
-        return;
-      }
+      if (!m || m.status !== "FINISHED") { alert("Partita non ancora terminata!"); setCheckingId(null); return; }
       const ftHome = m.score?.fullTime?.home ?? 0;
       const ftAway = m.score?.fullTime?.away ?? 0;
       const htHome = m.score?.halfTime?.home ?? 0;
@@ -210,11 +279,9 @@ for (let attempt = 0; attempt < 3; attempt++) {
       else if (signal.label === "OVER 0.5 HT") outcome = (htHome + htAway) > 0 ? "WIN" : "LOSS";
       else if (signal.label === "BTTS SÌ") outcome = ftHome > 0 && ftAway > 0 ? "WIN" : "LOSS";
       else if (signal.label === "TRADING O0.5 HT → U2.5 LIVE") outcome = (htHome + htAway) >= 1 && total <= 2 ? "WIN" : "LOSS";
-
       await supabase.from("pronox_archive")
         .update({ status: outcome, ft_home_goals: ftHome, ft_away_goals: ftAway, ht_home_goals: htHome, ht_away_goals: htAway, result_checked_at: new Date().toISOString() })
         .eq("match_id", match.id).eq("prediction_label", signal.label);
-
       setSavedMap(prev => ({ ...prev, [key]: outcome }));
     } catch (e) { console.error(e); }
     setCheckingId(null);
@@ -224,11 +291,7 @@ for (let attempt = 0; attempt < 3; attempt++) {
     const key = `${match.id}_${signal.label}_piano`;
     setPianoMap(prev => ({ ...prev, [key]: "saving" }));
     try {
-      const { data: plans } = await supabase
-        .from("pronox_plans")
-        .select("id")
-        .eq("status", "ACTIVE")
-        .single();
+      const { data: plans } = await supabase.from("pronox_plans").select("id").eq("status", "ACTIVE").single();
       if (!plans) { alert("Nessun piano attivo! Vai su /piano per crearne uno."); setPianoMap(prev => ({ ...prev, [key]: null })); return; }
       await supabase.from("pronox_bets").insert({
         plan_id: plans.id,
@@ -262,7 +325,6 @@ for (let attempt = 0; attempt < 3; attempt++) {
   return (
     <div style={{ minHeight: "100vh", background: "#0d0f14", color: "#e8ecf5", fontFamily: "system-ui, sans-serif", padding: "24px 16px" }}>
       <div style={{ maxWidth: 860, margin: "0 auto" }}>
-
         <h1 style={{ fontSize: 26, fontWeight: 800, marginBottom: 4 }}>
           PRONO<span style={{ color: "#c8f135" }}>X</span>
           <span style={{ fontSize: 13, fontWeight: 400, color: "#6b7490" }}> · partite del giorno</span>
@@ -326,16 +388,20 @@ for (let attempt = 0; attempt < 3; attempt++) {
 
         {filtered.map(m => (
           <div key={m.id} style={{ background: "#161920", border: `1px solid ${m.signals.some(s => s.strong) ? "rgba(200,241,53,0.4)" : m.signals.length > 0 ? "rgba(74,240,196,0.25)" : "#2a2f3f"}`, borderRadius: 14, padding: 18, marginBottom: 10 }}>
-
-            {/* Header lega + orario */}
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
               <div style={{ fontSize: 11, color: "#6b7490", fontWeight: 700, letterSpacing: "0.08em" }}>
                 {m.league.flag} {m.league.name} · {m.time}
               </div>
-              {!m.hasRatings && <span style={{ fontSize: 11, color: "#f0794a" }}>⚠ rating N/D</span>}
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {m.ratingSource && CUP_LEAGUES.includes(m.league.code) && (
+                  <span style={{ fontSize: 10, color: "#4af0c4" }}>
+                    dati: {LEAGUES.find(l => l.code === m.ratingSource)?.name || m.ratingSource}
+                  </span>
+                )}
+                {!m.hasRatings && <span style={{ fontSize: 11, color: "#f0794a" }}>⚠ rating N/D</span>}
+              </div>
             </div>
 
-            {/* Squadre */}
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
                 {m.home.crest && <img src={m.home.crest} style={{ width: 28, height: 28 }} alt="" />}
@@ -348,13 +414,12 @@ for (let attempt = 0; attempt < 3; attempt++) {
               </div>
             </div>
 
-            {/* Card gol probabili */}
             <div style={{ background: "#0d0f14", border: "1px solid #2a2f3f", borderRadius: 10, padding: "12px 16px", marginBottom: 12 }}>
               <div style={{ fontSize: 10, color: "#6b7490", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>Gol probabili</div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   {m.home.crest && <img src={m.home.crest} style={{ width: 20, height: 20 }} alt="" />}
-                  <span style={{ fontSize: 13, color: "#e8ecf5" }}>{m.home.name}</span>
+                  <span style={{ fontSize: 13 }}>{m.home.name}</span>
                 </div>
                 <span style={{ fontSize: 24, fontWeight: 700, color: "#c8f135", fontFamily: "monospace" }}>{m.lH.toFixed(2)}</span>
               </div>
@@ -362,13 +427,12 @@ for (let attempt = 0; attempt < 3; attempt++) {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   {m.away.crest && <img src={m.away.crest} style={{ width: 20, height: 20 }} alt="" />}
-                  <span style={{ fontSize: 13, color: "#e8ecf5" }}>{m.away.name}</span>
+                  <span style={{ fontSize: 13 }}>{m.away.name}</span>
                 </div>
                 <span style={{ fontSize: 24, fontWeight: 700, color: "#4af0c4", fontFamily: "monospace" }}>{m.lA.toFixed(2)}</span>
               </div>
             </div>
 
-            {/* Probabilità */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6, marginBottom: 12 }}>
               {[
                 ["1", (m.probs.h * 100).toFixed(0) + "%"],
@@ -384,42 +448,43 @@ for (let attempt = 0; attempt < 3; attempt++) {
               ))}
             </div>
 
-            {/* Segnali */}
             {m.signals.length > 0 ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {m.signals.map((s, i) => {
                   const key = `${m.id}_${s.label}`;
                   const savedStatus = savedMap[key];
+                  const pianoStatus = pianoMap[`${m.id}_${s.label}_piano`];
                   return (
                     <div key={i} style={{ borderRadius: 8, border: `1px solid ${s.strong ? s.color + "50" : "#2a2f3f"}`, background: s.strong ? `${s.color}10` : "rgba(255,255,255,0.03)", padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <span style={{ fontSize: 13, fontWeight: 700, color: s.strong ? s.color : "#e8ecf5" }}>
                         {s.strong ? "🔥 " : "→ "}{s.label}
                       </span>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <span style={{ fontSize: 13, fontFamily: "monospace", color: s.color, fontWeight: 600 }}>
                           {(s.prob * 100).toFixed(1)}%
                         </span>
                         {!savedStatus && (
                           <button onClick={() => saveSignal(m, s)} disabled={savingId === key}
-                            style={{ fontSize: 12, padding: "5px 14px", borderRadius: 8, border: `1px solid ${s.color}60`, background: `${s.color}15`, color: s.color, cursor: "pointer", fontWeight: 700 }}>
+                            style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, border: `1px solid ${s.color}60`, background: `${s.color}15`, color: s.color, cursor: "pointer", fontWeight: 700 }}>
                             {savingId === key ? "..." : "☑ Salva"}
                           </button>
                         )}
                         {savedStatus === "PENDING" && (
                           <button onClick={() => verifyResult(m, s)} disabled={checkingId === key}
-                            style={{ fontSize: 12, padding: "5px 14px", borderRadius: 8, border: "1px solid rgba(255,208,96,0.4)", background: "rgba(255,208,96,0.1)", color: "#ffd060", cursor: "pointer", fontWeight: 700 }}>
+                            style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, border: "1px solid rgba(255,208,96,0.4)", background: "rgba(255,208,96,0.1)", color: "#ffd060", cursor: "pointer", fontWeight: 700 }}>
                             {checkingId === key ? "..." : "⏳ Verifica"}
                           </button>
                         )}
-                        {savedStatus === "WIN" && <span style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, background: "rgba(200,241,53,0.15)", color: "#c8f135", fontWeight: 700 }}>✓ WIN</span>}
-                        {savedStatus === "LOSS" && <span style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, background: "rgba(255,92,92,0.15)", color: "#ff5c5c", fontWeight: 700 }}>✗ LOSS</span>}
-                        {(() => { const pk = `${m.id}_${s.label}_piano`; const ps = pianoMap[pk];
-                          if (ps === "saved") return <span style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, background: "rgba(200,241,53,0.15)", color: "#c8f135", fontWeight: 700 }}>🎯 Piano</span>;
-                          return <button onClick={() => addToPlan(m, s)} disabled={ps === "saving"}
-                            style={{ fontSize: 12, padding: "5px 14px", borderRadius: 8, border: "1px solid rgba(200,241,53,0.4)", background: "rgba(200,241,53,0.08)", color: "#c8f135", cursor: "pointer", fontWeight: 700 }}>
-                            {ps === "saving" ? "..." : "+ Piano"}
-                          </button>;
-                        })()}
+                        {savedStatus === "WIN" && <span style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, background: "rgba(200,241,53,0.15)", color: "#c8f135", fontWeight: 700 }}>✓ WIN</span>}
+                        {savedStatus === "LOSS" && <span style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, background: "rgba(255,92,92,0.15)", color: "#ff5c5c", fontWeight: 700 }}>✗ LOSS</span>}
+                        {pianoStatus === "saved" ? (
+                          <span style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, background: "rgba(200,241,53,0.15)", color: "#c8f135", fontWeight: 700 }}>🎯 Piano</span>
+                        ) : (
+                          <button onClick={() => addToPlan(m, s)} disabled={pianoStatus === "saving"}
+                            style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, border: "1px solid rgba(200,241,53,0.4)", background: "rgba(200,241,53,0.08)", color: "#c8f135", cursor: "pointer", fontWeight: 700 }}>
+                            {pianoStatus === "saving" ? "..." : "+ Piano"}
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
