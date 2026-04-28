@@ -94,7 +94,7 @@ function getSignals(probs) {
 
 export default function Oggi() {
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
-  const [selectedLeagues, setSelectedLeagues] = useState(["SA", "CL"]);
+  const [selectedLeagues, setSelectedLeagues] = useState(["SA", "PL", "BL1", "PD", "FL1", "CL", "ELC", "DED", "PPL", "BSA", "CLI", "EC", "WC"]);
   const [matches, setMatches] = useState([]);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState("");
