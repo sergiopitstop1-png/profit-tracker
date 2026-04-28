@@ -40,7 +40,7 @@ export default function SergioApicellaHomepage() {
             </a>
           </div>
           <p className="text-sm text-white/45">
-            Versione rapida online ora. Versione completa in arrivo.
+            Versione completa in arrivo.
           </p>
         </div>
 
