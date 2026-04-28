@@ -95,6 +95,7 @@ export default function Oggi() {
   const [savingId, setSavingId] = useState(null);
   const [savedMap, setSavedMap] = useState({});
   const [checkingId, setCheckingId] = useState(null);
+  const [pianoMap, setPianoMap] = useState({});
 
   const toggleLeague = (code) => {
     setSelectedLeagues(prev => prev.includes(code) ? prev.filter(x => x !== code) : [...prev, code]);
@@ -207,6 +208,34 @@ export default function Oggi() {
     setCheckingId(null);
   };
 
+  const addToPlan = async (match, signal) => {
+    const key = `${match.id}_${signal.label}_piano`;
+    setPianoMap(prev => ({ ...prev, [key]: "saving" }));
+    try {
+      const { data: plans } = await supabase
+        .from("pronox_plans")
+        .select("id")
+        .eq("status", "ACTIVE")
+        .single();
+      if (!plans) { alert("Nessun piano attivo! Vai su /piano per crearne uno."); setPianoMap(prev => ({ ...prev, [key]: null })); return; }
+      await supabase.from("pronox_bets").insert({
+        plan_id: plans.id,
+        match_date: date,
+        match_time: match.time,
+        league: match.league.name,
+        home_team: match.home.name,
+        away_team: match.away.name,
+        prediction_label: signal.label,
+        prediction_type: signal.type,
+        probability: parseFloat((signal.prob * 100).toFixed(1)),
+        lambda_home: parseFloat(match.lH.toFixed(3)),
+        lambda_away: parseFloat(match.lA.toFixed(3)),
+        status: "PENDING",
+      });
+      setPianoMap(prev => ({ ...prev, [key]: "saved" }));
+    } catch (e) { console.error(e); setPianoMap(prev => ({ ...prev, [key]: null })); }
+  };
+
   const filtered = matches.filter(m => {
     if (filter === "signal") return m.signals.length > 0;
     if (filter === "strong") return m.signals.some(s => s.strong);
@@ -230,6 +259,7 @@ export default function Oggi() {
           <a href="/" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>← home</a>
           <a href="/pronosticatore" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>⚽ analisi manuale</a>
           <a href="/archivio" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>📊 archivio</a>
+          <a href="/piano" style={{ fontSize: 12, color: "#c8f135", textDecoration: "none", fontWeight: 700 }}>🎯 piano</a>
         </div>
 
         <div style={{ background: "#161920", border: "1px solid #2a2f3f", borderRadius: 14, padding: 20, marginBottom: 16 }}>
@@ -371,6 +401,13 @@ export default function Oggi() {
                         )}
                         {savedStatus === "WIN" && <span style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, background: "rgba(200,241,53,0.15)", color: "#c8f135", fontWeight: 700 }}>✓ WIN</span>}
                         {savedStatus === "LOSS" && <span style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, background: "rgba(255,92,92,0.15)", color: "#ff5c5c", fontWeight: 700 }}>✗ LOSS</span>}
+                        {(() => { const pk = `${m.id}_${s.label}_piano`; const ps = pianoMap[pk];
+                          if (ps === "saved") return <span style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, background: "rgba(200,241,53,0.15)", color: "#c8f135", fontWeight: 700 }}>🎯 Piano</span>;
+                          return <button onClick={() => addToPlan(m, s)} disabled={ps === "saving"}
+                            style={{ fontSize: 12, padding: "5px 14px", borderRadius: 8, border: "1px solid rgba(200,241,53,0.4)", background: "rgba(200,241,53,0.08)", color: "#c8f135", cursor: "pointer", fontWeight: 700 }}>
+                            {ps === "saving" ? "..." : "+ Piano"}
+                          </button>;
+                        })()}
                       </div>
                     </div>
                   );
