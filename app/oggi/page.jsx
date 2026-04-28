@@ -1,7 +1,12 @@
 "use client";
 import { useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 
 const API_FD = "/api/footballdata";
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
 
 const LEAGUES = [
   { code: "SA", name: "Serie A", flag: "🇮🇹" },
@@ -108,6 +113,8 @@ export default function Oggi() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState("");
   const [filter, setFilter] = useState("all");
+  const [savingId, setSavingId] = useState(null);
+const [savedIds, setSavedIds] = useState([]);
 
   const toggleLeague = (code) => {
     setSelectedLeagues(prev => prev.includes(code) ? prev.filter(x => x !== code) : [...prev, code]);
@@ -166,7 +173,35 @@ export default function Oggi() {
     setLoading(false);
     setProgress("");
   };
+const saveToArchive = async (m) => {
+  setSavingId(m.id);
 
+  const { error } = await supabase
+    .from("pronox_archive")
+    .insert({
+      match_id: m.id,
+      match_date: date,
+      match_time: m.time,
+      league: m.league.name,
+      home_team: m.home.name,
+      away_team: m.away.name,
+      prediction_type: "trading_ht_u25",
+      prediction_label: "TRADING O0.5 HT → U2.5 LIVE",
+      probability: m.probs.o05ht,
+      lambda_home: m.lH,
+      lambda_away: m.lA,
+      status: "pending"
+    });
+
+  setSavingId(null);
+
+  if (error) {
+    alert("Errore salvataggio: " + error.message);
+    return;
+  }
+
+  setSavedIds(prev => [...prev, m.id]);
+};
   const filtered = matches.filter(m => {
     if (filter === "signal") return m.signals.length > 0;
 if (filter === "strong") return m.signals.some(s => s.strong);
@@ -297,6 +332,29 @@ return true;
             ) : (
               <div style={{ fontSize: 12, color: "#6b7490", padding: "8px 0" }}>— Nessun segnale chiaro · skip</div>
             )}
+            {isTradingO05HTU25(m) && (
+  <button
+    onClick={() => saveToArchive(m)}
+    disabled={savingId === m.id || savedIds.includes(m.id)}
+    style={{
+      marginTop: 12,
+      width: "100%",
+      padding: "10px 12px",
+      borderRadius: 10,
+      border: "1px solid rgba(255,159,67,0.45)",
+      background: savedIds.includes(m.id) ? "rgba(74,240,196,0.12)" : "rgba(255,159,67,0.12)",
+      color: savedIds.includes(m.id) ? "#4af0c4" : "#ff9f43",
+      fontWeight: 800,
+      cursor: savingId === m.id || savedIds.includes(m.id) ? "not-allowed" : "pointer"
+    }}
+  >
+    {savedIds.includes(m.id)
+      ? "✓ Salvata in archivio"
+      : savingId === m.id
+        ? "Salvataggio..."
+        : "☑ Salva trading in archivio"}
+  </button>
+)}
           </div>
         ))}
 
