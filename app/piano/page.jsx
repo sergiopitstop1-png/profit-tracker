@@ -372,13 +372,13 @@ export default function Piano() {
                         <div>
                           <label style={lbl}>Puntata (€)</label>
                           <div style={{ ...inp, color: "#c8f135", fontWeight: 700 }}>
-                            {bet.puntata ? "€" + bet.puntata.toFixed(2) : bet.status === "PENDING" && bet.quota > 1 ? "€" + (calcPuntataConQuota(puntataConsigliata, bet.quota)).toFixed(2) : "—"}
+                           {bet.puntata ? "€" + Math.round(bet.puntata) : bet.status === "PENDING" && bet.quota > 1 ? "€" + Math.round(calcPuntataConQuota(puntataConsigliata, bet.quota)) : "—"}
                           </div>
                         </div>
                         <div>
                           <label style={lbl}>Profitto (€)</label>
                           <div style={{ ...inp, color: bet.profitto >= 0 ? "#c8f135" : "#ff5c5c", fontWeight: 700 }}>
-                            {bet.profitto !== null && bet.profitto !== undefined ? (bet.profitto >= 0 ? "+" : "") + "€" + bet.profitto.toFixed(2) : "—"}
+                            {bet.profitto !== null && bet.profitto !== undefined ? (bet.profitto >= 0 ? "+" : "") + "€" + Math.round(bet.profitto) : "—"}
                           </div>
                         </div>
                       </div>
@@ -387,7 +387,7 @@ export default function Piano() {
                       {bet.status === "PENDING" && bet.quota > 1 && (
                         <button onClick={() => confirmBet(bet)}
                           style={{ width: "100%", padding: "10px", borderRadius: 8, border: "none", background: "#ffd060", color: "#0d0f14", fontWeight: 800, cursor: "pointer", fontSize: 13 }}>
-                          ▶ Conferma puntata — €{calcPuntataConQuota(puntataConsigliata, bet.quota).toFixed(2)}
+                          ▶ Conferma puntata — €{Math.round(calcPuntataConQuota(puntataConsigliata, bet.quota))}
                         </button>
                       )}
 
