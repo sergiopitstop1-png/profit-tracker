@@ -116,6 +116,7 @@ export default function Pronosticatore() {
   const [pick, setPick] = useState("h");
   const [savingKey, setSavingKey] = useState(null);
   const [savedKeys, setSavedKeys] = useState({});
+  const [pianoKeys, setPianoKeys] = useState({});
   const [matchDate, setMatchDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [matchTime, setMatchTime] = useState("");
 
@@ -189,6 +190,35 @@ export default function Pronosticatore() {
     setSavingKey(null);
   };
 
+  const addToPlan = async (signal) => {
+    if (!result || !teamH || !teamA) return;
+    const key = `piano_${signal.label}`;
+    setPianoKeys(prev => ({ ...prev, [key]: "saving" }));
+    try {
+      const { data: plan } = await supabase
+        .from("pronox_plans")
+        .select("id")
+        .eq("status", "ACTIVE")
+        .single();
+      if (!plan) { alert("Nessun piano attivo! Vai su /piano per crearne uno."); setPianoKeys(prev => ({ ...prev, [key]: null })); return; }
+      await supabase.from("pronox_bets").insert({
+        plan_id: plan.id,
+        match_date: matchDate,
+        match_time: matchTime || "--:--",
+        league: leagueName,
+        home_team: teamH.name,
+        away_team: teamA.name,
+        prediction_label: signal.label,
+        prediction_type: signal.type,
+        probability: parseFloat((signal.prob * 100).toFixed(1)),
+        lambda_home: parseFloat(result.lH.toFixed(3)),
+        lambda_away: parseFloat(result.lA.toFixed(3)),
+        status: "PENDING",
+      });
+      setPianoKeys(prev => ({ ...prev, [key]: "saved" }));
+    } catch (e) { console.error(e); setPianoKeys(prev => ({ ...prev, [key]: null })); }
+  };
+
   const pickLabels = { h: "Casa vince", d: "Pareggio", a: "Ospite vince", o25: "Over 2.5", u25: "Under 2.5", btts: "BTTS Sì", bttsNo: "BTTS No", o05ht: "Over 0.5 HT" };
   const teamCount = ratings ? Object.keys(ratings.teams).length : 0;
 
@@ -200,6 +230,7 @@ export default function Pronosticatore() {
           <a href="/" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>← home</a>
           <a href="/oggi" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>📅 partite del giorno</a>
           <a href="/archivio" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>📊 archivio</a>
+          <a href="/piano" style={{ fontSize: 12, color: "#c8f135", textDecoration: "none", fontWeight: 700 }}>🎯 piano</a>
         </div>
 
         {/* Lega */}
@@ -397,6 +428,13 @@ export default function Pronosticatore() {
                         ) : (
                           <span style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, background: "rgba(74,240,196,0.15)", color: "#4af0c4", fontWeight: 700 }}>✓ Salvato</span>
                         )}
+                        {(() => { const pk = `piano_${s.label}`; const ps = pianoKeys[pk];
+                          if (ps === "saved") return <span style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, background: "rgba(200,241,53,0.15)", color: "#c8f135", fontWeight: 700 }}>🎯 Piano</span>;
+                          return <button onClick={() => addToPlan(s)} disabled={ps === "saving"}
+                            style={{ fontSize: 12, padding: "5px 14px", borderRadius: 8, border: "1px solid rgba(200,241,53,0.4)", background: "rgba(200,241,53,0.08)", color: "#c8f135", cursor: "pointer", fontWeight: 700 }}>
+                            {ps === "saving" ? "..." : "+ Piano"}
+                          </button>;
+                        })()}
                       </div>
                     </div>
                   ))}
