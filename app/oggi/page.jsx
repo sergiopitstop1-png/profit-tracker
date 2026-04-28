@@ -35,7 +35,7 @@ function calcProbs(lH, lA, max = 8) {
       if (i > 0 && j > 0) btts += p;
     }
   }
-  const o05ht = 1 - Math.exp(-(lH + lA) * 0.45);
+  const o05ht = Math.min(0.18 + (lH + lA) * 0.14, 0.92);
   return { h, d, a, o25, u25: 1 - o25, btts, o05ht };
 }
 
@@ -72,40 +72,41 @@ function calcRatings(matches) {
 
 function getSignals(probs) {
   const signals = [];
-  if (probs.h > 0.55) signals.push({ label: "CASA VINCE", prob: probs.h, color: "#c8f135", strong: probs.h > 0.65 });
-  if (probs.a > 0.50) signals.push({ label: "OSPITE VINCE", prob: probs.a, color: "#c8f135", strong: probs.a > 0.60 });
-  if (probs.o25 > 0.58) signals.push({ label: "OVER 2.5", prob: probs.o25, color: "#4af0c4", strong: probs.o25 > 0.68 });
-  if (probs.btts > 0.55) signals.push({ label: "BTTS SÌ", prob: probs.btts, color: "#4af0c4", strong: probs.btts > 0.65 });
-  if (probs.o05ht > 0.70) signals.push({ label: "OVER 0.5 HT", prob: probs.o05ht, color: "#ffd060", strong: probs.o05ht > 0.80 });
-  if (probs.u25 > 0.62) signals.push({ label: "UNDER 2.5", prob: probs.u25, color: "#ffd060", strong: probs.u25 > 0.72 });
-  if (
-  probs.o05ht >= 0.70 &&
-  probs.u25 >= 0.48 &&
-  probs.o25 <= 0.56 &&
-  probs.btts <= 0.58
-) {
-  signals.push({
-    label: "TRADING O0.5 HT → U2.5 LIVE",
-    prob: probs.o05ht,
-    color: "#ff9f43",
-    strong: probs.o05ht >= 0.78 && probs.u25 >= 0.52
-  });
-}
+  if (probs.h > 0.55) signals.push({ label: "CASA VINCE", type: "1X2", prob: probs.h, color: "#c8f135", strong: probs.h > 0.65 });
+  if (probs.a > 0.50) signals.push({ label: "OSPITE VINCE", type: "1X2", prob: probs.a, color: "#c8f135", strong: probs.a > 0.60 });
+  if (probs.o25 > 0.58) signals.push({ label: "OVER 2.5", type: "OVER", prob: probs.o25, color: "#4af0c4", strong: probs.o25 > 0.68 });
+  if (probs.btts > 0.55) signals.push({ label: "BTTS SÌ", type: "BTTS", prob: probs.btts, color: "#4af0c4", strong: probs.btts > 0.65 });
+  if (probs.o05ht > 0.70) signals.push({ label: "OVER 0.5 HT", type: "OVER", prob: probs.o05ht, color: "#ffd060", strong: probs.o05ht > 0.80 });
+  if (probs.u25 > 0.62) signals.push({ label: "UNDER 2.5", type: "UNDER", prob: probs.u25, color: "#ffd060", strong: probs.u25 > 0.72 });
+  if (probs.o05ht >= 0.70 && probs.u25 >= 0.48 && probs.o25 <= 0.56 && probs.btts <= 0.58) {
+    signals.push({ label: "TRADING O0.5 HT → U2.5 LIVE", type: "TRADING", prob: probs.o05ht, color: "#ff9f43", strong: probs.o05ht >= 0.78 && probs.u25 >= 0.52 });
+  }
   signals.sort((a, b) => b.prob - a.prob);
   return signals;
 }
-function isTradingO05HTU25(m) {
-  const totalLambda = m.lH + m.lA;
 
-  return (
-    m.probs.o05ht >= 0.70 &&
-    m.probs.u25 >= 0.48 &&
-    m.probs.o25 <= 0.56 &&
-    m.probs.btts <= 0.58 &&
-    totalLambda >= 1.70 &&
-    totalLambda <= 2.60
-  );
+function checkResult(signal, ftHome, ftAway, htHome, htAway) {
+  const total = ftHome + ftAway;
+  switch (signal.type) {
+    case "1X2":
+      if (signal.label === "CASA VINCE") return ftHome > ftAway ? "WIN" : "LOSS";
+      if (signal.label === "OSPITE VINCE") return ftAway > ftHome ? "WIN" : "LOSS";
+      return "LOSS";
+    case "OVER": 
+      if (signal.label === "OVER 2.5") return total > 2.5 ? "WIN" : "LOSS";
+      if (signal.label === "OVER 0.5 HT") return (htHome + htAway) > 0.5 ? "WIN" : "LOSS";
+      return "LOSS";
+    case "UNDER":
+      return total < 2.5 ? "WIN" : "LOSS";
+    case "BTTS":
+      return ftHome > 0 && ftAway > 0 ? "WIN" : "LOSS";
+    case "TRADING":
+      return (htHome + htAway) >= 1 && total <= 2 ? "WIN" : "LOSS";
+    default:
+      return "LOSS";
+  }
 }
+
 export default function Oggi() {
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [selectedLeagues, setSelectedLeagues] = useState(["SA", "CL"]);
@@ -114,7 +115,8 @@ export default function Oggi() {
   const [progress, setProgress] = useState("");
   const [filter, setFilter] = useState("all");
   const [savingId, setSavingId] = useState(null);
-const [savedIds, setSavedIds] = useState([]);
+  const [savedMap, setSavedMap] = useState({});
+  const [checkingId, setCheckingId] = useState(null);
 
   const toggleLeague = (code) => {
     setSelectedLeagues(prev => prev.includes(code) ? prev.filter(x => x !== code) : [...prev, code]);
@@ -123,18 +125,16 @@ const [savedIds, setSavedIds] = useState([]);
   const load = async () => {
     setLoading(true);
     setMatches([]);
+    setSavedMap({});
     const all = [];
 
     for (const code of selectedLeagues) {
       const league = LEAGUES.find(l => l.code === code);
-
-      // 1. Carica tutti i risultati stagione corrente per i rating
       setProgress(`Carico statistiche ${league.flag} ${league.name}...`);
       const rSeason = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&season=2025`);
       const dSeason = await rSeason.json();
       const { teams, lgAvgHome, lgAvgAway } = calcRatings(dSeason.matches || []);
 
-      // 2. Carica fixture di oggi
       setProgress(`Cerco partite ${league.flag} ${league.name}...`);
       const rToday = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&dateFrom=${date}&dateTo=${date}`);
       const dToday = await rToday.json();
@@ -145,25 +145,22 @@ const [savedIds, setSavedIds] = useState([]);
         const aId = fix.awayTeam.id;
         const teamH = teams[hId];
         const teamA = teams[aId];
-
         let lH = lgAvgHome;
         let lA = lgAvgAway;
-
         if (teamH && teamA) {
           lH = teamH.attH * teamA.defA * lgAvgHome;
           lA = teamA.attA * teamH.defH * lgAvgAway;
         }
-
         const probs = calcProbs(lH, lA);
         const signals = getSignals(probs);
         const time = fix.utcDate ? new Date(fix.utcDate).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }) : "--:--";
-
         all.push({
           id: fix.id,
           home: { name: fix.homeTeam.name, crest: fix.homeTeam.crest },
           away: { name: fix.awayTeam.name, crest: fix.awayTeam.crest },
           time, league, probs, lH, lA, signals,
           hasRatings: !!(teamH && teamA),
+          fdId: fix.id,
         });
       }
     }
@@ -173,41 +170,85 @@ const [savedIds, setSavedIds] = useState([]);
     setLoading(false);
     setProgress("");
   };
-const saveToArchive = async (m) => {
-  setSavingId(m.id);
 
-  const { error } = await supabase
-    .from("pronox_archive")
-    .insert({
-      match_id: m.id,
-      match_date: date,
-      match_time: m.time,
-      league: m.league.name,
-      home_team: m.home.name,
-      away_team: m.away.name,
-      prediction_type: "trading_ht_u25",
-      prediction_label: "TRADING O0.5 HT → U2.5 LIVE",
-      probability: m.probs.o05ht,
-      lambda_home: m.lH,
-      lambda_away: m.lA,
-      status: "pending"
-    });
+  const saveSignal = async (match, signal) => {
+    const key = `${match.id}_${signal.label}`;
+    setSavingId(key);
+    try {
+      await supabase.from("pronox_archive").insert({
+        match_id: match.id,
+        match_date: date,
+        match_time: match.time,
+        league: match.league.name,
+        home_team: match.home.name,
+        away_team: match.away.name,
+        prediction_type: signal.type,
+        prediction_label: signal.label,
+        probability: parseFloat((signal.prob * 100).toFixed(1)),
+        lambda_home: parseFloat(match.lH.toFixed(3)),
+        lambda_away: parseFloat(match.lA.toFixed(3)),
+        status: "PENDING",
+      });
+      setSavedMap(prev => ({ ...prev, [key]: "PENDING" }));
+    } catch (e) {
+      console.error(e);
+    }
+    setSavingId(null);
+  };
 
-  setSavingId(null);
+  const checkResult = async (match, signal) => {
+    const key = `${match.id}_${signal.label}`;
+    setCheckingId(key);
+    try {
+      const r = await fetch(`${API_FD}?endpoint=matches/${match.fdId}`);
+      const d = await r.json();
+      const m = d.match || d;
+      if (!m || m.status !== "FINISHED") {
+        alert("Partita non ancora terminata!");
+        setCheckingId(null);
+        return;
+      }
+      const ftHome = m.score?.fullTime?.home ?? 0;
+      const ftAway = m.score?.fullTime?.away ?? 0;
+      const htHome = m.score?.halfTime?.home ?? 0;
+      const htAway = m.score?.halfTime?.away ?? 0;
 
-  if (error) {
-    alert("Errore salvataggio: " + error.message);
-    return;
-  }
+      const total = ftHome + ftAway;
+      let outcome = "LOSS";
+      if (signal.type === "1X2") {
+        if (signal.label === "CASA VINCE") outcome = ftHome > ftAway ? "WIN" : "LOSS";
+        else if (signal.label === "OSPITE VINCE") outcome = ftAway > ftHome ? "WIN" : "LOSS";
+      } else if (signal.label === "OVER 2.5") outcome = total > 2.5 ? "WIN" : "LOSS";
+      else if (signal.label === "UNDER 2.5") outcome = total < 2.5 ? "WIN" : "LOSS";
+      else if (signal.label === "OVER 0.5 HT") outcome = (htHome + htAway) > 0 ? "WIN" : "LOSS";
+      else if (signal.label === "BTTS SÌ") outcome = ftHome > 0 && ftAway > 0 ? "WIN" : "LOSS";
+      else if (signal.label === "TRADING O0.5 HT → U2.5 LIVE") outcome = (htHome + htAway) >= 1 && total <= 2 ? "WIN" : "LOSS";
 
-  setSavedIds(prev => [...prev, m.id]);
-};
+      await supabase.from("pronox_archive")
+        .update({
+          status: outcome,
+          ft_home_goals: ftHome,
+          ft_away_goals: ftAway,
+          ht_home_goals: htHome,
+          ht_away_goals: htAway,
+          result_checked_at: new Date().toISOString(),
+        })
+        .eq("match_id", match.id)
+        .eq("prediction_label", signal.label);
+
+      setSavedMap(prev => ({ ...prev, [key]: outcome }));
+    } catch (e) {
+      console.error(e);
+    }
+    setCheckingId(null);
+  };
+
   const filtered = matches.filter(m => {
     if (filter === "signal") return m.signals.length > 0;
-if (filter === "strong") return m.signals.some(s => s.strong);
-if (filter === "over") return m.probs.o25 > 0.58;
-if (filter === "trading") return isTradingO05HTU25(m);
-return true;
+    if (filter === "strong") return m.signals.some(s => s.strong);
+    if (filter === "over") return m.probs.o25 > 0.58;
+    if (filter === "trading") return m.signals.some(s => s.type === "TRADING");
+    return true;
   });
 
   const strongCount = matches.filter(m => m.signals.some(s => s.strong)).length;
@@ -239,7 +280,7 @@ return true;
                 <option value="signal">Con almeno un segnale</option>
                 <option value="strong">Solo segnali forti</option>
                 <option value="over">Over 2.5 probabile</option>
-                <option value="trading">Trading O0.5 HT + U2.5 Live</option>
+                <option value="trading">Trading O0.5 HT + U2.5</option>
               </select>
             </div>
           </div>
@@ -279,16 +320,20 @@ return true;
         {filtered.map(m => (
           <div key={m.id} style={{ background: "#161920", border: `1px solid ${m.signals.some(s => s.strong) ? "rgba(200,241,53,0.4)" : m.signals.length > 0 ? "rgba(74,240,196,0.25)" : "#2a2f3f"}`, borderRadius: 14, padding: 18, marginBottom: 10 }}>
 
+            {/* Header */}
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
               <div style={{ fontSize: 11, color: "#6b7490", fontWeight: 700, letterSpacing: "0.08em" }}>
                 {m.league.flag} {m.league.name} · {m.time}
               </div>
-              <div style={{ fontSize: 11, color: "#6b7490" }}>
-                λ {m.lH.toFixed(2)} — {m.lA.toFixed(2)}
-                {!m.hasRatings && <span style={{ color: "#f0794a", marginLeft: 6 }}>⚠ rating N/D</span>}
+              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                <div style={{ fontSize: 11, color: "#4af0c4", fontFamily: "monospace" }}>
+                  λ {m.lH.toFixed(2)} — {m.lA.toFixed(2)}
+                </div>
+                {!m.hasRatings && <span style={{ fontSize: 11, color: "#f0794a" }}>⚠ N/D</span>}
               </div>
             </div>
 
+            {/* Squadre */}
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
                 {m.home.crest && <img src={m.home.crest} style={{ width: 28, height: 28 }} alt="" />}
@@ -301,6 +346,7 @@ return true;
               </div>
             </div>
 
+            {/* Probabilità */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6, marginBottom: 12 }}>
               {[
                 ["1", (m.probs.h * 100).toFixed(0) + "%"],
@@ -316,45 +362,55 @@ return true;
               ))}
             </div>
 
+            {/* Segnali con spunta salva + verifica */}
             {m.signals.length > 0 ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {m.signals.map((s, i) => (
-                  <div key={i} style={{ borderRadius: 8, padding: "9px 14px", background: s.strong ? `${s.color}15` : "rgba(255,255,255,0.04)", border: `1px solid ${s.strong ? s.color + "50" : "#2a2f3f"}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: s.strong ? s.color : "#e8ecf5" }}>
-                      {s.strong ? "🔥 " : "→ "}{s.label}
-                    </span>
-                    <span style={{ fontSize: 13, fontFamily: "monospace", color: s.color, fontWeight: 600 }}>
-                      {(s.prob * 100).toFixed(1)}%
-                    </span>
-                  </div>
-                ))}
+                {m.signals.map((s, i) => {
+                  const key = `${m.id}_${s.label}`;
+                  const savedStatus = savedMap[key];
+                  return (
+                    <div key={i} style={{ borderRadius: 8, border: `1px solid ${s.strong ? s.color + "50" : "#2a2f3f"}`, background: s.strong ? `${s.color}10` : "rgba(255,255,255,0.03)", overflow: "hidden" }}>
+                      <div style={{ padding: "9px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: s.strong ? s.color : "#e8ecf5" }}>
+                          {s.strong ? "🔥 " : "→ "}{s.label}
+                        </span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <span style={{ fontSize: 13, fontFamily: "monospace", color: s.color, fontWeight: 600 }}>
+                            {(s.prob * 100).toFixed(1)}%
+                          </span>
+                          {/* Bottone salva */}
+                          {!savedStatus && (
+                            <button
+                              onClick={() => saveSignal(m, s)}
+                              disabled={savingId === key}
+                              style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, border: "1px solid #2a2f3f", background: "transparent", color: "#6b7490", cursor: "pointer" }}>
+                              {savingId === key ? "..." : "☑ Salva"}
+                            </button>
+                          )}
+                          {/* Status badge */}
+                          {savedStatus === "PENDING" && (
+                            <button
+                              onClick={() => checkResult(m, s)}
+                              disabled={checkingId === key}
+                              style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, border: "1px solid rgba(255,208,96,0.4)", background: "rgba(255,208,96,0.1)", color: "#ffd060", cursor: "pointer" }}>
+                              {checkingId === key ? "..." : "⏳ Verifica"}
+                            </button>
+                          )}
+                          {savedStatus === "WIN" && (
+                            <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, background: "rgba(200,241,53,0.15)", color: "#c8f135", fontWeight: 700 }}>✓ WIN</span>
+                          )}
+                          {savedStatus === "LOSS" && (
+                            <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, background: "rgba(255,92,92,0.15)", color: "#ff5c5c", fontWeight: 700 }}>✗ LOSS</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <div style={{ fontSize: 12, color: "#6b7490", padding: "8px 0" }}>— Nessun segnale chiaro · skip</div>
             )}
-            {isTradingO05HTU25(m) && (
-  <button
-    onClick={() => saveToArchive(m)}
-    disabled={savingId === m.id || savedIds.includes(m.id)}
-    style={{
-      marginTop: 12,
-      width: "100%",
-      padding: "10px 12px",
-      borderRadius: 10,
-      border: "1px solid rgba(255,159,67,0.45)",
-      background: savedIds.includes(m.id) ? "rgba(74,240,196,0.12)" : "rgba(255,159,67,0.12)",
-      color: savedIds.includes(m.id) ? "#4af0c4" : "#ff9f43",
-      fontWeight: 800,
-      cursor: savingId === m.id || savedIds.includes(m.id) ? "not-allowed" : "pointer"
-    }}
-  >
-    {savedIds.includes(m.id)
-      ? "✓ Salvata in archivio"
-      : savingId === m.id
-        ? "Salvataggio..."
-        : "☑ Salva trading in archivio"}
-  </button>
-)}
           </div>
         ))}
 
