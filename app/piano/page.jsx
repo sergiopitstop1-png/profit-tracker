@@ -48,6 +48,7 @@ export default function Piano() {
   const [loading, setLoading] = useState(true);
   const [showNewPlan, setShowNewPlan] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [autoCheckingId, setAutoCheckingId] = useState(null);
 
   const [formCassa, setFormCassa] = useState("");
   const [formObiettivo, setFormObiettivo] = useState("15");
@@ -106,11 +107,9 @@ export default function Piano() {
   };
 
   const updateBetQuota = async (betId, quota) => {
-  const val = parseFloat(quota.replace(",", "."));
-  if (isNaN(val)) return;
-  await supabase.from("pronox_bets").update({ quota: val }).eq("id", betId);
-  setBets(prev => prev.map(b => b.id === betId ? { ...b, quota: val } : b));
-};
+    await supabase.from("pronox_bets").update({ quota: parseFloat(quota) }).eq("id", betId);
+    setBets(prev => prev.map(b => b.id === betId ? { ...b, quota: parseFloat(quota) } : b));
+  };
 
   const confirmBet = async (bet) => {
     if (!bet.quota || bet.quota <= 1) { alert("Inserisci una quota valida!"); return; }
@@ -120,6 +119,7 @@ export default function Piano() {
       activePlan.cassa_attuale, activePlan.obiettivo_perc,
       activePlan.num_partite, activePlan.vittorie_attese, bets
     );
+    // Arrotonda all'euro
     const puntata = Math.round(calcPuntataConQuota(puntataBase, bet.quota));
 
     await supabase.from("pronox_bets").update({ puntata, status: "IN_CORSO" }).eq("id", bet.id);
@@ -131,8 +131,8 @@ export default function Piano() {
 
   const verifyBet = async (bet, outcome) => {
     if (!activePlan) return;
-    const profitto = outcome === "WIN" ? parseFloat(((bet.puntata * bet.quota) - bet.puntata).toFixed(2)) : -bet.puntata;
-    const nuovaCassa = activePlan.cassa_attuale + (outcome === "WIN" ? bet.puntata * bet.quota : 0);
+    const profitto = outcome === "WIN" ? Math.round((bet.puntata * bet.quota) - bet.puntata) : -bet.puntata;
+    const nuovaCassa = Math.round(activePlan.cassa_attuale + (outcome === "WIN" ? bet.puntata * bet.quota : 0));
 
     await supabase.from("pronox_bets").update({ status: outcome, profitto }).eq("id", bet.id);
     await supabase.from("pronox_plans").update({ cassa_attuale: nuovaCassa }).eq("id", activePlan.id);
@@ -141,12 +141,42 @@ export default function Piano() {
     setBets(updatedBets);
     setActivePlan(prev => ({ ...prev, cassa_attuale: nuovaCassa }));
 
-    // Controlla se piano completato
     const totalDone = updatedBets.filter(b => b.status !== "PENDING" && b.status !== "IN_CORSO").length;
     if (totalDone >= activePlan.num_partite) {
       await supabase.from("pronox_plans").update({ status: "COMPLETED" }).eq("id", activePlan.id);
       setActivePlan(prev => ({ ...prev, status: "COMPLETED" }));
     }
+  };
+
+  const autoVerifyBet = async (bet) => {
+    if (!activePlan) return;
+    setAutoCheckingId(bet.id);
+    try {
+      const r = await fetch(`/api/footballdata?endpoint=matches/${bet.match_id_fd || bet.id}`);
+      const d = await r.json();
+      const m = d.match || d;
+      if (!m || m.status !== "FINISHED") {
+        alert("Partita non ancora terminata — riprova più tardi!");
+        setAutoCheckingId(null);
+        return;
+      }
+      const ftHome = m.score?.fullTime?.home ?? 0;
+      const ftAway = m.score?.fullTime?.away ?? 0;
+      const htHome = m.score?.halfTime?.home ?? 0;
+      const htAway = m.score?.halfTime?.away ?? 0;
+      const total = ftHome + ftAway;
+      let outcome = "LOSS";
+      const label = bet.prediction_label;
+      if (label === "CASA VINCE") outcome = ftHome > ftAway ? "WIN" : "LOSS";
+      else if (label === "OSPITE VINCE") outcome = ftAway > ftHome ? "WIN" : "LOSS";
+      else if (label === "OVER 2.5") outcome = total > 2.5 ? "WIN" : "LOSS";
+      else if (label === "UNDER 2.5") outcome = total < 2.5 ? "WIN" : "LOSS";
+      else if (label === "OVER 0.5 HT") outcome = (htHome + htAway) > 0 ? "WIN" : "LOSS";
+      else if (label === "BTTS SÌ") outcome = ftHome > 0 && ftAway > 0 ? "WIN" : "LOSS";
+      else if (label === "TRADING O0.5 HT → U2.5 LIVE") outcome = (htHome + htAway) >= 1 && total <= 2 ? "WIN" : "LOSS";
+      await verifyBet(bet, outcome);
+    } catch (e) { console.error(e); alert("Errore nella verifica automatica"); }
+    setAutoCheckingId(null);
   };
 
   const deleteBet = async (betId) => {
@@ -292,8 +322,8 @@ export default function Piano() {
                   {/* Stats piano */}
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 16 }}>
                     {[
-                      ["Cassa", "€" + activePlan.cassa_attuale.toFixed(2), profittoTot >= 0 ? "#c8f135" : "#ff5c5c"],
-                      ["Profitto", (profittoTot >= 0 ? "+" : "") + "€" + profittoTot.toFixed(2), profittoTot >= 0 ? "#c8f135" : "#ff5c5c"],
+                      ["Cassa", "€" + Math.round(activePlan.cassa_attuale), profittoTot >= 0 ? "#c8f135" : "#ff5c5c"],
+                      ["Profitto", (profittoTot >= 0 ? "+" : "") + "€" + Math.round(profittoTot), profittoTot >= 0 ? "#c8f135" : "#ff5c5c"],
                       ["Win Rate", winRate + (winRate !== "—" ? "%" : ""), "#4af0c4"],
                       ["Partite", `${totalDone}/${activePlan.num_partite}`, "#ffd060"],
                     ].map(([l, v, c]) => (
@@ -318,7 +348,7 @@ export default function Piano() {
                   {/* Puntata consigliata */}
                   <div style={{ background: "rgba(200,241,53,0.08)", border: "1px solid rgba(200,241,53,0.25)", borderRadius: 8, padding: "10px 14px", fontSize: 13 }}>
                     <span style={{ color: "#6b7490" }}>Puntata base consigliata: </span>
-                    <span style={{ color: "#c8f135", fontWeight: 700, fontFamily: "monospace", fontSize: 16 }}>€{puntataConsigliata.toFixed(2)}</span>
+                    <span style={{ color: "#c8f135", fontWeight: 700, fontFamily: "monospace", fontSize: 16 }}>€{Math.round(puntataConsigliata)}</span>
                     <span style={{ color: "#6b7490", fontSize: 11, marginLeft: 8 }}>(adattata per quota su ogni puntata)</span>
                   </div>
                 </div>
@@ -361,10 +391,10 @@ export default function Piano() {
                         <div>
                           <label style={lbl}>Quota</label>
                           {bet.status === "PENDING" ? (
-                            <input type="text" placeholder="Es. 1.85"
-  defaultValue={bet.quota || ""}
-  onBlur={e => updateBetQuota(bet.id, e.target.value)}
-  style={inp} />
+                            <input type="number" step="0.01" placeholder="Es. 1.85"
+                              value={bet.quota || ""}
+                              onChange={e => updateBetQuota(bet.id, e.target.value)}
+                              style={inp} />
                           ) : (
                             <div style={{ ...inp, color: "#ffd060" }}>{bet.quota || "—"}</div>
                           )}
@@ -372,7 +402,7 @@ export default function Piano() {
                         <div>
                           <label style={lbl}>Puntata (€)</label>
                           <div style={{ ...inp, color: "#c8f135", fontWeight: 700 }}>
-                           {bet.puntata ? "€" + Math.round(bet.puntata) : bet.status === "PENDING" && bet.quota > 1 ? "€" + Math.round(calcPuntataConQuota(puntataConsigliata, bet.quota)) : "—"}
+                            {bet.puntata ? "€" + Math.round(bet.puntata) : bet.status === "PENDING" && bet.quota > 1 ? "€" + Math.round(calcPuntataConQuota(puntataConsigliata, bet.quota)) : "—"}
                           </div>
                         </div>
                         <div>
@@ -392,23 +422,23 @@ export default function Piano() {
                       )}
 
                       {bet.status === "IN_CORSO" && (
-  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-    <button onClick={() => autoVerifyBet(bet)} disabled={autoCheckingId === bet.id}
-      style={{ width: "100%", padding: "10px", borderRadius: 8, border: "1px solid rgba(74,240,196,0.4)", background: "rgba(74,240,196,0.1)", color: "#4af0c4", fontWeight: 800, cursor: "pointer", fontSize: 13 }}>
-      {autoCheckingId === bet.id ? "⏳ Verifico..." : "🔄 Verifica automatica"}
-    </button>
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-      <button onClick={() => verifyBet(bet, "WIN")}
-        style={{ padding: "10px", borderRadius: 8, border: "none", background: "rgba(200,241,53,0.2)", color: "#c8f135", fontWeight: 800, cursor: "pointer", fontSize: 13 }}>
-        ✓ WIN
-      </button>
-      <button onClick={() => verifyBet(bet, "LOSS")}
-        style={{ padding: "10px", borderRadius: 8, border: "none", background: "rgba(255,92,92,0.2)", color: "#ff5c5c", fontWeight: 800, cursor: "pointer", fontSize: 13 }}>
-        ✗ LOSS
-      </button>
-    </div>
-  </div>
-)}
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          <button onClick={() => autoVerifyBet(bet)} disabled={autoCheckingId === bet.id}
+                            style={{ width: "100%", padding: "10px", borderRadius: 8, border: "1px solid rgba(74,240,196,0.4)", background: "rgba(74,240,196,0.1)", color: "#4af0c4", fontWeight: 800, cursor: "pointer", fontSize: 13 }}>
+                            {autoCheckingId === bet.id ? "⏳ Verifico..." : "🔄 Verifica automatica"}
+                          </button>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                            <button onClick={() => verifyBet(bet, "WIN")}
+                              style={{ padding: "10px", borderRadius: 8, border: "none", background: "rgba(200,241,53,0.2)", color: "#c8f135", fontWeight: 800, cursor: "pointer", fontSize: 13 }}>
+                              ✓ WIN
+                            </button>
+                            <button onClick={() => verifyBet(bet, "LOSS")}
+                              style={{ padding: "10px", borderRadius: 8, border: "none", background: "rgba(255,92,92,0.2)", color: "#ff5c5c", fontWeight: 800, cursor: "pointer", fontSize: 13 }}>
+                              ✗ LOSS
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))
                 )}
