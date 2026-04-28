@@ -113,6 +113,10 @@ export default function Pronosticatore() {
     <div style={{ minHeight: "100vh", background: "#0d0f14", color: "#e8ecf5", fontFamily: "system-ui, sans-serif", padding: "24px 16px" }}>
       <div style={{ maxWidth: 760, margin: "0 auto" }}>
         <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 4 }}>PRONO<span style={{ color: "#c8f135" }}>X</span> <span style={{ fontSize: 13, fontWeight: 400, color: "#6b7490" }}>v2.0 · dati reali</span></h1>
+        <div style={{ display: "flex", gap: 16, marginBottom: 4 }}>
+          <a href="/" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>← home</a>
+          <a href="/oggi" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>📅 partite del giorno</a>
+        </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16, marginTop: 20 }}>
           <div>
