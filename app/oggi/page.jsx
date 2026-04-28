@@ -85,28 +85,6 @@ function getSignals(probs) {
   return signals;
 }
 
-function checkResult(signal, ftHome, ftAway, htHome, htAway) {
-  const total = ftHome + ftAway;
-  switch (signal.type) {
-    case "1X2":
-      if (signal.label === "CASA VINCE") return ftHome > ftAway ? "WIN" : "LOSS";
-      if (signal.label === "OSPITE VINCE") return ftAway > ftHome ? "WIN" : "LOSS";
-      return "LOSS";
-    case "OVER": 
-      if (signal.label === "OVER 2.5") return total > 2.5 ? "WIN" : "LOSS";
-      if (signal.label === "OVER 0.5 HT") return (htHome + htAway) > 0.5 ? "WIN" : "LOSS";
-      return "LOSS";
-    case "UNDER":
-      return total < 2.5 ? "WIN" : "LOSS";
-    case "BTTS":
-      return ftHome > 0 && ftAway > 0 ? "WIN" : "LOSS";
-    case "TRADING":
-      return (htHome + htAway) >= 1 && total <= 2 ? "WIN" : "LOSS";
-    default:
-      return "LOSS";
-  }
-}
-
 export default function Oggi() {
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [selectedLeagues, setSelectedLeagues] = useState(["SA", "CL"]);
@@ -190,13 +168,11 @@ export default function Oggi() {
         status: "PENDING",
       });
       setSavedMap(prev => ({ ...prev, [key]: "PENDING" }));
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
     setSavingId(null);
   };
 
-  const checkResult = async (match, signal) => {
+  const verifyResult = async (match, signal) => {
     const key = `${match.id}_${signal.label}`;
     setCheckingId(key);
     try {
@@ -212,34 +188,22 @@ export default function Oggi() {
       const ftAway = m.score?.fullTime?.away ?? 0;
       const htHome = m.score?.halfTime?.home ?? 0;
       const htAway = m.score?.halfTime?.away ?? 0;
-
       const total = ftHome + ftAway;
       let outcome = "LOSS";
-      if (signal.type === "1X2") {
-        if (signal.label === "CASA VINCE") outcome = ftHome > ftAway ? "WIN" : "LOSS";
-        else if (signal.label === "OSPITE VINCE") outcome = ftAway > ftHome ? "WIN" : "LOSS";
-      } else if (signal.label === "OVER 2.5") outcome = total > 2.5 ? "WIN" : "LOSS";
+      if (signal.label === "CASA VINCE") outcome = ftHome > ftAway ? "WIN" : "LOSS";
+      else if (signal.label === "OSPITE VINCE") outcome = ftAway > ftHome ? "WIN" : "LOSS";
+      else if (signal.label === "OVER 2.5") outcome = total > 2.5 ? "WIN" : "LOSS";
       else if (signal.label === "UNDER 2.5") outcome = total < 2.5 ? "WIN" : "LOSS";
       else if (signal.label === "OVER 0.5 HT") outcome = (htHome + htAway) > 0 ? "WIN" : "LOSS";
       else if (signal.label === "BTTS SÌ") outcome = ftHome > 0 && ftAway > 0 ? "WIN" : "LOSS";
       else if (signal.label === "TRADING O0.5 HT → U2.5 LIVE") outcome = (htHome + htAway) >= 1 && total <= 2 ? "WIN" : "LOSS";
 
       await supabase.from("pronox_archive")
-        .update({
-          status: outcome,
-          ft_home_goals: ftHome,
-          ft_away_goals: ftAway,
-          ht_home_goals: htHome,
-          ht_away_goals: htAway,
-          result_checked_at: new Date().toISOString(),
-        })
-        .eq("match_id", match.id)
-        .eq("prediction_label", signal.label);
+        .update({ status: outcome, ft_home_goals: ftHome, ft_away_goals: ftAway, ht_home_goals: htHome, ht_away_goals: htAway, result_checked_at: new Date().toISOString() })
+        .eq("match_id", match.id).eq("prediction_label", signal.label);
 
       setSavedMap(prev => ({ ...prev, [key]: outcome }));
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
     setCheckingId(null);
   };
 
@@ -265,6 +229,7 @@ export default function Oggi() {
         <div style={{ display: "flex", gap: 16, marginBottom: 20 }}>
           <a href="/" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>← home</a>
           <a href="/pronosticatore" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>⚽ analisi manuale</a>
+          <a href="/archivio" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>📊 archivio</a>
         </div>
 
         <div style={{ background: "#161920", border: "1px solid #2a2f3f", borderRadius: 14, padding: 20, marginBottom: 16 }}>
@@ -320,7 +285,7 @@ export default function Oggi() {
         {filtered.map(m => (
           <div key={m.id} style={{ background: "#161920", border: `1px solid ${m.signals.some(s => s.strong) ? "rgba(200,241,53,0.4)" : m.signals.length > 0 ? "rgba(74,240,196,0.25)" : "#2a2f3f"}`, borderRadius: 14, padding: 18, marginBottom: 10 }}>
 
-            {/* Header */}
+            {/* Header lega + orario */}
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
               <div style={{ fontSize: 11, color: "#6b7490", fontWeight: 700, letterSpacing: "0.08em" }}>
                 {m.league.flag} {m.league.name} · {m.time}
@@ -329,7 +294,7 @@ export default function Oggi() {
             </div>
 
             {/* Squadre */}
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
                 {m.home.crest && <img src={m.home.crest} style={{ width: 28, height: 28 }} alt="" />}
                 <span style={{ fontWeight: 700, fontSize: 15 }}>{m.home.name}</span>
@@ -343,21 +308,21 @@ export default function Oggi() {
 
             {/* Card gol probabili */}
             <div style={{ background: "#0d0f14", border: "1px solid #2a2f3f", borderRadius: 10, padding: "12px 16px", marginBottom: 12 }}>
-              <div style={{ fontSize: 10, color: "#6b7490", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>Gol probabili</div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontSize: 10, color: "#6b7490", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>Gol probabili</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  {m.home.crest && <img src={m.home.crest} style={{ width: 18, height: 18 }} alt="" />}
+                  {m.home.crest && <img src={m.home.crest} style={{ width: 20, height: 20 }} alt="" />}
                   <span style={{ fontSize: 13, color: "#e8ecf5" }}>{m.home.name}</span>
                 </div>
-                <span style={{ fontSize: 22, fontWeight: 700, color: "#c8f135", fontFamily: "monospace" }}>{m.lH.toFixed(2)}</span>
+                <span style={{ fontSize: 24, fontWeight: 700, color: "#c8f135", fontFamily: "monospace" }}>{m.lH.toFixed(2)}</span>
               </div>
-              <div style={{ height: 1, background: "#2a2f3f", margin: "8px 0" }} />
+              <div style={{ height: 1, background: "#2a2f3f", marginBottom: 8 }} />
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  {m.away.crest && <img src={m.away.crest} style={{ width: 18, height: 18 }} alt="" />}
+                  {m.away.crest && <img src={m.away.crest} style={{ width: 20, height: 20 }} alt="" />}
                   <span style={{ fontSize: 13, color: "#e8ecf5" }}>{m.away.name}</span>
                 </div>
-                <span style={{ fontSize: 22, fontWeight: 700, color: "#4af0c4", fontFamily: "monospace" }}>{m.lA.toFixed(2)}</span>
+                <span style={{ fontSize: 24, fontWeight: 700, color: "#4af0c4", fontFamily: "monospace" }}>{m.lA.toFixed(2)}</span>
               </div>
             </div>
 
@@ -377,47 +342,35 @@ export default function Oggi() {
               ))}
             </div>
 
-            {/* Segnali con spunta salva + verifica */}
+            {/* Segnali */}
             {m.signals.length > 0 ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {m.signals.map((s, i) => {
                   const key = `${m.id}_${s.label}`;
                   const savedStatus = savedMap[key];
                   return (
-                    <div key={i} style={{ borderRadius: 8, border: `1px solid ${s.strong ? s.color + "50" : "#2a2f3f"}`, background: s.strong ? `${s.color}10` : "rgba(255,255,255,0.03)", overflow: "hidden" }}>
-                      <div style={{ padding: "9px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: s.strong ? s.color : "#e8ecf5" }}>
-                          {s.strong ? "🔥 " : "→ "}{s.label}
+                    <div key={i} style={{ borderRadius: 8, border: `1px solid ${s.strong ? s.color + "50" : "#2a2f3f"}`, background: s.strong ? `${s.color}10` : "rgba(255,255,255,0.03)", padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: s.strong ? s.color : "#e8ecf5" }}>
+                        {s.strong ? "🔥 " : "→ "}{s.label}
+                      </span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ fontSize: 13, fontFamily: "monospace", color: s.color, fontWeight: 600 }}>
+                          {(s.prob * 100).toFixed(1)}%
                         </span>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                          <span style={{ fontSize: 13, fontFamily: "monospace", color: s.color, fontWeight: 600 }}>
-                            {(s.prob * 100).toFixed(1)}%
-                          </span>
-                          {/* Bottone salva */}
-                          {!savedStatus && (
-                            <button
-                              onClick={() => saveSignal(m, s)}
-                              disabled={savingId === key}
-                              style={{ fontSize: 12, padding: "5px 14px", borderRadius: 8, border: `1px solid ${s.color}50`, background: `${s.color}15`, color: s.color, cursor: "pointer", fontWeight: 700 }}>
-                              {savingId === key ? "..." : "☑ Salva"}
-                            </button>
-                          )}
-                          {/* Status badge */}
-                          {savedStatus === "PENDING" && (
-                            <button
-                              onClick={() => checkResult(m, s)}
-                              disabled={checkingId === key}
-                              style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, border: "1px solid rgba(255,208,96,0.4)", background: "rgba(255,208,96,0.1)", color: "#ffd060", cursor: "pointer" }}>
-                              {checkingId === key ? "..." : "⏳ Verifica"}
-                            </button>
-                          )}
-                          {savedStatus === "WIN" && (
-                            <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, background: "rgba(200,241,53,0.15)", color: "#c8f135", fontWeight: 700 }}>✓ WIN</span>
-                          )}
-                          {savedStatus === "LOSS" && (
-                            <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, background: "rgba(255,92,92,0.15)", color: "#ff5c5c", fontWeight: 700 }}>✗ LOSS</span>
-                          )}
-                        </div>
+                        {!savedStatus && (
+                          <button onClick={() => saveSignal(m, s)} disabled={savingId === key}
+                            style={{ fontSize: 12, padding: "5px 14px", borderRadius: 8, border: `1px solid ${s.color}60`, background: `${s.color}15`, color: s.color, cursor: "pointer", fontWeight: 700 }}>
+                            {savingId === key ? "..." : "☑ Salva"}
+                          </button>
+                        )}
+                        {savedStatus === "PENDING" && (
+                          <button onClick={() => verifyResult(m, s)} disabled={checkingId === key}
+                            style={{ fontSize: 12, padding: "5px 14px", borderRadius: 8, border: "1px solid rgba(255,208,96,0.4)", background: "rgba(255,208,96,0.1)", color: "#ffd060", cursor: "pointer", fontWeight: 700 }}>
+                            {checkingId === key ? "..." : "⏳ Verifica"}
+                          </button>
+                        )}
+                        {savedStatus === "WIN" && <span style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, background: "rgba(200,241,53,0.15)", color: "#c8f135", fontWeight: 700 }}>✓ WIN</span>}
+                        {savedStatus === "LOSS" && <span style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, background: "rgba(255,92,92,0.15)", color: "#ff5c5c", fontWeight: 700 }}>✗ LOSS</span>}
                       </div>
                     </div>
                   );
