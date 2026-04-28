@@ -321,16 +321,11 @@ export default function Oggi() {
           <div key={m.id} style={{ background: "#161920", border: `1px solid ${m.signals.some(s => s.strong) ? "rgba(200,241,53,0.4)" : m.signals.length > 0 ? "rgba(74,240,196,0.25)" : "#2a2f3f"}`, borderRadius: 14, padding: 18, marginBottom: 10 }}>
 
             {/* Header */}
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
               <div style={{ fontSize: 11, color: "#6b7490", fontWeight: 700, letterSpacing: "0.08em" }}>
                 {m.league.flag} {m.league.name} · {m.time}
               </div>
-              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                <div style={{ fontSize: 11, color: "#4af0c4", fontFamily: "monospace" }}>
-                  λ {m.lH.toFixed(2)} — {m.lA.toFixed(2)}
-                </div>
-                {!m.hasRatings && <span style={{ fontSize: 11, color: "#f0794a" }}>⚠ N/D</span>}
-              </div>
+              {!m.hasRatings && <span style={{ fontSize: 11, color: "#f0794a" }}>⚠ rating N/D</span>}
             </div>
 
             {/* Squadre */}
@@ -343,6 +338,26 @@ export default function Oggi() {
               <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, justifyContent: "flex-end" }}>
                 <span style={{ fontWeight: 700, fontSize: 15 }}>{m.away.name}</span>
                 {m.away.crest && <img src={m.away.crest} style={{ width: 28, height: 28 }} alt="" />}
+              </div>
+            </div>
+
+            {/* Card gol probabili */}
+            <div style={{ background: "#0d0f14", border: "1px solid #2a2f3f", borderRadius: 10, padding: "12px 16px", marginBottom: 12 }}>
+              <div style={{ fontSize: 10, color: "#6b7490", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>Gol probabili</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {m.home.crest && <img src={m.home.crest} style={{ width: 18, height: 18 }} alt="" />}
+                  <span style={{ fontSize: 13, color: "#e8ecf5" }}>{m.home.name}</span>
+                </div>
+                <span style={{ fontSize: 22, fontWeight: 700, color: "#c8f135", fontFamily: "monospace" }}>{m.lH.toFixed(2)}</span>
+              </div>
+              <div style={{ height: 1, background: "#2a2f3f", margin: "8px 0" }} />
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {m.away.crest && <img src={m.away.crest} style={{ width: 18, height: 18 }} alt="" />}
+                  <span style={{ fontSize: 13, color: "#e8ecf5" }}>{m.away.name}</span>
+                </div>
+                <span style={{ fontSize: 22, fontWeight: 700, color: "#4af0c4", fontFamily: "monospace" }}>{m.lA.toFixed(2)}</span>
               </div>
             </div>
 
@@ -383,7 +398,7 @@ export default function Oggi() {
                             <button
                               onClick={() => saveSignal(m, s)}
                               disabled={savingId === key}
-                              style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, border: "1px solid #2a2f3f", background: "transparent", color: "#6b7490", cursor: "pointer" }}>
+                              style={{ fontSize: 12, padding: "5px 14px", borderRadius: 8, border: `1px solid ${s.color}50`, background: `${s.color}15`, color: s.color, cursor: "pointer", fontWeight: 700 }}>
                               {savingId === key ? "..." : "☑ Salva"}
                             </button>
                           )}
