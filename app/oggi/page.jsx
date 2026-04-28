@@ -30,7 +30,7 @@ function calcProbs(lH, lA, max = 8) {
       if (i > 0 && j > 0) btts += p;
     }
   }
-  const o05ht = Math.min(0.18 + (lH + lA) * 0.14, 0.92);
+  const o05ht = 1 - Math.exp(-(lH + lA) * 0.45);
   return { h, d, a, o25, u25: 1 - o25, btts, o05ht };
 }
 
@@ -73,10 +73,34 @@ function getSignals(probs) {
   if (probs.btts > 0.55) signals.push({ label: "BTTS SÌ", prob: probs.btts, color: "#4af0c4", strong: probs.btts > 0.65 });
   if (probs.o05ht > 0.70) signals.push({ label: "OVER 0.5 HT", prob: probs.o05ht, color: "#ffd060", strong: probs.o05ht > 0.80 });
   if (probs.u25 > 0.62) signals.push({ label: "UNDER 2.5", prob: probs.u25, color: "#ffd060", strong: probs.u25 > 0.72 });
+  if (
+  probs.o05ht >= 0.70 &&
+  probs.u25 >= 0.48 &&
+  probs.o25 <= 0.56 &&
+  probs.btts <= 0.58
+) {
+  signals.push({
+    label: "TRADING O0.5 HT → U2.5 LIVE",
+    prob: probs.o05ht,
+    color: "#ff9f43",
+    strong: probs.o05ht >= 0.78 && probs.u25 >= 0.52
+  });
+}
   signals.sort((a, b) => b.prob - a.prob);
   return signals;
 }
+function isTradingO05HTU25(m) {
+  const totalLambda = m.lH + m.lA;
 
+  return (
+    m.probs.o05ht >= 0.70 &&
+    m.probs.u25 >= 0.48 &&
+    m.probs.o25 <= 0.56 &&
+    m.probs.btts <= 0.58 &&
+    totalLambda >= 1.70 &&
+    totalLambda <= 2.60
+  );
+}
 export default function Oggi() {
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [selectedLeagues, setSelectedLeagues] = useState(["SA", "CL"]);
@@ -145,9 +169,10 @@ export default function Oggi() {
 
   const filtered = matches.filter(m => {
     if (filter === "signal") return m.signals.length > 0;
-    if (filter === "strong") return m.signals.some(s => s.strong);
-    if (filter === "over") return m.probs.o25 > 0.58;
-    return true;
+if (filter === "strong") return m.signals.some(s => s.strong);
+if (filter === "over") return m.probs.o25 > 0.58;
+if (filter === "trading") return isTradingO05HTU25(m);
+return true;
   });
 
   const strongCount = matches.filter(m => m.signals.some(s => s.strong)).length;
@@ -179,6 +204,7 @@ export default function Oggi() {
                 <option value="signal">Con almeno un segnale</option>
                 <option value="strong">Solo segnali forti</option>
                 <option value="over">Over 2.5 probabile</option>
+                <option value="trading">Trading O0.5 HT + U2.5 Live</option>
               </select>
             </div>
           </div>
