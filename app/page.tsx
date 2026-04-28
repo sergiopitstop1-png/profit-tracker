@@ -20,7 +20,7 @@ export default function SergioApicellaHomepage() {
       <section id="home" className="mx-auto grid min-h-[70vh] max-w-6xl items-center gap-10 px-6 py-16 md:grid-cols-2 md:py-24">
         <div className="space-y-6">
           <div className="inline-flex rounded-full border border-orange-400/30 bg-orange-500/10 px-4 py-1 text-sm text-orange-200">
-            Trasforma ogni occasione in profitto. 🔥
+            Trasforma ogni occasione in profitto 🔥
           </div>
           <h1 className="text-4xl font-bold leading-tight md:text-6xl">
             Vuoi fare soldi <span className="text-orange-400">online</span> con più metodo e meno caos?
