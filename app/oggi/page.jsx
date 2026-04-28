@@ -2,15 +2,14 @@
 import { useState } from "react";
 
 const API_FD = "/api/footballdata";
-const API_FB = "/api/football";
 
 const LEAGUES = [
-  { code: "SA", name: "Serie A", flag: "🇮🇹", fbId: "135" },
-  { code: "PD", name: "La Liga", flag: "🇪🇸", fbId: "140" },
-  { code: "PL", name: "Premier League", flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿", fbId: "39" },
-  { code: "BL1", name: "Bundesliga", flag: "🇩🇪", fbId: "78" },
-  { code: "FL1", name: "Ligue 1", flag: "🇫🇷", fbId: "61" },
-  { code: "CL", name: "Champions League", flag: "⭐", fbId: "2" },
+  { code: "SA", name: "Serie A", flag: "🇮🇹" },
+  { code: "PD", name: "La Liga", flag: "🇪🇸" },
+  { code: "PL", name: "Premier League", flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿" },
+  { code: "BL1", name: "Bundesliga", flag: "🇩🇪" },
+  { code: "FL1", name: "Ligue 1", flag: "🇫🇷" },
+  { code: "CL", name: "Champions League", flag: "⭐" },
 ];
 
 function poisson(k, lambda) {
@@ -19,7 +18,7 @@ function poisson(k, lambda) {
   return p;
 }
 
-function calcProbs(lH, lA, max = 7) {
+function calcProbs(lH, lA, max = 8) {
   let h = 0, d = 0, a = 0, o25 = 0, btts = 0;
   for (let i = 0; i <= max; i++) {
     for (let j = 0; j <= max; j++) {
@@ -35,7 +34,38 @@ function calcProbs(lH, lA, max = 7) {
   return { h, d, a, o25, u25: 1 - o25, btts, o05ht };
 }
 
-function getSignal(probs) {
+function calcRatings(matches) {
+  const teams = {};
+  const finished = matches.filter(m =>
+    m.status === "FINISHED" &&
+    m.score?.fullTime?.home !== null &&
+    m.score?.fullTime?.away !== null
+  );
+  if (finished.length === 0) return { teams, lgAvgHome: 1.35, lgAvgAway: 1.1 };
+  finished.forEach(m => {
+    const hId = m.homeTeam.id;
+    const aId = m.awayTeam.id;
+    const hG = m.score.fullTime.home;
+    const aG = m.score.fullTime.away;
+    if (!teams[hId]) teams[hId] = { name: m.homeTeam.name, crest: m.homeTeam.crest, hGF: 0, hGA: 0, hP: 0, aGF: 0, aGA: 0, aP: 0 };
+    if (!teams[aId]) teams[aId] = { name: m.awayTeam.name, crest: m.awayTeam.crest, hGF: 0, hGA: 0, hP: 0, aGF: 0, aGA: 0, aP: 0 };
+    teams[hId].hGF += hG; teams[hId].hGA += aG; teams[hId].hP++;
+    teams[aId].aGF += aG; teams[aId].aGA += hG; teams[aId].aP++;
+  });
+  const totHomeGoals = finished.reduce((s, m) => s + m.score.fullTime.home, 0);
+  const totAwayGoals = finished.reduce((s, m) => s + m.score.fullTime.away, 0);
+  const lgAvgHome = totHomeGoals / finished.length;
+  const lgAvgAway = totAwayGoals / finished.length;
+  Object.values(teams).forEach(t => {
+    t.attH = t.hP > 0 ? (t.hGF / t.hP) / lgAvgHome : 1;
+    t.defH = t.hP > 0 ? (t.hGA / t.hP) / lgAvgAway : 1;
+    t.attA = t.aP > 0 ? (t.aGF / t.aP) / lgAvgAway : 1;
+    t.defA = t.aP > 0 ? (t.aGA / t.aP) / lgAvgHome : 1;
+  });
+  return { teams, lgAvgHome, lgAvgAway };
+}
+
+function getSignals(probs) {
   const signals = [];
   if (probs.h > 0.55) signals.push({ label: "CASA VINCE", prob: probs.h, color: "#c8f135", strong: probs.h > 0.65 });
   if (probs.a > 0.50) signals.push({ label: "OSPITE VINCE", prob: probs.a, color: "#c8f135", strong: probs.a > 0.60 });
@@ -45,22 +75,6 @@ function getSignal(probs) {
   if (probs.u25 > 0.62) signals.push({ label: "UNDER 2.5", prob: probs.u25, color: "#ffd060", strong: probs.u25 > 0.72 });
   signals.sort((a, b) => b.prob - a.prob);
   return signals;
-}
-
-async function fetchFixturesForDate(leagueCode, date) {
-  const r = await fetch(`${API_FD}?endpoint=competitions/${leagueCode}/matches&dateFrom=${date}&dateTo=${date}`);
-  const d = await r.json();
-  return d.matches || [];
-}
-
-async function fetchStats(teamName, fbLeagueId) {
-  const r = await fetch(`${API_FB}?endpoint=teams&search=${encodeURIComponent(teamName)}`);
-  const d = await r.json();
-  const team = d.response?.[0];
-  if (!team) return null;
-  const s = await fetch(`${API_FB}?endpoint=teams/statistics&league=${fbLeagueId}&season=2024&team=${team.team.id}`);
-  const sd = await s.json();
-  return { team, stats: sd.response };
 }
 
 export default function Oggi() {
@@ -82,39 +96,43 @@ export default function Oggi() {
 
     for (const code of selectedLeagues) {
       const league = LEAGUES.find(l => l.code === code);
-      setProgress(`Carico ${league.flag} ${league.name}...`);
-      const fixtures = await fetchFixturesForDate(code, date);
+
+      // 1. Carica tutti i risultati stagione corrente per i rating
+      setProgress(`Carico statistiche ${league.flag} ${league.name}...`);
+      const rSeason = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&season=2025`);
+      const dSeason = await rSeason.json();
+      const { teams, lgAvgHome, lgAvgAway } = calcRatings(dSeason.matches || []);
+
+      // 2. Carica fixture di oggi
+      setProgress(`Cerco partite ${league.flag} ${league.name}...`);
+      const rToday = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&dateFrom=${date}&dateTo=${date}`);
+      const dToday = await rToday.json();
+      const fixtures = dToday.matches || [];
 
       for (const fix of fixtures) {
-        const homeName = fix.homeTeam.name;
-        const awayName = fix.awayTeam.name;
-        setProgress(`Analizzo ${homeName} vs ${awayName}...`);
+        const hId = fix.homeTeam.id;
+        const aId = fix.awayTeam.id;
+        const teamH = teams[hId];
+        const teamA = teams[aId];
 
-        const [resH, resA] = await Promise.all([
-          fetchStats(homeName, league.fbId),
-          fetchStats(awayName, league.fbId),
-        ]);
+        let lH = lgAvgHome;
+        let lA = lgAvgAway;
 
-        const statsH = resH?.stats;
-        const statsA = resA?.stats;
+        if (teamH && teamA) {
+          lH = teamH.attH * teamA.defA * lgAvgHome;
+          lA = teamA.attA * teamH.defH * lgAvgAway;
+        }
 
-        const gfH = parseFloat(statsH?.goals?.for?.average?.home || 1.2);
-        const gaH = parseFloat(statsH?.goals?.against?.average?.home || 1.1);
-        const gfA = parseFloat(statsA?.goals?.for?.average?.away || 1.0);
-        const gaA = parseFloat(statsA?.goals?.against?.average?.away || 1.2);
-        const lgAvg = 1.35;
-        const lH = (gfH / lgAvg) * (gaA / lgAvg) * lgAvg * 1.1;
-        const lA = (gfA / lgAvg) * (gaH / lgAvg) * lgAvg;
         const probs = calcProbs(lH, lA);
-        const signals = getSignal(probs);
+        const signals = getSignals(probs);
         const time = fix.utcDate ? new Date(fix.utcDate).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }) : "--:--";
 
         all.push({
           id: fix.id,
-          home: { name: homeName, crest: fix.homeTeam.crest },
-          away: { name: awayName, crest: fix.awayTeam.crest },
+          home: { name: fix.homeTeam.name, crest: fix.homeTeam.crest },
+          away: { name: fix.awayTeam.name, crest: fix.awayTeam.crest },
           time, league, probs, lH, lA, signals,
-          status: fix.status,
+          hasRatings: !!(teamH && teamA),
         });
       }
     }
@@ -143,12 +161,12 @@ export default function Oggi() {
           PRONO<span style={{ color: "#c8f135" }}>X</span>
           <span style={{ fontSize: 13, fontWeight: 400, color: "#6b7490" }}> · partite del giorno</span>
         </h1>
-       <div style={{ display: "flex", gap: 16, marginBottom: 4 }}>
-  <a href="/" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>← home</a>
-  <a href="/pronosticatore" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>⚽ analisi manuale</a>
-</div>
+        <div style={{ display: "flex", gap: 16, marginBottom: 20 }}>
+          <a href="/" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>← home</a>
+          <a href="/pronosticatore" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>⚽ analisi manuale</a>
+        </div>
 
-        <div style={{ background: "#161920", border: "1px solid #2a2f3f", borderRadius: 14, padding: 20, marginTop: 20, marginBottom: 16 }}>
+        <div style={{ background: "#161920", border: "1px solid #2a2f3f", borderRadius: 14, padding: 20, marginBottom: 16 }}>
           <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 14 }}>
             <div>
               <label style={lbl}>Data</label>
@@ -204,7 +222,10 @@ export default function Oggi() {
               <div style={{ fontSize: 11, color: "#6b7490", fontWeight: 700, letterSpacing: "0.08em" }}>
                 {m.league.flag} {m.league.name} · {m.time}
               </div>
-              <div style={{ fontSize: 11, color: "#6b7490" }}>λ {m.lH.toFixed(2)} — {m.lA.toFixed(2)}</div>
+              <div style={{ fontSize: 11, color: "#6b7490" }}>
+                λ {m.lH.toFixed(2)} — {m.lA.toFixed(2)}
+                {!m.hasRatings && <span style={{ color: "#f0794a", marginLeft: 6 }}>⚠ rating N/D</span>}
+              </div>
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
