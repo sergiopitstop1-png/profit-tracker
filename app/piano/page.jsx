@@ -392,17 +392,23 @@ export default function Piano() {
                       )}
 
                       {bet.status === "IN_CORSO" && (
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                          <button onClick={() => verifyBet(bet, "WIN")}
-                            style={{ padding: "10px", borderRadius: 8, border: "none", background: "rgba(200,241,53,0.2)", color: "#c8f135", fontWeight: 800, cursor: "pointer", fontSize: 13 }}>
-                            ✓ WIN
-                          </button>
-                          <button onClick={() => verifyBet(bet, "LOSS")}
-                            style={{ padding: "10px", borderRadius: 8, border: "none", background: "rgba(255,92,92,0.2)", color: "#ff5c5c", fontWeight: 800, cursor: "pointer", fontSize: 13 }}>
-                            ✗ LOSS
-                          </button>
-                        </div>
-                      )}
+  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+    <button onClick={() => autoVerifyBet(bet)} disabled={autoCheckingId === bet.id}
+      style={{ width: "100%", padding: "10px", borderRadius: 8, border: "1px solid rgba(74,240,196,0.4)", background: "rgba(74,240,196,0.1)", color: "#4af0c4", fontWeight: 800, cursor: "pointer", fontSize: 13 }}>
+      {autoCheckingId === bet.id ? "⏳ Verifico..." : "🔄 Verifica automatica"}
+    </button>
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <button onClick={() => verifyBet(bet, "WIN")}
+        style={{ padding: "10px", borderRadius: 8, border: "none", background: "rgba(200,241,53,0.2)", color: "#c8f135", fontWeight: 800, cursor: "pointer", fontSize: 13 }}>
+        ✓ WIN
+      </button>
+      <button onClick={() => verifyBet(bet, "LOSS")}
+        style={{ padding: "10px", borderRadius: 8, border: "none", background: "rgba(255,92,92,0.2)", color: "#ff5c5c", fontWeight: 800, cursor: "pointer", fontSize: 13 }}>
+        ✗ LOSS
+      </button>
+    </div>
+  </div>
+)}
                     </div>
                   ))
                 )}
