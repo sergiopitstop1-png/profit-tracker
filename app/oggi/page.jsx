@@ -227,6 +227,52 @@ async function fetchLeagueMatches(code) {
   return d.matches || [];
 }
 
+async function getSeasonData(code, supabaseClient) {
+  const today = new Date().toISOString().split("T")[0];
+  
+  // Prova a leggere dalla cache
+  try {
+    const { data: cached } = await supabaseClient
+      .from("pronox_cache")
+      .select("data, updated_at")
+      .eq("league_code", code)
+      .eq("season", "2025")
+      .single();
+    
+    if (cached) {
+      const cacheDate = cached.updated_at?.split("T")[0];
+      // Cache valida se aggiornata oggi
+      if (cacheDate === today) {
+        return cached.data;
+      }
+    }
+  } catch (e) {}
+  
+  // Fetch fresco con retry
+  let matches = [];
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const r = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&season=2025`);
+    const d = await r.json();
+    matches = d.matches || [];
+    if (matches.length > 0) break;
+    if (attempt < 3) await new Promise(r => setTimeout(r, 2000));
+  }
+  
+  // Salva in cache se abbiamo dati
+  if (matches.length > 0) {
+    try {
+      await supabaseClient.from("pronox_cache").upsert({
+        league_code: code,
+        season: "2025",
+        data: matches,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "league_code,season" });
+    } catch (e) {}
+  }
+  
+  return matches;
+}
+
 // ─── COMPONENTE ───────────────────────────────────────────────
 
 export default function Oggi() {
@@ -267,7 +313,7 @@ export default function Oggi() {
       const league = LEAGUES.find(l => l.code === code);
       if (!league) continue;
       setProgress(`Carico ${league.flag} ${league.name}...`);
-      const seasonMatches = await fetchLeagueMatches(code);
+      const seasonMatches = await getSeasonData(code, supabase);
       allMatches[code] = seasonMatches;
       const { teams, lgAvgHome, lgAvgAway } = calcRatings(seasonMatches, today);
       allRatings[code] = teams;
@@ -296,12 +342,14 @@ export default function Oggi() {
       setProgress(`Cerco partite ${league.flag} ${league.name}...`);
 
       let fixtures = [];
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const r = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&dateFrom=${date}&dateTo=${date}`);
-        const d = await r.json();
-        fixtures = d.matches || [];
-        if (fixtures.length > 0) break;
-        if (attempt < 2) await new Promise(r => setTimeout(r, 2000));
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          const r = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&dateFrom=${date}&dateTo=${date}`);
+          const d = await r.json();
+          fixtures = d.matches || [];
+          if (fixtures.length > 0) break;
+        } catch (e) {}
+        if (attempt < 3) await new Promise(r => setTimeout(r, 2500));
       }
 
       let lgAvgHome, lgAvgAway;
