@@ -264,11 +264,10 @@ export default function Oggi() {
     const allAvgs = {};
     const allMatches = {};
 
-    for (const code of leaguesToLoad) {
-      const league = LEAGUES.find(l => l.code === code);
-      if (!league) continue;
-      setProgress(`Carico ${league.flag} ${league.name}...`);
-      const seasonMatches = cachedSeasons[code] || await fetchLeagueMatches(code);
+    setProgress("Carico statistiche...");
+await Promise.all(leaguesToLoad.map(async (code) => {
+  const seasonMatches = cachedSeasons[code] || await fetchLeagueMatches(code);
+  if (!cachedSeasons[code]) setCachedSeasons(prev => ({ ...prev, [code]: seasonMatches }));
 if (!cachedSeasons[code]) setCachedSeasons(prev => ({ ...prev, [code]: seasonMatches }));
       allMatches[code] = seasonMatches;
       const { teams, lgAvgHome, lgAvgAway } = calcRatings(seasonMatches, today);
