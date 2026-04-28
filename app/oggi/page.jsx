@@ -233,6 +233,7 @@ export default function Oggi() {
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [selectedLeagues, setSelectedLeagues] = useState([]); // nessuna selezionata di default
   const [matches, setMatches] = useState([]);
+  const [cachedSeasons, setCachedSeasons] = useState({});
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState("");
   const [filter, setFilter] = useState("all");
@@ -267,7 +268,8 @@ export default function Oggi() {
       const league = LEAGUES.find(l => l.code === code);
       if (!league) continue;
       setProgress(`Carico ${league.flag} ${league.name}...`);
-      const seasonMatches = await fetchLeagueMatches(code);
+      const seasonMatches = cachedSeasons[code] || await fetchLeagueMatches(code);
+if (!cachedSeasons[code]) setCachedSeasons(prev => ({ ...prev, [code]: seasonMatches }));
       allMatches[code] = seasonMatches;
       const { teams, lgAvgHome, lgAvgAway } = calcRatings(seasonMatches, today);
       allRatings[code] = teams;
