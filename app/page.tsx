@@ -36,13 +36,13 @@ export default function SergioApicellaHomepage() {
               Chiedimi come
             </a>
             
-              href="/profit-tracker"
+              <a href="/profit-tracker"
               className="rounded-2xl border border-white/15 bg-white/5 px-6 py-4 text-center font-semibold text-white transition hover:bg-white/10"
             >
               Area Riservata
             </a>
             
-              href="/oggi"
+              <a href="/oggi"
               className="rounded-2xl border border-lime-400/40 bg-lime-500/10 px-6 py-4 text-center font-semibold text-lime-300 transition hover:bg-lime-500/20 hover:scale-[1.02]"
             >
               PronoX ↗
