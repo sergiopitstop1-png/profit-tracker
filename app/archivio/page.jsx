@@ -54,9 +54,22 @@ export default function Archivio() {
       else if (label === "BTTS SÌ") outcome = ftHome > 0 && ftAway > 0 ? "WIN" : "LOSS";
       else if (label === "TRADING O0.5 HT → U2.5 LIVE") outcome = (htHome + htAway) >= 1 && total <= 2 ? "WIN" : "LOSS";
 
-      await supabase.from("pronox_archive")
-        .update({ status: outcome, ft_home_goals: ftHome, ft_away_goals: ftAway, ht_home_goals: htHome, ht_away_goals: htAway, result_checked_at: new Date().toISOString() })
-        .eq("id", record.id);
+      const { error: updateError } = await supabase.from("pronox_archive")
+  .update({
+    status: outcome,
+    ft_home_goals: ftHome,
+    ft_away_goals: ftAway,
+    ht_home_goals: htHome,
+    ht_away_goals: htAway,
+    result_checked_at: new Date().toISOString()
+  })
+  .eq("id", record.id);
+
+if (updateError) {
+  alert("Errore aggiornamento Supabase: " + updateError.message);
+  setCheckingId(null);
+  return;
+}
 
       setRecords(prev => prev.map(r => r.id === record.id ? { ...r, status: outcome, ft_home_goals: ftHome, ft_away_goals: ftAway, ht_home_goals: htHome, ht_away_goals: htAway } : r));
     } catch (e) { console.error(e); }
