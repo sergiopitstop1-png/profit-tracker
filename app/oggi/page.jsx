@@ -122,9 +122,14 @@ export default function Oggi() {
       const { teams, lgAvgHome, lgAvgAway } = calcRatings(dSeason.matches || []);
 
       setProgress(`Cerco partite ${league.flag} ${league.name}...`);
-      const rToday = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&dateFrom=${date}&dateTo=${date}`);
-      const dToday = await rToday.json();
-      const fixtures = dToday.matches || [];
+      let fixtures = [];
+for (let attempt = 0; attempt < 3; attempt++) {
+  const rToday = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&dateFrom=${date}&dateTo=${date}`);
+  const dToday = await rToday.json();
+  fixtures = dToday.matches || [];
+  if (fixtures.length > 0 || dToday.error) break;
+  if (attempt < 2) await new Promise(r => setTimeout(r, 2000));
+}
 
       for (const fix of fixtures) {
         const hId = fix.homeTeam.id;
