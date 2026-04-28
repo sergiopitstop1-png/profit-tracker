@@ -10,7 +10,7 @@ export default function SergioApicellaHomepage() {
           <nav className="hidden gap-6 text-sm text-white/75 md:flex">
             <a href="#home" className="transition hover:text-orange-300">Home</a>
             <a href="#reserved" className="transition hover:text-orange-300">Area Riservata</a>
-            <a href="/oggi" className="transition hover:text-orange-300">PronoX</a>
+            <a href="/oggi" className="transition hover:text-lime-300">PronoX</a>
             <a href="#coming-soon" className="transition hover:text-orange-300">Servizi</a>
             <a href="#coming-soon" className="transition hover:text-orange-300">Chi Sono</a>
           </nav>
@@ -29,23 +29,14 @@ export default function SergioApicellaHomepage() {
             Niente fumo. Niente frasi da guru. Solo strategia, organizzazione e strumenti pratici per costruire un sistema che lavori davvero.
           </p>
           <div className="flex flex-col gap-4 sm:flex-row">
-            
-              href="mailto:sergio.apicella.lavoro@gmail.com?subject=Richiesta%20informazioni%20da%20sergioapicella.it"
-              className="rounded-2xl bg-orange-500 px-6 py-4 text-center font-semibold text-white shadow-lg shadow-orange-950/40 transition hover:scale-[1.02] hover:bg-orange-400"
-            >
+            <a href="mailto:sergio.apicella.lavoro@gmail.com?subject=Richiesta%20informazioni%20da%20sergioapicella.it" className="rounded-2xl bg-orange-500 px-6 py-4 text-center font-semibold text-white shadow-lg shadow-orange-950/40 transition hover:scale-[1.02] hover:bg-orange-400">
               Chiedimi come
             </a>
-            
-              <a href="/profit-tracker"
-              className="rounded-2xl border border-white/15 bg-white/5 px-6 py-4 text-center font-semibold text-white transition hover:bg-white/10"
-            >
+            <a href="/profit-tracker" className="rounded-2xl border border-white/15 bg-white/5 px-6 py-4 text-center font-semibold text-white transition hover:bg-white/10">
               Area Riservata
             </a>
-            
-              <a href="/oggi"
-              className="rounded-2xl border border-lime-400/40 bg-lime-500/10 px-6 py-4 text-center font-semibold text-lime-300 transition hover:bg-lime-500/20 hover:scale-[1.02]"
-            >
-              PronoX ↗
+            <a href="/oggi" className="rounded-2xl border border-lime-400/40 bg-lime-500/10 px-6 py-4 text-center font-semibold text-lime-300 transition hover:bg-lime-500/20">
+              PronoX
             </a>
           </div>
           <p className="text-sm text-white/45">
@@ -75,12 +66,10 @@ export default function SergioApicellaHomepage() {
               </div>
             </div>
             <div className="rounded-2xl border border-lime-400/20 bg-lime-500/10 p-5">
-              <p className="text-sm uppercase tracking-[0.2em] text-lime-300 mb-2">Nuovo</p>
-              <p className="text-lg font-semibold text-white">PronoX · Pronosticatore Sportivo</p>
-              <p className="text-sm text-white/60 mt-1">Analisi Poisson automatica · dati reali · EV calcolato</p>
-              <a href="/oggi" className="mt-3 inline-block text-sm font-semibold text-lime-300 hover:text-lime-200">
-                Apri PronoX →
-              </a>
+              <p className="text-sm uppercase tracking-[0.2em] text-lime-300">Nuovo</p>
+              <p className="mt-2 text-lg font-semibold">PronoX · Pronosticatore Sportivo</p>
+              <p className="mt-1 text-sm text-white/60">Analisi Poisson · dati reali · EV calcolato</p>
+              <a href="/oggi" className="mt-3 inline-block text-sm font-semibold text-lime-300 hover:text-lime-200">Apri PronoX →</a>
             </div>
           </div>
         </div>
@@ -108,10 +97,7 @@ export default function SergioApicellaHomepage() {
           <p className="mt-4 max-w-2xl text-white/70">
             Accesso al sistema operativo dedicato. Ambiente riservato, protetto e pensato per lavorare davvero.
           </p>
-          
-            href="/profit-tracker"
-            className="mt-6 inline-block rounded-2xl bg-white px-6 py-4 font-semibold text-black transition hover:scale-[1.02]"
-          >
+          <a href="/profit-tracker" className="mt-6 inline-block rounded-2xl bg-white px-6 py-4 font-semibold text-black transition hover:scale-[1.02]">
             Entra ora
           </a>
         </div>
