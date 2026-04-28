@@ -10,11 +10,18 @@ const supabase = createClient(
 
 const LEAGUES = [
   { code: "SA", name: "Serie A", flag: "🇮🇹" },
-  { code: "PD", name: "La Liga", flag: "🇪🇸" },
   { code: "PL", name: "Premier League", flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿" },
   { code: "BL1", name: "Bundesliga", flag: "🇩🇪" },
+  { code: "PD", name: "La Liga", flag: "🇪🇸" },
   { code: "FL1", name: "Ligue 1", flag: "🇫🇷" },
   { code: "CL", name: "Champions League", flag: "⭐" },
+  { code: "ELC", name: "Championship", flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿" },
+  { code: "DED", name: "Eredivisie", flag: "🇳🇱" },
+  { code: "PPL", name: "Primeira Liga", flag: "🇵🇹" },
+  { code: "BSA", name: "Serie B Brasile", flag: "🇧🇷" },
+  { code: "CLI", name: "Copa Libertadores", flag: "🌎" },
+  { code: "EC", name: "European Championship", flag: "🇪🇺" },
+  { code: "WC", name: "FIFA World Cup", flag: "🌍" },
 ];
 
 function poisson(k, lambda) {
