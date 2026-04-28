@@ -95,7 +95,7 @@ async function fetchOdds(fixtureId) {
 
 export default function Oggi() {
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
-  const [season] = useState("2024");
+  const [season] = useState("2025");
   const [selectedLeagues, setSelectedLeagues] = useState(["135", "2"]);
   const [matches, setMatches] = useState([]);
   const [loading, setLoading] = useState(false);
