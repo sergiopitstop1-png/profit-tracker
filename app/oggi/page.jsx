@@ -493,6 +493,14 @@ export default function Oggi() {
           PRONO<span style={{ color: "#c8f135" }}>X</span>
           <span style={{ fontSize: 13, fontWeight: 400, color: "#6b7490" }}> · partite del giorno</span>
         </h1>
+        <div style={{
+  fontSize: 11,
+  color: "#6b7490",
+  marginBottom: 12,
+  letterSpacing: "0.08em"
+}}>
+  © Sergio Apicella · PronoX 2026
+</div>
         <div style={{ display: "flex", gap: 16, marginBottom: 20 }}>
           <a href="/" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>← home</a>
           <a href="/pronosticatore" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>⚽ analisi manuale</a>
