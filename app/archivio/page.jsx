@@ -75,7 +75,13 @@ if (updateError) {
     } catch (e) { console.error(e); }
     setCheckingId(null);
   };
-
+const manualVerify = async (id, outcome) => {
+  await supabase.from("pronox_archive").update({ 
+    status: outcome,
+    result_checked_at: new Date().toISOString()
+  }).eq("id", id);
+  setRecords(prev => prev.map(r => r.id === id ? { ...r, status: outcome } : r));
+};
   const deleteRecord = async (id) => {
     if (!confirm("Eliminare questo pronostico?")) return;
     await supabase.from("pronox_archive").delete().eq("id", id);
