@@ -225,11 +225,23 @@ if (updateError) {
 
                 {/* Bottone verifica */}
                 {r.status === "PENDING" && (
-                  <button onClick={() => verifyResult(r)} disabled={checkingId === r.id}
-                    style={{ width: "100%", padding: "10px", borderRadius: 8, border: "1px solid rgba(255,208,96,0.3)", background: "rgba(255,208,96,0.08)", color: "#ffd060", cursor: "pointer", fontWeight: 700, fontSize: 13 }}>
-                    {checkingId === r.id ? "⏳ Verifica in corso..." : "⏳ Verifica risultato"}
-                  </button>
-                )}
+  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+    <button onClick={() => verifyResult(r)} disabled={checkingId === r.id}
+      style={{ width: "100%", padding: "10px", borderRadius: 8, border: "1px solid rgba(255,208,96,0.3)", background: "rgba(255,208,96,0.08)", color: "#ffd060", cursor: "pointer", fontWeight: 700, fontSize: 13 }}>
+      {checkingId === r.id ? "⏳ Verifica in corso..." : "⏳ Verifica automatica"}
+    </button>
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+      <button onClick={() => manualVerify(r.id, "WIN")}
+        style={{ padding: "10px", borderRadius: 8, border: "none", background: "rgba(200,241,53,0.2)", color: "#c8f135", fontWeight: 800, cursor: "pointer", fontSize: 13 }}>
+        ✓ WIN
+      </button>
+      <button onClick={() => manualVerify(r.id, "LOSS")}
+        style={{ padding: "10px", borderRadius: 8, border: "none", background: "rgba(255,92,92,0.2)", color: "#ff5c5c", fontWeight: 800, cursor: "pointer", fontSize: 13 }}>
+        ✗ LOSS
+      </button>
+    </div>
+  </div>
+)}
               </div>
             );
           })
