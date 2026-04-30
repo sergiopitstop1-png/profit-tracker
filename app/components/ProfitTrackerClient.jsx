@@ -255,16 +255,22 @@ const externalWithdrawals = totaleEsterni
     }
   }
 const weeklyChartData = useMemo(() => {
-  return weeklySnapshots.map(item => ({
-    name: new Date(item.snapshot_date).toLocaleDateString('it-IT', {
-      day: '2-digit',
-      month: '2-digit'
-    }),
-    profit: Number(item.profit || 0),
-    totalCash: Number(item.total_cash || 0)
-  }))
+  return weeklySnapshots.map((item, index) => {
+    const prev = weeklySnapshots[index - 1]
+    const profitPeriodo = prev
+      ? Number(item.profit || 0) - Number(prev.profit || 0)
+      : Number(item.profit || 0)
+    return {
+      name: new Date(item.snapshot_date).toLocaleDateString('it-IT', {
+        day: '2-digit',
+        month: '2-digit'
+      }),
+      profit: Number(item.profit || 0),
+      profitPeriodo: profitPeriodo,
+      totalCash: Number(item.total_cash || 0)
+    }
+  })
 }, [weeklySnapshots])
-
 const weeklyProfitColor =
   weeklyChartData.length > 0 &&
   weeklyChartData[weeklyChartData.length - 1].profit < 0
@@ -2166,6 +2172,14 @@ onChange={(e) => {
   strokeWidth={3}
   dot={{ r: 4 }}
 />
+   <Line
+  type="monotone"
+  dataKey="profitPeriodo"
+  stroke="#f59e0b"
+  strokeWidth={3}
+  dot={{ r: 4 }}
+  name="Profitto periodo"
+/>     
       </LineChart>
     </ResponsiveContainer>
   </div>
