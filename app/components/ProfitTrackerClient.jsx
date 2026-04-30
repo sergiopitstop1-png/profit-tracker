@@ -225,9 +225,8 @@ if (memoFreeBoxesRes.error) errors.push('memo_free_boxes'); else setMemoFreeBoxe
   books.reduce((sum, b) => sum + Number(b.saldo || 0), 0) +
   wallets.reduce((sum, w) => sum + Number(w.saldo || 0), 0)
 
-      const externalWithdrawals = transactions
-        .filter(t => t.azione === 'wallet_to_external')
-        .reduce((sum, t) => sum + Number(t.importo || 0), 0)
+      // DOPO
+const externalWithdrawals = totaleEsterni
 
       const baseCashMonth = BASE_CASSA_MESE
       const profit = totalCash + externalWithdrawals - baseCashMonth
