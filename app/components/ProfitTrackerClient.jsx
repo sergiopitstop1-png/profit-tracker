@@ -159,9 +159,9 @@ const CLASSI_BOOK = {
   C: ['admiral','codere']
 }
 const MANUTENZIONE = {
-  A: { label: 'Serie A', azioni_settimana: ['1 bet sportiva (qualsiasi importo)', 'Sessione slot 5-10€ (spin bassi)'], azioni_bimestre: ['Ricarica conto'], frequenza: 'settimanale' },
-  B: { label: 'Serie B', azioni_mese: ['2-3 bet sportive nel mese', 'Sessione slot 5-10€'], frequenza: 'mensile' },
-  C: { label: 'Serie C', azioni_mese: ['1 bet da 5-10€ (solo presenza)'], frequenza: 'mensile' }
+  A: { label: 'Serie A', frequenza: 'Bet ogni 2 sett · Ricarica+Slot ogni mese', azioni: ['1 bet sportiva ogni 2 settimane (giorno random)', 'Ricarica conto + sessione slot 5-10€ ogni mese (stesso giorno)'] },
+  B: { label: 'Serie B', frequenza: 'Bet ogni mese · Ricarica+Slot ogni 45gg', azioni: ['1 bet sportiva al mese (giorno random)', 'Ricarica conto + sessione slot 5-10€ ogni 45 giorni (stesso giorno)'] },
+  C: { label: 'Serie C', frequenza: 'Bet ogni 45gg · Ricarica+Slot ogni 3 mesi', azioni: ['1 bet da 5-10€ ogni 45 giorni (giorno random)', 'Ricarica conto + sessione slot 5-10€ ogni 3 mesi (stesso giorno)'] }
 }
 function getClasseBook(nomeBook) {
   const nome = (nomeBook || '').toLowerCase().replace(/\.it$/, '').trim()
@@ -358,43 +358,80 @@ function getAzioniOggi(book) {
     const classeEffettiva = livello === 'mantenimento-a' ? 'A' : livello === 'mantenimento-b' ? 'B' : livello === 'mantenimento-c' ? 'C' : classe
 
     if (classeEffettiva === 'A') {
-      // Serie A: 2 volte a settimana — giorni randomizzati ma stabili per settimana
-      const seed1 = hashBook(book.id, settimana * 2)
-      const seed2 = hashBook(book.id, settimana * 2 + 1)
-      const giorno1 = seed1 % 7
-      let giorno2 = seed2 % 7
-      if (giorno2 === giorno1) giorno2 = (giorno2 + 1) % 7
-      if (giorno !== giorno1 && giorno !== giorno2) return null
-      const isSlot = giorno === giorno2
-      return {
-        tipo: 'manutenzione-a',
-        azioni: isSlot ? ['Sessione slot 5-10€ (spin bassi)'] : ['1 bet sportiva (qualsiasi importo)'],
-        badge: '🟡 Mant. A'
-      }
+      // Serie A: bet ogni 2 sett (giorno random) + ricarica+slot ogni mese (stesso giorno)
+      const oggi2 = new Date()
+      const giornoDelMese = oggi2.getDate()
+      const meseCorrente = oggi2.getMonth() + oggi2.getFullYear() * 12
+
+      // Bet: ogni 2 settimane — giorno random per ciclo di 2 sett
+      const ciclo2sett = Math.floor(settimana / 2)
+      const giornoBet = hashBook(book.id, ciclo2sett * 31 + 7) % 7
+      // Slot+ricarica: una volta al mese — giorno random stabile per mese
+      const giornoSlot = hashBook(book.id, meseCorrente * 17 + 3) % 7
+      // Calcola se oggi è il giorno slot del mese (primo match del mese)
+      const primoGiornoSlotMese = new Date(oggi2.getFullYear(), oggi2.getMonth(), 1)
+      let dataSlot = new Date(primoGiornoSlotMese)
+      while (dataSlot.getDay() !== giornoSlot) dataSlot.setDate(dataSlot.getDate() + 1)
+      const isSlotDay = dataSlot.getDate() === giornoDelMese && dataSlot.getMonth() === oggi2.getMonth()
+
+      if (isSlotDay) return { tipo: 'manutenzione-a', azioni: ['Ricarica conto', 'Sessione slot 5-10€ (spin bassi)'], badge: '🟡 Mant. A' }
+      if (giorno === giornoBet && !isSlotDay) return { tipo: 'manutenzione-a', azioni: ['1 bet sportiva (qualsiasi importo)'], badge: '🟡 Mant. A' }
+      return null
     }
 
     if (classeEffettiva === 'B') {
-      // Serie B: 1 volta a settimana — giorno random che cambia ogni settimana
-      const giornoAssegnato = getGiornoAssegnato(book, 1)
-      if (giorno !== giornoAssegnato) return null
-      // Tipo azione alterna ogni settimana: pari=bet, dispari=slot
-      const azione = settimana % 2 === 0 ? '1 bet sportiva piccola' : 'Sessione slot 5-10€'
-      return {
-        tipo: 'manutenzione-b',
-        azioni: [azione],
-        badge: '🟡 Mant. B'
-      }
+      // Serie B: bet ogni mese + ricarica+slot ogni 45gg
+      const oggi2 = new Date()
+      const giornoDelMese = oggi2.getDate()
+      const meseCorrente = oggi2.getMonth() + oggi2.getFullYear() * 12
+      const ciclo45 = Math.floor((oggi2 - new Date(oggi2.getFullYear(), 0, 1)) / (1000 * 60 * 60 * 24 * 45))
+
+      // Bet: 1 volta al mese
+      const giornoBet = hashBook(book.id, meseCorrente * 13 + 5) % 7
+      const primoGiornoBet = new Date(oggi2.getFullYear(), oggi2.getMonth(), 1)
+      let dataBet = new Date(primoGiornoBet)
+      while (dataBet.getDay() !== giornoBet) dataBet.setDate(dataBet.getDate() + 1)
+      const isBetDay = dataBet.getDate() === giornoDelMese && dataBet.getMonth() === oggi2.getMonth()
+
+      // Slot+ricarica: ogni 45gg
+      const giornoSlot45 = hashBook(book.id, ciclo45 * 19 + 11) % 7
+      const inizioCiclo45 = new Date(oggi2.getFullYear(), 0, 1)
+      inizioCiclo45.setDate(inizioCiclo45.getDate() + ciclo45 * 45)
+      let dataSlot45 = new Date(inizioCiclo45)
+      while (dataSlot45.getDay() !== giornoSlot45) dataSlot45.setDate(dataSlot45.getDate() + 1)
+      const isSlotDay = dataSlot45.toDateString() === oggi2.toDateString()
+
+      if (isSlotDay) return { tipo: 'manutenzione-b', azioni: ['Ricarica conto', 'Sessione slot 5-10€'], badge: '🟡 Mant. B' }
+      if (isBetDay && !isSlotDay) return { tipo: 'manutenzione-b', azioni: ['1 bet sportiva piccola'], badge: '🟡 Mant. B' }
+      return null
     }
 
     if (classeEffettiva === 'C') {
-      // Serie C: 1 volta ogni 2 settimane — giorno random
-      const giornoAssegnato = getGiornoAssegnato(book, 2)
-      if (giorno !== giornoAssegnato) return null
-      return {
-        tipo: 'manutenzione-c',
-        azioni: ['1 bet da 5-10€ (solo presenza)'],
-        badge: '🟡 Mant. C'
-      }
+      // Serie C: bet ogni 45gg + ricarica+slot ogni 3 mesi
+      const oggi2 = new Date()
+      const giornoDelMese = oggi2.getDate()
+      const meseCorrente = oggi2.getMonth() + oggi2.getFullYear() * 12
+      const ciclo45 = Math.floor((oggi2 - new Date(oggi2.getFullYear(), 0, 1)) / (1000 * 60 * 60 * 24 * 45))
+      const ciclo3mesi = Math.floor(oggi2.getMonth() / 3) + oggi2.getFullYear() * 4
+
+      // Bet: ogni 45gg
+      const giornoBet45 = hashBook(book.id, ciclo45 * 23 + 17) % 7
+      const inizioCiclo = new Date(oggi2.getFullYear(), 0, 1)
+      inizioCiclo.setDate(inizioCiclo.getDate() + ciclo45 * 45)
+      let dataBet = new Date(inizioCiclo)
+      while (dataBet.getDay() !== giornoBet45) dataBet.setDate(dataBet.getDate() + 1)
+      const isBetDay = dataBet.toDateString() === oggi2.toDateString()
+
+      // Slot+ricarica: ogni 3 mesi
+      const giornoSlot3m = hashBook(book.id, ciclo3mesi * 29 + 7) % 7
+      const inizioTrimestre = new Date(oggi2.getFullYear(), Math.floor(oggi2.getMonth() / 3) * 3, 1)
+      let dataSlot = new Date(inizioTrimestre)
+      while (dataSlot.getDay() !== giornoSlot3m) dataSlot.setDate(dataSlot.getDate() + 1)
+      const isSlotDay = dataSlot.getDate() === giornoDelMese && dataSlot.getMonth() === oggi2.getMonth()
+
+      if (isSlotDay) return { tipo: 'manutenzione-c', azioni: ['Ricarica conto', 'Sessione slot 5-10€'], badge: '🟡 Mant. C' }
+      if (isBetDay && !isSlotDay) return { tipo: 'manutenzione-c', azioni: ['1 bet da 5-10€ (solo presenza)'], badge: '🟡 Mant. C' }
+      return null
     }
   }
   return null
