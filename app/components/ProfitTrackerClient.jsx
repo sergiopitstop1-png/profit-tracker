@@ -376,6 +376,7 @@ function getAzioniOggi(book) {
     if (classeEffettiva === 'B') {
       // Serie B: 1 volta a settimana — giorno random che cambia ogni settimana
       const giornoAssegnato = getGiornoAssegnato(book, 1)
+      if (book.id <= 5) console.log(`[DEBUG] Book ${book.id} ${book.nome}: giornoAssegnato=${giornoAssegnato} oggi=${giorno} settimana=${settimana}`)
       if (giorno !== giornoAssegnato) return null
       // Tipo azione alterna ogni settimana: pari=bet, dispari=slot
       const azione = settimana % 2 === 0 ? '1 bet sportiva piccola' : 'Sessione slot 5-10€'
