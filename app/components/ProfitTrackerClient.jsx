@@ -78,6 +78,8 @@ const [listBuffer, setListBuffer] = useState('')
 const [profilazioneFilter, setProfilazioneFilter] = useState({ intestatario: '', book: '', livello: '' })
 const [profilazioneSearch, setProfilazioneSearch] = useState('')
 const [savingProfilo, setSavingProfilo] = useState({})
+const [showAgendaPopup, setShowAgendaPopup] = useState(false)
+const [agendaVista, setAgendaVista] = useState(false)
   useEffect(() => {
   initSession()
   loadData()
@@ -151,28 +153,69 @@ useEffect(() => {
   return () => clearInterval(interval)
 }, [sessionToken])
 
+const CLASSI_BOOK = {
+  A: ['bet365','snai','sisal','lottomatica','goldbet','planetwin365','eurobet','pokerstars'],
+  B: ['netbet','bwin','betsson','william hill','stanleybet','gioco digitale','starcasino','betflag','sportium','eplay24','e-play24','betpoint','staryes','vincitu','tombola','betway','unibet','marathonbet','betclic','intralot','matchpoint','domusbet','zonebet','betpassion','zonagioco'],
+  C: ['admiral','codere']
+}
+const MANUTENZIONE = {
+  A: { label: 'Serie A', azioni_settimana: ['1 bet sportiva (qualsiasi importo)', 'Sessione slot 5-10€ (spin bassi)'], azioni_bimestre: ['Ricarica conto'], frequenza: 'settimanale' },
+  B: { label: 'Serie B', azioni_mese: ['2-3 bet sportive nel mese', 'Sessione slot 5-10€'], frequenza: 'mensile' },
+  C: { label: 'Serie C', azioni_mese: ['1 bet da 5-10€ (solo presenza)'], frequenza: 'mensile' }
+}
+function getClasseBook(nomeBook) {
+  const nome = (nomeBook || '').toLowerCase().replace(/\.it$/, '').trim()
+  for (const [classe, lista] of Object.entries(CLASSI_BOOK)) {
+    if (lista.some(k => nome.includes(k))) return classe
+  }
+  return 'C'
+}
+const AGENDA_ATTIVO = {
+  1: { label: 'Lunedì', azioni: ['Ricarica settimanale (se prevista dal protocollo)', 'Avvia sessione slot di apertura settimana'] },
+  2: { label: 'Martedì', azioni: ['Volume slot principale della settimana', 'Spin bassi, alto RTP'] },
+  3: { label: 'Mercoledì', azioni: ['Live numeri / bet sportiva', 'Controlla testa a testa e classifiche se fai multipla'] },
+  4: { label: 'Giovedì', azioni: ['Azioni speciali: incastro, posizione perdente (se prevista dal protocollo)', 'Tutte le VXT disponibili'] },
+  5: { label: 'Venerdì', azioni: ['Attiva promo / cashback disponibili', 'Fai la promo poco prima della scadenza', 'Rigioca bonus ricevuti'] },
+  6: { label: 'Sabato', azioni: ['Prelievo strategico se il saldo è alto', 'Lascia meno di 50€ se previsto dal protocollo'] },
+  0: { label: 'Domenica', azioni: ['Verifica saldi di tutti gli account attivi', 'Aggiorna il tracker'] }
+}
+const AGENDA_MANUTENZIONE_A = {
+  1: { label: 'Lunedì', azioni: ['Sessione slot 5-10€ (spin bassi)'] },
+  3: { label: 'Mercoledì', azioni: ['1 bet sportiva anche piccola'] },
+  0: { label: 'Domenica', azioni: [] }
+}
+const AGENDA_MANUTENZIONE_B = {
+  1: { label: 'Lunedì', azioni: ['1 bet sportiva (solo settimane 1 e 3 del mese)', 'Sessione slot 5-10€ (solo settimana 2 del mese)'] },
+  0: { label: 'Domenica', azioni: [] }
+}
+const AGENDA_MANUTENZIONE_C = {
+  1: { label: 'Lunedì', azioni: ['1 bet da 5-10€ (solo prima settimana del mese)'] },
+  0: { label: 'Domenica', azioni: [] }
+}
 const PROTOCOLLI = {
-  'sisal': { durata: '2 mesi', capitale_min: 200, azioni: ['Ricarica 200€ a settimane alterne ad inizio settimana', 'Volume slot 800–1000/sett (mine o alto RTP)', 'Posizione perdente 500€ una volta al mese', 'Live numeri 300–500€ a settimane alterne', 'Tutte le VXT', 'Dosa il conto: quando ricevi promo usala e porta a casa'] },
-  'pokerstars': { durata: '2 mesi', capitale_min: 200, azioni: ['Ricarica 200€ a settimane alterne ad inizio settimana', 'Volume slot 800–1000/sett (mine o alto RTP)', 'Posizione perdente 500€ una volta al mese', 'Live numeri 300–500€ a settimane alterne', 'Tutte le VXT'] },
-  'netbet': { durata: '1 mese', capitale_min: 200, azioni: ['Ricarica 200€ ad inizio settimana', 'Volume slot 250–300/sett', '2-3 bet extra mese da almeno 20€', 'Tutte le VXT', 'Numeri 100–200€ a settimane alterne con 4 amici', 'Preleva e lascia meno di 50€ almeno 1 volta/mese'] },
-  'betflag': { durata: '1 ciclo', capitale_min: 2000, azioni: ['Volume 3–4k alla Take o giochi simili in un giorno', 'Ricarica almeno 2000€', 'Giorno dopo preleva e lascia conto FERMO con poco saldo per almeno 2 mesi'] },
+  'sisal': { durata: '2 mesi', capitale_min: 200, azioni: ['Ricarica 200€ a settimane alterne ad inizio settimana', 'Volume slot 800–1000/sett (mine o alto RTP)', 'Posizione perdente 500€ una volta al mese', 'Live numeri 300–500€ a settimane alterne', 'Tutte le VXT', 'Dosa il conto: quando ricevi promo usala e porta a casa', 'Quando il conto è fermo arrivano maggiori promo'] },
+  'pokerstars': { durata: '2 mesi', capitale_min: 200, azioni: ['Ricarica 200€ a settimane alterne ad inizio settimana', 'Volume slot 800–1000/sett (mine o alto RTP)', 'Posizione perdente 500€ una volta al mese', 'Live numeri 300–500€ a settimane alterne', 'Tutte le VXT', 'Dosa il conto in base alla ricezione promo'] },
+  'netbet': { durata: '1 mese', capitale_min: 200, azioni: ['Ricarica 200€ ad inizio settimana', 'Volume slot 250–300/sett', '2-3 bet extra mese da almeno 20€', 'Tutte le VXT', 'Numeri 100–200€ a settimane alterne con almeno 4 amici', 'Preleva e lascia meno di 50€ almeno 1 volta/mese'] },
+  'betflag': { durata: '1 ciclo', capitale_min: 2000, azioni: ['La promo arriva nei conti NON limitati alla 100% rimborso', 'Volume 3–4k alla Take o giochi simili concentrati in un giorno', 'Ricarica almeno 2000€', 'Giorno dopo preleva e lascia conto FERMO con poco saldo per almeno 2 mesi'] },
   'sportbet': { durata: '1 mese', capitale_min: 200, azioni: ['Ricarica 200€ ad inizio settimana', 'Volume slot 500/sett alto RTP spin basso', '2-3 bet extra mese da almeno 20€', 'Tutte le VXT', 'Giochi live NON copribili 200€', 'Preleva e lascia meno di 50€ almeno 1 volta/mese'] },
   'totosi': { durata: '1 mese', capitale_min: 200, azioni: ['Ricarica almeno 200€', 'Volume slot 150–250/MESE', '2-3 bet extra mese da almeno 20€', 'Tutte le VXT', 'Preleva e lascia meno di 50€ una volta terminato'] },
-  'betsson': { durata: 'continuativo', capitale_min: 200, azioni: ['Tutte le cashback segnalate (bj: 2-3/sett)', 'Usa Sport Expert se possibile', '200–300€ ogni 14gg sui numeri', 'Dosa volumi in base a ricezione riservate', 'Ricarica almeno 200€', 'Volume slot 150–250/MESE', '2-3 bet extra mese da almeno 20€', 'Tutte le VXT', 'Preleva e lascia meno di 50€'] },
-  'william hill': { durata: 'continuativo', capitale_min: 0, azioni: ['2 promo per tutti dal lunedì al venerdì', 'Solo con sblocco saldo arrivano le promo', 'Se ricevi promo: max 2-3/settimana'] },
+  'betsson': { durata: 'continuativo', capitale_min: 200, azioni: ['Tutte le cashback segnalate (bj: 2-3/sett)', 'Usa Sport Expert se possibile', '200–300€ ogni 14gg sui numeri', 'Dosa volumi in base a ricezione riservate', 'Ricarica almeno 200€', 'Volume slot 150–250/MESE', '2-3 bet extra mese da almeno 20€', 'Tutte le VXT', 'Preleva e lascia meno di 50€', 'Appena ricevi riservate dosa i volumi'] },
+  'william hill': { durata: 'continuativo', capitale_min: 0, azioni: ['2 promo per tutti dal lunedì al venerdì', 'Solo con sblocco saldo arrivano le promo Ricarica/Fun e ruote', 'Se inizi a ricevere promo: max 2-3/settimana'] },
   'admiral': { durata: 'continuativo', capitale_min: 500, azioni: ['Ricarica almeno 500€', '2 consecutive bet numeri da almeno 300€', 'Dove vinci fai volume slot da almeno 300€', 'Preleva e lascia conto con poco saldo'] },
-  'gioco digitale': { durata: 'continuativo', capitale_min: 200, azioni: ['Ricarica 200€ ad inizio settimana', 'Slot 100–200€', 'Casinò live a settimane alterne 100–200€ sui numeri', 'Max 3-4 promo ricarica al giorno (bug attivo)', 'Preleva e lascia con poco saldo ogni 14gg'] },
+  'gioco digitale': { durata: 'continuativo', capitale_min: 200, azioni: ['Ricarica 200€ ad inizio settimana', 'Slot 100–200€', 'Casinò live a settimane alterne 100–200€ sui numeri', 'Bug attivo: max 3-4 promo ricarica al giorno o promo Free Spin', 'Preleva e lascia con poco saldo ogni 14gg'] },
   'bwin': { durata: 'continuativo', capitale_min: 500, azioni: ['Ricarica 500€ ad inizio mese', 'Slot 100–200€', 'Casinò live a settimane alterne 100–200€ sui numeri', '2-3 bet sport fino a 50€/mese', 'Preleva e lascia con poco saldo ogni 14gg'] },
-  'stanleybet': { durata: 'continuativo', capitale_min: 200, azioni: ['Ricarica 200€ ad inizio settimana', 'Volume slot 200–500€ ad inizio settimana', 'Sport 100–200€/sett se vuoi', 'Virtuali 150–200€ ogni 14gg per promo', 'Ricarica 200€ ad inizio settimana'] },
-  'lottomatica': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Se VIP e serve scossa: perdi 2-2.5k in una giornata', 'Prova sempre codici ricarica', 'Chiedi promozioni direttamente al book'] },
-  'goldbet': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Prova sempre codici ricarica', 'Chiedi promozioni direttamente al book'] },
-  'planetwin365': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Prova sempre codici ricarica'] },
-  'eurobet': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Prova sempre codici ricarica'] },
-  'snai': { durata: 'continuativo', capitale_min: 300, azioni: ['Prepara il sito prima della promo', 'Mini sessioni slot 30-40€ a spin bassi', 'Gioca 1k sui numeri', 'Incastro 500€ per step 3 (30%)', '2-3 mini sessioni slot a spin bassi', 'Fai la promo poco prima della scadenza', 'Sblocca saldo incastrato dopo mezzanotte', 'Rigioca il prima possibile il bonus', 'Slot: Savage Jungle / Wild Lava / Solar'] },
-  'bet365': { durata: 'continuativo', capitale_min: 800, azioni: ['Multipla in doppia da 800€ programma fedeltà', 'Quote max 1.70', 'Quote in discesa', 'Controlla testa a testa squadre', 'Controlla classifiche e ultime 5 partite'] },
-  'codere': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Attenzione: può richiedere documentazione aggiuntiva'] },
-  'starcasino': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale'] },
-  'default': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Ricarica periodica per mantenere conto attivo', 'Qualche bet sportiva mensile', 'Prova codici ricarica se disponibili'] }
+  'stanleybet': { durata: 'continuativo', capitale_min: 200, azioni: ['Ricarica 200€ ad inizio settimana', 'Volume slot 200–500€ ad inizio settimana', 'Sport 100–200€/sett se vuoi', 'Virtuali 150–200€ ogni 14gg per promo virtuali', 'Ricarica 200€ ad inizio settimana (ripeti)'] },
+  'lottomatica': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Se VIP e serve scossa: perdi 2–2.5k in una giornata', 'Prova sempre codici ricarica anche senza promo', 'Chiedi promozioni direttamente al book', 'Attenzione: gruppo Lottomatica potrebbe incrociare dati tra siti della stessa famiglia'] },
+  'goldbet': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Prova sempre codici ricarica', 'Chiedi promozioni direttamente al book', 'Attenzione: stesso gruppo Lottomatica'] },
+  'planetwin365': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Prova sempre codici ricarica', 'Main Sport fondamentale per promo'] },
+  'eurobet': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Prova sempre codici ricarica', 'Main Sport fondamentale per promo'] },
+  'snai': { durata: 'continuativo', capitale_min: 300, azioni: ['Prepara il sito prima della promo con movimentazione preliminare', 'Mini sessioni slot 30-40€ a spin bassi', 'Gioca 1k sui numeri', 'Incastro 500€ per entrare nello step 3 (30%)', '2-3 mini sessioni slot a spin bassi', 'Fai la promo poco prima della scadenza per limitare rischio book', 'Dopo mezzanotte sblocca saldo incastrato + mini sessioni slot', 'Rigioca il bonus il prima possibile', 'Slot consigliate: Savage Jungle / Wild Lava / Solar (se funzionanti)', 'Alternativa: Savage Jungle 400€ + Wild Lava 150€ se Solar non funziona'] },
+  'bet365': { durata: 'continuativo', capitale_min: 800, azioni: ['Multipla in doppia da 800€ programma fedeltà', 'Quote max 1.70', 'Utilizza quote in discesa', 'Controlla testa a testa tra squadre', 'Controlla classifiche e ultime 5 partite', 'Usa Diretta.it per costruire le multiple', 'Sport Expert: condizionate semplici per ottimi guadagni', 'Preparati per fase PRE Mondiali'] },
+  'codere': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Attenzione: può richiedere documentazione aggiuntiva', 'Utilizza amici con documentazione facile se richiesto', 'Usa volume di gioco per la metà di quello fatto su Sisal'] },
+  'starcasino': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Prova sempre codici ricarica'] },
+  'sportium': { durata: 'continuativo', capitale_min: 200, azioni: ['Stesso gruppo E-play24', 'Metodo tradizionale', 'Coordina le movimentazioni con E-play24'] },
+  'eplay24': { durata: 'continuativo', capitale_min: 200, azioni: ['Stesso gruppo Sportium', 'Metodo tradizionale', 'Coordina le movimentazioni con Sportium'] },
+  'default': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Ricarica periodica per mantenere conto attivo', 'Qualche bet sportiva mensile', 'Prova codici ricarica se disponibili', 'Chiedi promozioni direttamente al book'] }
 }
 
 function getProtocollo(nomeBook) {
@@ -181,6 +224,43 @@ function getProtocollo(nomeBook) {
     if (nome.includes(key)) return { ...proto, key }
   }
   return { ...PROTOCOLLI['default'], key: 'default' }
+}
+
+function getAzioniOggi(book) {
+  const giorno = new Date().getDay()
+  const settimanaDelMese = Math.ceil(new Date().getDate() / 7)
+  const livello = book.profilo_livello
+  const proto = getProtocollo(book.nome)
+  const classe = getClasseBook(book.nome)
+
+  if (livello === 'attivo') {
+    const agenda = AGENDA_ATTIVO[giorno] || AGENDA_ATTIVO[0]
+    return {
+      tipo: 'attivo',
+      label: agenda.label,
+      azioni: [...agenda.azioni, ...proto.azioni.slice(0, 3)],
+      badge: '🟢 Attivo'
+    }
+  }
+  if (livello === 'mantenimento' || livello === 'mantenimento-a' || livello === 'mantenimento-b' || livello === 'mantenimento-c') {
+    const classeEffettiva = livello === 'mantenimento-a' ? 'A' : livello === 'mantenimento-b' ? 'B' : livello === 'mantenimento-c' ? 'C' : classe
+    if (classeEffettiva === 'A') {
+      const agenda = AGENDA_MANUTENZIONE_A[giorno]
+      if (!agenda || agenda.azioni.length === 0) return null
+      return { tipo: 'manutenzione-a', label: 'Serie A', azioni: agenda.azioni, badge: '🟡 Mant. A' }
+    }
+    if (classeEffettiva === 'B') {
+      if (giorno !== 1) return null
+      const azioni = settimanaDelMese === 1 ? ['1 bet sportiva piccola'] : settimanaDelMese === 2 ? ['Sessione slot 5-10€'] : settimanaDelMese === 3 ? ['1 bet sportiva piccola'] : null
+      if (!azioni) return null
+      return { tipo: 'manutenzione-b', label: 'Serie B', azioni, badge: '🟡 Mant. B' }
+    }
+    if (classeEffettiva === 'C') {
+      if (giorno !== 1 || settimanaDelMese !== 1) return null
+      return { tipo: 'manutenzione-c', label: 'Serie C', azioni: ['1 bet da 5-10€ (solo presenza)'], badge: '🟡 Mant. C' }
+    }
+  }
+  return null
 }
 
 async function updateProfiloLivello(bookId, livello) {
@@ -384,6 +464,18 @@ useEffect(() => {
     localStorage.setItem('ultimoAvvisoScadenze', hashAttuale)
   }, 1500)
 }, [memoFutureNotes])
+
+useEffect(() => {
+  if (books.length === 0) return
+  const oggi = new Date().toISOString().split('T')[0]
+  const ultimaVista = localStorage.getItem('agendaVistaData')
+  if (ultimaVista === oggi) return
+  const bookiAttivi = books.filter(b => b.profilo_livello === 'attivo' || b.profilo_livello === 'mantenimento')
+  const azioniOggi = bookiAttivi.map(b => getAzioniOggi(b)).filter(Boolean)
+  if (azioniOggi.length > 0 && !agendaVista) {
+    setShowAgendaPopup(true)
+  }
+}, [books])
 function correggiTrascrizione(testo) {
   const correzioni = {
     'aggiornasaldi': 'aggiornaS saldi',
@@ -1867,6 +1959,57 @@ const cassaDisponibile =
         </header>
 
         {message && <div style={successBox}>{message}</div>}
+
+        {showAgendaPopup && (() => {
+          const giorno = new Date().getDay()
+          const giornoLabel = ['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'][giorno]
+          const bookiConAzioni = books
+            .filter(b => b.profilo_livello === 'attivo' || b.profilo_livello === 'mantenimento')
+            .map(b => ({ book: b, agenda: getAzioniOggi(b) }))
+            .filter(x => x.agenda !== null)
+          return (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: 16 }}>
+              <div style={{ width: '100%', maxWidth: 560, background: 'linear-gradient(180deg,rgba(15,23,42,0.99),rgba(2,6,23,1))', border: '1px solid rgba(51,65,85,0.95)', borderRadius: 22, padding: 24, maxHeight: '80vh', overflowY: 'auto' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <div>
+                    <h2 style={{ margin: 0, color: '#f8fafc', fontSize: 18 }}>📋 Agenda di oggi — {giornoLabel}</h2>
+                    <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 13 }}>{bookiConAzioni.length} account con azioni da eseguire</p>
+                  </div>
+                  <button style={{ border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18 }}
+                    onClick={() => { setShowAgendaPopup(false); setAgendaVista(true); localStorage.setItem('agendaVistaData', new Date().toISOString().split('T')[0]) }}>×</button>
+                </div>
+                {bookiConAzioni.length === 0 ? (
+                  <div style={{ color: '#94a3b8', textAlign: 'center', padding: '24px 0' }}>Nessuna azione prevista per oggi 🎉</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {bookiConAzioni.map(({ book, agenda }) => (
+                      <div key={book.id} style={{ background: 'rgba(11,18,32,0.8)', border: '1px solid rgba(51,65,85,0.75)', borderRadius: 14, padding: '12px 16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                          <span style={{ fontSize: 13, fontWeight: 800, color: '#f8fafc' }}>{book.nome}</span>
+                          <span style={{ fontSize: 11, color: '#94a3b8' }}>{book.intestatario}</span>
+                          <span style={{ marginLeft: 'auto', fontSize: 11, background: agenda.tipo === 'attivo' ? 'rgba(34,197,94,0.18)' : 'rgba(251,191,36,0.18)', color: agenda.tipo === 'attivo' ? '#22c55e' : '#fbbf24', padding: '2px 8px', borderRadius: 6, fontWeight: 700 }}>{agenda.badge}</span>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          {agenda.azioni.map((az, i) => (
+                            <div key={i} style={{ fontSize: 13, color: '#cbd5e1', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                              <span style={{ color: '#38bdf8', marginTop: 1 }}>→</span>{az}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 10, marginTop: 16, justifyContent: 'flex-end' }}>
+                  <button style={{ padding: '10px 18px', borderRadius: 12, border: '1px solid rgba(51,65,85,0.95)', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontSize: 13 }}
+                    onClick={() => { setShowAgendaPopup(false); setAgendaVista(true); localStorage.setItem('agendaVistaData', new Date().toISOString().split('T')[0]) }}>Chiudi</button>
+                  <button style={{ padding: '10px 18px', borderRadius: 12, border: 'none', background: '#1D4ED8', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}
+                    onClick={() => { setShowAgendaPopup(false); setAgendaVista(true); setActiveTab('profilazione'); localStorage.setItem('agendaVistaData', new Date().toISOString().split('T')[0]) }}>Vai a Profilazione →</button>
+                </div>
+              </div>
+            </div>
+          )
+        })()}
         {errorMessage && <div style={errorBox}>{errorMessage}</div>}
 
         <nav style={tabsBar}>
@@ -2290,8 +2433,12 @@ onChange={(e) => {
         )}
        {activeTab === 'profilazione' && (() => {
   const intestatari = [...new Set(books.map(b => b.intestatario).filter(Boolean))].sort()
-  const bookNomi = [...new Set(books.map(b => b.nome).filter(Boolean))].sort()
-  const livelli = ['', 'attivo', 'mantenimento', 'dormiente']
+  const giorno = new Date().getDay()
+  const giornoLabel = ['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'][giorno]
+  const agendaOggi = books
+    .filter(b => b.profilo_livello === 'attivo' || b.profilo_livello === 'mantenimento')
+    .map(b => ({ book: b, agenda: getAzioniOggi(b) }))
+    .filter(x => x.agenda !== null)
 
   const filteredProf = books.filter(b => {
     const matchInt = !profilazioneFilter.intestatario || (b.intestatario || '').toLowerCase().includes(profilazioneFilter.intestatario.toLowerCase())
@@ -2324,7 +2471,30 @@ onChange={(e) => {
           <h2 style={sectionTitle}>Profilazione</h2>
           <p style={sectionDescription}>Gestisci il livello di profilazione per ogni account bookmaker</p>
         </div>
+        <button style={{ ...tinyBlueButton, fontSize: 13, padding: '8px 16px' }} onClick={() => setShowAgendaPopup(true)}>📋 Agenda di oggi</button>
       </div>
+
+      {agendaOggi.length > 0 && (
+        <div style={{ background: 'rgba(29,78,216,0.12)', border: '1px solid rgba(29,78,216,0.35)', borderRadius: 16, padding: '16px 20px', marginBottom: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: '#93c5fd', marginBottom: 12 }}>📋 {giornoLabel} — {agendaOggi.length} azioni da fare oggi</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {agendaOggi.map(({ book, agenda }) => (
+              <div key={book.id} style={{ background: 'rgba(11,18,32,0.7)', borderRadius: 12, padding: '10px 14px', border: '1px solid rgba(51,65,85,0.6)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontWeight: 800, color: '#f8fafc', fontSize: 13 }}>{book.nome}</span>
+                  <span style={{ color: '#94a3b8', fontSize: 12 }}>{book.intestatario}</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 11, background: agenda.tipo === 'attivo' ? 'rgba(34,197,94,0.18)' : 'rgba(251,191,36,0.18)', color: agenda.tipo === 'attivo' ? '#22c55e' : '#fbbf24', padding: '2px 8px', borderRadius: 6, fontWeight: 700 }}>{agenda.badge}</span>
+                </div>
+                {agenda.azioni.map((az, i) => (
+                  <div key={i} style={{ fontSize: 12, color: '#cbd5e1', display: 'flex', gap: 6, marginBottom: 2 }}>
+                    <span style={{ color: '#38bdf8' }}>→</span>{az}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div style={statsGridCompact}>
         <div style={{ background: 'rgba(34,197,94,0.10)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: 16, padding: '14px 18px' }}>
@@ -2401,13 +2571,19 @@ onChange={(e) => {
                   <td style={{ ...td, fontSize: 12 }}>{book.profilo_ciclo_inizio || '—'}</td>
                   <td style={tdActions}>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      <button style={{ ...tinyGreenButton, opacity: book.profilo_livello === 'attivo' ? 0.4 : 1 }}
+                      <button style={{ ...tinyGreenButton, opacity: book.profilo_livello === 'attivo' ? 0.4 : 1, fontSize: 11 }}
                         disabled={savingProfilo[book.id] || book.profilo_livello === 'attivo'}
                         onClick={() => updateProfiloLivello(book.id, 'attivo')}>Attivo</button>
-                      <button style={{ ...tinyOrangeButton, opacity: book.profilo_livello === 'mantenimento' ? 0.4 : 1 }}
-                        disabled={savingProfilo[book.id] || book.profilo_livello === 'mantenimento'}
-                        onClick={() => updateProfiloLivello(book.id, 'mantenimento')}>Mant.</button>
-                      <button style={{ ...tinyRedButton, background: book.profilo_livello === 'dormiente' ? '#334155' : undefined, opacity: book.profilo_livello === 'dormiente' ? 0.4 : 1 }}
+                      <button style={{ ...tinyOrangeButton, opacity: book.profilo_livello === 'mantenimento-a' ? 0.4 : 1, fontSize: 11 }}
+                        disabled={savingProfilo[book.id] || book.profilo_livello === 'mantenimento-a'}
+                        onClick={() => updateProfiloLivello(book.id, 'mantenimento-a')}>Mant.A</button>
+                      <button style={{ ...tinyOrangeButton, background: 'rgba(245,158,11,0.18)', opacity: book.profilo_livello === 'mantenimento-b' ? 0.4 : 1, fontSize: 11 }}
+                        disabled={savingProfilo[book.id] || book.profilo_livello === 'mantenimento-b'}
+                        onClick={() => updateProfiloLivello(book.id, 'mantenimento-b')}>Mant.B</button>
+                      <button style={{ ...tinyOrangeButton, background: 'rgba(100,116,139,0.18)', color: '#94a3b8', opacity: book.profilo_livello === 'mantenimento-c' ? 0.4 : 1, fontSize: 11 }}
+                        disabled={savingProfilo[book.id] || book.profilo_livello === 'mantenimento-c'}
+                        onClick={() => updateProfiloLivello(book.id, 'mantenimento-c')}>Mant.C</button>
+                      <button style={{ ...tinyRedButton, background: book.profilo_livello === 'dormiente' ? '#334155' : undefined, opacity: book.profilo_livello === 'dormiente' ? 0.4 : 1, fontSize: 11 }}
                         disabled={savingProfilo[book.id] || book.profilo_livello === 'dormiente'}
                         onClick={() => updateProfiloLivello(book.id, 'dormiente')}>Dorm.</button>
                     </div>
