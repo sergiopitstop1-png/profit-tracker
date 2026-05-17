@@ -484,8 +484,9 @@ const sommaEsterni = (esterniData || [])
 setTotaleEsterni(sommaEsterni)
     const errors = []
 if (booksRes.error) errors.push('books'); else {
-  setBooks(booksRes.data || [])
-  autoAssegnaProfiloDefault(booksRes.data || [])
+  const booksData = booksRes.data || []
+  setBooks(booksData)
+  setTimeout(() => autoAssegnaProfiloDefault(booksData), 500)
 }
 if (walletsRes.error) errors.push('wallets'); else setWallets(walletsRes.data || [])
 if (txRes.error) errors.push('transactions'); else setTransactions(txRes.data || [])
@@ -2604,13 +2605,13 @@ onChange={(e) => {
   const filteredProf = books.filter(b => {
     const matchInt = !profilazioneFilter.intestatario || (b.intestatario || '').toLowerCase().includes(profilazioneFilter.intestatario.toLowerCase())
     const matchBook = !profilazioneFilter.book || (b.nome || '').toLowerCase().includes(profilazioneFilter.book.toLowerCase())
-    const matchLiv = !profilazioneFilter.livello || b.profilo_livello === profilazioneFilter.livello
+    const matchLiv = !profilazioneFilter.livello || b.profilo_livello === profilazioneFilter.livello || (profilazioneFilter.livello === 'mantenimento' && b.profilo_livello && b.profilo_livello.startsWith('mantenimento'))
     const matchSearch = !profilazioneSearch || (b.nome || '').toLowerCase().includes(profilazioneSearch.toLowerCase()) || (b.intestatario || '').toLowerCase().includes(profilazioneSearch.toLowerCase())
     return matchInt && matchBook && matchLiv && matchSearch
   })
 
   const totAttivi = books.filter(b => b.profilo_livello === 'attivo').length
-  const totMantenimento = books.filter(b => b.profilo_livello === 'mantenimento').length
+  const totMantenimento = books.filter(b => b.profilo_livello && b.profilo_livello.startsWith('mantenimento')).length
   const totDormienti = books.filter(b => b.profilo_livello === 'dormiente').length
   const totNessuno = books.filter(b => !b.profilo_livello).length
   const capitaleStimato = books.filter(b => b.profilo_livello === 'attivo').reduce((sum, b) => {
@@ -2620,7 +2621,7 @@ onChange={(e) => {
 
   const getLivelloBadge = (livello) => {
     if (livello === 'attivo') return { bg: 'rgba(34,197,94,0.18)', color: '#22c55e', label: '🟢 Attivo' }
-    if (livello === 'mantenimento') return { bg: 'rgba(251,191,36,0.18)', color: '#fbbf24', label: '🟡 Mantenimento' }
+    if (livello && livello.startsWith('mantenimento')) { const cls = livello.split('-')[1]?.toUpperCase() || ''; return { bg: 'rgba(251,191,36,0.18)', color: '#fbbf24', label: `🟡 Mant.${cls}` } }
     if (livello === 'dormiente') return { bg: 'rgba(100,116,139,0.18)', color: '#94a3b8', label: '⚫ Dormiente' }
     return { bg: 'rgba(51,65,85,0.3)', color: '#64748b', label: '— Non impostato' }
   }
