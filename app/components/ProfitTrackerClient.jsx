@@ -80,6 +80,8 @@ const [profilazioneSearch, setProfilazioneSearch] = useState('')
 const [savingProfilo, setSavingProfilo] = useState({})
 const [showAgendaPopup, setShowAgendaPopup] = useState(false)
 const [agendaVista, setAgendaVista] = useState(false)
+const [agendaAperto, setAgendaAperto] = useState(null)
+const [popupAperto, setPopupAperto] = useState(null)
   useEffect(() => {
   initSession()
   loadData()
@@ -2164,7 +2166,6 @@ const cassaDisponibile =
                           gruppi[az].push(book)
                         })
                       })
-                      const [apertoPopup, setApertoPopup] = React.useState(null)
                       return (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                           {Object.entries(gruppi).map(([azione, bookList]) => {
@@ -2173,10 +2174,10 @@ const cassaDisponibile =
                               if (!perBook[b.nome]) perBook[b.nome] = []
                               perBook[b.nome].push(b.intestatario)
                             })
-                            const isOpen = apertoPopup === azione
+                            const isOpen = popupAperto === azione
                             return (
                               <div key={azione} style={{ background: 'rgba(11,18,32,0.8)', border: `1px solid ${isOpen ? 'rgba(56,189,248,0.4)' : 'rgba(51,65,85,0.75)'}`, borderRadius: 12, overflow: 'hidden' }}>
-                                <div onClick={() => setApertoPopup(isOpen ? null : azione)}
+                                <div onClick={() => setPopupAperto(popupAperto === azione ? null : azione)}
                                   style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
                                   <span style={{ color: '#38bdf8', fontSize: 12, display: 'inline-block', transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
                                   <span style={{ fontWeight: 700, color: '#f8fafc', fontSize: 13 }}>{azione}</span>
@@ -2686,7 +2687,6 @@ onChange={(e) => {
                 gruppi[az].push({ book, badge: agenda.badge })
               })
             })
-            const [aperto, setAperto] = React.useState(null)
             return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {Object.entries(gruppi).map(([azione, items]) => {
@@ -2695,10 +2695,10 @@ onChange={(e) => {
                     if (!perBook[book.nome]) perBook[book.nome] = []
                     perBook[book.nome].push(book.intestatario)
                   })
-                  const isOpen = aperto === azione
+                  const isOpen = agendaAperto === azione
                   return (
                     <div key={azione} style={{ background: 'rgba(11,18,32,0.7)', borderRadius: 12, border: `1px solid ${isOpen ? 'rgba(56,189,248,0.4)' : 'rgba(51,65,85,0.6)'}`, overflow: 'hidden' }}>
-                      <div onClick={() => setAperto(isOpen ? null : azione)}
+                      <div onClick={() => setAgendaAperto(agendaAperto === azione ? null : azione)}
                         style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
                         <span style={{ color: '#38bdf8', fontSize: 13, transition: 'transform 0.2s', display: 'inline-block', transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
                         <span style={{ fontWeight: 700, color: '#f8fafc', fontSize: 13 }}>{azione}</span>
