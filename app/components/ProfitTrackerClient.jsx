@@ -155,7 +155,7 @@ useEffect(() => {
 
 const CLASSI_BOOK = {
   A: ['bet365','snai','sisal','lottomatica','goldbet','planetwin365','eurobet','pokerstars'],
-  B: ['netbet','bwin','betsson','william hill','stanleybet','gioco digitale','starcasino','betflag','sportium','eplay24','e-play24','betpoint','staryes','vincitu','tombola','betway','unibet','marathonbet','betclic','intralot','matchpoint','domusbet','zonebet','betpassion','zonagioco'],
+  B: ['netbet','bwin','betsson','william hill','stanleybet','gioco digitale','starcasino','betflag','sportium','eplay24','e-play24','betpoint','staryes','vincitu','tombola','betway','unibet','marathonbet','betclic','intralot','matchpoint','domusbet','zonebet','betpassion','zonagioco','betfair'],
   C: ['admiral','codere']
 }
 const MANUTENZIONE = {
@@ -170,14 +170,103 @@ function getClasseBook(nomeBook) {
   }
   return 'C'
 }
-const AGENDA_ATTIVO = {
-  1: { label: 'Lunedì', azioni: ['Ricarica settimanale (se prevista dal protocollo)', 'Avvia sessione slot di apertura settimana'] },
-  2: { label: 'Martedì', azioni: ['Volume slot principale della settimana', 'Spin bassi, alto RTP'] },
-  3: { label: 'Mercoledì', azioni: ['Live numeri / bet sportiva', 'Controlla testa a testa e classifiche se fai multipla'] },
-  4: { label: 'Giovedì', azioni: ['Azioni speciali: incastro, posizione perdente (se prevista dal protocollo)', 'Tutte le VXT disponibili'] },
-  5: { label: 'Venerdì', azioni: ['Attiva promo / cashback disponibili', 'Fai la promo poco prima della scadenza', 'Rigioca bonus ricevuti'] },
-  6: { label: 'Sabato', azioni: ['Prelievo strategico se il saldo è alto', 'Lascia meno di 50€ se previsto dal protocollo'] },
-  0: { label: 'Domenica', azioni: ['Verifica saldi di tutti gli account attivi', 'Aggiorna il tracker'] }
+const AZIONI_ATTIVO = {
+  'snai': {
+    ricarica: ['Ricarica 200€ (settimane alterne)'],
+    slot: ['Volume slot 30-40€ a spin bassi, alto RTP'],
+    numeri: ['Live numeri 1k sui numeri'],
+    sport: ['Bet sportiva VXT'],
+    preleva: ['Preleva e lascia meno di 50€ (se saldo alto)']
+  },
+  'sisal': {
+    ricarica: ['Ricarica 200€ (settimane alterne)'],
+    slot: ['Volume slot 400-500€ — mine o alto RTP'],
+    numeri: ['Live numeri 300-500€'],
+    sport: ['Tutte le VXT disponibili'],
+    preleva: ['Preleva strategico se saldo alto']
+  },
+  'pokerstars': {
+    ricarica: ['Ricarica 200€ (settimane alterne)'],
+    slot: ['Volume slot 400-500€ — mine o alto RTP'],
+    numeri: ['Live numeri 300-500€'],
+    sport: ['Tutte le VXT disponibili'],
+    preleva: ['Preleva e lascia meno di 50€']
+  },
+  'bet365': {
+    ricarica: ['Ricarica per programma fedeltà'],
+    slot: ['Sport Expert: condizionata semplice'],
+    numeri: ['Prepara multipla su Diretta.it — quota max 1.70'],
+    sport: ['Multipla in doppia da 800€ — quote in discesa'],
+    preleva: ['Verifica saldo programma fedeltà']
+  },
+  'lottomatica': {
+    ricarica: ['Ricarica conto'],
+    slot: ['Sessione slot tradizionale'],
+    numeri: ['Live numeri tradizionale'],
+    sport: ['Bet sportiva — prova codici ricarica'],
+    preleva: ['Preleva se opportuno']
+  },
+  'goldbet': {
+    ricarica: ['Ricarica conto'],
+    slot: ['Sessione slot'],
+    numeri: ['Live numeri'],
+    sport: ['Bet sportiva'],
+    preleva: ['Preleva se opportuno']
+  },
+  'eurobet': {
+    ricarica: ['Ricarica conto'],
+    slot: ['Sessione slot — Main Sport'],
+    numeri: ['Live numeri'],
+    sport: ['Bet sportiva'],
+    preleva: ['Preleva se opportuno']
+  },
+  'planetwin': {
+    ricarica: ['Ricarica conto'],
+    slot: ['Sessione slot — Main Sport'],
+    numeri: ['Live numeri'],
+    sport: ['Bet sportiva'],
+    preleva: ['Preleva se opportuno']
+  },
+  'default': {
+    ricarica: ['Ricarica conto (se prevista dal protocollo)'],
+    slot: ['Sessione slot — spin bassi, alto RTP'],
+    numeri: ['Live numeri'],
+    sport: ['Bet sportiva / VXT'],
+    preleva: ['Preleva strategico se saldo alto']
+  }
+}
+
+function getAzioniAttivo(nomeBook) {
+  const nome = (nomeBook || '').toLowerCase().replace(/\.it$/, '').trim()
+  for (const [key, azioni] of Object.entries(AZIONI_ATTIVO)) {
+    if (key !== 'default' && nome.includes(key)) return azioni
+  }
+  return AZIONI_ATTIVO['default']
+}
+
+function getAgendaAttivo(book, giorno, settimana) {
+  const azioni = getAzioniAttivo(book.nome)
+  // Ricarica: solo lun/mar/mer (giorni 1,2,3) — randomizzata tra questi
+  const giornoRicarica = [1, 2, 3][hashBook(book.id, settimana * 10) % 3]
+  // Slot: qualsiasi giorno tranne quello della ricarica
+  const giorniSlot = [0,1,2,3,4,5,6].filter(g => g !== giornoRicarica)
+  const giornoSlot = giorniSlot[hashBook(book.id, settimana * 10 + 1) % giorniSlot.length]
+  // Numeri: qualsiasi giorno tranne ricarica e slot
+  const giorniNumeri = [0,1,2,3,4,5,6].filter(g => g !== giornoRicarica && g !== giornoSlot)
+  const giornoNumeri = giorniNumeri[hashBook(book.id, settimana * 10 + 2) % giorniNumeri.length]
+  // Sport/VXT: qualsiasi altro giorno
+  const giorniSport = [0,1,2,3,4,5,6].filter(g => g !== giornoRicarica && g !== giornoSlot && g !== giornoNumeri)
+  const giornoSport = giorniSport[hashBook(book.id, settimana * 10 + 3) % giorniSport.length]
+  // Preleva: qualsiasi altro giorno
+  const giorniPreleva = [0,1,2,3,4,5,6].filter(g => g !== giornoRicarica && g !== giornoSlot && g !== giornoNumeri && g !== giornoSport)
+  const giornoPreleva = giorniPreleva[hashBook(book.id, settimana * 10 + 4) % giorniPreleva.length]
+
+  if (giorno === giornoRicarica) return azioni.ricarica
+  if (giorno === giornoSlot) return azioni.slot
+  if (giorno === giornoNumeri) return azioni.numeri
+  if (giorno === giornoSport) return azioni.sport
+  if (giorno === giornoPreleva) return azioni.preleva
+  return null
 }
 const AGENDA_MANUTENZIONE_A = {
   1: { label: 'Lunedì', azioni: ['Sessione slot 5-10€ (spin bassi)'] },
@@ -226,41 +315,105 @@ function getProtocollo(nomeBook) {
   return { ...PROTOCOLLI['default'], key: 'default' }
 }
 
+function getSettimanaAnno() {
+  const now = new Date()
+  const start = new Date(now.getFullYear(), 0, 1)
+  return Math.ceil(((now - start) / 86400000 + start.getDay() + 1) / 7)
+}
+
+function hashBook(bookId, settimana) {
+  let h = (bookId * 2654435761 + settimana * 40503) >>> 0
+  h = ((h ^ (h >> 16)) * 0x45d9f3b) >>> 0
+  h = ((h ^ (h >> 16)) * 0x45d9f3b) >>> 0
+  return h ^ (h >> 16)
+}
+
+function getGiornoAssegnato(book, frequenzaSettimane) {
+  const settimana = getSettimanaAnno()
+  const ciclo = Math.floor(settimana / frequenzaSettimane)
+  const seed = hashBook(book.id, ciclo)
+  return seed % 7
+}
+
 function getAzioniOggi(book) {
-  const giorno = new Date().getDay()
-  const settimanaDelMese = Math.ceil(new Date().getDate() / 7)
+  const oggi = new Date()
+  const giorno = oggi.getDay()
+  const settimana = getSettimanaAnno()
   const livello = book.profilo_livello
   const proto = getProtocollo(book.nome)
   const classe = getClasseBook(book.nome)
 
   if (livello === 'attivo') {
-    const agenda = AGENDA_ATTIVO[giorno] || AGENDA_ATTIVO[0]
+    const azioniGiorno = getAgendaAttivo(book, giorno, settimana)
+    if (!azioniGiorno || azioniGiorno.length === 0) return null
     return {
       tipo: 'attivo',
-      label: agenda.label,
-      azioni: [...agenda.azioni, ...proto.azioni.slice(0, 3)],
+      label: ['Dom','Lun','Mar','Mer','Gio','Ven','Sab'][giorno],
+      azioni: azioniGiorno,
       badge: '🟢 Attivo'
     }
   }
+
   if (livello === 'mantenimento' || livello === 'mantenimento-a' || livello === 'mantenimento-b' || livello === 'mantenimento-c') {
     const classeEffettiva = livello === 'mantenimento-a' ? 'A' : livello === 'mantenimento-b' ? 'B' : livello === 'mantenimento-c' ? 'C' : classe
+
     if (classeEffettiva === 'A') {
-      const agenda = AGENDA_MANUTENZIONE_A[giorno]
-      if (!agenda || agenda.azioni.length === 0) return null
-      return { tipo: 'manutenzione-a', label: 'Serie A', azioni: agenda.azioni, badge: '🟡 Mant. A' }
+      // Serie A: 2 volte a settimana — giorni randomizzati ma stabili per settimana
+      const seed1 = hashBook(book.id, settimana * 2)
+      const seed2 = hashBook(book.id, settimana * 2 + 1)
+      const giorno1 = seed1 % 7
+      let giorno2 = seed2 % 7
+      if (giorno2 === giorno1) giorno2 = (giorno2 + 1) % 7
+      if (giorno !== giorno1 && giorno !== giorno2) return null
+      const isSlot = giorno === giorno2
+      return {
+        tipo: 'manutenzione-a',
+        azioni: isSlot ? ['Sessione slot 5-10€ (spin bassi)'] : ['1 bet sportiva (qualsiasi importo)'],
+        badge: '🟡 Mant. A'
+      }
     }
+
     if (classeEffettiva === 'B') {
-      if (giorno !== 1) return null
-      const azioni = settimanaDelMese === 1 ? ['1 bet sportiva piccola'] : settimanaDelMese === 2 ? ['Sessione slot 5-10€'] : settimanaDelMese === 3 ? ['1 bet sportiva piccola'] : null
-      if (!azioni) return null
-      return { tipo: 'manutenzione-b', label: 'Serie B', azioni, badge: '🟡 Mant. B' }
+      // Serie B: 1 volta a settimana — giorno random che cambia ogni settimana
+      const giornoAssegnato = getGiornoAssegnato(book, 1)
+      if (giorno !== giornoAssegnato) return null
+      // Tipo azione alterna ogni settimana: pari=bet, dispari=slot
+      const azione = settimana % 2 === 0 ? '1 bet sportiva piccola' : 'Sessione slot 5-10€'
+      return {
+        tipo: 'manutenzione-b',
+        azioni: [azione],
+        badge: '🟡 Mant. B'
+      }
     }
+
     if (classeEffettiva === 'C') {
-      if (giorno !== 1 || settimanaDelMese !== 1) return null
-      return { tipo: 'manutenzione-c', label: 'Serie C', azioni: ['1 bet da 5-10€ (solo presenza)'], badge: '🟡 Mant. C' }
+      // Serie C: 1 volta ogni 2 settimane — giorno random
+      const giornoAssegnato = getGiornoAssegnato(book, 2)
+      if (giorno !== giornoAssegnato) return null
+      return {
+        tipo: 'manutenzione-c',
+        azioni: ['1 bet da 5-10€ (solo presenza)'],
+        badge: '🟡 Mant. C'
+      }
     }
   }
   return null
+}
+
+async function autoAssegnaProfiloDefault(booksData) {
+  const daAggiornare = booksData.filter(b => !b.profilo_livello)
+  if (daAggiornare.length === 0) return
+  const updates = daAggiornare.map(b => {
+    const classe = getClasseBook(b.nome)
+    return { id: b.id, profilo_livello: `mantenimento-${classe.toLowerCase()}` }
+  })
+  for (const upd of updates) {
+    await supabase.from('books').update({ profilo_livello: upd.profilo_livello }).eq('id', upd.id)
+  }
+  setBooks(prev => prev.map(b => {
+    const upd = updates.find(u => u.id === b.id)
+    return upd ? { ...b, profilo_livello: upd.profilo_livello } : b
+  }))
 }
 
 async function updateProfiloLivello(bookId, livello) {
@@ -325,7 +478,10 @@ const sommaEsterni = (esterniData || [])
   .reduce((t, tx) => t + Number(tx.importo || 0), 0)
 setTotaleEsterni(sommaEsterni)
     const errors = []
-if (booksRes.error) errors.push('books'); else setBooks(booksRes.data || [])
+if (booksRes.error) errors.push('books'); else {
+  setBooks(booksRes.data || [])
+  autoAssegnaProfiloDefault(booksRes.data || [])
+}
 if (walletsRes.error) errors.push('wallets'); else setWallets(walletsRes.data || [])
 if (txRes.error) errors.push('transactions'); else setTransactions(txRes.data || [])
 if (contRes.error) errors.push('contabilita'); else setContabilita(contRes.data || [])
@@ -1973,7 +2129,7 @@ const cassaDisponibile =
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                   <div>
                     <h2 style={{ margin: 0, color: '#f8fafc', fontSize: 18 }}>📋 Agenda di oggi — {giornoLabel}</h2>
-                    <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 13 }}>{bookiConAzioni.length} account con azioni da eseguire</p>
+                    <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 13 }}>{bookiConAzioni.filter(x=>x.agenda.tipo==='attivo').length} attivi · {bookiConAzioni.filter(x=>x.agenda.tipo!=='attivo').length} mantenimento · {bookiConAzioni.length} totali</p>
                   </div>
                   <button style={{ border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18 }}
                     onClick={() => { setShowAgendaPopup(false); setAgendaVista(true); localStorage.setItem('agendaVistaData', new Date().toISOString().split('T')[0]) }}>×</button>
@@ -2476,7 +2632,7 @@ onChange={(e) => {
 
       {agendaOggi.length > 0 && (
         <div style={{ background: 'rgba(29,78,216,0.12)', border: '1px solid rgba(29,78,216,0.35)', borderRadius: 16, padding: '16px 20px', marginBottom: 16 }}>
-          <div style={{ fontSize: 14, fontWeight: 800, color: '#93c5fd', marginBottom: 12 }}>📋 {giornoLabel} — {agendaOggi.length} azioni da fare oggi</div>
+          <div style={{ fontSize: 14, fontWeight: 800, color: '#93c5fd', marginBottom: 12 }}>📋 {giornoLabel} — {agendaOggi.length} account da movimentare oggi <span style={{ fontSize: 12, fontWeight: 400, color: '#64748b' }}>({agendaOggi.filter(x => x.agenda.tipo === 'attivo').length} attivi · {agendaOggi.filter(x => x.agenda.tipo !== 'attivo').length} mantenimento)</span></div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {agendaOggi.map(({ book, agenda }) => (
               <div key={book.id} style={{ background: 'rgba(11,18,32,0.7)', borderRadius: 12, padding: '10px 14px', border: '1px solid rgba(51,65,85,0.6)' }}>
