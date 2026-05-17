@@ -155,8 +155,9 @@ useEffect(() => {
 
 const CLASSI_BOOK = {
   A: ['bet365','snai','sisal','lottomatica','goldbet','planetwin365','eurobet','pokerstars'],
-  B: ['netbet','bwin','betsson','william hill','stanleybet','gioco digitale','starcasino','betflag','sportium','eplay24','e-play24','betpoint','staryes','vincitu','tombola','betway','unibet','marathonbet','betclic','intralot','matchpoint','domusbet','zonebet','betpassion','zonagioco','betfair'],
-  C: ['admiral','codere']
+  B: ['netbet','bwin','betsson','william hill','stanleybet','e-play24','betfair'],
+  B_CASINO: ['gioco digitale','starcasino','betflag','tombola','zonagioco'],
+  C: ['admiral','codere','betpoint','staryes','sportium','vincitu','marathonbet','domusbet','betpassion'],
 }
 const MANUTENZIONE = {
   A: { label: 'Serie A', frequenza: 'Bet ogni 2 sett · Ricarica+Slot ogni mese', azioni: ['1 bet sportiva ogni 2 settimane (giorno random)', 'Ricarica conto + sessione slot 5-10€ ogni mese (stesso giorno)'] },
@@ -169,6 +170,10 @@ function getClasseBook(nomeBook) {
     if (lista.some(k => nome.includes(k))) return classe
   }
   return 'C'
+}
+function isSoloCasino(nomeBook) {
+  const nome = (nomeBook || '').toLowerCase().replace(/\.it$/, '').trim()
+  return (CLASSI_BOOK['B_CASINO'] || []).some(k => nome.includes(k))
 }
 const AZIONI_ATTIVO = {
   'snai': {
@@ -355,82 +360,51 @@ function getAzioniOggi(book) {
   }
 
   if (livello === 'mantenimento' || livello === 'mantenimento-a' || livello === 'mantenimento-b' || livello === 'mantenimento-c') {
-    const classeEffettiva = livello === 'mantenimento-a' ? 'A' : livello === 'mantenimento-b' ? 'B' : livello === 'mantenimento-c' ? 'C' : classe
+    const classeEffettiva = livello === 'mantenimento-a' ? 'A' : livello === 'mantenimento-b' ? (isSoloCasino(book.nome) ? 'B_CASINO' : 'B') : livello === 'mantenimento-c' ? 'C' : classe
 
     if (classeEffettiva === 'A') {
-      // Serie A: bet ogni 2 sett (giorno random) + ricarica+slot ogni mese (stesso giorno)
+      // Serie A: bet ogni 14gg + ricarica+slot ogni 30gg
+      // Giorno zero = 18 maggio 2026
       const oggi2 = new Date()
-      const giornoDelMese = oggi2.getDate()
-      const meseCorrente = oggi2.getMonth() + oggi2.getFullYear() * 12
-
-      // Bet: ogni 2 settimane — giorno random per ciclo di 2 sett
-      const ciclo2sett = Math.floor(settimana / 2)
-      const giornoBet = hashBook(book.id, ciclo2sett * 31 + 7) % 7
-      // Slot+ricarica: una volta al mese — giorno random stabile per mese
-      const giornoSlot = hashBook(book.id, meseCorrente * 17 + 3) % 7
-      // Calcola se oggi è il giorno slot del mese (primo match del mese)
-      const primoGiornoSlotMese = new Date(oggi2.getFullYear(), oggi2.getMonth(), 1)
-      let dataSlot = new Date(primoGiornoSlotMese)
-      while (dataSlot.getDay() !== giornoSlot) dataSlot.setDate(dataSlot.getDate() + 1)
-      const isSlotDay = dataSlot.getDate() === giornoDelMese && dataSlot.getMonth() === oggi2.getMonth()
-
+      const GIORNO_ZERO = new Date('2026-05-18')
+      const giorniDaZero = Math.floor((oggi2 - GIORNO_ZERO) / (1000 * 60 * 60 * 24))
+      // offset per book: distribuisce i book su tutto il ciclo
+      const offsetBet = hashBook(book.id, 101) % 14
+      const offsetSlot = hashBook(book.id, 202) % 30
+      const isBetDay = (giorniDaZero - offsetBet) % 14 === 0
+      const isSlotDay = (giorniDaZero - offsetSlot) % 30 === 0
       if (isSlotDay) return { tipo: 'manutenzione-a', azioni: ['Ricarica conto', 'Sessione slot 5-10€ (spin bassi)'], badge: '🟡 Mant. A' }
-      if (giorno === giornoBet && !isSlotDay) return { tipo: 'manutenzione-a', azioni: ['1 bet sportiva (qualsiasi importo)'], badge: '🟡 Mant. A' }
+      if (isBetDay && !isSlotDay) return { tipo: 'manutenzione-a', azioni: ['1 bet sportiva (qualsiasi importo)'], badge: '🟡 Mant. A' }
       return null
     }
 
-    if (classeEffettiva === 'B') {
-      // Serie B: bet ogni mese + ricarica+slot ogni 45gg
+    if (classeEffettiva === 'B' || classeEffettiva === 'B_CASINO') {
       const oggi2 = new Date()
-      const giornoDelMese = oggi2.getDate()
-      const meseCorrente = oggi2.getMonth() + oggi2.getFullYear() * 12
-      const ciclo45 = Math.floor((oggi2 - new Date(oggi2.getFullYear(), 0, 1)) / (1000 * 60 * 60 * 24 * 45))
-
-      // Bet: 1 volta al mese
-      const giornoBet = hashBook(book.id, meseCorrente * 13 + 5) % 7
-      const primoGiornoBet = new Date(oggi2.getFullYear(), oggi2.getMonth(), 1)
-      let dataBet = new Date(primoGiornoBet)
-      while (dataBet.getDay() !== giornoBet) dataBet.setDate(dataBet.getDate() + 1)
-      const isBetDay = dataBet.getDate() === giornoDelMese && dataBet.getMonth() === oggi2.getMonth()
-
-      // Slot+ricarica: ogni 45gg
-      const giornoSlot45 = hashBook(book.id, ciclo45 * 19 + 11) % 7
-      const inizioCiclo45 = new Date(oggi2.getFullYear(), 0, 1)
-      inizioCiclo45.setDate(inizioCiclo45.getDate() + ciclo45 * 45)
-      let dataSlot45 = new Date(inizioCiclo45)
-      while (dataSlot45.getDay() !== giornoSlot45) dataSlot45.setDate(dataSlot45.getDate() + 1)
-      const isSlotDay = dataSlot45.toDateString() === oggi2.toDateString()
-
+      const GIORNO_ZERO = new Date('2026-05-18')
+      const giorniDaZero = Math.floor((oggi2 - GIORNO_ZERO) / (1000 * 60 * 60 * 24))
+      const soloCasino = isSoloCasino(book.nome)
+      const offsetBet = hashBook(book.id, 303) % 30
+      const offsetSlot = hashBook(book.id, 404) % 45
+      const isBetDay = (giorniDaZero - offsetBet) % 30 === 0
+      const isSlotDay = (giorniDaZero - offsetSlot) % 45 === 0
       if (isSlotDay) return { tipo: 'manutenzione-b', azioni: ['Ricarica conto', 'Sessione slot 5-10€'], badge: '🟡 Mant. B' }
-      if (isBetDay && !isSlotDay) return { tipo: 'manutenzione-b', azioni: ['1 bet sportiva piccola'], badge: '🟡 Mant. B' }
+      if (isBetDay && !isSlotDay && !soloCasino) return { tipo: 'manutenzione-b', azioni: ['1 bet sportiva piccola'], badge: '🟡 Mant. B' }
+      if (isBetDay && soloCasino) return null
       return null
     }
 
     if (classeEffettiva === 'C') {
-      // Serie C: bet ogni 45gg + ricarica+slot ogni 3 mesi
       const oggi2 = new Date()
-      const giornoDelMese = oggi2.getDate()
-      const meseCorrente = oggi2.getMonth() + oggi2.getFullYear() * 12
-      const ciclo45 = Math.floor((oggi2 - new Date(oggi2.getFullYear(), 0, 1)) / (1000 * 60 * 60 * 24 * 45))
-      const ciclo3mesi = Math.floor(oggi2.getMonth() / 3) + oggi2.getFullYear() * 4
-
-      // Bet: ogni 45gg
-      const giornoBet45 = hashBook(book.id, ciclo45 * 23 + 17) % 7
-      const inizioCiclo = new Date(oggi2.getFullYear(), 0, 1)
-      inizioCiclo.setDate(inizioCiclo.getDate() + ciclo45 * 45)
-      let dataBet = new Date(inizioCiclo)
-      while (dataBet.getDay() !== giornoBet45) dataBet.setDate(dataBet.getDate() + 1)
-      const isBetDay = dataBet.toDateString() === oggi2.toDateString()
-
-      // Slot+ricarica: ogni 3 mesi
-      const giornoSlot3m = hashBook(book.id, ciclo3mesi * 29 + 7) % 7
-      const inizioTrimestre = new Date(oggi2.getFullYear(), Math.floor(oggi2.getMonth() / 3) * 3, 1)
-      let dataSlot = new Date(inizioTrimestre)
-      while (dataSlot.getDay() !== giornoSlot3m) dataSlot.setDate(dataSlot.getDate() + 1)
-      const isSlotDay = dataSlot.getDate() === giornoDelMese && dataSlot.getMonth() === oggi2.getMonth()
-
+      const GIORNO_ZERO = new Date('2026-05-18')
+      const giorniDaZero = Math.floor((oggi2 - GIORNO_ZERO) / (1000 * 60 * 60 * 24))
+      const soloCasino = isSoloCasino(book.nome)
+      const offsetBet = hashBook(book.id, 505) % 45
+      const offsetSlot = hashBook(book.id, 606) % 90
+      const isBetDay = (giorniDaZero - offsetBet) % 45 === 0
+      const isSlotDay = (giorniDaZero - offsetSlot) % 90 === 0
       if (isSlotDay) return { tipo: 'manutenzione-c', azioni: ['Ricarica conto', 'Sessione slot 5-10€'], badge: '🟡 Mant. C' }
-      if (isBetDay && !isSlotDay) return { tipo: 'manutenzione-c', azioni: ['1 bet da 5-10€ (solo presenza)'], badge: '🟡 Mant. C' }
+      if (isBetDay && !isSlotDay && !soloCasino) return { tipo: 'manutenzione-c', azioni: ['1 bet da 5-10€ (solo presenza)'], badge: '🟡 Mant. C' }
+      if (isBetDay && soloCasino) return null
       return null
     }
   }
@@ -442,7 +416,8 @@ async function autoAssegnaProfiloDefault(booksData) {
   if (daAggiornare.length === 0) return
   const updates = daAggiornare.map(b => {
     const classe = getClasseBook(b.nome)
-    return { id: b.id, profilo_livello: `mantenimento-${classe.toLowerCase()}` }
+    const classeNorm = classe === 'B_CASINO' ? 'b' : classe.toLowerCase()
+    return { id: b.id, profilo_livello: `mantenimento-${classeNorm}` }
   })
   // Batch da 50 per non sovraccaricare Supabase
   const batchSize = 50
