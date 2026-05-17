@@ -376,7 +376,6 @@ function getAzioniOggi(book) {
     if (classeEffettiva === 'B') {
       // Serie B: 1 volta a settimana — giorno random che cambia ogni settimana
       const giornoAssegnato = getGiornoAssegnato(book, 1)
-      if (book.id <= 5) console.log(`[DEBUG] Book ${book.id} ${book.nome}: giornoAssegnato=${giornoAssegnato} oggi=${giorno} settimana=${settimana}`)
       if (giorno !== giornoAssegnato) return null
       // Tipo azione alterna ogni settimana: pari=bet, dispari=slot
       const azione = settimana % 2 === 0 ? '1 bet sportiva piccola' : 'Sessione slot 5-10€'
@@ -633,7 +632,7 @@ useEffect(() => {
   const oggi = new Date().toISOString().split('T')[0]
   const ultimaVista = localStorage.getItem('agendaVistaData')
   if (ultimaVista === oggi) return
-  const bookiAttivi = books.filter(b => b.profilo_livello === 'attivo' || b.profilo_livello === 'mantenimento')
+  const bookiAttivi = books.filter(b => b.profilo_livello === 'attivo' || (b.profilo_livello && b.profilo_livello.startsWith('mantenimento')))
   const azioniOggi = bookiAttivi.map(b => getAzioniOggi(b)).filter(Boolean)
   if (azioniOggi.length > 0 && !agendaVista) {
     setShowAgendaPopup(true)
@@ -2127,7 +2126,7 @@ const cassaDisponibile =
           const giorno = new Date().getDay()
           const giornoLabel = ['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'][giorno]
           const bookiConAzioni = books
-            .filter(b => b.profilo_livello === 'attivo' || b.profilo_livello === 'mantenimento')
+            .filter(b => b.profilo_livello === 'attivo' || (b.profilo_livello && b.profilo_livello.startsWith('mantenimento')))
             .map(b => ({ book: b, agenda: getAzioniOggi(b) }))
             .filter(x => x.agenda !== null)
           return (
@@ -2599,7 +2598,7 @@ onChange={(e) => {
   const giorno = new Date().getDay()
   const giornoLabel = ['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'][giorno]
   const agendaOggi = books
-    .filter(b => b.profilo_livello === 'attivo' || b.profilo_livello === 'mantenimento')
+    .filter(b => b.profilo_livello === 'attivo' || (b.profilo_livello && b.profilo_livello.startsWith('mantenimento')))
     .map(b => ({ book: b, agenda: getAzioniOggi(b) }))
     .filter(x => x.agenda !== null)
 
@@ -2925,7 +2924,7 @@ onChange={(e) => {
               <div style={tableWrap}>
                 <table style={tableLarge}><thead><tr><th style={th}>ID</th><th style={th}>Nome</th><th style={th}>Intestatario</th><th style={th}>Saldo</th><th style={th}>Note</th><th style={th}>Azioni</th></tr></thead><tbody>
                   {filteredBooks.map((book) => {
-  const livBadge = book.profilo_livello === 'attivo' ? { bg: 'rgba(34,197,94,0.18)', color: '#22c55e', label: '🟢' } : book.profilo_livello === 'mantenimento' ? { bg: 'rgba(251,191,36,0.18)', color: '#fbbf24', label: '🟡' } : book.profilo_livello === 'dormiente' ? { bg: 'rgba(100,116,139,0.18)', color: '#94a3b8', label: '⚫' } : null
+  const livBadge = book.profilo_livello === 'attivo' ? { bg: 'rgba(34,197,94,0.18)', color: '#22c55e', label: '🟢' } : (book.profilo_livello && book.profilo_livello.startsWith('mantenimento')) ? { bg: 'rgba(251,191,36,0.18)', color: '#fbbf24', label: '🟡' } : book.profilo_livello === 'dormiente' ? { bg: 'rgba(100,116,139,0.18)', color: '#94a3b8', label: '⚫' } : null
   return <tr key={book.id} style={tr}><td style={td}>{book.id}</td><td style={tdStrong}><div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>{livBadge && <span title={book.profilo_livello} style={{ background: livBadge.bg, color: livBadge.color, padding: '2px 7px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }} onClick={() => setActiveTab('profilazione')}>{livBadge.label}</span>}{book.nome}</div></td><td style={td}>{book.intestatario || '-'}</td><td style={td}>{formatCurrency(book.saldo)}</td><td style={tdNote}><textarea defaultValue={book.note || ''} onBlur={(e) => updateNote('books', book.id, e.target.value)} style={{ ...noteTextarea, color: getNoteColor(book.note) }} /></td><td style={tdActions}><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button style={tinyGreenButton} onClick={() => openQuickBookTx(book, 'versa')}>Versa</button><button style={tinyBlueButton} onClick={() => openQuickBookTx(book, 'preleva')}>Preleva</button><button style={tinyOrangeButton} onClick={() => { setSelectedBook(book); resetAdjustSaldoForm(book); setShowAdjustSaldoModal(true) }}>Correggi saldo</button><button style={tinyRedButton} onClick={() => handleDeleteBook(book)}>Elimina</button></div></td></tr>
 })}
                 </tbody></table>
