@@ -407,8 +407,13 @@ async function autoAssegnaProfiloDefault(booksData) {
     const classe = getClasseBook(b.nome)
     return { id: b.id, profilo_livello: `mantenimento-${classe.toLowerCase()}` }
   })
-  for (const upd of updates) {
-    await supabase.from('books').update({ profilo_livello: upd.profilo_livello }).eq('id', upd.id)
+  // Batch da 50 per non sovraccaricare Supabase
+  const batchSize = 50
+  for (let i = 0; i < updates.length; i += batchSize) {
+    const batch = updates.slice(i, i + batchSize)
+    await Promise.all(batch.map(upd =>
+      supabase.from('books').update({ profilo_livello: upd.profilo_livello }).eq('id', upd.id)
+    ))
   }
   setBooks(prev => prev.map(b => {
     const upd = updates.find(u => u.id === b.id)
@@ -2719,8 +2724,7 @@ onChange={(e) => {
                   <td style={{ ...td, maxWidth: 280 }}>
                     <div style={{ fontSize: 12, color: '#94a3b8' }}>
                       <div style={{ color: '#38bdf8', fontWeight: 700, marginBottom: 4 }}>{proto.durata}</div>
-                      {proto.azioni.slice(0, 3).map((a, i) => <div key={i} style={{ marginBottom: 2 }}>• {a}</div>)}
-                      {proto.azioni.length > 3 && <div style={{ color: '#64748b' }}>+{proto.azioni.length - 3} altre azioni</div>}
+                      {proto.azioni.map((a, i) => <div key={i} style={{ marginBottom: 2 }}>• {a}</div>)}
                     </div>
                   </td>
                   <td style={td}>{formatCurrency(proto.capitale_min)}</td>
