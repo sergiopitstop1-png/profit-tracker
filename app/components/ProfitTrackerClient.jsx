@@ -2164,29 +2164,35 @@ const cassaDisponibile =
                           gruppi[az].push(book)
                         })
                       })
+                      const [apertoPopup, setApertoPopup] = React.useState(null)
                       return (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                           {Object.entries(gruppi).map(([azione, bookList]) => {
                             const perBook = {}
                             bookList.forEach(b => {
                               if (!perBook[b.nome]) perBook[b.nome] = []
                               perBook[b.nome].push(b.intestatario)
                             })
+                            const isOpen = apertoPopup === azione
                             return (
-                              <div key={azione} style={{ background: 'rgba(11,18,32,0.8)', border: '1px solid rgba(51,65,85,0.75)', borderRadius: 12, overflow: 'hidden' }}>
-                                <div style={{ padding: '8px 14px', borderBottom: '1px solid rgba(51,65,85,0.4)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                                  <span style={{ color: '#38bdf8', fontSize: 13 }}>→</span>
-                                  <span style={{ fontWeight: 800, color: '#f8fafc', fontSize: 13 }}>{azione}</span>
-                                  <span style={{ marginLeft: 'auto', fontSize: 11, color: '#64748b' }}>{bookList.length} account</span>
+                              <div key={azione} style={{ background: 'rgba(11,18,32,0.8)', border: `1px solid ${isOpen ? 'rgba(56,189,248,0.4)' : 'rgba(51,65,85,0.75)'}`, borderRadius: 12, overflow: 'hidden' }}>
+                                <div onClick={() => setApertoPopup(isOpen ? null : azione)}
+                                  style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
+                                  <span style={{ color: '#38bdf8', fontSize: 12, display: 'inline-block', transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
+                                  <span style={{ fontWeight: 700, color: '#f8fafc', fontSize: 13 }}>{azione}</span>
+                                  <span style={{ marginLeft: 'auto', fontSize: 11, background: 'rgba(56,189,248,0.12)', color: '#38bdf8', padding: '2px 8px', borderRadius: 6, fontWeight: 700 }}>{bookList.length}</span>
                                 </div>
-                                <div style={{ padding: '6px 14px', display: 'flex', flexDirection: 'column', gap: 3 }}>
-                                  {Object.entries(perBook).map(([bookNome, intestatari]) => (
-                                    <div key={bookNome} style={{ fontSize: 12, color: '#cbd5e1' }}>
-                                      <span style={{ color: '#38bdf8', fontWeight: 700 }}>{bookNome}</span>
-                                      <span style={{ color: '#94a3b8' }}> — {intestatari.join(', ')}</span>
-                                    </div>
-                                  ))}
-                                </div>
+                                {isOpen && (
+                                  <div style={{ padding: '4px 14px 10px', borderTop: '1px solid rgba(51,65,85,0.4)', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                    {Object.entries(perBook).map(([bookNome, intestatari]) => (
+                                      <div key={bookNome} style={{ fontSize: 12, color: '#cbd5e1', padding: '2px 0' }}>
+                                        <span style={{ color: '#38bdf8', fontWeight: 700 }}>{bookNome}</span>
+                                        <span style={{ color: '#64748b' }}> — </span>
+                                        <span style={{ color: '#94a3b8' }}>{intestatari.join(', ')}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             )
                           })}
@@ -2680,29 +2686,35 @@ onChange={(e) => {
                 gruppi[az].push({ book, badge: agenda.badge })
               })
             })
+            const [aperto, setAperto] = React.useState(null)
             return (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {Object.entries(gruppi).map(([azione, items]) => {
                   const perBook = {}
                   items.forEach(({ book }) => {
                     if (!perBook[book.nome]) perBook[book.nome] = []
                     perBook[book.nome].push(book.intestatario)
                   })
+                  const isOpen = aperto === azione
                   return (
-                    <div key={azione} style={{ background: 'rgba(11,18,32,0.7)', borderRadius: 12, border: '1px solid rgba(51,65,85,0.6)', overflow: 'hidden' }}>
-                      <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(51,65,85,0.4)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ color: '#38bdf8', fontSize: 13 }}>→</span>
-                        <span style={{ fontWeight: 800, color: '#f8fafc', fontSize: 13 }}>{azione}</span>
-                        <span style={{ marginLeft: 'auto', fontSize: 12, color: '#64748b' }}>{items.length} account</span>
+                    <div key={azione} style={{ background: 'rgba(11,18,32,0.7)', borderRadius: 12, border: `1px solid ${isOpen ? 'rgba(56,189,248,0.4)' : 'rgba(51,65,85,0.6)'}`, overflow: 'hidden' }}>
+                      <div onClick={() => setAperto(isOpen ? null : azione)}
+                        style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
+                        <span style={{ color: '#38bdf8', fontSize: 13, transition: 'transform 0.2s', display: 'inline-block', transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
+                        <span style={{ fontWeight: 700, color: '#f8fafc', fontSize: 13 }}>{azione}</span>
+                        <span style={{ marginLeft: 'auto', fontSize: 12, background: 'rgba(56,189,248,0.12)', color: '#38bdf8', padding: '2px 8px', borderRadius: 6, fontWeight: 700 }}>{items.length}</span>
                       </div>
-                      <div style={{ padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        {Object.entries(perBook).map(([bookNome, intestatari]) => (
-                          <div key={bookNome} style={{ fontSize: 12, color: '#cbd5e1' }}>
-                            <span style={{ color: '#38bdf8', fontWeight: 700 }}>{bookNome}</span>
-                            <span style={{ color: '#94a3b8' }}> — {intestatari.join(', ')}</span>
-                          </div>
-                        ))}
-                      </div>
+                      {isOpen && (
+                        <div style={{ padding: '4px 14px 12px', borderTop: '1px solid rgba(51,65,85,0.4)', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                          {Object.entries(perBook).map(([bookNome, intestatari]) => (
+                            <div key={bookNome} style={{ fontSize: 12, color: '#cbd5e1', padding: '3px 0' }}>
+                              <span style={{ color: '#38bdf8', fontWeight: 700 }}>{bookNome}</span>
+                              <span style={{ color: '#64748b' }}> — </span>
+                              <span style={{ color: '#94a3b8' }}>{intestatari.join(', ')}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )
                 })}
