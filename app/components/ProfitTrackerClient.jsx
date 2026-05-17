@@ -298,7 +298,7 @@ const PROTOCOLLI = {
   'goldbet': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Prova sempre codici ricarica', 'Chiedi promozioni direttamente al book', 'Attenzione: stesso gruppo Lottomatica'] },
   'planetwin365': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Prova sempre codici ricarica', 'Main Sport fondamentale per promo'] },
   'eurobet': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Prova sempre codici ricarica', 'Main Sport fondamentale per promo'] },
-  'snai': { durata: 'continuativo', capitale_min: 300, azioni: ['Prepara il sito prima della promo con movimentazione preliminare', 'Mini sessioni slot 30-40€ a spin bassi', 'Gioca 1k sui numeri', 'Incastro 500€ per entrare nello step 3 (30%)', '2-3 mini sessioni slot a spin bassi', 'Fai la promo poco prima della scadenza per limitare rischio book', 'Dopo mezzanotte sblocca saldo incastrato + mini sessioni slot', 'Rigioca il bonus il prima possibile', 'Slot consigliate: Savage Jungle / Wild Lava / Solar (se funzionanti)', 'Alternativa: Savage Jungle 400€ + Wild Lava 150€ se Solar non funziona'] },
+  'snai': { durata: 'continuativo', capitale_min: 300, azioni: ['Mini sessioni slot 30-40€ a spin bassi', 'Volume slot settimanale — spin bassi, alto RTP', 'Gioca sui numeri', 'Tutte le VXT disponibili', 'Dosa il conto: quando ricevi promo usala e porta a casa', 'Preleva e lascia meno di 50€ quando opportuno'] },
   'bet365': { durata: 'continuativo', capitale_min: 800, azioni: ['Multipla in doppia da 800€ programma fedeltà', 'Quote max 1.70', 'Utilizza quote in discesa', 'Controlla testa a testa tra squadre', 'Controlla classifiche e ultime 5 partite', 'Usa Diretta.it per costruire le multiple', 'Sport Expert: condizionate semplici per ottimi guadagni', 'Preparati per fase PRE Mondiali'] },
   'codere': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Attenzione: può richiedere documentazione aggiuntiva', 'Utilizza amici con documentazione facile se richiesto', 'Usa volume di gioco per la metà di quello fatto su Sisal'] },
   'starcasino': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Prova sempre codici ricarica'] },
@@ -331,7 +331,7 @@ function hashBook(bookId, settimana) {
 function getGiornoAssegnato(book, frequenzaSettimane) {
   const settimana = getSettimanaAnno()
   const ciclo = Math.floor(settimana / frequenzaSettimane)
-  const seed = hashBook(book.id, ciclo)
+  const seed = hashBook(book.id, ciclo * 7 + 13)
   return seed % 7
 }
 
