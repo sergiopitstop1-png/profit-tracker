@@ -2144,22 +2144,43 @@ const cassaDisponibile =
                   <div style={{ color: '#94a3b8', textAlign: 'center', padding: '24px 0' }}>Nessuna azione prevista per oggi 🎉</div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    {bookiConAzioni.map(({ book, agenda }) => (
-                      <div key={book.id} style={{ background: 'rgba(11,18,32,0.8)', border: '1px solid rgba(51,65,85,0.75)', borderRadius: 14, padding: '12px 16px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                          <span style={{ fontSize: 13, fontWeight: 800, color: '#f8fafc' }}>{book.nome}</span>
-                          <span style={{ fontSize: 11, color: '#94a3b8' }}>{book.intestatario}</span>
-                          <span style={{ marginLeft: 'auto', fontSize: 11, background: agenda.tipo === 'attivo' ? 'rgba(34,197,94,0.18)' : 'rgba(251,191,36,0.18)', color: agenda.tipo === 'attivo' ? '#22c55e' : '#fbbf24', padding: '2px 8px', borderRadius: 6, fontWeight: 700 }}>{agenda.badge}</span>
+                    {(() => {
+                      const gruppi = {}
+                      bookiConAzioni.forEach(({ book, agenda }) => {
+                        agenda.azioni.forEach(az => {
+                          if (!gruppi[az]) gruppi[az] = []
+                          gruppi[az].push(book)
+                        })
+                      })
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                          {Object.entries(gruppi).map(([azione, bookList]) => {
+                            const perBook = {}
+                            bookList.forEach(b => {
+                              if (!perBook[b.nome]) perBook[b.nome] = []
+                              perBook[b.nome].push(b.intestatario)
+                            })
+                            return (
+                              <div key={azione} style={{ background: 'rgba(11,18,32,0.8)', border: '1px solid rgba(51,65,85,0.75)', borderRadius: 12, overflow: 'hidden' }}>
+                                <div style={{ padding: '8px 14px', borderBottom: '1px solid rgba(51,65,85,0.4)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <span style={{ color: '#38bdf8', fontSize: 13 }}>→</span>
+                                  <span style={{ fontWeight: 800, color: '#f8fafc', fontSize: 13 }}>{azione}</span>
+                                  <span style={{ marginLeft: 'auto', fontSize: 11, color: '#64748b' }}>{bookList.length} account</span>
+                                </div>
+                                <div style={{ padding: '6px 14px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                  {Object.entries(perBook).map(([bookNome, intestatari]) => (
+                                    <div key={bookNome} style={{ fontSize: 12, color: '#cbd5e1' }}>
+                                      <span style={{ color: '#38bdf8', fontWeight: 700 }}>{bookNome}</span>
+                                      <span style={{ color: '#94a3b8' }}> — {intestatari.join(', ')}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )
+                          })}
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          {agenda.azioni.map((az, i) => (
-                            <div key={i} style={{ fontSize: 13, color: '#cbd5e1', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
-                              <span style={{ color: '#38bdf8', marginTop: 1 }}>→</span>{az}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
+                      )
+                    })()}
                   </div>
                 )}
                 <div style={{ display: 'flex', gap: 10, marginTop: 16, justifyContent: 'flex-end' }}>
@@ -2639,22 +2660,43 @@ onChange={(e) => {
       {agendaOggi.length > 0 && (
         <div style={{ background: 'rgba(29,78,216,0.12)', border: '1px solid rgba(29,78,216,0.35)', borderRadius: 16, padding: '16px 20px', marginBottom: 16 }}>
           <div style={{ fontSize: 14, fontWeight: 800, color: '#93c5fd', marginBottom: 12 }}>📋 {giornoLabel} — {agendaOggi.length} account da movimentare oggi <span style={{ fontSize: 12, fontWeight: 400, color: '#64748b' }}>({agendaOggi.filter(x => x.agenda.tipo === 'attivo').length} attivi · {agendaOggi.filter(x => x.agenda.tipo !== 'attivo').length} mantenimento)</span></div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {agendaOggi.map(({ book, agenda }) => (
-              <div key={book.id} style={{ background: 'rgba(11,18,32,0.7)', borderRadius: 12, padding: '10px 14px', border: '1px solid rgba(51,65,85,0.6)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                  <span style={{ fontWeight: 800, color: '#f8fafc', fontSize: 13 }}>{book.nome}</span>
-                  <span style={{ color: '#94a3b8', fontSize: 12 }}>{book.intestatario}</span>
-                  <span style={{ marginLeft: 'auto', fontSize: 11, background: agenda.tipo === 'attivo' ? 'rgba(34,197,94,0.18)' : 'rgba(251,191,36,0.18)', color: agenda.tipo === 'attivo' ? '#22c55e' : '#fbbf24', padding: '2px 8px', borderRadius: 6, fontWeight: 700 }}>{agenda.badge}</span>
-                </div>
-                {agenda.azioni.map((az, i) => (
-                  <div key={i} style={{ fontSize: 12, color: '#cbd5e1', display: 'flex', gap: 6, marginBottom: 2 }}>
-                    <span style={{ color: '#38bdf8' }}>→</span>{az}
-                  </div>
-                ))}
+          {(() => {
+            const gruppi = {}
+            agendaOggi.forEach(({ book, agenda }) => {
+              agenda.azioni.forEach(az => {
+                if (!gruppi[az]) gruppi[az] = []
+                gruppi[az].push({ book, badge: agenda.badge })
+              })
+            })
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {Object.entries(gruppi).map(([azione, items]) => {
+                  const perBook = {}
+                  items.forEach(({ book }) => {
+                    if (!perBook[book.nome]) perBook[book.nome] = []
+                    perBook[book.nome].push(book.intestatario)
+                  })
+                  return (
+                    <div key={azione} style={{ background: 'rgba(11,18,32,0.7)', borderRadius: 12, border: '1px solid rgba(51,65,85,0.6)', overflow: 'hidden' }}>
+                      <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(51,65,85,0.4)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ color: '#38bdf8', fontSize: 13 }}>→</span>
+                        <span style={{ fontWeight: 800, color: '#f8fafc', fontSize: 13 }}>{azione}</span>
+                        <span style={{ marginLeft: 'auto', fontSize: 12, color: '#64748b' }}>{items.length} account</span>
+                      </div>
+                      <div style={{ padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {Object.entries(perBook).map(([bookNome, intestatari]) => (
+                          <div key={bookNome} style={{ fontSize: 12, color: '#cbd5e1' }}>
+                            <span style={{ color: '#38bdf8', fontWeight: 700 }}>{bookNome}</span>
+                            <span style={{ color: '#94a3b8' }}> — {intestatari.join(', ')}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
-            ))}
-          </div>
+            )
+          })()}
         </div>
       )}
 
