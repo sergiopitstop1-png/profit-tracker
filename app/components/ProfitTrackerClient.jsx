@@ -75,6 +75,9 @@ const [voiceTranscript, setVoiceTranscript] = useState('')
 const [voiceStatus, setVoiceStatus] = useState('')
   const [isListeningContinuous, setIsListeningContinuous] = useState(false)
 const [listBuffer, setListBuffer] = useState('')
+const [profilazioneFilter, setProfilazioneFilter] = useState({ intestatario: '', book: '', livello: '' })
+const [profilazioneSearch, setProfilazioneSearch] = useState('')
+const [savingProfilo, setSavingProfilo] = useState({})
   useEffect(() => {
   initSession()
   loadData()
@@ -147,6 +150,51 @@ useEffect(() => {
 
   return () => clearInterval(interval)
 }, [sessionToken])
+
+const PROTOCOLLI = {
+  'sisal': { durata: '2 mesi', capitale_min: 200, azioni: ['Ricarica 200€ a settimane alterne ad inizio settimana', 'Volume slot 800–1000/sett (mine o alto RTP)', 'Posizione perdente 500€ una volta al mese', 'Live numeri 300–500€ a settimane alterne', 'Tutte le VXT', 'Dosa il conto: quando ricevi promo usala e porta a casa'] },
+  'pokerstars': { durata: '2 mesi', capitale_min: 200, azioni: ['Ricarica 200€ a settimane alterne ad inizio settimana', 'Volume slot 800–1000/sett (mine o alto RTP)', 'Posizione perdente 500€ una volta al mese', 'Live numeri 300–500€ a settimane alterne', 'Tutte le VXT'] },
+  'netbet': { durata: '1 mese', capitale_min: 200, azioni: ['Ricarica 200€ ad inizio settimana', 'Volume slot 250–300/sett', '2-3 bet extra mese da almeno 20€', 'Tutte le VXT', 'Numeri 100–200€ a settimane alterne con 4 amici', 'Preleva e lascia meno di 50€ almeno 1 volta/mese'] },
+  'betflag': { durata: '1 ciclo', capitale_min: 2000, azioni: ['Volume 3–4k alla Take o giochi simili in un giorno', 'Ricarica almeno 2000€', 'Giorno dopo preleva e lascia conto FERMO con poco saldo per almeno 2 mesi'] },
+  'sportbet': { durata: '1 mese', capitale_min: 200, azioni: ['Ricarica 200€ ad inizio settimana', 'Volume slot 500/sett alto RTP spin basso', '2-3 bet extra mese da almeno 20€', 'Tutte le VXT', 'Giochi live NON copribili 200€', 'Preleva e lascia meno di 50€ almeno 1 volta/mese'] },
+  'totosi': { durata: '1 mese', capitale_min: 200, azioni: ['Ricarica almeno 200€', 'Volume slot 150–250/MESE', '2-3 bet extra mese da almeno 20€', 'Tutte le VXT', 'Preleva e lascia meno di 50€ una volta terminato'] },
+  'betsson': { durata: 'continuativo', capitale_min: 200, azioni: ['Tutte le cashback segnalate (bj: 2-3/sett)', 'Usa Sport Expert se possibile', '200–300€ ogni 14gg sui numeri', 'Dosa volumi in base a ricezione riservate', 'Ricarica almeno 200€', 'Volume slot 150–250/MESE', '2-3 bet extra mese da almeno 20€', 'Tutte le VXT', 'Preleva e lascia meno di 50€'] },
+  'william hill': { durata: 'continuativo', capitale_min: 0, azioni: ['2 promo per tutti dal lunedì al venerdì', 'Solo con sblocco saldo arrivano le promo', 'Se ricevi promo: max 2-3/settimana'] },
+  'admiral': { durata: 'continuativo', capitale_min: 500, azioni: ['Ricarica almeno 500€', '2 consecutive bet numeri da almeno 300€', 'Dove vinci fai volume slot da almeno 300€', 'Preleva e lascia conto con poco saldo'] },
+  'gioco digitale': { durata: 'continuativo', capitale_min: 200, azioni: ['Ricarica 200€ ad inizio settimana', 'Slot 100–200€', 'Casinò live a settimane alterne 100–200€ sui numeri', 'Max 3-4 promo ricarica al giorno (bug attivo)', 'Preleva e lascia con poco saldo ogni 14gg'] },
+  'bwin': { durata: 'continuativo', capitale_min: 500, azioni: ['Ricarica 500€ ad inizio mese', 'Slot 100–200€', 'Casinò live a settimane alterne 100–200€ sui numeri', '2-3 bet sport fino a 50€/mese', 'Preleva e lascia con poco saldo ogni 14gg'] },
+  'stanleybet': { durata: 'continuativo', capitale_min: 200, azioni: ['Ricarica 200€ ad inizio settimana', 'Volume slot 200–500€ ad inizio settimana', 'Sport 100–200€/sett se vuoi', 'Virtuali 150–200€ ogni 14gg per promo', 'Ricarica 200€ ad inizio settimana'] },
+  'lottomatica': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Se VIP e serve scossa: perdi 2-2.5k in una giornata', 'Prova sempre codici ricarica', 'Chiedi promozioni direttamente al book'] },
+  'goldbet': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Prova sempre codici ricarica', 'Chiedi promozioni direttamente al book'] },
+  'planetwin365': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Prova sempre codici ricarica'] },
+  'eurobet': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Prova sempre codici ricarica'] },
+  'snai': { durata: 'continuativo', capitale_min: 300, azioni: ['Prepara il sito prima della promo', 'Mini sessioni slot 30-40€ a spin bassi', 'Gioca 1k sui numeri', 'Incastro 500€ per step 3 (30%)', '2-3 mini sessioni slot a spin bassi', 'Fai la promo poco prima della scadenza', 'Sblocca saldo incastrato dopo mezzanotte', 'Rigioca il prima possibile il bonus', 'Slot: Savage Jungle / Wild Lava / Solar'] },
+  'bet365': { durata: 'continuativo', capitale_min: 800, azioni: ['Multipla in doppia da 800€ programma fedeltà', 'Quote max 1.70', 'Quote in discesa', 'Controlla testa a testa squadre', 'Controlla classifiche e ultime 5 partite'] },
+  'codere': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Attenzione: può richiedere documentazione aggiuntiva'] },
+  'starcasino': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale'] },
+  'default': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Ricarica periodica per mantenere conto attivo', 'Qualche bet sportiva mensile', 'Prova codici ricarica se disponibili'] }
+}
+
+function getProtocollo(nomeBook) {
+  const nome = (nomeBook || '').toLowerCase().replace(/\.it$/, '').trim()
+  for (const [key, proto] of Object.entries(PROTOCOLLI)) {
+    if (nome.includes(key)) return { ...proto, key }
+  }
+  return { ...PROTOCOLLI['default'], key: 'default' }
+}
+
+async function updateProfiloLivello(bookId, livello) {
+  setSavingProfilo(p => ({ ...p, [bookId]: true }))
+  const cicloInizio = livello === 'attivo' ? new Date().toISOString().split('T')[0] : null
+  const { error } = await supabase.from('books').update({
+    profilo_livello: livello,
+    profilo_ciclo_inizio: cicloInizio
+  }).eq('id', bookId)
+  if (!error) {
+    setBooks(prev => prev.map(b => b.id === bookId ? { ...b, profilo_livello: livello, profilo_ciclo_inizio: cicloInizio } : b))
+  }
+  setSavingProfilo(p => ({ ...p, [bookId]: false }))
+}
 
   async function loadData({ preserveMessages = false } = {}) {
     setLoading(true)
@@ -255,22 +303,16 @@ const externalWithdrawals = totaleEsterni
     }
   }
 const weeklyChartData = useMemo(() => {
-  return weeklySnapshots.map((item, index) => {
-    const prev = weeklySnapshots[index - 1]
-    const profitPeriodo = prev
-      ? Number(item.profit || 0) - Number(prev.profit || 0)
-      : Number(item.profit || 0)
-    return {
-      name: new Date(item.snapshot_date).toLocaleDateString('it-IT', {
-        day: '2-digit',
-        month: '2-digit'
-      }),
-      profit: Number(item.profit || 0),
-      profitPeriodo: profitPeriodo,
-      totalCash: Number(item.total_cash || 0)
-    }
-  })
+  return weeklySnapshots.map(item => ({
+    name: new Date(item.snapshot_date).toLocaleDateString('it-IT', {
+      day: '2-digit',
+      month: '2-digit'
+    }),
+    profit: Number(item.profit || 0),
+    totalCash: Number(item.total_cash || 0)
+  }))
 }, [weeklySnapshots])
+
 const weeklyProfitColor =
   weeklyChartData.length > 0 &&
   weeklyChartData[weeklyChartData.length - 1].profit < 0
@@ -1834,6 +1876,7 @@ const cassaDisponibile =
           <button style={activeTab === 'transactions' ? activeTabButton : tabButton} onClick={() => setActiveTab('transactions')}>Transactions</button>
           <button style={activeTab === 'periodi' ? activeTabButton : tabButton} onClick={() => setActiveTab('periodi')}>Periodi</button>
           <button style={activeTab === 'memo' ? activeTabButton : tabButton} onClick={() => setActiveTab('memo')}>Memo</button>
+          <button style={activeTab === 'profilazione' ? activeTabButton : tabButton} onClick={() => setActiveTab('profilazione')}>Profilazione</button>
          <button
   style={activeTab === 'stime-cassa' ? activeTabButton : tabButton}
   onClick={() => {
@@ -2172,14 +2215,6 @@ onChange={(e) => {
   strokeWidth={3}
   dot={{ r: 4 }}
 />
-   <Line
-  type="monotone"
-  dataKey="profitPeriodo"
-  stroke="#f59e0b"
-  strokeWidth={3}
-  dot={{ r: 4 }}
-  name="Profitto periodo"
-/>     
       </LineChart>
     </ResponsiveContainer>
   </div>
@@ -2253,6 +2288,139 @@ onChange={(e) => {
             </div>
           </div>
         )}
+       {activeTab === 'profilazione' && (() => {
+  const intestatari = [...new Set(books.map(b => b.intestatario).filter(Boolean))].sort()
+  const bookNomi = [...new Set(books.map(b => b.nome).filter(Boolean))].sort()
+  const livelli = ['', 'attivo', 'mantenimento', 'dormiente']
+
+  const filteredProf = books.filter(b => {
+    const matchInt = !profilazioneFilter.intestatario || (b.intestatario || '').toLowerCase().includes(profilazioneFilter.intestatario.toLowerCase())
+    const matchBook = !profilazioneFilter.book || (b.nome || '').toLowerCase().includes(profilazioneFilter.book.toLowerCase())
+    const matchLiv = !profilazioneFilter.livello || b.profilo_livello === profilazioneFilter.livello
+    const matchSearch = !profilazioneSearch || (b.nome || '').toLowerCase().includes(profilazioneSearch.toLowerCase()) || (b.intestatario || '').toLowerCase().includes(profilazioneSearch.toLowerCase())
+    return matchInt && matchBook && matchLiv && matchSearch
+  })
+
+  const totAttivi = books.filter(b => b.profilo_livello === 'attivo').length
+  const totMantenimento = books.filter(b => b.profilo_livello === 'mantenimento').length
+  const totDormienti = books.filter(b => b.profilo_livello === 'dormiente').length
+  const totNessuno = books.filter(b => !b.profilo_livello).length
+  const capitaleStimato = books.filter(b => b.profilo_livello === 'attivo').reduce((sum, b) => {
+    const proto = getProtocollo(b.nome)
+    return sum + (proto.capitale_min || 200)
+  }, 0)
+
+  const getLivelloBadge = (livello) => {
+    if (livello === 'attivo') return { bg: 'rgba(34,197,94,0.18)', color: '#22c55e', label: '🟢 Attivo' }
+    if (livello === 'mantenimento') return { bg: 'rgba(251,191,36,0.18)', color: '#fbbf24', label: '🟡 Mantenimento' }
+    if (livello === 'dormiente') return { bg: 'rgba(100,116,139,0.18)', color: '#94a3b8', label: '⚫ Dormiente' }
+    return { bg: 'rgba(51,65,85,0.3)', color: '#64748b', label: '— Non impostato' }
+  }
+
+  return (
+    <div style={tabContent}>
+      <div style={sectionTopBar}>
+        <div>
+          <h2 style={sectionTitle}>Profilazione</h2>
+          <p style={sectionDescription}>Gestisci il livello di profilazione per ogni account bookmaker</p>
+        </div>
+      </div>
+
+      <div style={statsGridCompact}>
+        <div style={{ background: 'rgba(34,197,94,0.10)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: 16, padding: '14px 18px' }}>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Attivi</div>
+          <div style={{ fontSize: 24, fontWeight: 800, color: '#22c55e' }}>{totAttivi}</div>
+        </div>
+        <div style={{ background: 'rgba(251,191,36,0.10)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 16, padding: '14px 18px' }}>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Mantenimento</div>
+          <div style={{ fontSize: 24, fontWeight: 800, color: '#fbbf24' }}>{totMantenimento}</div>
+        </div>
+        <div style={{ background: 'rgba(100,116,139,0.10)', border: '1px solid rgba(100,116,139,0.25)', borderRadius: 16, padding: '14px 18px' }}>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Dormienti</div>
+          <div style={{ fontSize: 24, fontWeight: 800, color: '#94a3b8' }}>{totDormienti}</div>
+        </div>
+        <div style={{ background: 'rgba(11,18,32,0.8)', border: '1px solid rgba(51,65,85,0.85)', borderRadius: 16, padding: '14px 18px' }}>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Non impostati</div>
+          <div style={{ fontSize: 24, fontWeight: 800, color: '#f8fafc' }}>{totNessuno}</div>
+        </div>
+        <div style={{ background: 'rgba(56,189,248,0.10)', border: '1px solid rgba(56,189,248,0.25)', borderRadius: 16, padding: '14px 18px' }}>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Capitale stimato attivi</div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: '#38bdf8' }}>{formatCurrency(capitaleStimato)}</div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+        <input style={filterInput} placeholder="Cerca book o intestatario..." value={profilazioneSearch} onChange={e => setProfilazioneSearch(e.target.value)} />
+        <select style={filterInput} value={profilazioneFilter.livello} onChange={e => setProfilazioneFilter(p => ({ ...p, livello: e.target.value }))}>
+          <option value="">Tutti i livelli</option>
+          <option value="attivo">🟢 Attivi</option>
+          <option value="mantenimento">🟡 Mantenimento</option>
+          <option value="dormiente">⚫ Dormienti</option>
+        </select>
+        <select style={filterInput} value={profilazioneFilter.intestatario} onChange={e => setProfilazioneFilter(p => ({ ...p, intestatario: e.target.value }))}>
+          <option value="">Tutti gli intestatari</option>
+          {intestatari.map(i => <option key={i} value={i}>{i}</option>)}
+        </select>
+        <button style={tinyBlueButton} onClick={() => { setProfilazioneFilter({ intestatario: '', book: '', livello: '' }); setProfilazioneSearch('') }}>Pulisci</button>
+      </div>
+
+      <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 10 }}>{filteredProf.length} account visualizzati</div>
+
+      <div style={tableWrap}>
+        <table style={table}>
+          <thead>
+            <tr>
+              <th style={th}>Book</th>
+              <th style={th}>Intestatario</th>
+              <th style={th}>Livello</th>
+              <th style={th}>Protocollo</th>
+              <th style={th}>Capitale min</th>
+              <th style={th}>Inizio ciclo</th>
+              <th style={thActions}>Azioni</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredProf.map(book => {
+              const proto = getProtocollo(book.nome)
+              const badge = getLivelloBadge(book.profilo_livello)
+              return (
+                <tr key={book.id} style={tr}>
+                  <td style={tdStrong}>{book.nome}</td>
+                  <td style={td}>{book.intestatario || '-'}</td>
+                  <td style={td}>
+                    <span style={{ background: badge.bg, color: badge.color, padding: '4px 10px', borderRadius: 8, fontSize: 12, fontWeight: 700 }}>{badge.label}</span>
+                  </td>
+                  <td style={{ ...td, maxWidth: 280 }}>
+                    <div style={{ fontSize: 12, color: '#94a3b8' }}>
+                      <div style={{ color: '#38bdf8', fontWeight: 700, marginBottom: 4 }}>{proto.durata}</div>
+                      {proto.azioni.slice(0, 3).map((a, i) => <div key={i} style={{ marginBottom: 2 }}>• {a}</div>)}
+                      {proto.azioni.length > 3 && <div style={{ color: '#64748b' }}>+{proto.azioni.length - 3} altre azioni</div>}
+                    </div>
+                  </td>
+                  <td style={td}>{formatCurrency(proto.capitale_min)}</td>
+                  <td style={{ ...td, fontSize: 12 }}>{book.profilo_ciclo_inizio || '—'}</td>
+                  <td style={tdActions}>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <button style={{ ...tinyGreenButton, opacity: book.profilo_livello === 'attivo' ? 0.4 : 1 }}
+                        disabled={savingProfilo[book.id] || book.profilo_livello === 'attivo'}
+                        onClick={() => updateProfiloLivello(book.id, 'attivo')}>Attivo</button>
+                      <button style={{ ...tinyOrangeButton, opacity: book.profilo_livello === 'mantenimento' ? 0.4 : 1 }}
+                        disabled={savingProfilo[book.id] || book.profilo_livello === 'mantenimento'}
+                        onClick={() => updateProfiloLivello(book.id, 'mantenimento')}>Mant.</button>
+                      <button style={{ ...tinyRedButton, background: book.profilo_livello === 'dormiente' ? '#334155' : undefined, opacity: book.profilo_livello === 'dormiente' ? 0.4 : 1 }}
+                        disabled={savingProfilo[book.id] || book.profilo_livello === 'dormiente'}
+                        onClick={() => updateProfiloLivello(book.id, 'dormiente')}>Dorm.</button>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+})()}
        {activeTab === 'stime-cassa' && canViewStimeCassa && (
   <div style={tabContent}>
     <div style={sectionTopBar}>
@@ -2418,7 +2586,10 @@ onChange={(e) => {
               </div>
               <div style={tableWrap}>
                 <table style={tableLarge}><thead><tr><th style={th}>ID</th><th style={th}>Nome</th><th style={th}>Intestatario</th><th style={th}>Saldo</th><th style={th}>Note</th><th style={th}>Azioni</th></tr></thead><tbody>
-                  {filteredBooks.map((book) => <tr key={book.id} style={tr}><td style={td}>{book.id}</td><td style={tdStrong}>{book.nome}</td><td style={td}>{book.intestatario || '-'}</td><td style={td}>{formatCurrency(book.saldo)}</td><td style={tdNote}><textarea defaultValue={book.note || ''} onBlur={(e) => updateNote('books', book.id, e.target.value)} style={{ ...noteTextarea, color: getNoteColor(book.note) }} /></td><td style={tdActions}><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button style={tinyGreenButton} onClick={() => openQuickBookTx(book, 'versa')}>Versa</button><button style={tinyBlueButton} onClick={() => openQuickBookTx(book, 'preleva')}>Preleva</button><button style={tinyOrangeButton} onClick={() => { setSelectedBook(book); resetAdjustSaldoForm(book); setShowAdjustSaldoModal(true) }}>Correggi saldo</button><button style={tinyRedButton} onClick={() => handleDeleteBook(book)}>Elimina</button></div></td></tr>)}
+                  {filteredBooks.map((book) => {
+  const livBadge = book.profilo_livello === 'attivo' ? { bg: 'rgba(34,197,94,0.18)', color: '#22c55e', label: '🟢' } : book.profilo_livello === 'mantenimento' ? { bg: 'rgba(251,191,36,0.18)', color: '#fbbf24', label: '🟡' } : book.profilo_livello === 'dormiente' ? { bg: 'rgba(100,116,139,0.18)', color: '#94a3b8', label: '⚫' } : null
+  return <tr key={book.id} style={tr}><td style={td}>{book.id}</td><td style={tdStrong}><div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>{livBadge && <span title={book.profilo_livello} style={{ background: livBadge.bg, color: livBadge.color, padding: '2px 7px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }} onClick={() => setActiveTab('profilazione')}>{livBadge.label}</span>}{book.nome}</div></td><td style={td}>{book.intestatario || '-'}</td><td style={td}>{formatCurrency(book.saldo)}</td><td style={tdNote}><textarea defaultValue={book.note || ''} onBlur={(e) => updateNote('books', book.id, e.target.value)} style={{ ...noteTextarea, color: getNoteColor(book.note) }} /></td><td style={tdActions}><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button style={tinyGreenButton} onClick={() => openQuickBookTx(book, 'versa')}>Versa</button><button style={tinyBlueButton} onClick={() => openQuickBookTx(book, 'preleva')}>Preleva</button><button style={tinyOrangeButton} onClick={() => { setSelectedBook(book); resetAdjustSaldoForm(book); setShowAdjustSaldoModal(true) }}>Correggi saldo</button><button style={tinyRedButton} onClick={() => handleDeleteBook(book)}>Elimina</button></div></td></tr>
+})}
                 </tbody></table>
               </div>
             </div>
