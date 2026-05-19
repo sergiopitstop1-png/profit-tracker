@@ -16,7 +16,8 @@ export default function Archivio() {
   const [filterType, setFilterType] = useState("all");
   const [checkingId, setCheckingId] = useState(null);
   const [verifyingAll, setVerifyingAll] = useState(false);
-const [verifyProgress, setVerifyProgress] = useState("");
+  const [verifyProgress, setVerifyProgress] = useState("");
+  const [clearingAll, setClearingAll] = useState(false);
 
   useEffect(() => { loadArchive(); }, []);
 
@@ -128,6 +129,17 @@ if (!m || !doneStatuses.includes(m.status)) { done++; continue; }
     setRecords(prev => prev.filter(r => r.id !== id));
   };
 
+  const clearArchive = async () => {
+    if (!confirm("⚠️ Sei sicuro di voler cancellare TUTTO l'archivio?\nQuesta operazione è irreversibile!")) return;
+    if (!confirm("🔴 ULTIMA CONFERMA — cancelli tutti i " + records.length + " pronostici salvati. Continuare?")) return;
+    setClearingAll(true);
+    try {
+      await supabase.from("pronox_archive").delete().neq("id", 0);
+      setRecords([]);
+    } catch (e) { console.error(e); }
+    setClearingAll(false);
+  };
+
   const filtered = records.filter(r => {
     if (filterStatus !== "all" && r.status !== filterStatus) return false;
     if (filterType !== "all" && r.prediction_type !== filterType) return false;
@@ -212,6 +224,12 @@ if (!m || !doneStatuses.includes(m.status)) { done++; continue; }
           <div style={{ display: "flex", alignItems: "flex-end" }}>
             <button onClick={loadArchive} style={{ padding: "9px 16px", borderRadius: 8, border: "1px solid #2a2f3f", background: "transparent", color: "#6b7490", cursor: "pointer", fontSize: 13 }}>
               ↺ Aggiorna
+            </button>
+          </div>
+          <div style={{ display: "flex", alignItems: "flex-end" }}>
+            <button onClick={clearArchive} disabled={clearingAll || records.length === 0}
+              style={{ padding: "9px 16px", borderRadius: 8, border: "1px solid rgba(255,92,92,0.4)", background: "rgba(255,92,92,0.08)", color: "#ff5c5c", cursor: clearingAll || records.length === 0 ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 700, opacity: records.length === 0 ? 0.4 : 1 }}>
+              {clearingAll ? "⏳ Cancello..." : "🗑 Azzera archivio"}
             </button>
           </div>
         </div>
