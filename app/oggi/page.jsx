@@ -181,13 +181,30 @@ function getSignals(probs) {
 
 // ─── ODDS API: mappa lega → oddsKey e matcha per nome squadra ──
 
-async function fetchOddsForLeague(oddsKey, date) {
+async function fetchOddsForLeague(oddsKey, date, supabaseClient) {
   if (!oddsKey) return {};
+
+  // Controlla cache Supabase — valida 6 ore
+  try {
+    const { data: cached } = await supabaseClient
+      .from("pronox_odds_cache")
+      .select("data, updated_at")
+      .eq("league_key", oddsKey)
+      .eq("match_date", date)
+      .single();
+
+    if (cached) {
+      const ageHours = (Date.now() - new Date(cached.updated_at).getTime()) / (1000 * 60 * 60);
+      if (ageHours < 6) return cached.data; // cache valida
+    }
+  } catch (e) {}
+
+  // Cache scaduta o assente — chiama API
   try {
     const r = await fetch(`${API_ODDS}?endpoint=sports/${oddsKey}/odds&regions=eu&markets=h2h,totals&dateFormat=iso&oddsFormat=decimal`);
     const data = await r.json();
     if (!Array.isArray(data)) return {};
-    // Filtra per data
+
     const dayStart = new Date(date + "T00:00:00Z").getTime();
     const dayEnd = new Date(date + "T23:59:59Z").getTime();
     const oddsMap = {};
@@ -195,7 +212,6 @@ async function fetchOddsForLeague(oddsKey, date) {
       const gameTime = new Date(game.commence_time).getTime();
       if (gameTime < dayStart || gameTime > dayEnd) return;
       const key = `${game.home_team}__${game.away_team}`;
-      // Estrai quote medie h2h e totals
       let o1 = null, oX = null, o2 = null, oOver25 = null, oUnder25 = null;
       game.bookmakers?.forEach(bk => {
         bk.markets?.forEach(mkt => {
@@ -214,9 +230,21 @@ async function fetchOddsForLeague(oddsKey, date) {
           }
         });
       });
-      oddsMap[key] = { o1, oX, o2, oOver25, oUnder25,
-        homeTeam: game.home_team, awayTeam: game.away_team };
+      oddsMap[key] = { o1, oX, o2, oOver25, oUnder25, homeTeam: game.home_team, awayTeam: game.away_team };
     });
+
+    // Salva in cache
+    if (Object.keys(oddsMap).length > 0) {
+      try {
+        await supabaseClient.from("pronox_odds_cache").upsert({
+          league_key: oddsKey,
+          match_date: date,
+          data: oddsMap,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "league_key,match_date" });
+      } catch (e) {}
+    }
+
     return oddsMap;
   } catch (e) { return {}; }
 }
@@ -385,7 +413,7 @@ export default function Oggi() {
       const league = LEAGUES.find(l => l.code === code);
       if (!league?.oddsKey) continue;
       setProgress(`Carico quote ${league.flag} ${league.name}...`);
-      allOdds[code] = await fetchOddsForLeague(league.oddsKey, date);
+      allOdds[code] = await fetchOddsForLeague(league.oddsKey, date, supabase);
     }
 
     const findTeamRating = (teamId, teamName, primaryCode) => {
