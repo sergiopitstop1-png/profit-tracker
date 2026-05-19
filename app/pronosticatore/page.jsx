@@ -22,6 +22,12 @@ const LEAGUES = [
   { code: "CLI", name: "Copa Libertadores", flag: "🌎" },
   { code: "EC", name: "European Championship", flag: "🇪🇺" },
   { code: "WC", name: "FIFA World Cup", flag: "🌍" },
+  { code: "ALL", name: "Allsvenskan", flag: "🇸🇪" },
+  { code: "TIP", name: "Eliteserien", flag: "🇳🇴" },
+  { code: "VEI", name: "Veikkausliiga", flag: "🇫🇮" },
+  { code: "DSU", name: "Superliga", flag: "🇩🇰" },
+  { code: "MLS", name: "MLS", flag: "🇺🇸" },
+  { code: "JJL", name: "J-League", flag: "🇯🇵" },
 ];
 
 function poisson(k, lambda) {
@@ -42,7 +48,8 @@ function calcProbs(lH, lA, max = 8) {
       if (i > 0 && j > 0) btts += p;
     }
   }
-  return { h, d, a, o25, u25: 1 - o25, btts, bttsNo: 1 - btts };
+  const o05ht = Math.min(0.18 + (lH + lA) * 0.14, 0.96);
+  return { h, d, a, o25, u25: 1 - o25, btts, bttsNo: 1 - btts, o05ht };
 }
 
 function calcRatings(matches) {
@@ -102,7 +109,7 @@ function getSignals(probs) {
   if (probs.o25 > 0.65) signals.push({ label: "OVER 2.5", type: "OVER", prob: probs.o25, color: "#4af0c4", strong: probs.o25 > 0.72 });
   if (probs.btts > 0.60) signals.push({ label: "BTTS SÌ", type: "BTTS", prob: probs.btts, color: "#4af0c4", strong: probs.btts > 0.68 });
   if (probs.u25 > 0.65) signals.push({ label: "UNDER 2.5", type: "UNDER", prob: probs.u25, color: "#ffd060", strong: probs.u25 > 0.75 });
-  // OVER 0.5 HT rimosso — troppi falsi positivi
+  if (probs.o05ht > 0.90) signals.push({ label: "OVER 0.5 HT", type: "OVER", prob: probs.o05ht, color: "#ffd060", strong: true });
   signals.sort((a, b) => b.prob - a.prob);
   return signals;
 }
@@ -119,7 +126,7 @@ export default function Pronosticatore() {
   const [filteredH, setFilteredH] = useState([]);
   const [filteredA, setFilteredA] = useState([]);
   const [result, setResult] = useState(null);
-  const [odds, setOdds] = useState({ o1: "", oX: "", o2: "", oOver25: "", oBTTS: "" });
+  const [odds, setOdds] = useState({ o1: "", oX: "", o2: "", oOver25: "", oBTTS: "", oO05HT: "" });
   const [pick, setPick] = useState("h");
   const [savingKey, setSavingKey] = useState(null);
   const [savedKeys, setSavedKeys] = useState({});
@@ -166,8 +173,8 @@ export default function Pronosticatore() {
     const { lH, lA } = getLambdas(teamH, teamA, ratings.lgAvgHome, ratings.lgAvgAway);
     const probs = calcProbs(lH, lA);
     const signals = getSignals(probs);
-    const pickProbs = { h: probs.h, d: probs.d, a: probs.a, o25: probs.o25, u25: probs.u25, btts: probs.btts, bttsNo: probs.bttsNo };
-    const pickOdds = { h: odds.o1, d: odds.oX, a: odds.o2, o25: odds.oOver25, u25: odds.oOver25, btts: odds.oBTTS, bttsNo: odds.oBTTS };
+    const pickProbs = { h: probs.h, d: probs.d, a: probs.a, o25: probs.o25, u25: probs.u25, btts: probs.btts, bttsNo: probs.bttsNo, o05ht: probs.o05ht };
+    const pickOdds = { h: odds.o1, d: odds.oX, a: odds.o2, o25: odds.oOver25, u25: odds.oOver25, btts: odds.oBTTS, bttsNo: odds.oBTTS, o05ht: odds.oO05HT };
     const myProb = pickProbs[pick];
     const myOdd = parseFloat(pickOdds[pick]) || 0;
     const myEv = myOdd > 1 ? ev(myProb, myOdd) : null;
@@ -228,7 +235,7 @@ export default function Pronosticatore() {
     } catch (e) { console.error(e); setPianoKeys(prev => ({ ...prev, [key]: null })); }
   };
 
-  const pickLabels = { h: "Casa vince", d: "Pareggio", a: "Ospite vince", o25: "Over 2.5", u25: "Under 2.5", btts: "BTTS Sì", bttsNo: "BTTS No" };
+  const pickLabels = { h: "Casa vince", d: "Pareggio", a: "Ospite vince", o25: "Over 2.5", u25: "Under 2.5", btts: "BTTS Sì", bttsNo: "BTTS No", o05ht: "Over 0.5 HT" };
   const teamCount = ratings ? Object.keys(ratings.teams).length : 0;
 
   return (
@@ -346,7 +353,7 @@ export default function Pronosticatore() {
                   <input type="number" step="0.01" value={odds[k]} onChange={e => setOdds({ ...odds, [k]: e.target.value })} placeholder="2.10" style={inp} />
                 </div>
               ))}
-              {[["Over 2.5", "oOver25"], ["BTTS Sì", "oBTTS"]].map(([l, k]) => (
+              {[["Over 2.5", "oOver25"], ["BTTS Sì", "oBTTS"], ["Over 0.5 HT", "oO05HT"]].map(([l, k]) => (
                 <div key={k}>
                   <label style={lbl}>{l}</label>
                   <input type="number" step="0.01" value={odds[k]} onChange={e => setOdds({ ...odds, [k]: e.target.value })} placeholder="1.85" style={inp} />
