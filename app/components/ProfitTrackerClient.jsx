@@ -173,7 +173,7 @@ function getClasseBook(nomeBook) {
   }
   return 'C'
 }
-const SOLO_CASINO_LIST = ['gioco digitale','starcasino','betflag','tombola','zonagioco','perlaplay']
+const SOLO_CASINO_LIST = ['gioco digitale','giocodigitale','starcasino','betflag','tombola','zonagioco','perlaplay']
 function isSoloCasino(nomeBook) {
   const nome = (nomeBook || '').toLowerCase().replace(/\.it$/, '').trim()
   return SOLO_CASINO_LIST.some(k => nome.includes(k))
