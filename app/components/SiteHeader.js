@@ -9,7 +9,7 @@ export default function SiteHeader() {
           <p className="text-sm text-white/60">Strategia. Metodo. Operatività.</p>
         </a>
 
-        <nav className="hidden gap-6 text-sm text-white/75 md:flex">
+        <nav className="flex flex-wrap justify-end gap-3 text-xs text-white/75 md:gap-6 md:text-sm">
           <a href="/" className="transition hover:text-orange-300">Home</a>
           <a href="/chi-sono" className="transition hover:text-orange-300">Chi Sono</a>
           <a href="/servizi" className="transition hover:text-orange-300">Servizi</a>
