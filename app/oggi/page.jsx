@@ -22,6 +22,12 @@ const LEAGUES = [
   { code: "CLI", name: "Copa Libertadores", flag: "🌎" },
   { code: "EC", name: "European Championship", flag: "🇪🇺" },
   { code: "WC", name: "FIFA World Cup", flag: "🌍" },
+  { code: "ALL", name: "Allsvenskan", flag: "🇸🇪" },
+  { code: "TIP", name: "Eliteserien", flag: "🇳🇴" },
+  { code: "VEI", name: "Veikkausliiga", flag: "🇫🇮" },
+  { code: "DSU", name: "Superliga", flag: "🇩🇰" },
+  { code: "MLS", name: "MLS", flag: "🇺🇸" },
+  { code: "JJL", name: "J-League", flag: "🇯🇵" },
 ];
 
 const DOMESTIC_LEAGUES = ["SA", "PL", "BL1", "PD", "FL1", "ELC", "DED", "PPL"];
@@ -57,9 +63,9 @@ function calcProbs(lH, lA, max = 8) {
       if (i > 0 && j > 0) btts += p;
     }
   }
-  // Normalizza
+  const o05ht = Math.min(0.18 + (lH + lA) * 0.14, 0.96);
   const tot = h + d + a;
-  return { h: h/tot, d: d/tot, a: a/tot, o25, u25: 1 - o25, btts };
+  return { h: h/tot, d: d/tot, a: a/tot, o25, u25: 1 - o25, btts, o05ht };
 }
 
 // Calcola peso temporale: partite recenti pesano di più
@@ -204,7 +210,7 @@ function getSignals(probs) {
   if (probs.o25 > 0.65) signals.push({ label: "OVER 2.5", type: "OVER", prob: probs.o25, color: "#4af0c4", strong: probs.o25 > 0.72 });
   if (probs.btts > 0.60) signals.push({ label: "BTTS SÌ", type: "BTTS", prob: probs.btts, color: "#4af0c4", strong: probs.btts > 0.68 });
   if (probs.u25 > 0.65) signals.push({ label: "UNDER 2.5", type: "UNDER", prob: probs.u25, color: "#ffd060", strong: probs.u25 > 0.75 });
-  // OVER 0.5 HT rimosso — troppi falsi positivi
+  if (probs.o05ht > 0.90) signals.push({ label: "OVER 0.5 HT", type: "OVER", prob: probs.o05ht, color: "#ffd060", strong: true });
   signals.sort((a, b) => b.prob - a.prob);
   return signals;
 }
