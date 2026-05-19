@@ -5,7 +5,7 @@ const projects = [
   {
     title: "🔥 PronoX",
     status: "Online",
-    text: "Motore di analisi calcistica basato su dati reali, Poisson, forma squadre, probabilità e futura integrazione delle quote bookmaker.",
+    text: "Motore di analisi calcistica basato su dati reali, Poisson, forma squadre, probabilità e integrazione delle quote bookmaker.",
     href: "/oggi",
   },
   {
