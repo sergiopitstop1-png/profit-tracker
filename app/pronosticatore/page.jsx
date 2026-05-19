@@ -135,7 +135,9 @@ export default function Pronosticatore() {
     setFilteredH([]); setFilteredA([]);
     setSavedKeys({});
     try {
-      const r = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&season=2025`);
+      const SOUTH_AM = ["CLI", "BSA"];
+const season = SOUTH_AM.includes(code) ? "2024" : "2025";
+const r = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&season=${season}`);
       const d = await r.json();
       const { teams, lgAvgHome, lgAvgAway } = calcRatings(d.matches || []);
       setRatings({ teams, lgAvgHome, lgAvgAway });
