@@ -95,7 +95,8 @@ const manualVerify = async (id, outcome) => {
       const r = await fetch(`${API_FD}?endpoint=matches/${record.match_id}`);
       const d = await r.json();
       const m = d.match || d;
-      if (!m || m.status !== "FINISHED") { done++; continue; }
+      const doneStatuses = ["FINISHED", "AWARDED", "CANCELLED"];
+if (!m || !doneStatuses.includes(m.status)) { done++; continue; }
       const ftHome = m.score?.fullTime?.home ?? 0;
       const ftAway = m.score?.fullTime?.away ?? 0;
       const htHome = m.score?.halfTime?.home ?? 0;
