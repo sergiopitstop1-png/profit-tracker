@@ -27,7 +27,7 @@ const LEAGUES = [
 const DOMESTIC_LEAGUES = ["SA", "PL", "BL1", "PD", "FL1", "ELC", "DED", "PPL"];
 const CUP_LEAGUES = ["CL", "EC", "WC", "CLI"];
 
-// ─── MODELLO MIGLIORATO ───────────────────────────────────────
+// ─── MODELLO ───────────────────────────────────────────────────
 
 function poisson(k, lambda) {
   let p = Math.exp(-lambda);
@@ -57,16 +57,15 @@ function calcProbs(lH, lA, max = 8) {
       if (i > 0 && j > 0) btts += p;
     }
   }
-  const o05ht = Math.min(0.18 + (lH + lA) * 0.14, 0.92);
   // Normalizza
   const tot = h + d + a;
-  return { h: h/tot, d: d/tot, a: a/tot, o25, u25: 1 - o25, btts, o05ht };
+  return { h: h/tot, d: d/tot, a: a/tot, o25, u25: 1 - o25, btts };
 }
 
 // Calcola peso temporale: partite recenti pesano di più
 function timeWeight(matchDate, refDate) {
   const days = (new Date(refDate) - new Date(matchDate)) / (1000 * 60 * 60 * 24);
-  return Math.exp(-days / 90); // dimezza ogni 90 giorni
+  return Math.exp(-days / 90);
 }
 
 function calcRatings(matches, refDate) {
@@ -83,7 +82,6 @@ function calcRatings(matches, refDate) {
   
   if (finished.length === 0) return { teams, lgAvgHome: 1.35, lgAvgAway: 1.1 };
   
-  // Calcola medie ponderate per lega
   let totWHome = 0, totWAway = 0, sumWHome = 0, sumWAway = 0;
   
   finished.forEach(m => {
@@ -106,11 +104,9 @@ function calcRatings(matches, refDate) {
       form: [], lastMatches: []
     };
     
-    // Pesi temporali per gol
     teams[hId].hGF += hG * w; teams[hId].hGA += aG * w; teams[hId].hW += w;
     teams[aId].aGF += aG * w; teams[aId].aGA += hG * w; teams[aId].aW += w;
     
-    // Forma: risultato ponderato
     const hRes = hG > aG ? "W" : hG === aG ? "D" : "L";
     const aRes = aG > hG ? "W" : aG === hG ? "D" : "L";
     teams[hId].form.push({ res: hRes, w, date: m.utcDate });
@@ -131,14 +127,12 @@ function calcRatings(matches, refDate) {
     t.attA = t.aW > 0 ? (t.aGF / t.aW) / lgAvgAway : 1;
     t.defA = t.aW > 0 ? (t.aGA / t.aW) / lgAvgHome : 1;
     
-    // Forma recente (ultimi 5 pesata)
     t.form.sort((a, b) => new Date(b.date) - new Date(a.date));
     const last5 = t.form.slice(0, 5);
     const formScore = last5.reduce((s, f) => s + (f.res === "W" ? 3 : f.res === "D" ? 1 : 0), 0);
     t.formRating = last5.length > 0 ? formScore / (last5.length * 3) : 0.5;
     t.formStr = last5.map(f => f.res).join("");
     
-    // Vantaggio casa reale
     const hAvg = t.hW > 0 ? t.hGF / t.hW : lgAvgHome;
     const aAvg = t.aW > 0 ? t.aGF / t.aW : lgAvgAway;
     t.homeAdvantage = hAvg > 0 && aAvg > 0 ? hAvg / aAvg : 1.1;
@@ -159,7 +153,7 @@ function calcH2H(allMatches, teamHId, teamAId) {
       (m.homeTeam.id === teamHId && m.awayTeam.id === teamAId) ||
       (m.homeTeam.id === teamAId && m.awayTeam.id === teamHId)
     )
-  ).slice(-6); // ultimi 6 scontri
+  ).slice(-6);
   
   if (h2h.length === 0) return { bias: 0, count: 0 };
   
@@ -181,50 +175,38 @@ function calcH2H(allMatches, teamHId, teamAId) {
 }
 
 function getLambdas(teamH, teamA, lgAvgHome, lgAvgAway, h2hBias) {
-  // Base Dixon-Coles
   let lH = teamH.attH * teamA.defA * lgAvgHome;
   let lA = teamA.attA * teamH.defH * lgAvgAway;
   
-  // Aggiusta per vantaggio casa reale della squadra di casa
   const homeAdv = Math.min(Math.max(teamH.homeAdvantage, 0.8), 1.4);
   lH *= homeAdv;
   
-  // Aggiusta per forma recente (max ±15%)
   const formFactorH = 0.85 + (teamH.formRating * 0.30);
   const formFactorA = 0.85 + (teamA.formRating * 0.30);
   lH *= formFactorH;
   lA *= formFactorA;
   
-  // Aggiusta per H2H (max ±8%)
   lH *= (1 + h2hBias);
   lA *= (1 - h2hBias);
   
-  // Limiti ragionevoli
-  lH = Math.max(0.3, Math.min(4.5, lH));
-  lA = Math.max(0.3, Math.min(4.5, lA));
+  // Cap lambda a 3.0 per evitare sovrastime
+  lH = Math.max(0.3, Math.min(3.0, lH));
+  lA = Math.max(0.3, Math.min(3.0, lA));
   
   return { lH, lA };
 }
 
 function getSignals(probs) {
   const signals = [];
-  if (probs.h > 0.55) signals.push({ label: "CASA VINCE", type: "1X2", prob: probs.h, color: "#c8f135", strong: probs.h > 0.65 });
-  if (probs.a > 0.50) signals.push({ label: "OSPITE VINCE", type: "1X2", prob: probs.a, color: "#c8f135", strong: probs.a > 0.60 });
-  if (probs.o25 > 0.58) signals.push({ label: "OVER 2.5", type: "OVER", prob: probs.o25, color: "#4af0c4", strong: probs.o25 > 0.68 });
-  if (probs.btts > 0.55) signals.push({ label: "BTTS SÌ", type: "BTTS", prob: probs.btts, color: "#4af0c4", strong: probs.btts > 0.65 });
-  if (probs.o05ht > 0.70) signals.push({ label: "OVER 0.5 HT", type: "OVER", prob: probs.o05ht, color: "#ffd060", strong: probs.o05ht > 0.80 });
-  if (probs.u25 > 0.62) signals.push({ label: "UNDER 2.5", type: "UNDER", prob: probs.u25, color: "#ffd060", strong: probs.u25 > 0.72 });
-  if (probs.o05ht >= 0.70 && probs.u25 >= 0.48 && probs.o25 <= 0.56 && probs.btts <= 0.58) {
-    signals.push({ label: "TRADING O0.5 HT → U2.5 LIVE", type: "TRADING", prob: probs.o05ht, color: "#ff9f43", strong: probs.o05ht >= 0.78 && probs.u25 >= 0.52 });
-  }
+  // Soglie alzate per migliorare win rate
+  if (probs.h > 0.62) signals.push({ label: "CASA VINCE", type: "1X2", prob: probs.h, color: "#c8f135", strong: probs.h > 0.72 });
+  if (probs.a > 0.55) signals.push({ label: "OSPITE VINCE", type: "1X2", prob: probs.a, color: "#c8f135", strong: probs.a > 0.65 });
+  if (probs.o25 > 0.65) signals.push({ label: "OVER 2.5", type: "OVER", prob: probs.o25, color: "#4af0c4", strong: probs.o25 > 0.72 });
+  if (probs.btts > 0.60) signals.push({ label: "BTTS SÌ", type: "BTTS", prob: probs.btts, color: "#4af0c4", strong: probs.btts > 0.68 });
+  if (probs.u25 > 0.65) signals.push({ label: "UNDER 2.5", type: "UNDER", prob: probs.u25, color: "#ffd060", strong: probs.u25 > 0.75 });
+  // OVER 0.5 HT rimosso — troppi falsi positivi
   signals.sort((a, b) => b.prob - a.prob);
   return signals;
-}
-
-async function fetchLeagueMatches(code) {
-  const r = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&season=2025`);
-  const d = await r.json();
-  return d.matches || [];
 }
 
 async function getSeasonData(code, supabaseClient) {
@@ -232,7 +214,6 @@ async function getSeasonData(code, supabaseClient) {
   const SOUTH_AM = ["CLI", "BSA"];
   const season = SOUTH_AM.includes(code) ? "2024" : "2025";
   
-  // Prova a leggere dalla cache
   try {
     const { data: cached } = await supabaseClient
       .from("pronox_cache")
@@ -243,24 +224,19 @@ async function getSeasonData(code, supabaseClient) {
     
     if (cached) {
       const cacheDate = cached.updated_at?.split("T")[0];
-      // Cache valida se aggiornata oggi
-      if (cacheDate === today) {
-        return cached.data;
-      }
+      if (cacheDate === today) return cached.data;
     }
   } catch (e) {}
   
-  // Fetch fresco con retry
   let matches = [];
   for (let attempt = 0; attempt < 4; attempt++) {
-    const r = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&season=2025`);
+    const r = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&season=${season}`);
     const d = await r.json();
     matches = d.matches || [];
     if (matches.length > 0) break;
     if (attempt < 3) await new Promise(r => setTimeout(r, 2000));
   }
   
-  // Salva in cache se abbiamo dati
   if (matches.length > 0) {
     try {
       await supabaseClient.from("pronox_cache").upsert({
@@ -279,7 +255,7 @@ async function getSeasonData(code, supabaseClient) {
 
 export default function Oggi() {
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
-  const [selectedLeagues, setSelectedLeagues] = useState([]); // nessuna selezionata di default
+  const [selectedLeagues, setSelectedLeagues] = useState([]);
   const [matches, setMatches] = useState([]);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState("");
@@ -301,7 +277,6 @@ export default function Oggi() {
     const all = [];
     const today = date;
 
-    // Carica leghe domestiche se ci sono coppe
     const needsDomestic = selectedLeagues.some(c => CUP_LEAGUES.includes(c));
     const leaguesToLoad = needsDomestic
       ? [...new Set([...selectedLeagues, ...DOMESTIC_LEAGUES])]
@@ -364,7 +339,6 @@ export default function Oggi() {
         lgAvgAway = allAvgs[code]?.lgAvgAway || 1.1;
       }
 
-      // Tutti i match della stagione per H2H
       const seasonMatchesForH2H = allMatches[code] || [];
 
       for (const fix of fixtures) {
@@ -434,7 +408,7 @@ export default function Oggi() {
       const r = await fetch(`${API_FD}?endpoint=matches/${match.fdId}`);
       const d = await r.json();
       const m = d.match || d;
-      if (!m || m.status !== "FINISHED") { alert("Partita non ancora terminata!"); setCheckingId(null); return; }
+      if (!m || m.status !== "FINISHED") { setCheckingId(null); return; }
       const ftHome = m.score?.fullTime?.home ?? 0;
       const ftAway = m.score?.fullTime?.away ?? 0;
       const htHome = m.score?.halfTime?.home ?? 0;
@@ -445,7 +419,6 @@ export default function Oggi() {
       else if (signal.label === "OSPITE VINCE") outcome = ftAway > ftHome ? "WIN" : "LOSS";
       else if (signal.label === "OVER 2.5") outcome = total > 2.5 ? "WIN" : "LOSS";
       else if (signal.label === "UNDER 2.5") outcome = total < 2.5 ? "WIN" : "LOSS";
-      else if (signal.label === "OVER 0.5 HT") outcome = (htHome + htAway) > 0 ? "WIN" : "LOSS";
       else if (signal.label === "BTTS SÌ") outcome = ftHome > 0 && ftAway > 0 ? "WIN" : "LOSS";
       else if (signal.label === "TRADING O0.5 HT → U2.5 LIVE") outcome = (htHome + htAway) >= 1 && total <= 2 ? "WIN" : "LOSS";
       await supabase.from("pronox_archive")
@@ -478,7 +451,7 @@ export default function Oggi() {
   const filtered = matches.filter(m => {
     if (filter === "signal") return m.signals.length > 0;
     if (filter === "strong") return m.signals.some(s => s.strong);
-    if (filter === "over") return m.probs.o25 > 0.58;
+    if (filter === "over") return m.probs.o25 > 0.65;
     if (filter === "trading") return m.signals.some(s => s.type === "TRADING");
     return true;
   });
@@ -495,14 +468,9 @@ export default function Oggi() {
           PRONO<span style={{ color: "#c8f135" }}>X</span>
           <span style={{ fontSize: 13, fontWeight: 400, color: "#6b7490" }}> · partite del giorno</span>
         </h1>
-        <div style={{
-  fontSize: 11,
-  color: "#6b7490",
-  marginBottom: 12,
-  letterSpacing: "0.08em"
-}}>
-  © Sergio Apicella · PronoX 2026
-</div>
+        <div style={{ fontSize: 11, color: "#6b7490", marginBottom: 12, letterSpacing: "0.08em" }}>
+          © Sergio Apicella · PronoX 2026
+        </div>
         <div style={{ display: "flex", gap: 16, marginBottom: 20 }}>
           <a href="/" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>← home</a>
           <a href="/pronosticatore" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>⚽ analisi manuale</a>
