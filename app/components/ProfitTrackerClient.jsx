@@ -2174,9 +2174,15 @@ const cassaDisponibile =
                           gruppi[az].push(book)
                         })
                       })
+                      const ORDINE_P = ['Ricarica conto','Ricarica 200€ (settimane alterne)','Sessione slot 20€+ (spin bassi)','Sessione slot 5-10€','Sessione slot 5-10€ (spin bassi)','1 bet sportiva (qualsiasi importo)','1 bet sportiva piccola','1 bet da 5-10€ (solo presenza)','Preleva e lascia meno di 50€ (se saldo alto)']
+                      const gruppiOrdinatiP = Object.entries(gruppi).sort(([a], [b]) => {
+                        const ia = ORDINE_P.findIndex(o => a.toLowerCase().includes(o.toLowerCase()))
+                        const ib = ORDINE_P.findIndex(o => b.toLowerCase().includes(o.toLowerCase()))
+                        return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
+                      })
                       return (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          {Object.entries(gruppi).map(([azione, bookList]) => {
+                          {gruppiOrdinatiP.map(([azione, bookList]) => {
                             const perBook = {}
                             bookList.forEach(b => {
                               if (!perBook[b.nome]) perBook[b.nome] = []
@@ -2696,8 +2702,10 @@ onChange={(e) => {
               })
             })
             return (
+            const ORDINE = ['Ricarica conto','Ricarica 200€ (settimane alterne)','Sessione slot 20€+ (spin bassi)','Sessione slot 5-10€','Sessione slot 5-10€ (spin bassi)','1 bet sportiva (qualsiasi importo)','1 bet sportiva piccola','1 bet da 5-10€ (solo presenza)','Preleva e lascia meno di 50€ (se saldo alto)']
+            const gruppiOrdinati = Object.entries(gruppi).sort(([a], [b]) => { const ia = ORDINE.findIndex(o => a.toLowerCase().includes(o.toLowerCase())); const ib = ORDINE.findIndex(o => b.toLowerCase().includes(o.toLowerCase())); return (ia===-1?99:ia)-(ib===-1?99:ib) })
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {Object.entries(gruppi).map(([azione, items]) => {
+                {gruppiOrdinati.map(([azione, items]) => {
                   const perBook = {}
                   items.forEach(({ book }) => {
                     if (!perBook[book.nome]) perBook[book.nome] = []
