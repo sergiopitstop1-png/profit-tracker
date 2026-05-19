@@ -1,13 +1,12 @@
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
-  const sport = searchParams.get("sport") || "soccer";
-  const endpoint = searchParams.get("endpoint") || "odds";
+  const endpoint = searchParams.get("endpoint") || "sports";
 
   const params = new URLSearchParams(searchParams);
   params.delete("endpoint");
-  params.delete("sport");
+  params.set("apiKey", process.env.ODDS_API_KEY);
 
-  const apiUrl = `https://api.the-odds-api.com/v4/sports/${sport}/${endpoint}?apiKey=${process.env.ODDS_API_KEY}&${params.toString()}`;
+  const apiUrl = `https://api.the-odds-api.com/v4/${endpoint}?${params.toString()}`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
