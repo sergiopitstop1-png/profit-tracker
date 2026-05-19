@@ -188,7 +188,7 @@ const manualVerify = async (id, outcome) => {
     </button>
   </div>
 )}
-        )}
+       
 
         {/* Filtri */}
         <div style={{ background: "#161920", border: "1px solid #2a2f3f", borderRadius: 12, padding: 16, marginBottom: 16, display: "flex", gap: 12, flexWrap: "wrap" }}>
