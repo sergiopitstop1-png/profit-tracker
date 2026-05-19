@@ -15,6 +15,9 @@ export default function ArticlePage() {
         <h1 className="mt-4 text-4xl font-bold leading-tight md:text-6xl">
           Come trovare partite Over 0.5 Primo Tempo con valore statistico
         </h1>
+        <p className="mt-5 text-white/50">
+  di Sergio Apicella
+</p>
 
         <p className="mt-6 text-lg leading-8 text-white/70">
           L’Over 0.5 Primo Tempo è uno dei mercati più giocati nel calcio live e pre-match.
