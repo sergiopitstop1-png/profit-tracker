@@ -14,7 +14,7 @@ const posts = [
     category: "Strategie",
     excerpt:
       "Capire il valore reale di una quota è molto più importante del semplice pronostico.",
-    href: "#",
+    href: "/blog/value-bet-spiegazione",
   },
   {
   title: "PronoX: quando la matematica incontra il calcio",
