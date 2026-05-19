@@ -2701,9 +2701,9 @@ onChange={(e) => {
                 gruppi[az].push({ book, badge: agenda.badge })
               })
             })
-            return (
             const ORDINE = ['Ricarica conto','Ricarica 200€ (settimane alterne)','Sessione slot 20€+ (spin bassi)','Sessione slot 5-10€','Sessione slot 5-10€ (spin bassi)','1 bet sportiva (qualsiasi importo)','1 bet sportiva piccola','1 bet da 5-10€ (solo presenza)','Preleva e lascia meno di 50€ (se saldo alto)']
             const gruppiOrdinati = Object.entries(gruppi).sort(([a], [b]) => { const ia = ORDINE.findIndex(o => a.toLowerCase().includes(o.toLowerCase())); const ib = ORDINE.findIndex(o => b.toLowerCase().includes(o.toLowerCase())); return (ia===-1?99:ia)-(ib===-1?99:ib) })
+            return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {gruppiOrdinati.map(([azione, items]) => {
                   const perBook = {}
