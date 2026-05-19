@@ -146,7 +146,34 @@ export default function SergioApicellaHomepage() {
           </a>
         </div>
       </section>
+<section className="mx-auto max-w-6xl px-6 py-14">
 
+  <div className="rounded-3xl border border-orange-400/20 bg-orange-500/10 p-8">
+
+    <p className="text-sm uppercase tracking-[0.2em] text-orange-300">
+      Collaborazioni
+    </p>
+
+    <h2 className="mt-3 text-3xl font-bold">
+      Hai un progetto operativo da costruire?
+    </h2>
+
+    <p className="mt-4 max-w-3xl text-white/70">
+      Automazioni, dashboard, sistemi statistici, organizzazione operativa,
+      workflow intelligenti o idee digitali da sviluppare.
+      Se il progetto ha senso, possiamo costruirlo davvero.
+    </p>
+
+    <a
+      href="mailto:sergio.apicella.lavoro@gmail.com?subject=Richiesta%20informazioni%20da%20sergioapicella.it"
+      className="mt-6 inline-block rounded-2xl bg-orange-500 px-6 py-4 font-semibold text-white transition hover:scale-[1.02] hover:bg-orange-400"
+    >
+      Contattami
+    </a>
+
+  </div>
+
+</section>
       <SiteFooter />
     </main>
   );
