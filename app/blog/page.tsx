@@ -17,12 +17,12 @@ const posts = [
     href: "#",
   },
   {
-    title: "Dietro PronoX: come nasce un pronosticatore statistico",
-    category: "Progetti",
-    excerpt:
-      "Dati, automazioni, probabilità e struttura tecnica dietro il progetto PronoX.",
-    href: "#",
-  },
+  title: "PronoX: quando la matematica incontra il calcio",
+  category: "PronoX",
+  excerpt:
+    "Il motore matematico dietro PronoX: Poisson, Dixon-Coles, value betting e probabilità reali.",
+  href: "/blog/pronox-matematica-calcio",
+},
 ];
 
 export default function BlogPage() {
