@@ -162,7 +162,7 @@ const CLASSI_BOOK = {
   C: ['admiral','codere','betpoint','staryes','sportium','vincitu','marathonbet','domusbet','betpassion'],
 }
 const MANUTENZIONE = {
-  A: { label: 'Serie A', frequenza: 'Bet ogni 2 sett · Ricarica+Slot ogni mese', azioni: ['1 bet sportiva ogni 2 settimane (giorno random)', 'Ricarica conto + sessione slot 5-10€ ogni mese (stesso giorno)'] },
+  A: { label: 'Serie A', frequenza: 'Slot 20€ ogni 10gg · Ricarica ogni mese · Bet solo Bet365/Planet ogni 2 sett', azioni: ['Sessione slot 20€+ ogni 10 giorni (esclusi Bet365 e Planetwin)', 'Ricarica conto ogni mese', 'Bet365 e Planetwin: anche 1 bet sportiva ogni 2 settimane'] },
   B: { label: 'Serie B', frequenza: 'Bet ogni mese · Ricarica+Slot ogni 45gg', azioni: ['1 bet sportiva al mese (giorno random)', 'Ricarica conto + sessione slot 5-10€ ogni 45 giorni (stesso giorno)'] },
   C: { label: 'Serie C', frequenza: 'Bet ogni 45gg · Ricarica+Slot ogni 3 mesi', azioni: ['1 bet da 5-10€ ogni 45 giorni (giorno random)', 'Ricarica conto + sessione slot 5-10€ ogni 3 mesi (stesso giorno)'] }
 }
@@ -365,18 +365,25 @@ function getAzioniOggi(book) {
     const classeEffettiva = livello === 'mantenimento-a' ? 'A' : livello === 'mantenimento-b' ? (isSoloCasino(book.nome) ? 'B_CASINO' : 'B') : livello === 'mantenimento-c' ? 'C' : classe
 
     if (classeEffettiva === 'A') {
-      // Serie A: bet ogni 14gg + ricarica+slot ogni 30gg
-      // Giorno zero = 18 maggio 2026
       const oggi2 = new Date()
       const GIORNO_ZERO = new Date('2026-05-18')
       const giorniDaZero = Math.floor((oggi2 - GIORNO_ZERO) / (1000 * 60 * 60 * 24))
-      // offset per book: distribuisce i book su tutto il ciclo
+      const nomeBook = (book.nome || '').toLowerCase().replace(/\.it$/, '').trim()
+      const isBet365oPlanet = nomeBook.includes('bet365') || nomeBook.includes('planetwin')
+      // Ricarica: ogni 30gg
+      const offsetRicarica = hashBook(book.id, 202) % 30
+      const isRicaricaDay = (giorniDaZero - offsetRicarica) % 30 === 0
+      // Slot: ogni 10gg da almeno 20€ (tutti Serie A tranne bet365/planet)
+      const offsetSlot = hashBook(book.id, 303) % 10
+      const isSlotDay = !isBet365oPlanet && (giorniDaZero - offsetSlot) % 10 === 0
+      // Bet: solo bet365 e planet, ogni 14gg
       const offsetBet = hashBook(book.id, 101) % 14
-      const offsetSlot = hashBook(book.id, 202) % 30
-      const isBetDay = (giorniDaZero - offsetBet) % 14 === 0
-      const isSlotDay = (giorniDaZero - offsetSlot) % 30 === 0
-      if (isSlotDay) return { tipo: 'manutenzione-a', azioni: ['Ricarica conto', 'Sessione slot 5-10€ (spin bassi)'], badge: '🟡 Mant. A' }
-      if (isBetDay && !isSlotDay) return { tipo: 'manutenzione-a', azioni: ['1 bet sportiva (qualsiasi importo)'], badge: '🟡 Mant. A' }
+      const isBetDay = isBet365oPlanet && (giorniDaZero - offsetBet) % 14 === 0
+      if (isRicaricaDay && isSlotDay) return { tipo: 'manutenzione-a', azioni: ['Ricarica conto', 'Sessione slot 20€+ (spin bassi)'], badge: '🟡 Mant. A' }
+      if (isRicaricaDay && !isSlotDay && !isBetDay) return { tipo: 'manutenzione-a', azioni: ['Ricarica conto'], badge: '🟡 Mant. A' }
+      if (isSlotDay && !isRicaricaDay) return { tipo: 'manutenzione-a', azioni: ['Sessione slot 20€+ (spin bassi)'], badge: '🟡 Mant. A' }
+      if (isBetDay && isRicaricaDay) return { tipo: 'manutenzione-a', azioni: ['Ricarica conto', '1 bet sportiva (qualsiasi importo)'], badge: '🟡 Mant. A' }
+      if (isBetDay) return { tipo: 'manutenzione-a', azioni: ['1 bet sportiva (qualsiasi importo)'], badge: '🟡 Mant. A' }
       return null
     }
 
