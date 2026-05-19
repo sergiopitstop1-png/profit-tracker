@@ -11,7 +11,7 @@ const projects = [
   {
     title: "📈 Profit Tracker",
     status: "Area riservata",
-    text: "Web app per gestire bookmaker, wallet, movimenti, cassa, profitti, prelievi, royalty e controllo operativo.",
+    text: "Web app per gestire attività, wallet, movimenti, cassa, profitti, prelievi, royalty e controllo operativo.",
     href: "/profit-tracker",
   },
   {
@@ -33,10 +33,10 @@ const projects = [
     href: null,
   },
   {
-    title: "📚 Un amore fra due mondi",
-    status: "Narrativo",
-    text: "Progetto letterario tra tecnologia, coscienza artificiale, memoria, identità e futuro dell’uomo.",
-    href: null,
+    title: "🖋️ Alessandro Vitale",
+  status: "Creativo",
+  text: "Alessandro Vitale è il lato narrativo e visionario del progetto: uno spazio dove idee, tecnologia, memoria e immaginazione si incontrano per dare forma a storie e visioni del futuro.",
+  href: null,
   },
 ];
 
