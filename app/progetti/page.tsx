@@ -21,10 +21,10 @@ const projects = [
     href: null,
   },
   {
-    title: "⚡ Multiaccount Management",
-    status: "In evoluzione",
-    text: "Sistema organizzativo per coordinare account, bookmaker, operazioni, workflow e monitoraggio quotidiano.",
-    href: null,
+    title: "⚡ Workflow Operativi",
+  status: "In evoluzione",
+  text: "Strumenti e processi progettati per migliorare organizzazione, monitoraggio dati, automazioni e gestione operativa quotidiana.",
+  href: null,
   },
   {
     title: "🧪 Laboratorio Automazioni",
