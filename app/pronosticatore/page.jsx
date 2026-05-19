@@ -42,8 +42,7 @@ function calcProbs(lH, lA, max = 8) {
       if (i > 0 && j > 0) btts += p;
     }
   }
-  const o05ht = Math.min(0.18 + (lH + lA) * 0.14, 0.92);
-  return { h, d, a, o25, u25: 1 - o25, btts, bttsNo: 1 - btts, o05ht };
+  return { h, d, a, o25, u25: 1 - o25, btts, bttsNo: 1 - btts };
 }
 
 function calcRatings(matches) {
@@ -82,8 +81,11 @@ function calcRatings(matches) {
 }
 
 function getLambdas(teamH, teamA, lgAvgHome, lgAvgAway) {
-  const lH = teamH.attH * teamA.defA * lgAvgHome;
-  const lA = teamA.attA * teamH.defH * lgAvgAway;
+  let lH = teamH.attH * teamA.defA * lgAvgHome;
+  let lA = teamA.attA * teamH.defH * lgAvgAway;
+  // Cap lambda a 3.0 per evitare sovrastime
+  lH = Math.max(0.3, Math.min(3.0, lH));
+  lA = Math.max(0.3, Math.min(3.0, lA));
   return { lH, lA };
 }
 
@@ -94,15 +96,13 @@ function ev(prob, odd) {
 
 function getSignals(probs) {
   const signals = [];
-  if (probs.h > 0.55) signals.push({ label: "CASA VINCE", type: "1X2", prob: probs.h, color: "#c8f135", strong: probs.h > 0.65 });
-  if (probs.a > 0.50) signals.push({ label: "OSPITE VINCE", type: "1X2", prob: probs.a, color: "#c8f135", strong: probs.a > 0.60 });
-  if (probs.o25 > 0.58) signals.push({ label: "OVER 2.5", type: "OVER", prob: probs.o25, color: "#4af0c4", strong: probs.o25 > 0.68 });
-  if (probs.btts > 0.55) signals.push({ label: "BTTS SÌ", type: "BTTS", prob: probs.btts, color: "#4af0c4", strong: probs.btts > 0.65 });
-  if (probs.o05ht > 0.70) signals.push({ label: "OVER 0.5 HT", type: "OVER", prob: probs.o05ht, color: "#ffd060", strong: probs.o05ht > 0.80 });
-  if (probs.u25 > 0.62) signals.push({ label: "UNDER 2.5", type: "UNDER", prob: probs.u25, color: "#ffd060", strong: probs.u25 > 0.72 });
-  if (probs.o05ht >= 0.70 && probs.u25 >= 0.48 && probs.o25 <= 0.56 && probs.btts <= 0.58) {
-    signals.push({ label: "TRADING O0.5 HT → U2.5 LIVE", type: "TRADING", prob: probs.o05ht, color: "#ff9f43", strong: probs.o05ht >= 0.78 && probs.u25 >= 0.52 });
-  }
+  // Soglie alzate per migliorare win rate
+  if (probs.h > 0.62) signals.push({ label: "CASA VINCE", type: "1X2", prob: probs.h, color: "#c8f135", strong: probs.h > 0.72 });
+  if (probs.a > 0.55) signals.push({ label: "OSPITE VINCE", type: "1X2", prob: probs.a, color: "#c8f135", strong: probs.a > 0.65 });
+  if (probs.o25 > 0.65) signals.push({ label: "OVER 2.5", type: "OVER", prob: probs.o25, color: "#4af0c4", strong: probs.o25 > 0.72 });
+  if (probs.btts > 0.60) signals.push({ label: "BTTS SÌ", type: "BTTS", prob: probs.btts, color: "#4af0c4", strong: probs.btts > 0.68 });
+  if (probs.u25 > 0.65) signals.push({ label: "UNDER 2.5", type: "UNDER", prob: probs.u25, color: "#ffd060", strong: probs.u25 > 0.75 });
+  // OVER 0.5 HT rimosso — troppi falsi positivi
   signals.sort((a, b) => b.prob - a.prob);
   return signals;
 }
@@ -119,7 +119,7 @@ export default function Pronosticatore() {
   const [filteredH, setFilteredH] = useState([]);
   const [filteredA, setFilteredA] = useState([]);
   const [result, setResult] = useState(null);
-  const [odds, setOdds] = useState({ o1: "", oX: "", o2: "", oOver25: "", oBTTS: "", oO05HT: "" });
+  const [odds, setOdds] = useState({ o1: "", oX: "", o2: "", oOver25: "", oBTTS: "" });
   const [pick, setPick] = useState("h");
   const [savingKey, setSavingKey] = useState(null);
   const [savedKeys, setSavedKeys] = useState({});
@@ -136,8 +136,8 @@ export default function Pronosticatore() {
     setSavedKeys({});
     try {
       const SOUTH_AM = ["CLI", "BSA"];
-const season = SOUTH_AM.includes(code) ? "2024" : "2025";
-const r = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&season=${season}`);
+      const season = SOUTH_AM.includes(code) ? "2024" : "2025";
+      const r = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&season=${season}`);
       const d = await r.json();
       const { teams, lgAvgHome, lgAvgAway } = calcRatings(d.matches || []);
       setRatings({ teams, lgAvgHome, lgAvgAway });
@@ -166,8 +166,8 @@ const r = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&season=${
     const { lH, lA } = getLambdas(teamH, teamA, ratings.lgAvgHome, ratings.lgAvgAway);
     const probs = calcProbs(lH, lA);
     const signals = getSignals(probs);
-    const pickProbs = { h: probs.h, d: probs.d, a: probs.a, o25: probs.o25, u25: probs.u25, btts: probs.btts, bttsNo: probs.bttsNo, o05ht: probs.o05ht };
-    const pickOdds = { h: odds.o1, d: odds.oX, a: odds.o2, o25: odds.oOver25, u25: odds.oOver25, btts: odds.oBTTS, bttsNo: odds.oBTTS, o05ht: odds.oO05HT };
+    const pickProbs = { h: probs.h, d: probs.d, a: probs.a, o25: probs.o25, u25: probs.u25, btts: probs.btts, bttsNo: probs.bttsNo };
+    const pickOdds = { h: odds.o1, d: odds.oX, a: odds.o2, o25: odds.oOver25, u25: odds.oOver25, btts: odds.oBTTS, bttsNo: odds.oBTTS };
     const myProb = pickProbs[pick];
     const myOdd = parseFloat(pickOdds[pick]) || 0;
     const myEv = myOdd > 1 ? ev(myProb, myOdd) : null;
@@ -228,21 +228,16 @@ const r = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&season=${
     } catch (e) { console.error(e); setPianoKeys(prev => ({ ...prev, [key]: null })); }
   };
 
-  const pickLabels = { h: "Casa vince", d: "Pareggio", a: "Ospite vince", o25: "Over 2.5", u25: "Under 2.5", btts: "BTTS Sì", bttsNo: "BTTS No", o05ht: "Over 0.5 HT" };
+  const pickLabels = { h: "Casa vince", d: "Pareggio", a: "Ospite vince", o25: "Over 2.5", u25: "Under 2.5", btts: "BTTS Sì", bttsNo: "BTTS No" };
   const teamCount = ratings ? Object.keys(ratings.teams).length : 0;
 
   return (
     <div style={{ minHeight: "100vh", background: "#0d0f14", color: "#e8ecf5", fontFamily: "system-ui, sans-serif", padding: "24px 16px" }}>
       <div style={{ maxWidth: 760, margin: "0 auto" }}>
-        <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 4 }}>PRONO<span style={{ color: "#c8f135" }}>X</span> <span style={{ fontSize: 13, fontWeight: 400, color: "#6b7490" }}>v3.0 · Dixon-Coles</span></h1>
-        <div style={{
-  fontSize: 11,
-  color: "#6b7490",
-  marginBottom: 12,
-  letterSpacing: "0.08em"
-}}>
-  © Sergio Apicella · PronoX 2026
-</div>
+        <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 4 }}>PRONO<span style={{ color: "#c8f135" }}>X</span> <span style={{ fontSize: 13, fontWeight: 400, color: "#6b7490" }}>v4.0 · soglie ottimizzate</span></h1>
+        <div style={{ fontSize: 11, color: "#6b7490", marginBottom: 12, letterSpacing: "0.08em" }}>
+          © Sergio Apicella · PronoX 2026
+        </div>
         <div style={{ display: "flex", gap: 16, marginBottom: 20 }}>
           <a href="/" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>← home</a>
           <a href="/oggi" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>📅 partite del giorno</a>
@@ -351,7 +346,7 @@ const r = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&season=${
                   <input type="number" step="0.01" value={odds[k]} onChange={e => setOdds({ ...odds, [k]: e.target.value })} placeholder="2.10" style={inp} />
                 </div>
               ))}
-              {[["Over 2.5", "oOver25"], ["BTTS Sì", "oBTTS"], ["Over 0.5 HT", "oO05HT"]].map(([l, k]) => (
+              {[["Over 2.5", "oOver25"], ["BTTS Sì", "oBTTS"]].map(([l, k]) => (
                 <div key={k}>
                   <label style={lbl}>{l}</label>
                   <input type="number" step="0.01" value={odds[k]} onChange={e => setOdds({ ...odds, [k]: e.target.value })} placeholder="1.85" style={inp} />
@@ -404,7 +399,7 @@ const r = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&season=${
                 ["2 Ospite", (result.probs.a * 100).toFixed(1) + "%", "#4af0c4"],
                 ["Over 2.5", (result.probs.o25 * 100).toFixed(1) + "%", "#c8f135"],
                 ["BTTS Sì", (result.probs.btts * 100).toFixed(1) + "%", "#4af0c4"],
-                ["Over 0.5 HT", (result.probs.o05ht * 100).toFixed(1) + "%", "#ffd060"],
+                ["Under 2.5", (result.probs.u25 * 100).toFixed(1) + "%", "#ffd060"],
               ].map(([l, v, c]) => (
                 <div key={l} style={{ background: "#0d0f14", border: "1px solid #2a2f3f", borderRadius: 10, padding: "12px 10px", textAlign: "center" }}>
                   <div style={{ fontSize: 10, color: "#6b7490", fontWeight: 700, letterSpacing: "0.08em", marginBottom: 4 }}>{l}</div>
@@ -413,7 +408,7 @@ const r = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&season=${
               ))}
             </div>
 
-            {/* EV sul mercato selezionato */}
+            {/* EV */}
             {result.myEv !== null && (
               <div style={{ borderRadius: 10, padding: "14px 16px", marginBottom: 14, background: result.myEv > 0.03 ? "rgba(200,241,53,0.08)" : result.myEv > 0 ? "rgba(255,208,96,0.08)" : "rgba(255,92,92,0.08)", border: `1px solid ${result.myEv > 0.03 ? "rgba(200,241,53,0.3)" : result.myEv > 0 ? "rgba(255,208,96,0.3)" : "rgba(255,92,92,0.3)"}`, color: result.myEv > 0.03 ? "#c8f135" : result.myEv > 0 ? "#ffd060" : "#ff5c5c", fontSize: 14, fontWeight: 600 }}>
                 {pickLabels[result.pick]} · Prob: {(result.myProb * 100).toFixed(1)}% · Quota: {result.myOdd} · EV: {result.myEv > 0 ? "+" : ""}{(result.myEv * 100).toFixed(1)}%
@@ -423,7 +418,7 @@ const r = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&season=${
               </div>
             )}
 
-            {/* Segnali con bottone salva */}
+            {/* Segnali */}
             {result.signals.length > 0 && (
               <div>
                 <div style={cardTitle}>SEGNALI</div>
