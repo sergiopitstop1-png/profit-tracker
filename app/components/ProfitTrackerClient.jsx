@@ -173,9 +173,10 @@ function getClasseBook(nomeBook) {
   }
   return 'C'
 }
+const SOLO_CASINO_LIST = ['gioco digitale','starcasino','betflag','tombola','zonagioco']
 function isSoloCasino(nomeBook) {
   const nome = (nomeBook || '').toLowerCase().replace(/\.it$/, '').trim()
-  return (CLASSI_BOOK['B_CASINO'] || []).some(k => nome.includes(k))
+  return SOLO_CASINO_LIST.some(k => nome.includes(k))
 }
 const AZIONI_ATTIVO = {
   'snai': {
