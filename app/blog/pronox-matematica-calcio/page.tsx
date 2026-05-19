@@ -21,7 +21,7 @@ export default function PronoXArticlePage() {
           Quante volte hai sentito qualcuno dire “secondo me vince il Milan
           stasera”? Quante volte quella stessa persona ha perso la schedina?
           Il problema non è la passione per il calcio. Il problema è che il
-          cervello umano segue istinto,è una macchina biologica ottimizzata per sopravvivere nella savana, non per calcolare probabilità condizionate su dati statistici. Siamo programmati per ricordare le volte che avevamo ragione e dimenticare quelle che avevamo torto. ricordi selettivi e sensazioni. I numeri,
+          cervello umano segue l'istinto, è una macchina biologica ottimizzata per sopravvivere nella savana, non per calcolare probabilità condizionate su dati statistici. Siamo programmati per ricordare le volte che avevamo ragione e dimenticare quelle che avevamo torto. Ricordi selettivi e sensazioni. I numeri,
           invece, non si emozionano.
         </p>
 
