@@ -229,6 +229,8 @@ async function fetchLeagueMatches(code) {
 
 async function getSeasonData(code, supabaseClient) {
   const today = new Date().toISOString().split("T")[0];
+  const SOUTH_AM = ["CLI", "BSA"];
+  const season = SOUTH_AM.includes(code) ? "2024" : "2025";
   
   // Prova a leggere dalla cache
   try {
@@ -236,7 +238,7 @@ async function getSeasonData(code, supabaseClient) {
       .from("pronox_cache")
       .select("data, updated_at")
       .eq("league_code", code)
-      .eq("season", "2025")
+      .eq("season", season)
       .single();
     
     if (cached) {
@@ -263,7 +265,7 @@ async function getSeasonData(code, supabaseClient) {
     try {
       await supabaseClient.from("pronox_cache").upsert({
         league_code: code,
-        season: "2025",
+        season,
         data: matches,
         updated_at: new Date().toISOString(),
       }, { onConflict: "league_code,season" });
