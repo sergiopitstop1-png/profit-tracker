@@ -3,31 +3,32 @@ import { useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 const API_FD = "/api/footballdata";
+const API_ODDS = "/api/odds";
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
 const LEAGUES = [
-  { code: "SA", name: "Serie A", flag: "🇮🇹" },
-  { code: "PL", name: "Premier League", flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿" },
-  { code: "BL1", name: "Bundesliga", flag: "🇩🇪" },
-  { code: "PD", name: "La Liga", flag: "🇪🇸" },
-  { code: "FL1", name: "Ligue 1", flag: "🇫🇷" },
-  { code: "CL", name: "Champions League", flag: "⭐" },
-  { code: "ELC", name: "Championship", flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿" },
-  { code: "DED", name: "Eredivisie", flag: "🇳🇱" },
-  { code: "PPL", name: "Primeira Liga", flag: "🇵🇹" },
-  { code: "BSA", name: "Serie B Brasile", flag: "🇧🇷" },
-  { code: "CLI", name: "Copa Libertadores", flag: "🌎" },
-  { code: "EC", name: "European Championship", flag: "🇪🇺" },
-  { code: "WC", name: "FIFA World Cup", flag: "🌍" },
-  { code: "ALL", name: "Allsvenskan", flag: "🇸🇪" },
-  { code: "TIP", name: "Eliteserien", flag: "🇳🇴" },
-  { code: "VEI", name: "Veikkausliiga", flag: "🇫🇮" },
-  { code: "DSU", name: "Superliga", flag: "🇩🇰" },
-  { code: "MLS", name: "MLS", flag: "🇺🇸" },
-  { code: "JJL", name: "J-League", flag: "🇯🇵" },
+  { code: "SA", name: "Serie A", flag: "🇮🇹", oddsKey: "soccer_italy_serie_a" },
+  { code: "PL", name: "Premier League", flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿", oddsKey: "soccer_epl" },
+  { code: "BL1", name: "Bundesliga", flag: "🇩🇪", oddsKey: "soccer_germany_bundesliga" },
+  { code: "PD", name: "La Liga", flag: "🇪🇸", oddsKey: "soccer_spain_la_liga" },
+  { code: "FL1", name: "Ligue 1", flag: "🇫🇷", oddsKey: "soccer_france_ligue_one" },
+  { code: "CL", name: "Champions League", flag: "⭐", oddsKey: "soccer_uefa_champs_league" },
+  { code: "ELC", name: "Championship", flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿", oddsKey: "soccer_efl_champ" },
+  { code: "DED", name: "Eredivisie", flag: "🇳🇱", oddsKey: "soccer_netherlands_eredivisie" },
+  { code: "PPL", name: "Primeira Liga", flag: "🇵🇹", oddsKey: null },
+  { code: "BSA", name: "Serie B Brasile", flag: "🇧🇷", oddsKey: "soccer_brazil_campeonato" },
+  { code: "CLI", name: "Copa Libertadores", flag: "🌎", oddsKey: "soccer_conmebol_copa_libertadores" },
+  { code: "EC", name: "European Championship", flag: "🇪🇺", oddsKey: null },
+  { code: "WC", name: "FIFA World Cup", flag: "🌍", oddsKey: "soccer_fifa_world_cup" },
+  { code: "ALL", name: "Allsvenskan", flag: "🇸🇪", oddsKey: "soccer_sweden_allsvenskan" },
+  { code: "TIP", name: "Eliteserien", flag: "🇳🇴", oddsKey: "soccer_norway_eliteserien" },
+  { code: "VEI", name: "Veikkausliiga", flag: "🇫🇮", oddsKey: "soccer_finland_veikkausliiga" },
+  { code: "DSU", name: "Superliga", flag: "🇩🇰", oddsKey: "soccer_denmark_superliga" },
+  { code: "MLS", name: "MLS", flag: "🇺🇸", oddsKey: "soccer_usa_mls" },
+  { code: "JJL", name: "J-League", flag: "🇯🇵", oddsKey: "soccer_japan_j_league" },
 ];
 
 const DOMESTIC_LEAGUES = ["SA", "PL", "BL1", "PD", "FL1", "ELC", "DED", "PPL"];
@@ -41,7 +42,6 @@ function poisson(k, lambda) {
   return p;
 }
 
-// Correzione Dixon-Coles per scoreline basse (0-0, 1-0, 0-1, 1-1)
 function dixonColesCorr(i, j, lH, lA, rho = -0.13) {
   if (i === 0 && j === 0) return 1 - lH * lA * rho;
   if (i === 0 && j === 1) return 1 + lH * rho;
@@ -68,7 +68,6 @@ function calcProbs(lH, lA, max = 8) {
   return { h: h/tot, d: d/tot, a: a/tot, o25, u25: 1 - o25, btts, o05ht };
 }
 
-// Calcola peso temporale: partite recenti pesano di più
 function timeWeight(matchDate, refDate) {
   const days = (new Date(refDate) - new Date(matchDate)) / (1000 * 60 * 60 * 24);
   return Math.exp(-days / 90);
@@ -77,7 +76,6 @@ function timeWeight(matchDate, refDate) {
 function calcRatings(matches, refDate) {
   const teams = {};
   const today = refDate || new Date().toISOString().split("T")[0];
-  
   const finished = matches.filter(m =>
     m.status === "FINISHED" &&
     m.score?.fullTime?.home !== null &&
@@ -85,74 +83,50 @@ function calcRatings(matches, refDate) {
     m.score?.fullTime?.home >= 0 &&
     m.score?.fullTime?.away >= 0
   );
-  
   if (finished.length === 0) return { teams, lgAvgHome: 1.35, lgAvgAway: 1.1 };
-  
   let totWHome = 0, totWAway = 0, sumWHome = 0, sumWAway = 0;
-  
   finished.forEach(m => {
     const hId = m.homeTeam.id;
     const aId = m.awayTeam.id;
     const hG = m.score.fullTime.home;
     const aG = m.score.fullTime.away;
     const w = timeWeight(m.utcDate?.split("T")[0] || today, today);
-    
-    if (!teams[hId]) teams[hId] = {
-      name: m.homeTeam.name, crest: m.homeTeam.crest,
-      hGF: 0, hGA: 0, hW: 0,
-      aGF: 0, aGA: 0, aW: 0,
-      form: [], lastMatches: []
-    };
-    if (!teams[aId]) teams[aId] = {
-      name: m.awayTeam.name, crest: m.awayTeam.crest,
-      hGF: 0, hGA: 0, hW: 0,
-      aGF: 0, aGA: 0, aW: 0,
-      form: [], lastMatches: []
-    };
-    
+    if (!teams[hId]) teams[hId] = { name: m.homeTeam.name, crest: m.homeTeam.crest, hGF: 0, hGA: 0, hW: 0, aGF: 0, aGA: 0, aW: 0, form: [], lastMatches: [] };
+    if (!teams[aId]) teams[aId] = { name: m.awayTeam.name, crest: m.awayTeam.crest, hGF: 0, hGA: 0, hW: 0, aGF: 0, aGA: 0, aW: 0, form: [], lastMatches: [] };
     teams[hId].hGF += hG * w; teams[hId].hGA += aG * w; teams[hId].hW += w;
     teams[aId].aGF += aG * w; teams[aId].aGA += hG * w; teams[aId].aW += w;
-    
     const hRes = hG > aG ? "W" : hG === aG ? "D" : "L";
     const aRes = aG > hG ? "W" : aG === hG ? "D" : "L";
     teams[hId].form.push({ res: hRes, w, date: m.utcDate });
     teams[aId].form.push({ res: aRes, w, date: m.utcDate });
     teams[hId].lastMatches.push({ gf: hG, ga: aG, home: true, date: m.utcDate });
     teams[aId].lastMatches.push({ gf: aG, ga: hG, home: false, date: m.utcDate });
-    
     sumWHome += hG * w; totWHome += w;
     sumWAway += aG * w; totWAway += w;
   });
-  
   const lgAvgHome = totWHome > 0 ? sumWHome / totWHome : 1.35;
   const lgAvgAway = totWAway > 0 ? sumWAway / totWAway : 1.1;
-  
   Object.values(teams).forEach(t => {
     t.attH = t.hW > 0 ? (t.hGF / t.hW) / lgAvgHome : 1;
     t.defH = t.hW > 0 ? (t.hGA / t.hW) / lgAvgAway : 1;
     t.attA = t.aW > 0 ? (t.aGF / t.aW) / lgAvgAway : 1;
     t.defA = t.aW > 0 ? (t.aGA / t.aW) / lgAvgHome : 1;
-    
     t.form.sort((a, b) => new Date(b.date) - new Date(a.date));
     const last5 = t.form.slice(0, 5);
     const formScore = last5.reduce((s, f) => s + (f.res === "W" ? 3 : f.res === "D" ? 1 : 0), 0);
     t.formRating = last5.length > 0 ? formScore / (last5.length * 3) : 0.5;
     t.formStr = last5.map(f => f.res).join("");
-    
     const hAvg = t.hW > 0 ? t.hGF / t.hW : lgAvgHome;
     const aAvg = t.aW > 0 ? t.aGF / t.aW : lgAvgAway;
     t.homeAdvantage = hAvg > 0 && aAvg > 0 ? hAvg / aAvg : 1.1;
-    
     t.avgHomeGoals = t.hW > 0 ? (t.hGF / t.hW).toFixed(2) : "N/D";
     t.avgHomeConceded = t.hW > 0 ? (t.hGA / t.hW).toFixed(2) : "N/D";
     t.avgAwayGoals = t.aW > 0 ? (t.aGF / t.aW).toFixed(2) : "N/D";
     t.avgAwayConceded = t.aW > 0 ? (t.aGA / t.aW).toFixed(2) : "N/D";
   });
-  
   return { teams, lgAvgHome, lgAvgAway };
 }
 
-// H2H tra due squadre
 function calcH2H(allMatches, teamHId, teamAId) {
   const h2h = allMatches.filter(m =>
     m.status === "FINISHED" && (
@@ -160,9 +134,7 @@ function calcH2H(allMatches, teamHId, teamAId) {
       (m.homeTeam.id === teamAId && m.awayTeam.id === teamHId)
     )
   ).slice(-6);
-  
   if (h2h.length === 0) return { bias: 0, count: 0 };
-  
   let hWins = 0, aWins = 0;
   h2h.forEach(m => {
     const hG = m.score.fullTime.home;
@@ -175,7 +147,6 @@ function calcH2H(allMatches, teamHId, teamAId) {
       else if (hG > aG) aWins++;
     }
   });
-  
   const bias = (hWins - aWins) / h2h.length * 0.08;
   return { bias, count: h2h.length, hWins, aWins };
 }
@@ -183,43 +154,100 @@ function calcH2H(allMatches, teamHId, teamAId) {
 function getLambdas(teamH, teamA, lgAvgHome, lgAvgAway, h2hBias) {
   let lH = teamH.attH * teamA.defA * lgAvgHome;
   let lA = teamA.attA * teamH.defH * lgAvgAway;
-  
   const homeAdv = Math.min(Math.max(teamH.homeAdvantage, 0.8), 1.4);
   lH *= homeAdv;
-  
   const formFactorH = 0.85 + (teamH.formRating * 0.30);
   const formFactorA = 0.85 + (teamA.formRating * 0.30);
   lH *= formFactorH;
   lA *= formFactorA;
-  
   lH *= (1 + h2hBias);
   lA *= (1 - h2hBias);
-  
-  // Cap lambda a 3.0 per evitare sovrastime
   lH = Math.max(0.3, Math.min(3.0, lH));
   lA = Math.max(0.3, Math.min(3.0, lA));
-  
   return { lH, lA };
 }
 
 function getSignals(probs) {
   const signals = [];
-  // Soglie alzate per migliorare win rate
-  if (probs.h > 0.62) signals.push({ label: "CASA VINCE", type: "1X2", prob: probs.h, color: "#c8f135", strong: probs.h > 0.72 });
-  if (probs.a > 0.55) signals.push({ label: "OSPITE VINCE", type: "1X2", prob: probs.a, color: "#c8f135", strong: probs.a > 0.65 });
-  if (probs.o25 > 0.65) signals.push({ label: "OVER 2.5", type: "OVER", prob: probs.o25, color: "#4af0c4", strong: probs.o25 > 0.72 });
-  if (probs.btts > 0.60) signals.push({ label: "BTTS SÌ", type: "BTTS", prob: probs.btts, color: "#4af0c4", strong: probs.btts > 0.68 });
-  if (probs.u25 > 0.65) signals.push({ label: "UNDER 2.5", type: "UNDER", prob: probs.u25, color: "#ffd060", strong: probs.u25 > 0.75 });
-  if (probs.o05ht > 0.90) signals.push({ label: "OVER 0.5 HT", type: "OVER", prob: probs.o05ht, color: "#ffd060", strong: true });
+  if (probs.h > 0.62) signals.push({ label: "CASA VINCE", type: "1X2", prob: probs.h, color: "#c8f135", strong: probs.h > 0.72, fairOdds: 1 / probs.h });
+  if (probs.a > 0.55) signals.push({ label: "OSPITE VINCE", type: "1X2", prob: probs.a, color: "#c8f135", strong: probs.a > 0.65, fairOdds: 1 / probs.a });
+  if (probs.o25 > 0.65) signals.push({ label: "OVER 2.5", type: "OVER", prob: probs.o25, color: "#4af0c4", strong: probs.o25 > 0.72, fairOdds: 1 / probs.o25 });
+  if (probs.btts > 0.60) signals.push({ label: "BTTS SÌ", type: "BTTS", prob: probs.btts, color: "#4af0c4", strong: probs.btts > 0.68, fairOdds: 1 / probs.btts });
+  if (probs.u25 > 0.65) signals.push({ label: "UNDER 2.5", type: "UNDER", prob: probs.u25, color: "#ffd060", strong: probs.u25 > 0.75, fairOdds: 1 / probs.u25 });
+  if (probs.o05ht > 0.90) signals.push({ label: "OVER 0.5 HT", type: "OVER", prob: probs.o05ht, color: "#ffd060", strong: true, fairOdds: 1 / probs.o05ht });
   signals.sort((a, b) => b.prob - a.prob);
   return signals;
+}
+
+// ─── ODDS API: mappa lega → oddsKey e matcha per nome squadra ──
+
+async function fetchOddsForLeague(oddsKey, date) {
+  if (!oddsKey) return {};
+  try {
+    const r = await fetch(`${API_ODDS}?endpoint=sports/${oddsKey}/odds&regions=eu&markets=h2h,totals&dateFormat=iso&oddsFormat=decimal`);
+    const data = await r.json();
+    if (!Array.isArray(data)) return {};
+    // Filtra per data
+    const dayStart = new Date(date + "T00:00:00Z").getTime();
+    const dayEnd = new Date(date + "T23:59:59Z").getTime();
+    const oddsMap = {};
+    data.forEach(game => {
+      const gameTime = new Date(game.commence_time).getTime();
+      if (gameTime < dayStart || gameTime > dayEnd) return;
+      const key = `${game.home_team}__${game.away_team}`;
+      // Estrai quote medie h2h e totals
+      let o1 = null, oX = null, o2 = null, oOver25 = null, oUnder25 = null;
+      game.bookmakers?.forEach(bk => {
+        bk.markets?.forEach(mkt => {
+          if (mkt.key === "h2h") {
+            mkt.outcomes?.forEach(o => {
+              if (o.name === game.home_team) o1 = o1 ? (o1 + o.price) / 2 : o.price;
+              else if (o.name === game.away_team) o2 = o2 ? (o2 + o.price) / 2 : o.price;
+              else oX = oX ? (oX + o.price) / 2 : o.price;
+            });
+          }
+          if (mkt.key === "totals") {
+            mkt.outcomes?.forEach(o => {
+              if (o.name === "Over" && Math.abs(o.point - 2.5) < 0.01) oOver25 = oOver25 ? (oOver25 + o.price) / 2 : o.price;
+              if (o.name === "Under" && Math.abs(o.point - 2.5) < 0.01) oUnder25 = oUnder25 ? (oUnder25 + o.price) / 2 : o.price;
+            });
+          }
+        });
+      });
+      oddsMap[key] = { o1, oX, o2, oOver25, oUnder25,
+        homeTeam: game.home_team, awayTeam: game.away_team };
+    });
+    return oddsMap;
+  } catch (e) { return {}; }
+}
+
+function matchOdds(oddsMap, homeName, awayName) {
+  // Prima prova match esatto
+  const exactKey = `${homeName}__${awayName}`;
+  if (oddsMap[exactKey]) return oddsMap[exactKey];
+  // Poi prova match parziale
+  for (const [, v] of Object.entries(oddsMap)) {
+    const hn = v.homeTeam?.toLowerCase() || "";
+    const an = v.awayTeam?.toLowerCase() || "";
+    const h = homeName.toLowerCase();
+    const a = awayName.toLowerCase();
+    if ((hn.includes(h.split(" ")[0]) || h.includes(hn.split(" ")[0])) &&
+        (an.includes(a.split(" ")[0]) || a.includes(an.split(" ")[0]))) {
+      return v;
+    }
+  }
+  return null;
+}
+
+function calcEV(prob, bookOdds) {
+  if (!bookOdds || bookOdds <= 1) return null;
+  return prob * (bookOdds - 1) - (1 - prob);
 }
 
 async function getSeasonData(code, supabaseClient) {
   const today = new Date().toISOString().split("T")[0];
   const SOUTH_AM = ["CLI", "BSA"];
   const season = SOUTH_AM.includes(code) ? "2024" : "2025";
-  
   try {
     const { data: cached } = await supabaseClient
       .from("pronox_cache")
@@ -227,13 +255,11 @@ async function getSeasonData(code, supabaseClient) {
       .eq("league_code", code)
       .eq("season", season)
       .single();
-    
     if (cached) {
       const cacheDate = cached.updated_at?.split("T")[0];
       if (cacheDate === today) return cached.data;
     }
   } catch (e) {}
-  
   let matches = [];
   for (let attempt = 0; attempt < 4; attempt++) {
     const r = await fetch(`${API_FD}?endpoint=competitions/${code}/matches&season=${season}`);
@@ -242,18 +268,14 @@ async function getSeasonData(code, supabaseClient) {
     if (matches.length > 0) break;
     if (attempt < 3) await new Promise(r => setTimeout(r, 2000));
   }
-  
   if (matches.length > 0) {
     try {
       await supabaseClient.from("pronox_cache").upsert({
-        league_code: code,
-        season,
-        data: matches,
+        league_code: code, season, data: matches,
         updated_at: new Date().toISOString(),
       }, { onConflict: "league_code,season" });
     } catch (e) {}
   }
-  
   return matches;
 }
 
@@ -303,10 +325,17 @@ export default function Oggi() {
       allAvgs[code] = { lgAvgHome, lgAvgAway };
     }
 
+    // Carica quote per ogni lega selezionata
+    const allOdds = {};
+    for (const code of selectedLeagues) {
+      const league = LEAGUES.find(l => l.code === code);
+      if (!league?.oddsKey) continue;
+      setProgress(`Carico quote ${league.flag} ${league.name}...`);
+      allOdds[code] = await fetchOddsForLeague(league.oddsKey, date);
+    }
+
     const findTeamRating = (teamId, teamName, primaryCode) => {
-      if (allRatings[primaryCode]?.[teamId]) {
-        return { rating: allRatings[primaryCode][teamId], leagueCode: primaryCode };
-      }
+      if (allRatings[primaryCode]?.[teamId]) return { rating: allRatings[primaryCode][teamId], leagueCode: primaryCode };
       for (const code of DOMESTIC_LEAGUES) {
         if (!allRatings[code]) continue;
         if (allRatings[code][teamId]) return { rating: allRatings[code][teamId], leagueCode: code };
@@ -369,21 +398,46 @@ export default function Oggi() {
         const signals = getSignals(probs);
         const time = fix.utcDate ? new Date(fix.utcDate).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }) : "--:--";
 
+        // Abbina quote bookmaker
+        const oddsData = matchOdds(allOdds[code] || {}, fix.homeTeam.name, fix.awayTeam.name);
+
+        // Calcola EV e VALUE per ogni segnale
+        const signalsWithEV = signals.map(s => {
+          let bookOdds = null;
+          if (oddsData) {
+            if (s.label === "CASA VINCE") bookOdds = oddsData.o1;
+            else if (s.label === "OSPITE VINCE") bookOdds = oddsData.o2;
+            else if (s.label === "OVER 2.5") bookOdds = oddsData.oOver25;
+            else if (s.label === "UNDER 2.5") bookOdds = oddsData.oUnder25;
+          }
+          const ev = bookOdds ? calcEV(s.prob, bookOdds) : null;
+          const isValue = ev !== null && ev > 0.03; // almeno 3% EV
+          return { ...s, bookOdds, ev, isValue };
+        });
+
+        const hasValue = signalsWithEV.some(s => s.isValue);
+
         all.push({
           id: fix.id,
           home: { name: fix.homeTeam.name, crest: fix.homeTeam.crest },
           away: { name: fix.awayTeam.name, crest: fix.awayTeam.crest },
-          time, league, probs, lH, lA, signals, hasRatings,
+          time, league, probs, lH, lA,
+          signals: signalsWithEV,
+          hasRatings, hasValue,
           fdId: fix.id,
           ratingSource: resH?.leagueCode,
           formH: resH?.rating.formStr || "",
           formA: resA?.rating.formStr || "",
           h2h,
+          oddsData,
         });
       }
     }
 
-    all.sort((a, b) => (b.signals[0]?.prob || 0) - (a.signals[0]?.prob || 0));
+    all.sort((a, b) => {
+      if (b.hasValue !== a.hasValue) return b.hasValue ? 1 : -1;
+      return (b.signals[0]?.prob || 0) - (a.signals[0]?.prob || 0);
+    });
     setMatches(all);
     setLoading(false);
     setProgress("");
@@ -426,6 +480,7 @@ export default function Oggi() {
       else if (signal.label === "OVER 2.5") outcome = total > 2.5 ? "WIN" : "LOSS";
       else if (signal.label === "UNDER 2.5") outcome = total < 2.5 ? "WIN" : "LOSS";
       else if (signal.label === "BTTS SÌ") outcome = ftHome > 0 && ftAway > 0 ? "WIN" : "LOSS";
+      else if (signal.label === "OVER 0.5 HT") outcome = (htHome + htAway) > 0 ? "WIN" : "LOSS";
       else if (signal.label === "TRADING O0.5 HT → U2.5 LIVE") outcome = (htHome + htAway) >= 1 && total <= 2 ? "WIN" : "LOSS";
       await supabase.from("pronox_archive")
         .update({ status: outcome, ft_home_goals: ftHome, ft_away_goals: ftAway, ht_home_goals: htHome, ht_away_goals: htAway, result_checked_at: new Date().toISOString() })
@@ -440,7 +495,7 @@ export default function Oggi() {
     setPianoMap(prev => ({ ...prev, [key]: "saving" }));
     try {
       const { data: plan } = await supabase.from("pronox_plans").select("id").eq("status", "ACTIVE").single();
-      if (!plan) { alert("Nessun piano attivo! Vai su /piano per crearne uno."); setPianoMap(prev => ({ ...prev, [key]: null })); return; }
+      if (!plan) { alert("Nessun piano attivo!"); setPianoMap(prev => ({ ...prev, [key]: null })); return; }
       await supabase.from("pronox_bets").insert({
         plan_id: plan.id, match_date: date, match_time: match.time,
         league: match.league.name, home_team: match.home.name, away_team: match.away.name,
@@ -458,12 +513,14 @@ export default function Oggi() {
     if (filter === "signal") return m.signals.length > 0;
     if (filter === "strong") return m.signals.some(s => s.strong);
     if (filter === "over") return m.probs.o25 > 0.65;
+    if (filter === "value") return m.hasValue;
     if (filter === "trading") return m.signals.some(s => s.type === "TRADING");
     return true;
   });
 
   const strongCount = matches.filter(m => m.signals.some(s => s.strong)).length;
   const signalCount = matches.filter(m => m.signals.length > 0).length;
+  const valueCount = matches.filter(m => m.hasValue).length;
 
   const formColor = (r) => r === "W" ? "#c8f135" : r === "D" ? "#ffd060" : "#ff5c5c";
 
@@ -494,6 +551,7 @@ export default function Oggi() {
               <label style={lbl}>Filtra</label>
               <select value={filter} onChange={e => setFilter(e.target.value)} style={{ ...sel, minWidth: 200 }}>
                 <option value="all">Tutte le partite</option>
+                <option value="value">🎆 Solo VALUE bet</option>
                 <option value="signal">Con almeno un segnale</option>
                 <option value="strong">Solo segnali forti</option>
                 <option value="over">Over 2.5 probabile</option>
@@ -520,13 +578,14 @@ export default function Oggi() {
         </button>
 
         {matches.length > 0 && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 16 }}>
             {[
-              ["Partite analizzate", matches.length, "#e8ecf5"],
-              ["Con segnale", signalCount, "#4af0c4"],
-              ["Segnali forti", strongCount, "#c8f135"],
+              ["Partite", matches.length, "#e8ecf5"],
+              ["Segnali", signalCount, "#4af0c4"],
+              ["Forti", strongCount, "#c8f135"],
+              ["🎆 VALUE", valueCount, "#ff9f43"],
             ].map(([l, v, c]) => (
-              <div key={l} style={{ background: "#161920", border: "1px solid #2a2f3f", borderRadius: 10, padding: "14px 12px", textAlign: "center" }}>
+              <div key={l} style={{ background: "#161920", border: `1px solid ${l === "🎆 VALUE" && v > 0 ? "rgba(255,159,67,0.4)" : "#2a2f3f"}`, borderRadius: 10, padding: "14px 12px", textAlign: "center" }}>
                 <div style={{ fontSize: 10, color: "#6b7490", fontWeight: 700, letterSpacing: "0.08em", marginBottom: 6, textTransform: "uppercase" }}>{l}</div>
                 <div style={{ fontSize: 28, fontWeight: 700, color: c }}>{v}</div>
               </div>
@@ -535,13 +594,14 @@ export default function Oggi() {
         )}
 
         {filtered.map(m => (
-          <div key={m.id} style={{ background: "#161920", border: `1px solid ${m.signals.some(s => s.strong) ? "rgba(200,241,53,0.4)" : m.signals.length > 0 ? "rgba(74,240,196,0.25)" : "#2a2f3f"}`, borderRadius: 14, padding: 18, marginBottom: 10 }}>
+          <div key={m.id} style={{ background: "#161920", border: `1px solid ${m.hasValue ? "rgba(255,159,67,0.5)" : m.signals.some(s => s.strong) ? "rgba(200,241,53,0.4)" : m.signals.length > 0 ? "rgba(74,240,196,0.25)" : "#2a2f3f"}`, borderRadius: 14, padding: 18, marginBottom: 10 }}>
 
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
               <div style={{ fontSize: 11, color: "#6b7490", fontWeight: 700, letterSpacing: "0.08em" }}>
                 {m.league.flag} {m.league.name} · {m.time}
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {m.hasValue && <span style={{ fontSize: 11, fontWeight: 800, color: "#ff9f43", background: "rgba(255,159,67,0.15)", padding: "2px 8px", borderRadius: 6 }}>🎆 VALUE</span>}
                 {m.ratingSource && CUP_LEAGUES.includes(m.league.code) && (
                   <span style={{ fontSize: 10, color: "#4af0c4" }}>dati: {LEAGUES.find(l => l.code === m.ratingSource)?.name}</span>
                 )}
@@ -563,7 +623,20 @@ export default function Oggi() {
                   )}
                 </div>
               </div>
-              <div style={{ color: "#6b7490", fontSize: 13, fontWeight: 600 }}>vs</div>
+              <div style={{ textAlign: "center" }}>
+                {m.oddsData ? (
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {[m.oddsData.o1, m.oddsData.oX, m.oddsData.o2].map((q, i) => (
+                      <div key={i} style={{ background: "#0d0f14", border: "1px solid #2a2f3f", borderRadius: 6, padding: "4px 8px", textAlign: "center", minWidth: 40 }}>
+                        <div style={{ fontSize: 9, color: "#6b7490", marginBottom: 2 }}>{["1","X","2"][i]}</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "#e8ecf5", fontFamily: "monospace" }}>{q ? q.toFixed(2) : "—"}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ color: "#6b7490", fontSize: 13, fontWeight: 600 }}>vs</div>
+                )}
+              </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, justifyContent: "flex-end" }}>
                 <div style={{ textAlign: "right" }}>
                   <div style={{ fontWeight: 700, fontSize: 15 }}>{m.away.name}</div>
@@ -626,35 +699,47 @@ export default function Oggi() {
                   const savedStatus = savedMap[key];
                   const pianoStatus = pianoMap[`${m.id}_${s.label}_piano`];
                   return (
-                    <div key={i} style={{ borderRadius: 8, border: `1px solid ${s.strong ? s.color + "50" : "#2a2f3f"}`, background: s.strong ? `${s.color}10` : "rgba(255,255,255,0.03)", padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: s.strong ? s.color : "#e8ecf5" }}>
-                        {s.strong ? "🔥 " : "→ "}{s.label}
-                      </span>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontSize: 13, fontFamily: "monospace", color: s.color, fontWeight: 600 }}>{(s.prob * 100).toFixed(1)}%</span>
-                        {!savedStatus && (
-                          <button onClick={() => saveSignal(m, s)} disabled={savingId === key}
-                            style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, border: `1px solid ${s.color}60`, background: `${s.color}15`, color: s.color, cursor: "pointer", fontWeight: 700 }}>
-                            {savingId === key ? "..." : "☑ Salva"}
-                          </button>
-                        )}
-                        {savedStatus === "PENDING" && (
-                          <button onClick={() => verifyResult(m, s)} disabled={checkingId === key}
-                            style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, border: "1px solid rgba(255,208,96,0.4)", background: "rgba(255,208,96,0.1)", color: "#ffd060", cursor: "pointer", fontWeight: 700 }}>
-                            {checkingId === key ? "..." : "⏳ Verifica"}
-                          </button>
-                        )}
-                        {savedStatus === "WIN" && <span style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, background: "rgba(200,241,53,0.15)", color: "#c8f135", fontWeight: 700 }}>✓ WIN</span>}
-                        {savedStatus === "LOSS" && <span style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, background: "rgba(255,92,92,0.15)", color: "#ff5c5c", fontWeight: 700 }}>✗ LOSS</span>}
-                        {pianoStatus === "saved" ? (
-                          <span style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, background: "rgba(200,241,53,0.15)", color: "#c8f135", fontWeight: 700 }}>🎯</span>
-                        ) : (
-                          <button onClick={() => addToPlan(m, s)} disabled={pianoStatus === "saving"}
-                            style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, border: "1px solid rgba(200,241,53,0.4)", background: "rgba(200,241,53,0.08)", color: "#c8f135", cursor: "pointer", fontWeight: 700 }}>
-                            {pianoStatus === "saving" ? "..." : "+ Piano"}
-                          </button>
-                        )}
+                    <div key={i} style={{ borderRadius: 8, border: `1px solid ${s.isValue ? "rgba(255,159,67,0.6)" : s.strong ? s.color + "50" : "#2a2f3f"}`, background: s.isValue ? "rgba(255,159,67,0.08)" : s.strong ? `${s.color}10` : "rgba(255,255,255,0.03)", padding: "10px 14px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: s.isValue ? 8 : 0 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: s.isValue ? "#ff9f43" : s.strong ? s.color : "#e8ecf5" }}>
+                          {s.isValue ? "🎆 " : s.strong ? "🔥 " : "→ "}{s.label}
+                        </span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 13, fontFamily: "monospace", color: s.color, fontWeight: 600 }}>{(s.prob * 100).toFixed(1)}%</span>
+                          {s.bookOdds && (
+                            <span style={{ fontSize: 12, fontFamily: "monospace", color: s.isValue ? "#ff9f43" : "#6b7490", fontWeight: s.isValue ? 700 : 400 }}>
+                              @{s.bookOdds.toFixed(2)}
+                            </span>
+                          )}
+                          {!savedStatus && (
+                            <button onClick={() => saveSignal(m, s)} disabled={savingId === key}
+                              style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, border: `1px solid ${s.color}60`, background: `${s.color}15`, color: s.color, cursor: "pointer", fontWeight: 700 }}>
+                              {savingId === key ? "..." : "☑ Salva"}
+                            </button>
+                          )}
+                          {savedStatus === "PENDING" && (
+                            <button onClick={() => verifyResult(m, s)} disabled={checkingId === key}
+                              style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, border: "1px solid rgba(255,208,96,0.4)", background: "rgba(255,208,96,0.1)", color: "#ffd060", cursor: "pointer", fontWeight: 700 }}>
+                              {checkingId === key ? "..." : "⏳ Verifica"}
+                            </button>
+                          )}
+                          {savedStatus === "WIN" && <span style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, background: "rgba(200,241,53,0.15)", color: "#c8f135", fontWeight: 700 }}>✓ WIN</span>}
+                          {savedStatus === "LOSS" && <span style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, background: "rgba(255,92,92,0.15)", color: "#ff5c5c", fontWeight: 700 }}>✗ LOSS</span>}
+                          {pianoStatus === "saved" ? (
+                            <span style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, background: "rgba(200,241,53,0.15)", color: "#c8f135", fontWeight: 700 }}>🎯</span>
+                          ) : (
+                            <button onClick={() => addToPlan(m, s)} disabled={pianoStatus === "saving"}
+                              style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, border: "1px solid rgba(200,241,53,0.4)", background: "rgba(200,241,53,0.08)", color: "#c8f135", cursor: "pointer", fontWeight: 700 }}>
+                              {pianoStatus === "saving" ? "..." : "+ Piano"}
+                            </button>
+                          )}
+                        </div>
                       </div>
+                      {s.isValue && s.ev !== null && (
+                        <div style={{ fontSize: 11, color: "#ff9f43", background: "rgba(255,159,67,0.1)", borderRadius: 6, padding: "4px 10px", display: "inline-block" }}>
+                          Quota equa: {s.fairOdds.toFixed(2)} · Book: {s.bookOdds.toFixed(2)} · EV: +{(s.ev * 100).toFixed(1)}%
+                        </div>
+                      )}
                     </div>
                   );
                 })}
