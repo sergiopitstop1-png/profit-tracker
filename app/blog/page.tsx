@@ -7,7 +7,7 @@ const posts = [
     category: "Analisi Calcio",
     excerpt:
       "Strategie, Poisson, statistiche offensive e lettura delle quote per individuare partite ad alta probabilità.",
-    href: "#",
+   href: "/blog/over-05-primo-tempo",
   },
   {
     title: "Value Bet: cosa sono e perché quasi tutti le usano male",
