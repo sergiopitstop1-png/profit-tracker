@@ -15,6 +15,8 @@ export default function Archivio() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterType, setFilterType] = useState("all");
   const [checkingId, setCheckingId] = useState(null);
+  const [verifyingAll, setVerifyingAll] = useState(false);
+const [verifyProgress, setVerifyProgress] = useState("");
 
   useEffect(() => { loadArchive(); }, []);
 
@@ -82,6 +84,43 @@ const manualVerify = async (id, outcome) => {
   }).eq("id", id);
   setRecords(prev => prev.map(r => r.id === id ? { ...r, status: outcome } : r));
 };
+  const verifyAll = async () => {
+  const pending = records.filter(r => r.status === "PENDING");
+  if (pending.length === 0) { alert("Nessun pronostico in attesa!"); return; }
+  setVerifyingAll(true);
+  let done = 0;
+  for (const record of pending) {
+    setVerifyProgress(`Verifico ${done + 1}/${pending.length}: ${record.home_team} vs ${record.away_team}...`);
+    try {
+      const r = await fetch(`${API_FD}?endpoint=matches/${record.match_id}`);
+      const d = await r.json();
+      const m = d.match || d;
+      if (!m || m.status !== "FINISHED") { done++; continue; }
+      const ftHome = m.score?.fullTime?.home ?? 0;
+      const ftAway = m.score?.fullTime?.away ?? 0;
+      const htHome = m.score?.halfTime?.home ?? 0;
+      const htAway = m.score?.halfTime?.away ?? 0;
+      const total = ftHome + ftAway;
+      let outcome = "LOSS";
+      const label = record.prediction_label;
+      if (label === "CASA VINCE") outcome = ftHome > ftAway ? "WIN" : "LOSS";
+      else if (label === "OSPITE VINCE") outcome = ftAway > ftHome ? "WIN" : "LOSS";
+      else if (label === "OVER 2.5") outcome = total > 2.5 ? "WIN" : "LOSS";
+      else if (label === "UNDER 2.5") outcome = total < 2.5 ? "WIN" : "LOSS";
+      else if (label === "OVER 0.5 HT") outcome = (htHome + htAway) > 0 ? "WIN" : "LOSS";
+      else if (label === "BTTS SÌ") outcome = ftHome > 0 && ftAway > 0 ? "WIN" : "LOSS";
+      else if (label === "TRADING O0.5 HT → U2.5 LIVE") outcome = (htHome + htAway) >= 1 && total <= 2 ? "WIN" : "LOSS";
+      await supabase.from("pronox_archive")
+        .update({ status: outcome, ft_home_goals: ftHome, ft_away_goals: ftAway, ht_home_goals: htHome, ht_away_goals: htAway, result_checked_at: new Date().toISOString() })
+        .eq("id", record.id);
+      setRecords(prev => prev.map(rec => rec.id === record.id ? { ...rec, status: outcome, ft_home_goals: ftHome, ft_away_goals: ftAway, ht_home_goals: htHome, ht_away_goals: htAway } : rec));
+    } catch (e) { console.error(e); }
+    done++;
+    await new Promise(r => setTimeout(r, 600)); // pausa tra chiamate API
+  }
+  setVerifyingAll(false);
+  setVerifyProgress("");
+};
   const deleteRecord = async (id) => {
     if (!confirm("Eliminare questo pronostico?")) return;
     await supabase.from("pronox_archive").delete().eq("id", id);
@@ -137,11 +176,18 @@ const manualVerify = async (id, outcome) => {
           ))}
         </div>
 
-        {/* Pending da verificare */}
         {pending > 0 && (
-          <div style={{ background: "rgba(255,208,96,0.08)", border: "1px solid rgba(255,208,96,0.3)", borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#ffd060" }}>
-            ⏳ Hai <strong>{pending}</strong> pronostico/i in attesa di verifica — clicca "Verifica" per aggiornare il risultato.
-          </div>
+  <div style={{ background: "rgba(255,208,96,0.08)", border: "1px solid rgba(255,208,96,0.3)", borderRadius: 10, padding: "12px 16px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <span style={{ fontSize: 13, color: "#ffd060" }}>
+      ⏳ <strong>{pending}</strong> pronostico/i in attesa
+      {verifyingAll && <span style={{ marginLeft: 10, fontSize: 12, opacity: 0.8 }}>{verifyProgress}</span>}
+    </span>
+    <button onClick={verifyAll} disabled={verifyingAll}
+      style={{ padding: "8px 18px", borderRadius: 8, border: "1px solid rgba(255,208,96,0.4)", background: verifyingAll ? "transparent" : "rgba(255,208,96,0.12)", color: "#ffd060", cursor: verifyingAll ? "not-allowed" : "pointer", fontWeight: 700, fontSize: 13 }}>
+      {verifyingAll ? "⏳ In corso..." : "⚡ Verifica tutto"}
+    </button>
+  </div>
+)}
         )}
 
         {/* Filtri */}
