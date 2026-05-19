@@ -21,7 +21,7 @@ export default function PronoXArticlePage() {
           Quante volte hai sentito qualcuno dire “secondo me vince il Milan
           stasera”? Quante volte quella stessa persona ha perso la schedina?
           Il problema non è la passione per il calcio. Il problema è che il
-          cervello umano segue istinto, ricordi selettivi e sensazioni. I numeri,
+          cervello umano segue istinto,è una macchina biologica ottimizzata per sopravvivere nella savana, non per calcolare probabilità condizionate su dati statistici. Siamo programmati per ricordare le volte che avevamo ragione e dimenticare quelle che avevamo torto. ricordi selettivi e sensazioni. I numeri,
           invece, non si emozionano.
         </p>
 
@@ -53,7 +53,7 @@ export default function PronoXArticlePage() {
           <h2 className="text-3xl font-bold">Come funziona il modello</h2>
 
           <p className="leading-8 text-white/70">
-            Al cuore di PronoX c’è il modello di Poisson con correzione
+            Il cuore di PronoX è il modello di Poisson con correzione
             Dixon-Coles. Ogni squadra ha coefficienti di attacco e difesa
             calcolati sui dati stagionali, con maggiore peso alle partite più
             recenti.
@@ -140,7 +140,7 @@ export default function PronoXArticlePage() {
             <li>Integrazione più avanzata delle quote bookmaker</li>
             <li>Kelly Criterion per la puntata ottimale</li>
              <li>Tennis — modello probabilistico con rimozione del vig e identificazione VALUE</li>
-            <li>Statistiche tennis per superficie,(Sinner sulla terra vs Sinner sull'erba — due giocatori diversi)</li>
+            <li>Statistiche tennis per superficie (Sinner sulla terra vs Sinner sull'erba — due giocatori diversi)</li>
             <li>Basket con modello sui punti totali</li>
             <li>Storico performance per mercato e campionato</li>
           </ul>
