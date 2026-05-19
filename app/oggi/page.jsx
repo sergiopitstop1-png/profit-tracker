@@ -221,22 +221,68 @@ async function fetchOddsForLeague(oddsKey, date) {
   } catch (e) { return {}; }
 }
 
+// Parole da rimuovere per normalizzare i nomi delle squadre
+const STOP_WORDS = ["fc", "cf", "sc", "ac", "bc", "bk", "fk", "sk", "if", "ik",
+  "club", "united", "city", "town", "athletic", "athletics", "sport", "sports",
+  "deportivo", "deportiva", "atletico", "atletica", "real", "racing", "river",
+  "plate", "union", "the", "de", "do", "da", "del", "di", "los", "las", "le",
+  "la", "el", "al", "1", "2", "afc", "rsc", "vfb", "vfl", "tsg", "rb", "rd"];
+
+function normalizeName(name) {
+  return name.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")  // rimuove caratteri speciali
+    .split(/\s+/)
+    .filter(w => w.length > 1 && !STOP_WORDS.includes(w))
+    .join(" ")
+    .trim();
+}
+
+function nameSimilarity(a, b) {
+  const wa = new Set(normalizeName(a).split(" ").filter(w => w.length > 2));
+  const wb = new Set(normalizeName(b).split(" ").filter(w => w.length > 2));
+  if (wa.size === 0 || wb.size === 0) return 0;
+  let common = 0;
+  wa.forEach(w => { if (wb.has(w)) common++; });
+  // Controlla anche match parziale (es. "liverpool" dentro "liverpool fc")
+  wa.forEach(w => { wb.forEach(wb2 => { if (w.length > 4 && (w.includes(wb2) || wb2.includes(w))) common += 0.5; }); });
+  return common / Math.max(wa.size, wb.size);
+}
+
 function matchOdds(oddsMap, homeName, awayName) {
-  // Prima prova match esatto
+  // 1. Match esatto
   const exactKey = `${homeName}__${awayName}`;
   if (oddsMap[exactKey]) return oddsMap[exactKey];
-  // Poi prova match parziale
+
+  // 2. Cerca il miglior match per similarità
+  let bestScore = 0;
+  let bestMatch = null;
+
   for (const [, v] of Object.entries(oddsMap)) {
-    const hn = v.homeTeam?.toLowerCase() || "";
-    const an = v.awayTeam?.toLowerCase() || "";
-    const h = homeName.toLowerCase();
-    const a = awayName.toLowerCase();
-    if ((hn.includes(h.split(" ")[0]) || h.includes(hn.split(" ")[0])) &&
-        (an.includes(a.split(" ")[0]) || a.includes(an.split(" ")[0]))) {
-      return v;
+    const simH = nameSimilarity(homeName, v.homeTeam || "");
+    const simA = nameSimilarity(awayName, v.awayTeam || "");
+    const score = simH + simA;
+    // Entrambe le squadre devono matchare almeno un po'
+    if (simH > 0.3 && simA > 0.3 && score > bestScore) {
+      bestScore = score;
+      bestMatch = v;
     }
   }
-  return null;
+
+  // 3. Se non trova con ordine normale, prova invertito (alcuni API invertono home/away)
+  if (!bestMatch) {
+    for (const [, v] of Object.entries(oddsMap)) {
+      const simH = nameSimilarity(homeName, v.awayTeam || "");
+      const simA = nameSimilarity(awayName, v.homeTeam || "");
+      const score = simH + simA;
+      if (simH > 0.3 && simA > 0.3 && score > bestScore) {
+        bestScore = score;
+        // Inverte le quote home/away
+        bestMatch = { ...v, o1: v.o2, o2: v.o1, homeTeam: v.awayTeam, awayTeam: v.homeTeam };
+      }
+    }
+  }
+
+  return bestMatch;
 }
 
 function calcEV(prob, bookOdds) {
@@ -677,7 +723,7 @@ export default function Oggi() {
               </div>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6, marginBottom: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6, marginBottom: m.oddsData ? 8 : 12 }}>
               {[
                 ["1", (m.probs.h * 100).toFixed(0) + "%"],
                 ["X", (m.probs.d * 100).toFixed(0) + "%"],
@@ -691,6 +737,23 @@ export default function Oggi() {
                 </div>
               ))}
             </div>
+
+            {m.oddsData && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6, marginBottom: 12 }}>
+                {[
+                  ["1", m.oddsData.o1],
+                  ["X", m.oddsData.oX],
+                  ["2", m.oddsData.o2],
+                  ["O2.5", m.oddsData.oOver25],
+                  ["U2.5", m.oddsData.oUnder25],
+                ].map(([l, v]) => (
+                  <div key={l} style={{ background: "#0d0f14", border: "1px solid rgba(255,159,67,0.2)", borderRadius: 8, padding: "8px 4px", textAlign: "center" }}>
+                    <div style={{ fontSize: 9, color: "#ff9f43", fontWeight: 700, letterSpacing: "0.06em", marginBottom: 3 }}>{l} 📖</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: "#e8ecf5", fontFamily: "monospace" }}>{v ? v.toFixed(2) : "—"}</div>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {m.signals.length > 0 ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
