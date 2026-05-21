@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
+import { useRouter } from "next/navigation";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -10,6 +11,7 @@ const supabase = createClient(
 const API_FD = "/api/footballdata";
 
 export default function Archivio() {
+  const router = useRouter();
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState("all");
@@ -18,17 +20,32 @@ export default function Archivio() {
   const [verifyingAll, setVerifyingAll] = useState(false);
   const [verifyProgress, setVerifyProgress] = useState("");
   const [clearingAll, setClearingAll] = useState(false);
+  const [user, setUser] = useState(null);
 
-  useEffect(() => { loadArchive(); }, []);
+  useEffect(() => {
+    const init = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUser(user);
+      loadArchive(user?.id);
+    };
+    init();
+  }, []);
 
-  const loadArchive = async () => {
+  const loadArchive = async (userId) => {
     setLoading(true);
-    const { data, error } = await supabase
+    let query = supabase
       .from("pronox_archive")
       .select("*")
       .order("created_at", { ascending: false });
+    if (userId) query = query.eq("user_id", userId);
+    const { data, error } = await query;
     if (!error) setRecords(data || []);
     setLoading(false);
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.push("/register");
   };
 
   const verifyResult = async (record) => {
@@ -134,7 +151,10 @@ if (!m || !doneStatuses.includes(m.status)) { done++; continue; }
     if (!confirm("🔴 ULTIMA CONFERMA — cancelli tutti i " + records.length + " pronostici salvati. Continuare?")) return;
     setClearingAll(true);
     try {
-      await supabase.from("pronox_archive").delete().neq("id", 0);
+      let query = supabase.from("pronox_archive").delete();
+      if (user?.id) query = query.eq("user_id", user.id);
+      else query = query.neq("id", 0);
+      await query;
       setRecords([]);
     } catch (e) { console.error(e); }
     setClearingAll(false);
@@ -168,10 +188,21 @@ if (!m || !doneStatuses.includes(m.status)) { done++; continue; }
           PRONO<span style={{ color: "#c8f135" }}>X</span>
           <span style={{ fontSize: 13, fontWeight: 400, color: "#6b7490" }}> · archivio pronostici</span>
         </h1>
-        <div style={{ display: "flex", gap: 16, marginBottom: 24 }}>
-          <a href="/" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>← home</a>
-          <a href="/oggi" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>📅 partite del giorno</a>
-          <a href="/pronosticatore" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>⚽ analisi manuale</a>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ display: "flex", gap: 16 }}>
+            <a href="/" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>← home</a>
+            <a href="/oggi" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>📅 partite del giorno</a>
+            <a href="/pronosticatore" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>⚽ analisi manuale</a>
+          </div>
+          {user && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 11, color: "#6b7490" }}>{user.email}</span>
+              <button onClick={handleLogout}
+                style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #2a2f3f", background: "transparent", color: "#6b7490", cursor: "pointer" }}>
+                Esci
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Statistiche */}
