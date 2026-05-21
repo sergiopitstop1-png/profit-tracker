@@ -23,16 +23,16 @@ export default function SergioApicellaHomepage() {
           </p>
           <div className="flex flex-col gap-4 sm:flex-row">
             
-              href="mailto:sergio.apicella.lavoro@gmail.com"
-              className="rounded-2xl bg-orange-500 px-6 py-4 text-center font-semibold text-white shadow-lg shadow-orange-950/40 transition hover:scale-[1.02] hover:bg-orange-400"
-            >
+             <a href="mailto:sergio.apicella.lavoro@gmail.com" className="rounded-2xl bg-orange-500 px-6 py-4 text-center font-semibold text-white shadow-lg shadow-orange-950/40 transition hover:scale-[1.02] hover:bg-orange-400">
               Chiedimi come
             </a>
-            
-              href="/profit-tracker"
-              className="rounded-2xl border border-white/15 bg-white/5 px-6 py-4 text-center font-semibold text-white transition hover:bg-white/10"
-            >
+
+            <a href="/profit-tracker" className="rounded-2xl border border-white/15 bg-white/5 px-6 py-4 text-center font-semibold text-white transition hover:bg-white/10">
               Area Riservata
+            </a>
+
+            <a href="/oggi" className="rounded-2xl border border-lime-400/40 bg-lime-500/10 px-6 py-4 text-center font-semibold text-lime-300 transition hover:bg-lime-500/20">
+              PronoX
             </a>
             
               href="/oggi"
