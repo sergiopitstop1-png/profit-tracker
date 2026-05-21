@@ -19,12 +19,11 @@ export default function Login() {
     e.preventDefault();
     setLoading(true);
     setErrore("");
-
+    localStorage.setItem("otp_email", email);
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: { emailRedirectTo: `${window.location.origin}/auth/confirm` },
     });
-
     setLoading(false);
     if (error) { setErrore(error.message); return; }
     setSent(true);
@@ -34,16 +33,8 @@ export default function Login() {
     e.preventDefault();
     setLoading(true);
     setErrore("");
-
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-
-    if (error) {
-      setLoading(false);
-      setErrore(error.message);
-      return;
-    }
-
-    // Aspetta che la sessione sia propagata ai cookie
+    if (error) { setLoading(false); setErrore(error.message); return; }
     await supabase.auth.getSession();
     window.location.href = "/profit-tracker";
   }
@@ -66,14 +57,12 @@ export default function Login() {
   return (
     <main style={{ background: "#0d0f14", color: "#e8ecf5", padding: "60px 20px", minHeight: "100vh", fontFamily: "system-ui, sans-serif" }}>
       <div style={{ maxWidth: 480, margin: "0 auto" }}>
-
         <div style={{ marginBottom: 32 }}>
           <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 8 }}>
             PRONO<span style={{ color: "#c8f135" }}>X</span>
             <span style={{ fontSize: 13, fontWeight: 400, color: "#6b7490" }}> · accedi</span>
           </h1>
         </div>
-
         <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
           <button onClick={() => setMode("magic")}
             style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid", background: mode === "magic" ? "#c8f135" : "transparent", color: mode === "magic" ? "#0d0f14" : "#6b7490", borderColor: mode === "magic" ? "#c8f135" : "#2a2f3f", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
@@ -84,14 +73,10 @@ export default function Login() {
             🔐 Password
           </button>
         </div>
-
         <div style={{ background: "#161920", border: "1px solid #2a2f3f", borderRadius: 16, padding: 28 }}>
-
           {mode === "magic" ? (
             <form onSubmit={handleMagicLink} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <p style={{ fontSize: 13, color: "#6b7490", margin: 0 }}>
-                Inserisci la tua email — ti mandiamo un link di accesso istantaneo. Niente password.
-              </p>
+              <p style={{ fontSize: 13, color: "#6b7490", margin: 0 }}>Inserisci la tua email — ti mandiamo un link di accesso istantaneo. Niente password.</p>
               <div>
                 <label style={lbl}>Email</label>
                 <input type="email" placeholder="nome@email.com" value={email} onChange={e => setEmail(e.target.value)} required style={inp} />
@@ -104,9 +89,7 @@ export default function Login() {
             </form>
           ) : (
             <form onSubmit={handlePassword} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <p style={{ fontSize: 13, color: "#6b7490", margin: 0 }}>
-                Accesso con password — riservato all'area privata.
-              </p>
+              <p style={{ fontSize: 13, color: "#6b7490", margin: 0 }}>Accesso con password — riservato all'area privata.</p>
               <div>
                 <label style={lbl}>Email</label>
                 <input type="email" placeholder="nome@email.com" value={email} onChange={e => setEmail(e.target.value)} required style={inp} />
@@ -122,7 +105,6 @@ export default function Login() {
               </button>
             </form>
           )}
-
           <div style={{ marginTop: 20, paddingTop: 20, borderTop: "1px solid #2a2f3f", textAlign: "center" }}>
             <p style={{ fontSize: 13, color: "#6b7490" }}>
               Non hai un account?{" "}
@@ -130,7 +112,6 @@ export default function Login() {
             </p>
           </div>
         </div>
-
       </div>
     </main>
   );
