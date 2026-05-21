@@ -37,9 +37,14 @@ export default function Login() {
 
     const { error } = await supabase.auth.signInWithPassword({ email, password });
 
-    setLoading(false);
-    if (error) { setErrore(error.message); return; }
+    if (error) {
+      setLoading(false);
+      setErrore(error.message);
+      return;
+    }
 
+    // Aspetta che la sessione sia propagata ai cookie
+    await supabase.auth.getSession();
     window.location.href = "/profit-tracker";
   }
 
@@ -69,7 +74,6 @@ export default function Login() {
           </h1>
         </div>
 
-        {/* Selettore modalità */}
         <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
           <button onClick={() => setMode("magic")}
             style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid", background: mode === "magic" ? "#c8f135" : "transparent", color: mode === "magic" ? "#0d0f14" : "#6b7490", borderColor: mode === "magic" ? "#c8f135" : "#2a2f3f", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
@@ -114,7 +118,7 @@ export default function Login() {
               {errore && <p style={{ color: "#ff5c5c", fontSize: 13, margin: 0 }}>{errore}</p>}
               <button type="submit" disabled={loading}
                 style={{ padding: "14px", borderRadius: 10, border: "none", background: loading ? "#2a2f3f" : "#c8f135", color: loading ? "#6b7490" : "#0d0f14", fontWeight: 800, fontSize: 15, cursor: loading ? "not-allowed" : "pointer" }}>
-                {loading ? "Accesso..." : "ENTRA ↗"}
+                {loading ? "Accesso in corso..." : "ENTRA ↗"}
               </button>
             </form>
           )}
