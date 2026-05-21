@@ -8,7 +8,7 @@ const supabase = createClient();
 
 export default function AdminUtenti() {
   const router = useRouter();
-  const [utenti, setUtenti] = useState([]);
+  const [utenti, setUtenti] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [authorized, setAuthorized] = useState(false);
   const [updatingId, setUpdatingId] = useState(null);
