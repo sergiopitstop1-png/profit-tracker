@@ -95,6 +95,7 @@ export default function BlogPage() {
             </a>
           ))}
         </div>
+        </div>
 
       </section>
 
