@@ -56,8 +56,8 @@ export default function JuventusNapoliStagione2026() {
         <section className="mt-16 space-y-6">
           <h2 className="text-3xl font-bold">Il momento chiave: la Fiorentina all'Allianz</h2>
           <p className="leading-8 text-white/70">
-            Se c'è una partita che ha segnato la stagione bianconera, è il
-            pareggio in casa contro la Fiorentina nelle ultime giornate — il
+            Se c'è una partita che ha segnato la stagione bianconera, è la
+            sconfitta in casa contro la Fiorentina nelle ultime giornate — il
             risultato che di fatto ha chiuso la porta alla Champions League.
             Una partita che la Juventus doveva vincere per restare agganciata
             al quarto posto, giocata in casa, davanti ai propri tifosi.
