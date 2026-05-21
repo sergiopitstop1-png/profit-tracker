@@ -76,9 +76,9 @@ export default function AdminUtenti() {
         {/* Statistiche */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 20 }}>
           {[
-            ["Totale iscritti", totali, "#e8ecf5"],
-            ["VIP", vip, "#4af0c4"],
-            ["User", user, "#6b7490"],
+            ["Totale iscritti", String(totali), "#e8ecf5"],
+            ["VIP", String(vip), "#4af0c4"],
+            ["User", String(user), "#6b7490"],
           ].map(([l, v, c]) => (
             <div key={l} style={{ background: "#161920", border: "1px solid #2a2f3f", borderRadius: 10, padding: "14px 12px", textAlign: "center" }}>
               <div style={{ fontSize: 10, color: "#6b7490", fontWeight: 700, letterSpacing: "0.08em", marginBottom: 6, textTransform: "uppercase" }}>{l}</div>
