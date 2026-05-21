@@ -11,8 +11,7 @@ export default function AdminUtenti() {
   const [utenti, setUtenti] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [authorized, setAuthorized] = useState(false);
-  const [updatingId, setUpdatingId] = useState(null);
-
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser();
