@@ -61,8 +61,8 @@ export default function SalernitanaPlayoffSerieC2026() {
         <section className="mt-16 space-y-6">
           <h2 className="text-3xl font-bold">La ripresa: Villa stanga il Ravenna</h2>
           <p className="leading-8 text-white/70">
-            La svolta arriva al 24' della ripresa. Azione personale di Villa —
-            uno dei migliori in campo — che salta un avversario e incrocia
+            La svolta arriva al 24' della ripresa. Intervento di Villa sulla trequarti —
+            uno dei migliori in campo — salta un avversario e incrocia
             all'angolino lontano. Gol di qualità tecnica superiore alla media
             della categoria.
           </p>
