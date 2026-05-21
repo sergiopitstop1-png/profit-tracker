@@ -22,7 +22,7 @@ export default function Login() {
 
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=/oggi` },
+      options: { emailRedirectTo: `${window.location.origin}/auth/confirm` },
     });
 
     setLoading(false);
