@@ -48,7 +48,7 @@ export default function AdminUtenti() {
     setUpdatingId(null);
   };
 
-  const roleBadge = (role) => {
+  const roleBadge = (role: string) => {
     if (role === "admin") return { bg: "rgba(200,241,53,0.15)", color: "#c8f135", text: "👑 ADMIN" };
     if (role === "vip") return { bg: "rgba(74,240,196,0.15)", color: "#4af0c4", text: "⭐ VIP" };
     return { bg: "rgba(107,116,144,0.15)", color: "#6b7490", text: "👤 USER" };
