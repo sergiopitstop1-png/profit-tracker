@@ -23,7 +23,7 @@ export default function SergioApicellaHomepage() {
           </p>
           <div className="flex flex-col gap-4 sm:flex-row">
             
-              href="mailto:sergio.apicella.lavoro@gmail.com?subject=Richiesta%20informazioni%20da%20sergioapicella.it"
+              href="mailto:sergio.apicella.lavoro@gmail.com"
               className="rounded-2xl bg-orange-500 px-6 py-4 text-center font-semibold text-white shadow-lg shadow-orange-950/40 transition hover:scale-[1.02] hover:bg-orange-400"
             >
               Chiedimi come
