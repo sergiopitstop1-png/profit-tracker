@@ -75,7 +75,7 @@ export default function BlogPage() {
 
         <div className="mt-14 space-y-6">
           {posts.map((post) => (
-            
+            <a
               key={post.title}
               href={post.href}
               className="block rounded-3xl border border-white/10 bg-white/5 p-8 transition hover:-translate-y-1 hover:border-orange-400/40 hover:bg-white/10"
