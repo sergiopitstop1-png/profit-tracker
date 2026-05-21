@@ -42,7 +42,7 @@ export default function AdminUtenti() {
     setLoading(false);
   };
 
-  const changeRole = async (id, newRole) => {
+  const changeRole = async (id: string, newRole: string) => {
     setUpdatingId(id);
     await supabase.from("user_profiles").update({ role: newRole }).eq("id", id);
     setUtenti(prev => prev.map(u => u.id === id ? { ...u, role: newRole } : u));
