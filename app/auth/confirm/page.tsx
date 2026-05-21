@@ -34,7 +34,7 @@ export default function AuthConfirm() {
           return;
         }
 
-        router.push("/oggi");
+        window.location.href = "/oggi";
         return;
       }
 
