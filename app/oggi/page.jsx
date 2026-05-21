@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 const API_FD = "/api/footballdata";
@@ -181,30 +181,13 @@ function getSignals(probs) {
 
 // ─── ODDS API: mappa lega → oddsKey e matcha per nome squadra ──
 
-async function fetchOddsForLeague(oddsKey, date, supabaseClient) {
+async function fetchOddsForLeague(oddsKey, date) {
   if (!oddsKey) return {};
-
-  // Controlla cache Supabase — valida 6 ore
-  try {
-    const { data: cached } = await supabaseClient
-      .from("pronox_odds_cache")
-      .select("data, updated_at")
-      .eq("league_key", oddsKey)
-      .eq("match_date", date)
-      .single();
-
-    if (cached) {
-      const ageHours = (Date.now() - new Date(cached.updated_at).getTime()) / (1000 * 60 * 60);
-      if (ageHours < 6) return cached.data; // cache valida
-    }
-  } catch (e) {}
-
-  // Cache scaduta o assente — chiama API
   try {
     const r = await fetch(`${API_ODDS}?endpoint=sports/${oddsKey}/odds&regions=eu&markets=h2h,totals&dateFormat=iso&oddsFormat=decimal`);
     const data = await r.json();
     if (!Array.isArray(data)) return {};
-
+    // Filtra per data
     const dayStart = new Date(date + "T00:00:00Z").getTime();
     const dayEnd = new Date(date + "T23:59:59Z").getTime();
     const oddsMap = {};
@@ -212,6 +195,7 @@ async function fetchOddsForLeague(oddsKey, date, supabaseClient) {
       const gameTime = new Date(game.commence_time).getTime();
       if (gameTime < dayStart || gameTime > dayEnd) return;
       const key = `${game.home_team}__${game.away_team}`;
+      // Estrai quote medie h2h e totals
       let o1 = null, oX = null, o2 = null, oOver25 = null, oUnder25 = null;
       game.bookmakers?.forEach(bk => {
         bk.markets?.forEach(mkt => {
@@ -230,21 +214,9 @@ async function fetchOddsForLeague(oddsKey, date, supabaseClient) {
           }
         });
       });
-      oddsMap[key] = { o1, oX, o2, oOver25, oUnder25, homeTeam: game.home_team, awayTeam: game.away_team };
+      oddsMap[key] = { o1, oX, o2, oOver25, oUnder25,
+        homeTeam: game.home_team, awayTeam: game.away_team };
     });
-
-    // Salva in cache
-    if (Object.keys(oddsMap).length > 0) {
-      try {
-        await supabaseClient.from("pronox_odds_cache").upsert({
-          league_key: oddsKey,
-          match_date: date,
-          data: oddsMap,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: "league_key,match_date" });
-      } catch (e) {}
-    }
-
     return oddsMap;
   } catch (e) { return {}; }
 }
@@ -366,14 +338,6 @@ export default function Oggi() {
   const [savedMap, setSavedMap] = useState({});
   const [checkingId, setCheckingId] = useState(null);
   const [pianoMap, setPianoMap] = useState({});
-  const [isMobile, setIsMobile] = useState(false);
-
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 600);
-    check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
-  }, []);
 
   const toggleLeague = (code) => {
     setSelectedLeagues(prev => prev.includes(code) ? prev.filter(x => x !== code) : [...prev, code]);
@@ -413,7 +377,7 @@ export default function Oggi() {
       const league = LEAGUES.find(l => l.code === code);
       if (!league?.oddsKey) continue;
       setProgress(`Carico quote ${league.flag} ${league.name}...`);
-      allOdds[code] = await fetchOddsForLeague(league.oddsKey, date, supabase);
+      allOdds[code] = await fetchOddsForLeague(league.oddsKey, date);
     }
 
     const findTeamRating = (teamId, teamName, primaryCode) => {
@@ -529,6 +493,7 @@ export default function Oggi() {
     const key = `${match.id}_${signal.label}`;
     setSavingId(key);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
       await supabase.from("pronox_archive").insert({
         match_id: match.id, match_date: date, match_time: match.time,
         league: match.league.name, home_team: match.home.name, away_team: match.away.name,
@@ -537,6 +502,7 @@ export default function Oggi() {
         lambda_home: parseFloat(match.lH.toFixed(3)),
         lambda_away: parseFloat(match.lA.toFixed(3)),
         status: "PENDING",
+        user_id: user?.id || null,
       });
       setSavedMap(prev => ({ ...prev, [key]: "PENDING" }));
     } catch (e) { console.error(e); }
@@ -692,10 +658,10 @@ export default function Oggi() {
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
-                {m.home.crest && <img src={m.home.crest} style={{ width: 28, height: 28, flexShrink: 0 }} alt="" />}
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: isMobile ? 13 : 15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.home.name}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+                {m.home.crest && <img src={m.home.crest} style={{ width: 28, height: 28 }} alt="" />}
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 15 }}>{m.home.name}</div>
                   {m.formH && (
                     <div style={{ display: "flex", gap: 2, marginTop: 3 }}>
                       {m.formH.split("").map((r, i) => (
@@ -705,13 +671,13 @@ export default function Oggi() {
                   )}
                 </div>
               </div>
-              <div style={{ textAlign: "center", flexShrink: 0 }}>
+              <div style={{ textAlign: "center" }}>
                 {m.oddsData ? (
-                  <div style={{ display: "flex", gap: isMobile ? 3 : 6 }}>
+                  <div style={{ display: "flex", gap: 6 }}>
                     {[m.oddsData.o1, m.oddsData.oX, m.oddsData.o2].map((q, i) => (
-                      <div key={i} style={{ background: "#0d0f14", border: "1px solid #2a2f3f", borderRadius: 6, padding: isMobile ? "3px 5px" : "4px 8px", textAlign: "center", minWidth: isMobile ? 32 : 40 }}>
-                        <div style={{ fontSize: 8, color: "#6b7490", marginBottom: 2 }}>{["1","X","2"][i]}</div>
-                        <div style={{ fontSize: isMobile ? 11 : 13, fontWeight: 700, color: "#e8ecf5", fontFamily: "monospace" }}>{q ? q.toFixed(2) : "—"}</div>
+                      <div key={i} style={{ background: "#0d0f14", border: "1px solid #2a2f3f", borderRadius: 6, padding: "4px 8px", textAlign: "center", minWidth: 40 }}>
+                        <div style={{ fontSize: 9, color: "#6b7490", marginBottom: 2 }}>{["1","X","2"][i]}</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "#e8ecf5", fontFamily: "monospace" }}>{q ? q.toFixed(2) : "—"}</div>
                       </div>
                     ))}
                   </div>
@@ -719,9 +685,9 @@ export default function Oggi() {
                   <div style={{ color: "#6b7490", fontSize: 13, fontWeight: 600 }}>vs</div>
                 )}
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, justifyContent: "flex-end", minWidth: 0 }}>
-                <div style={{ textAlign: "right", minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: isMobile ? 13 : 15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.away.name}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, justifyContent: "flex-end" }}>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontWeight: 700, fontSize: 15 }}>{m.away.name}</div>
                   {m.formA && (
                     <div style={{ display: "flex", gap: 2, marginTop: 3, justifyContent: "flex-end" }}>
                       {m.formA.split("").map((r, i) => (
@@ -730,7 +696,7 @@ export default function Oggi() {
                     </div>
                   )}
                 </div>
-                {m.away.crest && <img src={m.away.crest} style={{ width: 28, height: 28, flexShrink: 0 }} alt="" />}
+                {m.away.crest && <img src={m.away.crest} style={{ width: 28, height: 28 }} alt="" />}
               </div>
             </div>
 
@@ -799,47 +765,43 @@ export default function Oggi() {
                   const pianoStatus = pianoMap[`${m.id}_${s.label}_piano`];
                   return (
                     <div key={i} style={{ borderRadius: 8, border: `1px solid ${s.isValue ? "rgba(255,159,67,0.6)" : s.strong ? s.color + "50" : "#2a2f3f"}`, background: s.isValue ? "rgba(255,159,67,0.08)" : s.strong ? `${s.color}10` : "rgba(255,255,255,0.03)", padding: "10px 14px" }}>
-                      {/* Riga 1: label + prob + quota */}
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                        <span style={{ fontSize: isMobile ? 12 : 13, fontWeight: 700, color: s.isValue ? "#ff9f43" : s.strong ? s.color : "#e8ecf5" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: s.isValue ? 8 : 0 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: s.isValue ? "#ff9f43" : s.strong ? s.color : "#e8ecf5" }}>
                           {s.isValue ? "🎆 " : s.strong ? "🔥 " : "→ "}{s.label}
                         </span>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <span style={{ fontSize: 13, fontFamily: "monospace", color: s.color, fontWeight: 600 }}>{(s.prob * 100).toFixed(1)}%</span>
                           {s.bookOdds && (
                             <span style={{ fontSize: 12, fontFamily: "monospace", color: s.isValue ? "#ff9f43" : "#6b7490", fontWeight: s.isValue ? 700 : 400 }}>
                               @{s.bookOdds.toFixed(2)}
                             </span>
                           )}
+                          {!savedStatus && (
+                            <button onClick={() => saveSignal(m, s)} disabled={savingId === key}
+                              style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, border: `1px solid ${s.color}60`, background: `${s.color}15`, color: s.color, cursor: "pointer", fontWeight: 700 }}>
+                              {savingId === key ? "..." : "☑ Salva"}
+                            </button>
+                          )}
+                          {savedStatus === "PENDING" && (
+                            <button onClick={() => verifyResult(m, s)} disabled={checkingId === key}
+                              style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, border: "1px solid rgba(255,208,96,0.4)", background: "rgba(255,208,96,0.1)", color: "#ffd060", cursor: "pointer", fontWeight: 700 }}>
+                              {checkingId === key ? "..." : "⏳ Verifica"}
+                            </button>
+                          )}
+                          {savedStatus === "WIN" && <span style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, background: "rgba(200,241,53,0.15)", color: "#c8f135", fontWeight: 700 }}>✓ WIN</span>}
+                          {savedStatus === "LOSS" && <span style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, background: "rgba(255,92,92,0.15)", color: "#ff5c5c", fontWeight: 700 }}>✗ LOSS</span>}
+                          {pianoStatus === "saved" ? (
+                            <span style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, background: "rgba(200,241,53,0.15)", color: "#c8f135", fontWeight: 700 }}>🎯</span>
+                          ) : (
+                            <button onClick={() => addToPlan(m, s)} disabled={pianoStatus === "saving"}
+                              style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, border: "1px solid rgba(200,241,53,0.4)", background: "rgba(200,241,53,0.08)", color: "#c8f135", cursor: "pointer", fontWeight: 700 }}>
+                              {pianoStatus === "saving" ? "..." : "+ Piano"}
+                            </button>
+                          )}
                         </div>
                       </div>
-                      {/* Riga 2: bottoni */}
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                        {!savedStatus && (
-                          <button onClick={() => saveSignal(m, s)} disabled={savingId === key}
-                            style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, border: `1px solid ${s.color}60`, background: `${s.color}15`, color: s.color, cursor: "pointer", fontWeight: 700 }}>
-                            {savingId === key ? "..." : "☑ Salva"}
-                          </button>
-                        )}
-                        {savedStatus === "PENDING" && (
-                          <button onClick={() => verifyResult(m, s)} disabled={checkingId === key}
-                            style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, border: "1px solid rgba(255,208,96,0.4)", background: "rgba(255,208,96,0.1)", color: "#ffd060", cursor: "pointer", fontWeight: 700 }}>
-                            {checkingId === key ? "..." : "⏳ Verifica"}
-                          </button>
-                        )}
-                        {savedStatus === "WIN" && <span style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, background: "rgba(200,241,53,0.15)", color: "#c8f135", fontWeight: 700 }}>✓ WIN</span>}
-                        {savedStatus === "LOSS" && <span style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, background: "rgba(255,92,92,0.15)", color: "#ff5c5c", fontWeight: 700 }}>✗ LOSS</span>}
-                        {pianoStatus === "saved" ? (
-                          <span style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, background: "rgba(200,241,53,0.15)", color: "#c8f135", fontWeight: 700 }}>🎯</span>
-                        ) : (
-                          <button onClick={() => addToPlan(m, s)} disabled={pianoStatus === "saving"}
-                            style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, border: "1px solid rgba(200,241,53,0.4)", background: "rgba(200,241,53,0.08)", color: "#c8f135", cursor: "pointer", fontWeight: 700 }}>
-                            {pianoStatus === "saving" ? "..." : "+ Piano"}
-                          </button>
-                        )}
-                      </div>
                       {s.isValue && s.ev !== null && (
-                        <div style={{ fontSize: 11, color: "#ff9f43", background: "rgba(255,159,67,0.1)", borderRadius: 6, padding: "4px 10px", marginTop: 6, display: "inline-block" }}>
+                        <div style={{ fontSize: 11, color: "#ff9f43", background: "rgba(255,159,67,0.1)", borderRadius: 6, padding: "4px 10px", display: "inline-block" }}>
                           Quota equa: {s.fairOdds.toFixed(2)} · Book: {s.bookOdds.toFixed(2)} · EV: +{(s.ev * 100).toFixed(1)}%
                         </div>
                       )}
