@@ -22,7 +22,7 @@ export default function Login() {
 
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: `${window.location.origin}/oggi` },
+      options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=/oggi` },
     });
 
     setLoading(false);
@@ -40,8 +40,7 @@ export default function Login() {
     setLoading(false);
     if (error) { setErrore(error.message); return; }
 
-    router.push("/profit-tracker");
-    router.refresh();
+    window.location.href = "/profit-tracker";
   }
 
   if (sent) {
