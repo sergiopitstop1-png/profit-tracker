@@ -35,9 +35,7 @@ export default function SergioApicellaHomepage() {
               PronoX
             </a>
             
-              href="/oggi"
-              className="rounded-2xl border border-lime-400/40 bg-lime-500/10 px-6 py-4 text-center font-semibold text-lime-300 transition hover:bg-lime-500/20"
-            >
+             <a href="/oggi" className="rounded-2xl border border-lime-400/40 bg-lime-500/10 px-6 py-4 text-center font-semibold text-lime-300 transition hover:bg-lime-500/20">
               PronoX
             </a>
           </div>
