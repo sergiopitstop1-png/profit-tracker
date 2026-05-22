@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/gmail/sync?secret=pt_cron_2026_sergio",
+      "schedule": "0 */6 * * *"
+    }
+  ]
+}
