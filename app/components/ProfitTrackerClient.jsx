@@ -3964,9 +3964,8 @@ onChange={(e) => {
           placeholder='Nome book'
           style={input}
         />
-        <input
-<select
-                  value={clienti.find(c => c.nome === bookForm.intestatario) ? bookForm.intestatario : ''}
+        <select
+          value={clienti.find(c => c.nome === bookForm.intestatario) ? bookForm.intestatario : ''}
           onChange={(e) => { if (e.target.value) setBookForm({ ...bookForm, intestatario: e.target.value }) }}
           style={{ ...input, marginBottom: 4 }}
         >
@@ -4021,9 +4020,8 @@ onChange={(e) => {
           placeholder='Nome wallet'
           style={input}
         />
-        <input
-<select
-                  value={clienti.find(c => c.nome === walletForm.intestatario) ? walletForm.intestatario : ''}
+        <select
+          value={clienti.find(c => c.nome === walletForm.intestatario) ? walletForm.intestatario : ''}
           onChange={(e) => { if (e.target.value) setWalletForm({ ...walletForm, intestatario: e.target.value }) }}
           style={{ ...input, marginBottom: 4 }}
         >
