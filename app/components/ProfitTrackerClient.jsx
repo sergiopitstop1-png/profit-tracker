@@ -2214,43 +2214,42 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             <h1 style={title}>🔥 Profit Tracker - La scalata al SUCCESSO</h1>
             <p style={subtitle}>books · wallets · transactions</p>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
-            <div style={copyrightBox}>© Sergio Apicella — Tutti i diritti riservati</div>
-            <div style={{ display: 'flex', alignItems: 'stretch', gap: 8 }}>
-              {guadagnoCorrente >= mediaMensileResidua && mediaMensileResidua > 0 && (
-                <div style={{ background: 'linear-gradient(135deg, rgba(34,197,94,0.15), rgba(16,185,129,0.10))', border: '2px solid rgba(34,197,94,0.5)', borderRadius: 14, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8, animation: 'blinkPrevisto 2s ease-in-out infinite' }}>
-                  <span style={{ fontSize: 20 }}>🏆</span>
-                  <div>
-                    <div style={{ color: '#22c55e', fontWeight: 900, fontSize: 12 }}>SPESE COPERTE!</div>
-                    <div style={{ color: '#86efac', fontSize: 11, marginTop: 1 }}>+{formatCurrency(guadagnoCorrente - mediaMensileResidua)} sull'obiettivo 💪</div>
-                  </div>
-                </div>
-              )}
-              <div style={{ border: `1px solid ${targetRaggiunto ? 'rgba(34,197,94,0.5)' : 'rgba(168,85,247,0.4)'}`, background: targetRaggiunto ? 'rgba(34,197,94,0.08)' : 'rgba(168,85,247,0.08)', color: '#f8fafc', padding: '8px 14px', borderRadius: 14, fontSize: 13, minWidth: 200, textAlign: 'right' }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: targetRaggiunto ? '#22c55e' : '#a855f7', marginBottom: 4, letterSpacing: 1 }}>🎯 TARGET CASSA</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
-                  <input
-                    type='number'
-                    defaultValue={targetCassa || ''}
-                    placeholder='Es. 80000'
-                    onBlur={(e) => updateDashboardSetting('target_cassa', e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur() }}
-                    style={{ background: 'transparent', border: 'none', borderBottom: '1px solid rgba(168,85,247,0.4)', color: '#f8fafc', fontWeight: 800, fontSize: 14, width: 90, textAlign: 'right', outline: 'none', padding: '2px 0' }}
-                  />
-                  <span style={{ color: '#94a3b8', fontSize: 13 }}>€</span>
-                </div>
-                {targetCassa > 0 && (
-                  <div style={{ marginTop: 4, fontSize: 11, fontWeight: 700 }}>
-                    {targetRaggiunto
-                      ? <span style={{ color: '#22c55e' }}>🎉 RAGGIUNTO! +{formatCurrency(cassaDisponibile - targetCassa)}</span>
-                      : <span style={{ color: '#f87171' }}>Mancano {formatCurrency(mancaAlTarget)} 💪</span>
-                    }
-                  </div>
-                )}
+          <div style={copyrightBox}>© Sergio Apicella — Tutti i diritti riservati</div>
+        </header>
+
+        <div style={{ display: 'flex', alignItems: 'stretch', gap: 10, marginBottom: 12 }}>
+          {guadagnoCorrente >= mediaMensileResidua && mediaMensileResidua > 0 && (
+            <div style={{ flex: 1, background: 'linear-gradient(135deg, rgba(34,197,94,0.15), rgba(16,185,129,0.10))', border: '2px solid rgba(34,197,94,0.5)', borderRadius: 14, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10, animation: 'blinkPrevisto 2s ease-in-out infinite' }}>
+              <span style={{ fontSize: 24 }}>🏆</span>
+              <div>
+                <div style={{ color: '#22c55e', fontWeight: 900, fontSize: 13 }}>BRAVO! SPESE COPERTE PER QUESTO MESE!</div>
+                <div style={{ color: '#86efac', fontSize: 11, marginTop: 2 }}>Profitto {formatCurrency(guadagnoCorrente)} · Obiettivo {formatCurrency(mediaMensileResidua)} · Sei a +{formatCurrency(guadagnoCorrente - mediaMensileResidua)} 💪</div>
               </div>
             </div>
+          )}
+          <div style={{ border: `1px solid ${targetRaggiunto ? 'rgba(34,197,94,0.5)' : 'rgba(168,85,247,0.4)'}`, background: targetRaggiunto ? 'rgba(34,197,94,0.08)' : 'rgba(168,85,247,0.08)', color: '#f8fafc', padding: '10px 16px', borderRadius: 14, minWidth: 210 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: targetRaggiunto ? '#22c55e' : '#a855f7', marginBottom: 4, letterSpacing: 1 }}>🎯 TARGET CASSA</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                type='number'
+                defaultValue={targetCassa || ''}
+                placeholder='Es. 80000'
+                onBlur={(e) => updateDashboardSetting('target_cassa', e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur() }}
+                style={{ background: 'transparent', border: 'none', borderBottom: '1px solid rgba(168,85,247,0.4)', color: '#f8fafc', fontWeight: 800, fontSize: 14, width: 90, outline: 'none', padding: '2px 0' }}
+              />
+              <span style={{ color: '#94a3b8', fontSize: 13 }}>€</span>
+            </div>
+            {targetCassa > 0 && (
+              <div style={{ marginTop: 5, fontSize: 11, fontWeight: 700 }}>
+                {targetRaggiunto
+                  ? <span style={{ color: '#22c55e' }}>🎉 RAGGIUNTO! +{formatCurrency(cassaDisponibile - targetCassa)}</span>
+                  : <span style={{ color: '#f87171' }}>Mancano {formatCurrency(mancaAlTarget)} — non mollare! 💪</span>
+                }
+              </div>
+            )}
           </div>
-        </header>
+        </div>
 
         {message && <div style={successBox}>{message}</div>}
 
