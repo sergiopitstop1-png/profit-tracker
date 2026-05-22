@@ -1,15 +1,14 @@
 import { NextResponse } from 'next/server'
 
-const SCOPES = [
-  'https://www.googleapis.com/auth/gmail.readonly'
-]
+const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const email = searchParams.get('email')
-  
-  if (!email) {
-    return NextResponse.json({ error: 'Email mancante' }, { status: 400 })
+  const emailId = searchParams.get('email_id')
+
+  if (!email || !emailId) {
+    return NextResponse.json({ error: 'Parametri mancanti' }, { status: 400 })
   }
 
   const params = new URLSearchParams({
@@ -20,10 +19,8 @@ export async function GET(request: Request) {
     access_type: 'offline',
     prompt: 'consent',
     login_hint: email,
-    state: email
+    state: `${email}|${emailId}`
   })
 
-  const authUrl = `https://accounts.google.com/o/oauth2/auth?${params.toString()}`
-  
-  return NextResponse.redirect(authUrl)
+  return NextResponse.redirect(`https://accounts.google.com/o/oauth2/auth?${params.toString()}`)
 }
