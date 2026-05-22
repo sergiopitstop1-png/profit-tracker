@@ -57,7 +57,7 @@ async function leggiMail(accessToken: string) {
 }
 
 async function analizzaPromozioni(mail: any[], nomeCliente: string) {
-  const testo = mail.map(m => `Da: ${m.from}\nOggetto: ${m.subject}`).join('\n\n')
+  const testo = mail.map(m => `Da: ${m.from}\nOggetto: ${m.subject}\nData: ${m.date}`).join('\n\n')
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -71,15 +71,22 @@ async function analizzaPromozioni(mail: any[], nomeCliente: string) {
       max_tokens: 1000,
       messages: [{
         role: 'user',
-        content: `Analizza queste email di ${nomeCliente} e identifica SOLO quelle che contengono promozioni, bonus, offerte speciali o opportunità da bookmaker/casinò/operatori di gioco. Rispondi SOLO in JSON array: [{"from": "mittente", "subject": "oggetto", "tipo": "promozione/bonus/offerta", "priorita": "alta/media/bassa"}]. Se non ci sono promozioni rispondi con array vuoto []. Email:\n\n${testo}`
+        content: `Analizza queste email di ${nomeCliente} e identifica SOLO quelle che contengono promozioni, bonus, offerte speciali o opportunità da bookmaker/casinò/operatori di gioco. Rispondi SOLO in JSON array senza markdown: [{"from": "mittente", "subject": "oggetto", "date": "data originale mail", "tipo": "promozione/bonus/offerta", "priorita": "alta/media/bassa"}]. Priorità ALTA = scadenza imminente o importo elevato. Se non ci sono promozioni rispondi []. Email:\n\n${testo}`
       }]
     })
   })
 
   const data = await res.json()
   try {
-    const testo = data.content[0].text.replace(/```json|```/g, '').trim()
-    return JSON.parse(testo)
+    const parsed = JSON.parse(data.content[0].text.replace(/```json|```/g, '').trim())
+    // Aggiungo la data originale dalla mail se Claude non l'ha restituita
+    for (let j = 0; j < parsed.length; j++) {
+      if (!parsed[j].date) {
+        const mailOriginale = mail.find(m => m.subject === parsed[j].subject)
+        if (mailOriginale) parsed[j].date = mailOriginale.date
+      }
+    }
+    return parsed
   } catch {
     return []
   }
