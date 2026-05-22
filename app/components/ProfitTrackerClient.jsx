@@ -2398,7 +2398,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 ? <p style={{ color: '#94a3b8', textAlign: 'center', padding: '20px 0' }}>Nessuna promozione trovata</p>
                 : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {promozioniManuali.map((p: any, idx: number) => (
+                    {promozioniManuali.map((p, idx) => (
                       <div key={idx} style={{ background: 'rgba(11,18,32,0.85)', border: `1px solid ${(p.priorita||'').toLowerCase() === 'alta' ? 'rgba(239,68,68,0.35)' : (p.priorita||'').toLowerCase() === 'media' ? 'rgba(245,158,11,0.3)' : 'rgba(34,197,94,0.25)'}`, borderRadius: 12, padding: '10px 14px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                           <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 6,
