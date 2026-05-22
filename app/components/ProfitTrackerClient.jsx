@@ -2219,15 +2219,15 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 
         <div style={{ display: 'flex', alignItems: 'stretch', gap: 10, marginBottom: 12 }}>
           {guadagnoCorrente >= mediaMensileResidua && mediaMensileResidua > 0 && (
-            <div style={{ flex: '0 0 auto', background: 'linear-gradient(135deg, rgba(34,197,94,0.15), rgba(16,185,129,0.10))', border: '2px solid rgba(34,197,94,0.5)', borderRadius: 14, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8, animation: 'blinkPrevisto 2s ease-in-out infinite' }}>
-              <span style={{ fontSize: 18 }}>🏆</span>
+            <div style={{ flex: 1, background: 'linear-gradient(135deg, rgba(34,197,94,0.15), rgba(16,185,129,0.10))', border: '2px solid rgba(34,197,94,0.5)', borderRadius: 14, padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, animation: 'blinkPrevisto 2s ease-in-out infinite' }}>
+              <span style={{ fontSize: 28 }}>🏆</span>
               <div>
-                <div style={{ color: '#22c55e', fontWeight: 900, fontSize: 11 }}>SPESE COPERTE!</div>
-                <div style={{ color: '#86efac', fontSize: 10, marginTop: 1 }}>+{formatCurrency(guadagnoCorrente - mediaMensileResidua)} 💪</div>
+                <div style={{ color: '#22c55e', fontWeight: 900, fontSize: 15 }}>BRAVO! SPESE COPERTE PER QUESTO MESE!</div>
+                <div style={{ color: '#86efac', fontSize: 12, marginTop: 2 }}>Profitto {formatCurrency(guadagnoCorrente)} · Obiettivo {formatCurrency(mediaMensileResidua)} · Sei a +{formatCurrency(guadagnoCorrente - mediaMensileResidua)} 💪</div>
               </div>
             </div>
           )}
-          <div style={{ flex: 1, border: `1px solid ${targetRaggiunto ? 'rgba(34,197,94,0.5)' : 'rgba(168,85,247,0.5)'}`, background: targetRaggiunto ? 'rgba(34,197,94,0.08)' : 'rgba(168,85,247,0.06)', color: '#f8fafc', padding: '10px 18px', borderRadius: 14 }}>
+          <div style={{ flex: '0 0 260px', border: `1px solid ${targetRaggiunto ? 'rgba(34,197,94,0.5)' : 'rgba(168,85,247,0.5)'}`, background: targetRaggiunto ? 'rgba(34,197,94,0.08)' : 'rgba(168,85,247,0.06)', color: '#f8fafc', padding: '10px 16px', borderRadius: 14 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: targetRaggiunto ? '#22c55e' : '#a855f7', marginBottom: 6, letterSpacing: 1 }}>🎯 TARGET CASSA</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <input
@@ -2249,7 +2249,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               <div style={{ marginTop: 6 }}>
                 {targetRaggiunto
                   ? <span style={{ color: '#22c55e', fontWeight: 900, fontSize: 13 }}>🎉 TARGET RAGGIUNTO! +{formatCurrency(cassaDisponibile - targetCassa)}</span>
-                  : <span style={{ color: '#f87171', fontWeight: 900, fontSize: 15, animation: 'blinkPrevisto 1.5s ease-in-out infinite' }}>Mancano {formatCurrency(mancaAlTarget)} — NON MOLLARE! 🔥</span>
+                  : <span style={{ color: '#f87171', fontWeight: 900, fontSize: 14, animation: 'blinkPrevisto 1.5s ease-in-out infinite' }}>Mancano {formatCurrency(mancaAlTarget)} 🔥</span>
                 }
               </div>
             )}
