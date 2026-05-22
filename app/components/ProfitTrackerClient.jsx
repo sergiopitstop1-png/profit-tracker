@@ -23,6 +23,7 @@ export default function ProfitTrackerClient() {
 const [weeklySnapshots, setWeeklySnapshots] = useState([])
 const [monthlySnapshots, setMonthlySnapshots] = useState([])
 const [stimeCassa, setStimeCassa] = useState([])
+const [pendingRefresh, setPendingRefresh] = useState(false)
  const [memoRoyaltyAccounts, setMemoRoyaltyAccounts] = useState([])
   const [newAccountName, setNewAccountName] = useState('')
 const [memoRoyaltyEntries, setMemoRoyaltyEntries] = useState([])
@@ -1122,7 +1123,8 @@ async function updateStimaCassa(id, field, value) {
     return
   }
 
-  await loadData({ preserveMessages: true })
+  setStimeCassa(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r))
+  setPendingRefresh(true)
 }
   async function updateRoyaltyEntry(id, field, value) {
   const { error } = await supabase
@@ -1231,7 +1233,7 @@ async function upsertRoyaltyEntry(accountId, year, value) {
 
   await loadData({ preserveMessages: true })
 } 
- async function updateStatoStima(row, nuovoStato) {
+async function updateStatoStima(row, nuovoStato) {
   const payload = { stato: nuovoStato }
 
   if (nuovoStato === 'annullato') {
@@ -1248,7 +1250,8 @@ async function upsertRoyaltyEntry(accountId, year, value) {
     return
   }
 
-  await loadData({ preserveMessages: true })
+  setStimeCassa(prev => prev.map(r => r.id === row.id ? { ...r, ...payload } : r))
+  setPendingRefresh(true)
 } 
   async function salvaLogTransazione({ tipo, importo, riferimento, note, azione }) {
     return supabase.from('transactions').insert([{
@@ -2030,6 +2033,21 @@ const stimeCassaByMonth = useMemo(() => {
 
 const meseCorrenteKey = formatMonthKey()
 
+function handleTabChange(tab) {
+  if (pendingRefresh && activeTab === 'contabilita' && tab !== 'contabilita') {
+    const conferma = window.confirm('⚠️ Hai modifiche non aggiornate in Contabilità.\nVuoi aggiornare prima di cambiare tab?')
+    if (conferma) {
+      loadData({ preserveMessages: true }).then(() => {
+        setPendingRefresh(false)
+        setActiveTab(tab)
+      })
+      return
+    }
+    setPendingRefresh(false)
+  }
+  setActiveTab(tab)
+}
+
 const currentMonthRef = React.useRef(null)
 useEffect(() => {
   if (activeTab === 'contabilita' && currentMonthRef.current) {
@@ -2236,13 +2254,13 @@ const cassaDisponibile =
         {errorMessage && <div style={errorBox}>{errorMessage}</div>}
 
         <nav style={tabsBar}>
-          <button style={activeTab === 'dashboard' ? activeTabButton : tabButton} onClick={() => setActiveTab('dashboard')}>Dashboard</button>
-          <button style={activeTab === 'books' ? activeTabButton : tabButton} onClick={() => setActiveTab('books')}>Books</button>
-          <button style={activeTab === 'wallets' ? activeTabButton : tabButton} onClick={() => setActiveTab('wallets')}>Wallets</button>
-          <button style={activeTab === 'transactions' ? activeTabButton : tabButton} onClick={() => setActiveTab('transactions')}>Transactions</button>
-          <button style={activeTab === 'periodi' ? activeTabButton : tabButton} onClick={() => setActiveTab('periodi')}>Periodi</button>
-          <button style={activeTab === 'memo' ? activeTabButton : tabButton} onClick={() => setActiveTab('memo')}>Memo</button>
-          <button style={activeTab === 'profilazione' ? activeTabButton : tabButton} onClick={() => setActiveTab('profilazione')}>Profilazione</button>
+          <button style={activeTab === 'dashboard' ? activeTabButton : tabButton} onClick={() => handleTabChange('dashboard')}>Dashboard</button>
+          <button style={activeTab === 'books' ? activeTabButton : tabButton} onClick={() => handleTabChange('books')}>Books</button>
+          <button style={activeTab === 'wallets' ? activeTabButton : tabButton} onClick={() => handleTabChange('wallets')}>Wallets</button>
+          <button style={activeTab === 'transactions' ? activeTabButton : tabButton} onClick={() => handleTabChange('transactions')}>Transactions</button>
+          <button style={activeTab === 'periodi' ? activeTabButton : tabButton} onClick={() => handleTabChange('periodi')}>Periodi</button>
+          <button style={activeTab === 'memo' ? activeTabButton : tabButton} onClick={() => handleTabChange('memo')}>Memo</button>
+          <button style={activeTab === 'profilazione' ? activeTabButton : tabButton} onClick={() => handleTabChange('profilazione')}>Profilazione</button>
          <button
   style={activeTab === 'stime-cassa' ? activeTabButton : tabButton}
   onClick={() => {
@@ -2852,6 +2870,25 @@ onChange={(e) => {
         <h2 style={sectionTitle}>Contabilità</h2>
         <p style={sectionDescription}>Vista annuale a riquadri: almeno 4 mesi visibili, ogni mese modificabile</p>
       </div>
+      {pendingRefresh && (
+        <button
+          onClick={() => loadData({ preserveMessages: true }).then(() => setPendingRefresh(false))}
+          style={{
+            background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+            color: '#0f172a',
+            border: 'none',
+            borderRadius: 12,
+            padding: '10px 20px',
+            fontWeight: 800,
+            fontSize: 14,
+            cursor: 'pointer',
+            boxShadow: '0 0 16px rgba(245,158,11,0.45)',
+            animation: 'blinkPrevisto 1.8s ease-in-out infinite'
+          }}
+        >
+          🔄 Aggiorna dati
+        </button>
+      )}
     </div>
 
     <div style={statsGridCompact}>
