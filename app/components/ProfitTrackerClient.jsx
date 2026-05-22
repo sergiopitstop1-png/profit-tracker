@@ -55,6 +55,7 @@ const [stimaForm, setStimaForm] = useState({
   const [showBookModal, setShowBookModal] = useState(false)
   const [showWalletModal, setShowWalletModal] = useState(false)
   const [clienti, setClienti] = useState([])
+  const [clientiEmail, setClientiEmail] = useState([])
   const [showClienteModal, setShowClienteModal] = useState(false)
   const [editingCliente, setEditingCliente] = useState(null)
   const [clienteForm, setClienteForm] = useState({ nome: '', email: '', telefono: '', sim_operatore: '', sim_importo: '', sim_giorno_scadenza: '', note: '' })
@@ -475,6 +476,7 @@ async function updateProfiloLivello(bookId, livello) {
   memoFreeBoxesRes,
      dashboardSettingsRes,
   clientiRes,
+  clientiEmailRes,
 ] = await Promise.all([
   supabase.from('books').select('*').order('id', { ascending: true }),
   supabase.from('wallets').select('*').order('id', { ascending: true }),
@@ -494,6 +496,7 @@ async function updateProfiloLivello(bookId, livello) {
   supabase.from('memo_free_boxes').select('*').order('id', { ascending: true }),
     supabase.from('dashboard_settings').select('*').eq('id', 1).maybeSingle(),
   supabase.from('clienti').select('*').order('nome', { ascending: true }),
+  supabase.from('clienti_email').select('*').order('cliente_id', { ascending: true }),
 ])
 const { data: esterniData } = await supabase
   .from('transactions')
@@ -526,6 +529,7 @@ if (memoFreeBoxesRes.error) errors.push('memo_free_boxes'); else setMemoFreeBoxe
   setDashboardSettings(dashboardSettingsRes.data || { accantonamento_royalty: 0, risparmi_samu_massi: 0 })
 }
 if (clientiRes && !clientiRes.error) setClienti(clientiRes.data || [])
+if (clientiEmailRes && !clientiEmailRes.error) setClientiEmail(clientiEmailRes.data || [])
     if (errors.length) setErrorMessage(`Errore caricamento: ${errors.join(', ')}`)
     setLoading(false)
   }
@@ -3129,9 +3133,34 @@ onChange={(e) => {
                   )}
                 </div>
                 <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13, color: '#94a3b8' }}>
-                  {c.email && <span>✉️ {c.email}</span>}
                   {c.telefono && <span>📞 {c.telefono}</span>}
                   {c.note && <span style={{ color: '#64748b' }}>📝 {c.note}</span>}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
+                  {clientiEmail.filter(e => e.cliente_id === c.id).map(em => (
+                    <div key={em.id} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 12, color: '#94a3b8' }}>✉️ {em.email}</span>
+                      {em.label && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(51,65,85,0.6)', color: '#64748b' }}>{em.label}</span>}
+                      <button
+                        onClick={() => window.open(`/api/gmail/auth?email=${encodeURIComponent(em.email)}&email_id=${em.id}`, '_blank')}
+                        style={{ padding: '3px 8px', borderRadius: 8, border: `1px solid ${em.gmail_access_token ? 'rgba(34,197,94,0.4)' : 'rgba(168,85,247,0.4)'}`, background: em.gmail_access_token ? 'rgba(34,197,94,0.08)' : 'rgba(168,85,247,0.08)', color: em.gmail_access_token ? '#22c55e' : '#a855f7', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}
+                      >{em.gmail_access_token ? '✅ Auth' : '🔗 Autorizza'}</button>
+                      {em.gmail_access_token && (
+                        <button
+                          onClick={async () => {
+                            const res = await fetch(`/api/gmail/read?email_id=${em.id}`)
+                            const data = await res.json()
+                            if (data.promozioni && data.promozioni.length > 0) {
+                              alert(`📧 ${em.email}\n${data.promozioni.length} promozioni:\n\n` + data.promozioni.map(p => `• ${p.subject} (${p.priorita})`).join('\n'))
+                            } else {
+                              alert(`📧 ${em.email}\nNessuna promozione trovata`)
+                            }
+                          }}
+                          style={{ padding: '3px 8px', borderRadius: 8, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}
+                        >📬 Leggi</button>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
