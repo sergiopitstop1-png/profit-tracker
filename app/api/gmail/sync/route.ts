@@ -37,7 +37,7 @@ async function leggiTutteLeMail(accessToken: string) {
     let totale = 0
 
     while (totale < 100) {
-      const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=20&labelIds=${label}${pageToken ? '&pageToken=' + pageToken : ''}`
+      const url: string = `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=20&labelIds=${label}${pageToken ? '&pageToken=' + pageToken : ''}`
       const listRes = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
       const listData = await listRes.json()
       if (!listData.messages) break
