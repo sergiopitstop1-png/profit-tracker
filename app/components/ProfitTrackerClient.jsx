@@ -2095,6 +2095,21 @@ const totaleSpeseMeseCorrente = useMemo(() => {
 }, [stimeCassaByMonth, meseCorrenteKey])
  const prelievoDelMese = Math.abs(Number(totaleSpeseMeseCorrente || 0))
 const meseCorrenteNum = new Date().getMonth() + 1
+
+// Spese programmate totale anno (tutte le voci previsto di tutti i mesi)
+const totaleSpeseProgrammateAnno = useMemo(() => {
+  const annoCorrente = new Date().getFullYear()
+  return stimeCassa
+    .filter(r => r.stato === 'previsto' && Number(r.anno) === annoCorrente)
+    .reduce((sum, r) => sum + Math.abs(Number(r.importo || 0)), 0)
+}, [stimeCassa])
+
+// Media mensile residua: spese anno / mesi rimanenti (escluso mese corrente)
+const mediaMensileResidua = useMemo(() => {
+  const mesiRimanenti = 12 - meseCorrenteNum
+  if (mesiRimanenti <= 0) return 0
+  return totaleSpeseProgrammateAnno / mesiRimanenti
+}, [totaleSpeseProgrammateAnno, meseCorrenteNum])
 const royaltyTotale2026 = memoRoyaltyEntries
   .filter(r => Number(r.anno) === 2026)
   .reduce((sum, r) => sum + Number(r.importo || 0), 0)
@@ -2611,6 +2626,40 @@ onChange={(e) => {
     sub={`Letto da Stime di Cassa · ${currentMonthLabel()}`}
     accent='#ef4444'
   />
+
+  <StatCard
+    label='Spese programmate anno'
+    value={formatCurrency(totaleSpeseProgrammateAnno)}
+    sub={`Tutte le voci "previsto" del ${new Date().getFullYear()}`}
+    accent='#f97316'
+  />
+
+  <StatCard
+    label='Media mensile residua'
+    value={formatCurrency(mediaMensileResidua)}
+    sub={`Su ${12 - meseCorrenteNum} mesi rimanenti · obiettivo minimo`}
+    accent='#a855f7'
+  />
+
+  {guadagnoCorrente >= mediaMensileResidua && mediaMensileResidua > 0 && (
+    <div style={{
+      gridColumn: '1 / -1',
+      background: 'linear-gradient(135deg, rgba(34,197,94,0.15), rgba(16,185,129,0.10))',
+      border: '2px solid rgba(34,197,94,0.5)',
+      borderRadius: 16,
+      padding: '16px 24px',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 14,
+      animation: 'blinkPrevisto 2s ease-in-out infinite'
+    }}>
+      <span style={{ fontSize: 32 }}>🏆</span>
+      <div>
+        <div style={{ color: '#22c55e', fontWeight: 900, fontSize: 16 }}>BRAVO! SPESE COPERTE PER QUESTO MESE!</div>
+        <div style={{ color: '#86efac', fontSize: 13, marginTop: 2 }}>Profitto {formatCurrency(guadagnoCorrente)} · Obiettivo {formatCurrency(mediaMensileResidua)} · Sei a +{formatCurrency(guadagnoCorrente - mediaMensileResidua)} 💪</div>
+      </div>
+    </div>
+  )}
 
   <StatCard
     label='Cassa disponibile'
