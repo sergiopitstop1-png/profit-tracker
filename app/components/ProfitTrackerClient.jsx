@@ -2306,18 +2306,50 @@ const cassaDisponibile =
      {accessDenied && <div style={errorBox}>{accessDenied}</div>}
     {(() => {
   const oggi = new Date()
-  const scadute = memoFutureNotes.filter(row => {
-    if (!row.data_reale) return false
-    const diff = Math.ceil((new Date(row.data_reale + 'T00:00:00') - oggi) / (1000 * 60 * 60 * 24))
-    return diff <= 4
+  const annoCorrente = oggi.getFullYear()
+  const meseCorrente = oggi.getMonth() + 1
+
+  // Scadenze da Memo
+  const scadenzeMemo = memoFutureNotes
+    .filter(row => {
+      if (!row.data_reale) return false
+      const diff = Math.ceil((new Date(row.data_reale + 'T00:00:00') - oggi) / (1000 * 60 * 60 * 24))
+      return diff <= 7
+    })
+    .map(row => {
+      const diff = Math.ceil((new Date(row.data_reale + 'T00:00:00') - oggi) / (1000 * 60 * 60 * 24))
+      return { descrizione: row.descrizione, diff, tipo: 'memo' }
+    })
+
+  // Scadenze da Contabilità mese corrente (previsto + giorno compilato)
+  const scadenzeContabilita = stimeCassa
+    .filter(row => {
+      if (row.stato !== 'previsto') return false
+      if (Number(row.anno) !== annoCorrente || Number(row.mese) !== meseCorrente) return false
+      const m = String(row.note || '').match(/\[g:(\d+)\]/)
+      return m !== null
+    })
+    .map(row => {
+      const m = String(row.note || '').match(/\[g:(\d+)\]/)
+      const giorno = parseInt(m[1], 10)
+      const dataReale = `${annoCorrente}-${String(meseCorrente).padStart(2,'0')}-${String(giorno).padStart(2,'0')}`
+      const diff = Math.ceil((new Date(dataReale + 'T00:00:00') - oggi) / (1000 * 60 * 60 * 24))
+      return { descrizione: row.voce || 'Spesa contabilità', diff, tipo: 'contabilita' }
+    })
+    .filter(r => r.diff <= 7)
+
+  const tutte = [...scadenzeMemo, ...scadenzeContabilita]
+    .sort((a, b) => a.diff - b.diff)
+
+  if (tutte.length === 0) return null
+
+  const righe = tutte.map(item => {
+    const tag = item.tipo === 'contabilita' ? '[CTB] ' : ''
+    if (item.diff < 0) return { testo: `⛔ ${tag}${item.descrizione.toUpperCase()} — SCADUTO, PROVVEDERE`, scaduta: true }
+    if (item.diff === 0) return { testo: `🔴 ${tag}${item.descrizione.toUpperCase()} — SCADE OGGI`, scaduta: false }
+    return { testo: `⚠️ ${tag}${item.descrizione.toUpperCase()} — mancano ${item.diff} giorni`, scaduta: false }
   })
-  if (scadute.length === 0) return null
-  const righe = scadute.map(row => {
-    const diff = Math.ceil((new Date(row.data_reale + 'T00:00:00') - oggi) / (1000 * 60 * 60 * 24))
-    if (diff < 0) return `⛔ ${row.descrizione.toUpperCase()} — SCADUTO, PROVVEDERE`
-    if (diff === 0) return `🔴 ${row.descrizione.toUpperCase()} — SCADE OGGI`
-    return `⚠️ ${row.descrizione.toUpperCase()} — mancano ${diff} giorni`
-  })
+
   return (
     <div style={{
       background: '#1e0a0a',
@@ -2326,13 +2358,14 @@ const cassaDisponibile =
       padding: '14px 20px',
       marginBottom: 16,
       animation: 'blinkBorder 1s step-start infinite',
-      color: '#fca5a5',
       fontWeight: 700,
       fontSize: 14,
       lineHeight: 2
     }}>
-      🔔 AVVISI SCADENZE
-      {righe.map((r, i) => <div key={i}>{r}</div>)}
+      <div style={{ color: '#fca5a5', marginBottom: 4 }}>🔔 AVVISI SCADENZE</div>
+      {righe.map((r, i) => (
+        <div key={i} style={{ color: r.scaduta ? '#ff4444' : '#fca5a5' }}>{r.testo}</div>
+      ))}
     </div>
   )
 })()}
