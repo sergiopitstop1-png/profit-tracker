@@ -615,32 +615,57 @@ function speak(text) {
 }
 
 useEffect(() => {
-  if (memoFutureNotes.length === 0) return
-
   const oggi = new Date()
   const oggiStr = oggi.toISOString().split('T')[0]
-  const scadenzeProssime = memoFutureNotes.filter(row => {
+
+  // Scadenze da memo_future_notes
+  const scadenzeMemo = memoFutureNotes.filter(row => {
     if (!row.data_reale) return false
     const diff = (new Date(row.data_reale + 'T00:00:00') - oggi) / (1000 * 60 * 60 * 24)
     return diff <= 30
   })
-  if (scadenzeProssime.length === 0) return
 
-  const hashAttuale = oggiStr + '|' + scadenzeProssime.map(r => r.id + ':' + r.data_reale + ':' + r.descrizione).join(',')
+  // Scadenze da contabilità mese corrente (previsto + giorno compilato)
+  const annoCorrente = oggi.getFullYear()
+  const meseCorrente = oggi.getMonth() + 1
+  const scadenzeContabilita = stimeCassa
+    .filter(row => {
+      if (row.stato !== 'previsto') return false
+      if (Number(row.anno) !== annoCorrente || Number(row.mese) !== meseCorrente) return false
+      const m = String(row.note || '').match(/\[g:(\d+)\]/)
+      return m !== null
+    })
+    .map(row => {
+      const m = String(row.note || '').match(/\[g:(\d+)\]/)
+      const giorno = parseInt(m[1], 10)
+      const dataReale = `${annoCorrente}-${String(meseCorrente).padStart(2,'0')}-${String(giorno).padStart(2,'0')}`
+      const diff = (new Date(dataReale + 'T00:00:00') - oggi) / (1000 * 60 * 60 * 24)
+      return { data_reale: dataReale, descrizione: row.voce || 'Spesa contabilità', diff }
+    })
+    .filter(r => r.diff <= 30)
+
+  const tutteScadenze = [
+    ...scadenzeMemo.map(r => ({ data_reale: r.data_reale, descrizione: r.descrizione })),
+    ...scadenzeContabilita.map(r => ({ data_reale: r.data_reale, descrizione: r.descrizione }))
+  ]
+
+  if (tutteScadenze.length === 0) return
+
+  const hashAttuale = oggiStr + '|' + tutteScadenze.map(r => r.data_reale + ':' + r.descrizione).join(',')
   const ultimoAvviso = localStorage.getItem('ultimoAvvisoScadenze')
   if (ultimoAvviso === hashAttuale) return
 
-  const messaggi = scadenzeProssime.map(row => {
+  const messaggi = tutteScadenze.map(row => {
     const giorni = Math.ceil((new Date(row.data_reale + 'T00:00:00') - oggi) / (1000 * 60 * 60 * 24))
     if (giorni < 0) return `SCADUTA: ${row.descrizione}, provvedere`
     return giorni === 0 ? `Oggi scade: ${row.descrizione}` : `Tra ${giorni} giorni: ${row.descrizione}`
   })
-  const testo = `Attenzione. Hai ${scadenzeProssime.length} scadenze in arrivo. ${messaggi.join('. ')}`
+  const testo = `Attenzione. Hai ${tutteScadenze.length} scadenze in arrivo. ${messaggi.join('. ')}`
   setTimeout(() => {
     speak(testo)
     localStorage.setItem('ultimoAvvisoScadenze', hashAttuale)
   }, 1500)
-}, [memoFutureNotes])
+}, [memoFutureNotes, stimeCassa])
 
 useEffect(() => {
   if (books.length === 0) return
@@ -3027,6 +3052,41 @@ onChange={(e) => {
   style={stimeMiniInput}
 />
                   </div>
+                  {row.stato === 'previsto' && monthGroup.key === meseCorrenteKey && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 4 }}>
+                      <input
+                        type='number'
+                        min='1'
+                        max='31'
+                        placeholder='gg'
+                        defaultValue={(() => {
+                          const m = String(row.note || '').match(/\[g:(\d+)\]/)
+                          return m ? m[1] : ''
+                        })()}
+                        onBlur={(e) => {
+                          const val = e.target.value.trim()
+                          const noteBase = String(row.note || '').replace(/\[g:\d+\]/, '').trim()
+                          const nuovaNota = val ? `${noteBase ? noteBase + ' ' : ''}[g:${val}]` : noteBase
+                          updateStimaCassa(row.id, 'note', nuovaNota)
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') { e.preventDefault(); e.target.blur() }
+                          if (e.key === 'Escape') { e.target.blur() }
+                        }}
+                        style={{
+                          ...stimeMiniInput,
+                          width: 44,
+                          textAlign: 'center',
+                          color: '#fbbf24',
+                          fontWeight: 800,
+                          border: '1px solid rgba(251,191,36,0.5)',
+                          background: 'rgba(251,191,36,0.08)',
+                          padding: '2px 4px'
+                        }}
+                      />
+                      <span style={{ color: '#64748b', fontSize: 11 }}>gg</span>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
