@@ -54,6 +54,10 @@ const [stimaForm, setStimaForm] = useState({
 
   const [showBookModal, setShowBookModal] = useState(false)
   const [showWalletModal, setShowWalletModal] = useState(false)
+  const [clienti, setClienti] = useState([])
+  const [showClienteModal, setShowClienteModal] = useState(false)
+  const [editingCliente, setEditingCliente] = useState(null)
+  const [clienteForm, setClienteForm] = useState({ nome: '', email: '', telefono: '', sim_operatore: '', sim_importo: '', sim_giorno_scadenza: '', note: '' })
   const [showAdjustSaldoModal, setShowAdjustSaldoModal] = useState(false)
   const [showAdjustWalletSaldoModal, setShowAdjustWalletSaldoModal] = useState(false)
   const [showQuickBookTxModal, setShowQuickBookTxModal] = useState(false)
@@ -470,6 +474,7 @@ async function updateProfiloLivello(bookId, livello) {
   memoFutureNotesRes,
   memoFreeBoxesRes,
      dashboardSettingsRes,
+  clientiRes,
 ] = await Promise.all([
   supabase.from('books').select('*').order('id', { ascending: true }),
   supabase.from('wallets').select('*').order('id', { ascending: true }),
@@ -488,6 +493,7 @@ async function updateProfiloLivello(bookId, livello) {
   supabase.from('memo_future_notes').select('*').order('ordine', { ascending: true }).order('id', { ascending: true }),
   supabase.from('memo_free_boxes').select('*').order('id', { ascending: true }),
     supabase.from('dashboard_settings').select('*').eq('id', 1).maybeSingle(),
+  supabase.from('clienti').select('*').order('nome', { ascending: true }),
 ])
 const { data: esterniData } = await supabase
   .from('transactions')
@@ -519,6 +525,7 @@ if (memoFreeBoxesRes.error) errors.push('memo_free_boxes'); else setMemoFreeBoxe
 } else {
   setDashboardSettings(dashboardSettingsRes.data || { accantonamento_royalty: 0, risparmi_samu_massi: 0 })
 }
+if (clientiRes && !clientiRes.error) setClienti(clientiRes.data || [])
     if (errors.length) setErrorMessage(`Errore caricamento: ${errors.join(', ')}`)
     setLoading(false)
   }
@@ -1300,6 +1307,49 @@ async function upsertRoyaltyEntry(accountId, year, value) {
 
   await loadData({ preserveMessages: true })
 } 
+// ── CLIENTI CRUD ──────────────────────────────────────────
+async function saveCliente(e) {
+  e.preventDefault()
+  const payload = {
+    nome: clienteForm.nome.trim(),
+    email: clienteForm.email.trim(),
+    telefono: clienteForm.telefono.trim(),
+    sim_operatore: clienteForm.sim_operatore.trim(),
+    sim_importo: clienteForm.sim_importo ? Number(clienteForm.sim_importo) : 0,
+    sim_giorno_scadenza: clienteForm.sim_giorno_scadenza ? Number(clienteForm.sim_giorno_scadenza) : null,
+    note: clienteForm.note.trim()
+  }
+  if (editingCliente) {
+    const { error } = await supabase.from('clienti').update(payload).eq('id', editingCliente.id)
+    if (error) { setErrorMessage('Errore aggiornamento cliente'); return }
+  } else {
+    const { error } = await supabase.from('clienti').insert([payload])
+    if (error) { setErrorMessage('Errore inserimento cliente'); return }
+  }
+  setShowClienteModal(false)
+  setEditingCliente(null)
+  setClienteForm({ nome: '', email: '', telefono: '', sim_operatore: '', sim_importo: '', sim_giorno_scadenza: '', note: '' })
+  loadData({ preserveMessages: true })
+}
+
+async function deleteCliente(id) {
+  if (!window.confirm('Eliminare questo cliente?')) return
+  await supabase.from('clienti').delete().eq('id', id)
+  loadData({ preserveMessages: true })
+}
+
+async function toggleSimRinnovato(cliente) {
+  const oggi = new Date()
+  const meseKey = `${oggi.getFullYear()}-${String(oggi.getMonth() + 1).padStart(2, '0')}`
+  const nuovoRinnovato = !(cliente.sim_rinnovato && cliente.sim_rinnovato_mese === meseKey)
+  await supabase.from('clienti').update({
+    sim_rinnovato: nuovoRinnovato,
+    sim_rinnovato_mese: nuovoRinnovato ? meseKey : null
+  }).eq('id', cliente.id)
+  setClienti(prev => prev.map(c => c.id === cliente.id ? { ...c, sim_rinnovato: nuovoRinnovato, sim_rinnovato_mese: nuovoRinnovato ? meseKey : null } : c))
+}
+// ──────────────────────────────────────────────────────────
+
 async function updateStatoStima(row, nuovoStato) {
   const payload = { stato: nuovoStato }
 
@@ -2387,6 +2437,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           <button style={activeTab === 'memo' ? activeTabButton : tabButton} onClick={() => handleTabChange('memo')}>Memo</button>
           <button style={activeTab === 'profilazione' ? activeTabButton : tabButton} onClick={() => handleTabChange('profilazione')}>Profilazione</button>
          <button
+  style={activeTab === 'clienti' ? activeTabButton : tabButton}
+  onClick={() => handleTabChange('clienti')}
+>Clienti</button>
+<button
   style={activeTab === 'stime-cassa' ? activeTabButton : tabButton}
   onClick={() => {
    if (!canViewStimeCassa) {
@@ -2438,13 +2492,25 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
     })
     .filter(r => r.diff <= 7)
 
-  const tutte = [...scadenzeMemo, ...scadenzeContabilita]
+  // Scadenze SIM (2 giorni prima)
+  const meseKey2 = `${annoCorrente}-${String(meseCorrente).padStart(2,'0')}`
+  const scadenzeSim = clienti
+    .filter(c => c.sim_giorno_scadenza)
+    .map(c => {
+      const dataReale = `${annoCorrente}-${String(meseCorrente).padStart(2,'0')}-${String(c.sim_giorno_scadenza).padStart(2,'0')}`
+      const diff = Math.ceil((new Date(dataReale + 'T00:00:00') - oggi) / (1000 * 60 * 60 * 24))
+      const rinnovato = c.sim_rinnovato && c.sim_rinnovato_mese === meseKey2
+      return { descrizione: `SIM ${c.nome} (${c.sim_operatore || ''})`, diff, tipo: 'sim', rinnovato }
+    })
+    .filter(r => r.diff <= 2 && !r.rinnovato)
+
+  const tutte = [...scadenzeMemo, ...scadenzeContabilita, ...scadenzeSim]
     .sort((a, b) => a.diff - b.diff)
 
   if (tutte.length === 0) return null
 
   const righe = tutte.map(item => {
-    const tag = item.tipo === 'contabilita' ? '[CTB] ' : ''
+    const tag = item.tipo === 'contabilita' ? '[CTB] ' : item.tipo === 'sim' ? '[SIM] ' : ''
     if (item.diff < 0) return { testo: `⛔ ${tag}${item.descrizione.toUpperCase()} — SCADUTO, PROVVEDERE`, scaduta: true }
     if (item.diff === 0) return { testo: `🔴 ${tag}${item.descrizione.toUpperCase()} — SCADE OGGI`, scaduta: false }
     return { testo: `⚠️ ${tag}${item.descrizione.toUpperCase()} — mancano ${item.diff} giorni`, scaduta: false }
@@ -3035,6 +3101,57 @@ onChange={(e) => {
     </div>
   )
 })()}
+       {activeTab === 'clienti' && (
+  <div style={tabContent}>
+    <div style={sectionTopBar}>
+      <div>
+        <h2 style={sectionTitle}>Clienti</h2>
+        <p style={sectionDescription}>Gestione clienti, SIM e scadenze</p>
+      </div>
+      <button style={primaryButtonGreen} onClick={() => { setEditingCliente(null); setClienteForm({ nome: '', email: '', telefono: '', sim_operatore: '', sim_importo: '', sim_giorno_scadenza: '', note: '' }); setShowClienteModal(true) }}>+ Nuovo Cliente</button>
+    </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 16 }}>
+      {clienti.length === 0 && <p style={{ color: '#94a3b8' }}>Nessun cliente ancora. Clicca "+ Nuovo Cliente" per iniziare.</p>}
+      {clienti.map(c => {
+        const oggi = new Date()
+        const meseKey = `${oggi.getFullYear()}-${String(oggi.getMonth() + 1).padStart(2, '0')}`
+        const rinnovato = c.sim_rinnovato && c.sim_rinnovato_mese === meseKey
+        return (
+          <div key={c.id} style={{ background: 'rgba(11,18,32,0.85)', border: '1px solid rgba(51,65,85,0.8)', borderRadius: 14, padding: '14px 18px' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                  <span style={{ fontWeight: 900, fontSize: 15, color: '#f8fafc' }}>{c.nome}</span>
+                  {c.sim_operatore && (
+                    <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: rinnovato ? 'rgba(34,197,94,0.15)' : 'rgba(251,191,36,0.12)', color: rinnovato ? '#22c55e' : '#fbbf24', fontWeight: 700 }}>
+                      📱 {c.sim_operatore} {c.sim_importo ? `· ${Number(c.sim_importo).toFixed(2)}€` : ''} {c.sim_giorno_scadenza ? `· scad. g.${c.sim_giorno_scadenza}` : ''}
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13, color: '#94a3b8' }}>
+                  {c.email && <span>✉️ {c.email}</span>}
+                  {c.telefono && <span>📞 {c.telefono}</span>}
+                  {c.note && <span style={{ color: '#64748b' }}>📝 {c.note}</span>}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                {c.sim_operatore && (
+                  <button
+                    onClick={() => toggleSimRinnovato(c)}
+                    style={{ padding: '6px 12px', borderRadius: 10, border: `1px solid ${rinnovato ? 'rgba(34,197,94,0.5)' : 'rgba(251,191,36,0.4)'}`, background: rinnovato ? 'rgba(34,197,94,0.1)' : 'rgba(251,191,36,0.08)', color: rinnovato ? '#22c55e' : '#fbbf24', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
+                  >{rinnovato ? '✅ Rinnovato' : '🔄 Segna rinnovato'}</button>
+                )}
+                <button onClick={() => { setEditingCliente(c); setClienteForm({ nome: c.nome, email: c.email || '', telefono: c.telefono || '', sim_operatore: c.sim_operatore || '', sim_importo: c.sim_importo || '', sim_giorno_scadenza: c.sim_giorno_scadenza || '', note: c.note || '' }); setShowClienteModal(true) }} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>✏️ Modifica</button>
+                <button onClick={() => deleteCliente(c.id)} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.08)', color: '#f87171', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>🗑️</button>
+              </div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  </div>
+)}
+
        {activeTab === 'stime-cassa' && canViewStimeCassa && (
   <div style={tabContent}>
     <div style={sectionTopBar}>
@@ -3801,7 +3918,36 @@ onChange={(e) => {
             </div>
           </div>
         )}
-        {showBookModal && (
+        {showClienteModal && (
+  <div style={modalOverlay} onClick={() => setShowClienteModal(false)}>
+    <div style={modalCard} onClick={(e) => e.stopPropagation()}>
+      <div style={modalHeader}>
+        <div>
+          <h3 style={modalTitle}>{editingCliente ? 'Modifica Cliente' : 'Nuovo Cliente'}</h3>
+          <p style={modalSubtitle}>Dati cliente e SIM</p>
+        </div>
+        <button style={modalClose} onClick={() => setShowClienteModal(false)}>✕</button>
+      </div>
+      <form onSubmit={saveCliente}>
+        <input value={clienteForm.nome} onChange={(e) => setClienteForm({ ...clienteForm, nome: e.target.value })} placeholder='Nome *' style={input} required />
+        <input value={clienteForm.email} onChange={(e) => setClienteForm({ ...clienteForm, email: e.target.value })} placeholder='Email' style={input} />
+        <input value={clienteForm.telefono} onChange={(e) => setClienteForm({ ...clienteForm, telefono: e.target.value })} placeholder='Telefono' style={input} />
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input value={clienteForm.sim_operatore} onChange={(e) => setClienteForm({ ...clienteForm, sim_operatore: e.target.value })} placeholder='Operatore SIM' style={{ ...input, flex: 2 }} />
+          <input type='number' value={clienteForm.sim_importo} onChange={(e) => setClienteForm({ ...clienteForm, sim_importo: e.target.value })} placeholder='Importo €' style={{ ...input, flex: 1 }} />
+          <input type='number' min='1' max='31' value={clienteForm.sim_giorno_scadenza} onChange={(e) => setClienteForm({ ...clienteForm, sim_giorno_scadenza: e.target.value })} placeholder='Giorno' style={{ ...input, flex: 1 }} />
+        </div>
+        <textarea value={clienteForm.note} onChange={(e) => setClienteForm({ ...clienteForm, note: e.target.value })} placeholder='Note' style={textarea} />
+        <div style={modalActions}>
+          <button type='button' style={secondaryButton} onClick={() => setShowClienteModal(false)}>Annulla</button>
+          <button type='submit' style={primaryButtonGreen}>{editingCliente ? 'Salva Modifiche' : 'Crea Cliente'}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+)}
+
+{showBookModal && (
   <div style={modalOverlay} onClick={() => setShowBookModal(false)}>
     <div style={modalCard} onClick={(e) => e.stopPropagation()}>
       <div style={modalHeader}>
@@ -3819,9 +3965,18 @@ onChange={(e) => {
           style={input}
         />
         <input
+<select
+                  value={clienti.find(c => c.nome === bookForm.intestatario) ? bookForm.intestatario : ''}
+          onChange={(e) => { if (e.target.value) setBookForm({ ...bookForm, intestatario: e.target.value }) }}
+          style={{ ...input, marginBottom: 4 }}
+        >
+          <option value=''>— Seleziona da clienti —</option>
+          {clienti.map(c => <option key={c.id} value={c.nome}>{c.nome}</option>)}
+        </select>
+        <input
           value={bookForm.intestatario}
           onChange={(e) => setBookForm({ ...bookForm, intestatario: e.target.value })}
-          placeholder='Intestatario'
+          placeholder='O scrivi intestatario'
           style={input}
         />
         <input
@@ -3867,9 +4022,18 @@ onChange={(e) => {
           style={input}
         />
         <input
+<select
+                  value={clienti.find(c => c.nome === walletForm.intestatario) ? walletForm.intestatario : ''}
+          onChange={(e) => { if (e.target.value) setWalletForm({ ...walletForm, intestatario: e.target.value }) }}
+          style={{ ...input, marginBottom: 4 }}
+        >
+          <option value=''>— Seleziona da clienti —</option>
+          {clienti.map(c => <option key={c.id} value={c.nome}>{c.nome}</option>)}
+        </select>
+        <input
           value={walletForm.intestatario}
           onChange={(e) => setWalletForm({ ...walletForm, intestatario: e.target.value })}
-          placeholder='Intestatario'
+          placeholder='O scrivi intestatario'
           style={input}
         />
         <input
