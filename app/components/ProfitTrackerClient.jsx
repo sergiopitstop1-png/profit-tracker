@@ -32,7 +32,7 @@ const [savingsFormMassi, setSavingsFormMassi] = useState({ periodo: '', versamen
 const [savingsFormSamu, setSavingsFormSamu] = useState({ periodo: '', versamento: '', causale: '' })
 const [memoFutureNotes, setMemoFutureNotes] = useState([])
 const [memoFreeBoxes, setMemoFreeBoxes] = useState([]) 
-  const [dashboardSettings, setDashboardSettings] = useState({ accantonamento_royalty: 0, risparmi_samu_massi: 0 })
+  const [dashboardSettings, setDashboardSettings] = useState({ accantonamento_royalty: 0, risparmi_samu_massi: 0, target_cassa: 0 })
 
 const [stimeFilters, setStimeFilters] = useState({
   anno: new Date().getFullYear(),
@@ -2129,6 +2129,10 @@ const cassaDisponibile =
   prelievoDelMese -
   accantonamentoRoyalty -
   risparmiSamuMassi
+
+const targetCassa = Number(dashboardSettings.target_cassa || 0)
+const mancaAlTarget = targetCassa > 0 ? targetCassa - cassaDisponibile : 0
+const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
   const totaleBooksFiltrati = useMemo(() => filteredBooks.reduce((t, b) => t + Number(b.saldo || 0), 0), [filteredBooks])
   const totaleWalletsFiltrati = useMemo(() => filteredWallets.reduce((t, w) => t + Number(w.saldo || 0), 0), [filteredWallets])
   const ultimeTransazioni = useMemo(() => transactions.slice(0, 8), [transactions])
@@ -2210,8 +2214,42 @@ const cassaDisponibile =
             <h1 style={title}>🔥 Profit Tracker - La scalata al SUCCESSO</h1>
             <p style={subtitle}>books · wallets · transactions</p>
           </div>
-          <div style={copyrightBox}>© Sergio Apicella — Tutti i diritti riservati</div>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+            <div style={copyrightBox}>© Sergio Apicella — Tutti i diritti riservati</div>
+            <div style={{ border: `1px solid ${targetRaggiunto ? 'rgba(34,197,94,0.5)' : 'rgba(168,85,247,0.4)'}`, background: targetRaggiunto ? 'rgba(34,197,94,0.08)' : 'rgba(168,85,247,0.08)', color: '#f8fafc', padding: '10px 14px', borderRadius: 14, fontSize: 13, minWidth: 220, textAlign: 'right' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: targetRaggiunto ? '#22c55e' : '#a855f7', marginBottom: 4, letterSpacing: 1 }}>🎯 TARGET CASSA</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+                <input
+                  type='number'
+                  defaultValue={targetCassa || ''}
+                  placeholder='Es. 80000'
+                  onBlur={(e) => updateDashboardSetting('target_cassa', e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur() }}
+                  style={{ background: 'transparent', border: 'none', borderBottom: '1px solid rgba(168,85,247,0.4)', color: '#f8fafc', fontWeight: 800, fontSize: 14, width: 100, textAlign: 'right', outline: 'none', padding: '2px 0' }}
+                />
+                <span style={{ color: '#94a3b8', fontSize: 13 }}>€</span>
+              </div>
+              {targetCassa > 0 && (
+                <div style={{ marginTop: 6, fontSize: 12, fontWeight: 700 }}>
+                  {targetRaggiunto
+                    ? <span style={{ color: '#22c55e' }}>🎉 TARGET RAGGIUNTO! +{formatCurrency(cassaDisponibile - targetCassa)}</span>
+                    : <span style={{ color: '#f87171' }}>Mancano {formatCurrency(mancaAlTarget)} — non mollare! 💪</span>
+                  }
+                </div>
+              )}
+            </div>
+          </div>
         </header>
+
+        {guadagnoCorrente >= mediaMensileResidua && mediaMensileResidua > 0 && (
+          <div style={{ background: 'linear-gradient(135deg, rgba(34,197,94,0.15), rgba(16,185,129,0.10))', border: '2px solid rgba(34,197,94,0.5)', borderRadius: 14, padding: '12px 20px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12, animation: 'blinkPrevisto 2s ease-in-out infinite' }}>
+            <span style={{ fontSize: 28 }}>🏆</span>
+            <div>
+              <div style={{ color: '#22c55e', fontWeight: 900, fontSize: 15 }}>BRAVO! SPESE COPERTE PER QUESTO MESE!</div>
+              <div style={{ color: '#86efac', fontSize: 12, marginTop: 2 }}>Profitto {formatCurrency(guadagnoCorrente)} · Obiettivo {formatCurrency(mediaMensileResidua)} · Sei a +{formatCurrency(guadagnoCorrente - mediaMensileResidua)} 💪</div>
+            </div>
+          </div>
+        )}
 
         {message && <div style={successBox}>{message}</div>}
 
@@ -2640,26 +2678,6 @@ onChange={(e) => {
     sub={`Su ${12 - meseCorrenteNum} mesi rimanenti · obiettivo minimo`}
     accent='#a855f7'
   />
-
-  {guadagnoCorrente >= mediaMensileResidua && mediaMensileResidua > 0 && (
-    <div style={{
-      gridColumn: '1 / -1',
-      background: 'linear-gradient(135deg, rgba(34,197,94,0.15), rgba(16,185,129,0.10))',
-      border: '2px solid rgba(34,197,94,0.5)',
-      borderRadius: 16,
-      padding: '16px 24px',
-      display: 'flex',
-      alignItems: 'center',
-      gap: 14,
-      animation: 'blinkPrevisto 2s ease-in-out infinite'
-    }}>
-      <span style={{ fontSize: 32 }}>🏆</span>
-      <div>
-        <div style={{ color: '#22c55e', fontWeight: 900, fontSize: 16 }}>BRAVO! SPESE COPERTE PER QUESTO MESE!</div>
-        <div style={{ color: '#86efac', fontSize: 13, marginTop: 2 }}>Profitto {formatCurrency(guadagnoCorrente)} · Obiettivo {formatCurrency(mediaMensileResidua)} · Sei a +{formatCurrency(guadagnoCorrente - mediaMensileResidua)} 💪</div>
-      </div>
-    </div>
-  )}
 
   <StatCard
     label='Cassa disponibile'
