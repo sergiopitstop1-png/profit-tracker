@@ -56,6 +56,8 @@ const [stimaForm, setStimaForm] = useState({
   const [showWalletModal, setShowWalletModal] = useState(false)
   const [clienti, setClienti] = useState([])
   const [clientiEmail, setClientiEmail] = useState([])
+  const [promozioni, setPromozioni] = useState([])
+  const [showPromozioniPopup, setShowPromozioniPopup] = useState(false)
   const [showClienteModal, setShowClienteModal] = useState(false)
   const [editingCliente, setEditingCliente] = useState(null)
   const [clienteForm, setClienteForm] = useState({ nome: '', email: '', telefono: '', sim_operatore: '', sim_importo: '', sim_giorno_scadenza: '', note: '' })
@@ -477,6 +479,7 @@ async function updateProfiloLivello(bookId, livello) {
      dashboardSettingsRes,
   clientiRes,
   clientiEmailRes,
+  promozioniRes,
 ] = await Promise.all([
   supabase.from('books').select('*').order('id', { ascending: true }),
   supabase.from('wallets').select('*').order('id', { ascending: true }),
@@ -497,6 +500,7 @@ async function updateProfiloLivello(bookId, livello) {
     supabase.from('dashboard_settings').select('*').eq('id', 1).maybeSingle(),
   supabase.from('clienti').select('*').order('nome', { ascending: true }),
   supabase.from('clienti_email').select('*').order('cliente_id', { ascending: true }),
+  supabase.from('promozioni_clienti').select('*, clienti(nome)').order('created_at', { ascending: false }).limit(100),
 ])
 const { data: esterniData } = await supabase
   .from('transactions')
@@ -530,6 +534,11 @@ if (memoFreeBoxesRes.error) errors.push('memo_free_boxes'); else setMemoFreeBoxe
 }
 if (clientiRes && !clientiRes.error) setClienti(clientiRes.data || [])
 if (clientiEmailRes && !clientiEmailRes.error) setClientiEmail(clientiEmailRes.data || [])
+if (promozioniRes && !promozioniRes.error) {
+  setPromozioni(promozioniRes.data || [])
+  const altaPriorita = (promozioniRes.data || []).filter(p => p.priorita === 'alta' && !p.letta)
+  if (altaPriorita.length > 0) setShowPromozioniPopup(true)
+}
     if (errors.length) setErrorMessage(`Errore caricamento: ${errors.join(', ')}`)
     setLoading(false)
   }
@@ -689,6 +698,23 @@ useEffect(() => {
     setShowAgendaPopup(true)
   }
 }, [books])
+
+// Sync Gmail automatico: ogni 6 ore o al primo accesso
+useEffect(() => {
+  if (clientiEmail.length === 0) return
+  const chiaveLS = 'ultimoSyncGmail'
+  const ultimoSync = localStorage.getItem(chiaveLS)
+  const seiFore = !ultimoSync || (Date.now() - new Date(ultimoSync).getTime()) > 6 * 60 * 60 * 1000
+  if (!seiFore) return
+
+  fetch('/api/gmail/sync?secret=' + (process.env.NEXT_PUBLIC_CRON_SECRET || 'pt_cron_2026_sergio'))
+    .then(r => r.json())
+    .then(() => {
+      localStorage.setItem(chiaveLS, new Date().toISOString())
+      loadData({ preserveMessages: true })
+    })
+    .catch(() => {})
+}, [clientiEmail])
 
 // Auto-snapshot a fine mese: scatta al primo accesso del mese nuovo
 useEffect(() => {
@@ -2354,6 +2380,54 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 
         {message && <div style={successBox}>{message}</div>}
 
+        {showPromozioniPopup && (() => {
+          const altePriorita = promozioni.filter(p => p.priorita === 'alta' && !p.letta)
+          if (altePriorita.length === 0) return null
+          return (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2200, padding: 16 }}>
+              <div style={{ width: '100%', maxWidth: 540, background: 'linear-gradient(180deg,rgba(15,23,42,0.99),rgba(2,6,23,1))', border: '2px solid rgba(239,68,68,0.6)', borderRadius: 22, padding: 24, maxHeight: '80vh', overflowY: 'auto' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <div>
+                    <h2 style={{ margin: 0, color: '#f8fafc', fontSize: 18 }}>🔥 PROMOZIONI AD ALTA PRIORITÀ</h2>
+                    <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 13 }}>{altePriorita.length} promozioni da non perdere</p>
+                  </div>
+                  <button style={{ border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18 }}
+                    onClick={async () => {
+                      for (const p of altePriorita) {
+                        await supabase.from('promozioni_clienti').update({ letta: true }).eq('id', p.id)
+                      }
+                      setPromozioni(prev => prev.map(p => altePriorita.find(a => a.id === p.id) ? { ...p, letta: true } : p))
+                      setShowPromozioniPopup(false)
+                    }}>×</button>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {altePriorita.map((p, idx) => (
+                    <div key={idx} style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 12, padding: '10px 14px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: 'rgba(239,68,68,0.15)', color: '#f87171' }}>🔥 ALTA</span>
+                        <span style={{ fontWeight: 700, color: '#f8fafc', fontSize: 13 }}>{p.clienti?.nome || ''}</span>
+                      </div>
+                      <div style={{ color: '#fca5a5', fontWeight: 700, fontSize: 13 }}>{p.oggetto}</div>
+                      <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 2 }}>Da: {p.mittente}</div>
+                      <div style={{ color: '#64748b', fontSize: 11 }}>{p.tipo} · {new Date(p.created_at).toLocaleDateString('it-IT')}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+                  <button style={{ padding: '10px 22px', borderRadius: 12, border: 'none', background: '#ef4444', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 800 }}
+                    onClick={async () => {
+                      for (const p of altePriorita) {
+                        await supabase.from('promozioni_clienti').update({ letta: true }).eq('id', p.id)
+                      }
+                      setPromozioni(prev => prev.map(p => altePriorita.find(a => a.id === p.id) ? { ...p, letta: true } : p))
+                      setShowPromozioniPopup(false)
+                    }}>Visto, chiudi</button>
+                </div>
+              </div>
+            </div>
+          )
+        })()}
+
         {showAgendaPopup && (() => {
           const giorno = new Date().getDay()
           const giornoLabel = ['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'][giorno]
@@ -3112,7 +3186,15 @@ onChange={(e) => {
         <h2 style={sectionTitle}>Clienti</h2>
         <p style={sectionDescription}>Gestione clienti, SIM e scadenze</p>
       </div>
-      <button style={primaryButtonGreen} onClick={() => { setEditingCliente(null); setClienteForm({ nome: '', email: '', telefono: '', sim_operatore: '', sim_importo: '', sim_giorno_scadenza: '', note: '' }); setShowClienteModal(true) }}>+ Nuovo Cliente</button>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button style={primaryButtonGreen} onClick={() => { setEditingCliente(null); setClienteForm({ nome: '', email: '', telefono: '', sim_operatore: '', sim_importo: '', sim_giorno_scadenza: '', note: '' }); setShowClienteModal(true) }}>+ Nuovo Cliente</button>
+        {promozioni.filter(p => !p.letta).length > 0 && (
+          <button
+            onClick={() => setShowPromozioniPopup(true)}
+            style={{ padding: '10px 16px', borderRadius: 12, border: '1px solid rgba(239,68,68,0.5)', background: 'rgba(239,68,68,0.1)', color: '#f87171', fontWeight: 800, fontSize: 13, cursor: 'pointer', animation: 'blinkPrevisto 2s ease-in-out infinite' }}
+          >🔥 {promozioni.filter(p => !p.letta).length} promozioni nuove</button>
+        )}
+      </div>
     </div>
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 16 }}>
       {clienti.length === 0 && <p style={{ color: '#94a3b8' }}>Nessun cliente ancora. Clicca "+ Nuovo Cliente" per iniziare.</p>}
@@ -3197,6 +3279,49 @@ onChange={(e) => {
           </div>
         )
       })}
+    </div>
+  </div>
+)}
+
+       {activeTab === 'clienti' && promozioni.length > 0 && (
+  <div style={{ ...tabContent, marginTop: 16 }}>
+    <h3 style={{ ...sectionTitle, fontSize: 16, marginBottom: 12 }}>📧 Promozioni rilevate</h3>
+    <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+      {['alta','media','bassa'].map(p => {
+        const count = promozioni.filter(pr => pr.priorita === p && !pr.letta).length
+        return count > 0 ? (
+          <span key={p} style={{ fontSize: 12, padding: '3px 10px', borderRadius: 8, fontWeight: 700,
+            background: p === 'alta' ? 'rgba(239,68,68,0.12)' : p === 'media' ? 'rgba(245,158,11,0.12)' : 'rgba(34,197,94,0.12)',
+            color: p === 'alta' ? '#f87171' : p === 'media' ? '#fbbf24' : '#22c55e',
+            border: `1px solid ${p === 'alta' ? 'rgba(239,68,68,0.3)' : p === 'media' ? 'rgba(245,158,11,0.3)' : 'rgba(34,197,94,0.3)'}`
+          }}>{count} {p}</span>
+        ) : null
+      })}
+    </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {promozioni.filter(p => !p.letta).map(p => (
+        <div key={p.id} style={{ background: 'rgba(11,18,32,0.85)', border: `1px solid ${p.priorita === 'alta' ? 'rgba(239,68,68,0.35)' : p.priorita === 'media' ? 'rgba(245,158,11,0.3)' : 'rgba(34,197,94,0.25)'}`, borderRadius: 12, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 6,
+                background: p.priorita === 'alta' ? 'rgba(239,68,68,0.15)' : p.priorita === 'media' ? 'rgba(245,158,11,0.12)' : 'rgba(34,197,94,0.12)',
+                color: p.priorita === 'alta' ? '#f87171' : p.priorita === 'media' ? '#fbbf24' : '#22c55e'
+              }}>{p.priorita === 'alta' ? '🔥' : p.priorita === 'media' ? '⚡' : '✅'} {p.priorita}</span>
+              <span style={{ fontWeight: 700, color: '#f8fafc', fontSize: 13 }}>{p.clienti?.nome}</span>
+              <span style={{ color: '#64748b', fontSize: 11 }}>{new Date(p.created_at).toLocaleDateString('it-IT')}</span>
+            </div>
+            <div style={{ color: '#e2e8f0', fontSize: 13, marginTop: 3 }}>{p.oggetto}</div>
+            <div style={{ color: '#64748b', fontSize: 11, marginTop: 1 }}>Da: {p.mittente}</div>
+          </div>
+          <button
+            onClick={async () => {
+              await supabase.from('promozioni_clienti').update({ letta: true }).eq('id', p.id)
+              setPromozioni(prev => prev.map(pr => pr.id === p.id ? { ...pr, letta: true } : pr))
+            }}
+            style={{ padding: '4px 10px', borderRadius: 8, border: '1px solid rgba(51,65,85,0.8)', background: 'rgba(15,23,42,0.8)', color: '#94a3b8', fontSize: 11, cursor: 'pointer', fontWeight: 700 }}
+          >✓ Letta</button>
+        </div>
+      ))}
     </div>
   </div>
 )}
