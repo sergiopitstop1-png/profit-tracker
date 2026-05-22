@@ -58,6 +58,9 @@ const [stimaForm, setStimaForm] = useState({
   const [clientiEmail, setClientiEmail] = useState([])
   const [promozioni, setPromozioni] = useState([])
   const [showPromozioniPopup, setShowPromozioniPopup] = useState(false)
+  const [promozioniManuali, setPromozioniManuali] = useState([])
+  const [showPromozioniManualiPopup, setShowPromozioniManualiPopup] = useState(false)
+  const [promozioniManualiEmail, setPromozioniManualiEmail] = useState('')
   const [showClienteModal, setShowClienteModal] = useState(false)
   const [editingCliente, setEditingCliente] = useState(null)
   const [clienteForm, setClienteForm] = useState({ nome: '', email: '', telefono: '', sim_operatore: '', sim_importo: '', sim_giorno_scadenza: '', note: '' })
@@ -2380,6 +2383,46 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 
         {message && <div style={successBox}>{message}</div>}
 
+        {showPromozioniManualiPopup && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2300, padding: 16 }}>
+            <div style={{ width: '100%', maxWidth: 560, background: 'linear-gradient(180deg,rgba(15,23,42,0.99),rgba(2,6,23,1))', border: '2px solid rgba(56,189,248,0.5)', borderRadius: 22, padding: 24, maxHeight: '80vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div>
+                  <h2 style={{ margin: 0, color: '#f8fafc', fontSize: 18 }}>📬 Lettura manuale</h2>
+                  <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 13 }}>{promozioniManualiEmail} · {promozioniManuali.length} promozioni trovate</p>
+                </div>
+                <button style={{ border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18 }}
+                  onClick={() => setShowPromozioniManualiPopup(false)}>×</button>
+              </div>
+              {promozioniManuali.length === 0
+                ? <p style={{ color: '#94a3b8', textAlign: 'center', padding: '20px 0' }}>Nessuna promozione trovata</p>
+                : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {promozioniManuali.map((p: any, idx: number) => (
+                      <div key={idx} style={{ background: 'rgba(11,18,32,0.85)', border: `1px solid ${(p.priorita||'').toLowerCase() === 'alta' ? 'rgba(239,68,68,0.35)' : (p.priorita||'').toLowerCase() === 'media' ? 'rgba(245,158,11,0.3)' : 'rgba(34,197,94,0.25)'}`, borderRadius: 12, padding: '10px 14px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 6,
+                            background: (p.priorita||'').toLowerCase() === 'alta' ? 'rgba(239,68,68,0.15)' : (p.priorita||'').toLowerCase() === 'media' ? 'rgba(245,158,11,0.12)' : 'rgba(34,197,94,0.12)',
+                            color: (p.priorita||'').toLowerCase() === 'alta' ? '#f87171' : (p.priorita||'').toLowerCase() === 'media' ? '#fbbf24' : '#22c55e'
+                          }}>{(p.priorita||'').toLowerCase() === 'alta' ? '🔥' : (p.priorita||'').toLowerCase() === 'media' ? '⚡' : '✅'} {p.priorita}</span>
+                          <span style={{ fontSize: 11, color: '#64748b' }}>{p.tipo}</span>
+                        </div>
+                        <div style={{ color: '#f8fafc', fontWeight: 700, fontSize: 13, marginBottom: 3 }}>{p.subject}</div>
+                        <div style={{ color: '#94a3b8', fontSize: 12 }}>Da: {p.from}</div>
+                        {p.date && <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>{new Date(p.date).toLocaleDateString('it-IT')}</div>}
+                      </div>
+                    ))}
+                  </div>
+                )
+              }
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+                <button style={{ padding: '10px 22px', borderRadius: 12, border: 'none', background: '#38bdf8', color: '#0f172a', cursor: 'pointer', fontSize: 13, fontWeight: 800 }}
+                  onClick={() => setShowPromozioniManualiPopup(false)}>Chiudi</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {showPromozioniPopup && (() => {
           const altePriorita = promozioni.filter(p => (p.priorita||'').toLowerCase() === 'alta' && !p.letta)
           const tutteNonLette = promozioni.filter(p => !p.letta).sort((a,b) => { const ord={alta:0,media:1,bassa:2}; return (ord[(a.priorita||'').toLowerCase()]||1)-(ord[(b.priorita||'').toLowerCase()]||1) })
@@ -3233,11 +3276,9 @@ onChange={(e) => {
                           onClick={async () => {
                             const res = await fetch(`/api/gmail/read?email_id=${em.id}`)
                             const data = await res.json()
-                            if (data.promozioni && data.promozioni.length > 0) {
-                              alert(`📧 ${em.email}\n${data.promozioni.length} promozioni:\n\n` + data.promozioni.map(p => `• ${p.subject}\n  Da: ${p.from}\n  Priorità: ${p.priorita}`).join('\n\n'))
-                            } else {
-                              alert(`📧 ${em.email}\nNessuna promozione trovata`)
-                            }
+                            setPromozioniManuali(data.promozioni || [])
+                            setPromozioniManualiEmail(em.email)
+                            setShowPromozioniManualiPopup(true)
                           }}
                           style={{ padding: '3px 8px', borderRadius: 8, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}
                         >📬 Leggi</button>
@@ -3265,11 +3306,9 @@ onChange={(e) => {
                     onClick={async () => {
                       const res = await fetch(`/api/gmail/read?cliente_id=${c.id}`)
                       const data = await res.json()
-                      if (data.promozioni && data.promozioni.length > 0) {
-                        alert(`📧 ${c.nome} — ${data.promozioni.length} promozioni trovate:\n\n` + data.promozioni.map(p => `• ${p.subject} (${p.priorita})`).join('\n'))
-                      } else {
-                        alert(`📧 ${c.nome} — Nessuna promozione trovata`)
-                      }
+                      setPromozioniManuali(data.promozioni || [])
+                      setPromozioniManualiEmail(c.nome)
+                      setShowPromozioniManualiPopup(true)
                     }}
                     style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
                   >📬 Leggi mail</button>
