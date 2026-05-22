@@ -2014,8 +2014,17 @@ const stimeCassaByMonth = useMemo(() => {
       const currentKey = formatMonthKey()
       if (a.key === currentKey) return -1
       if (b.key === currentKey) return 1
-      if (a.anno !== b.anno) return b.anno - a.anno
-      return b.mese - a.mese
+      const aIsFuture = a.key > currentKey
+      const bIsFuture = b.key > currentKey
+      if (aIsFuture && bIsFuture) {
+        if (a.anno !== b.anno) return a.anno - b.anno
+        return a.mese - b.mese
+      }
+      if (!aIsFuture && !bIsFuture) {
+        if (a.anno !== b.anno) return b.anno - a.anno
+        return b.mese - a.mese
+      }
+      return aIsFuture ? 1 : -1
     })
 }, [stimeCassa])
 
@@ -4033,5 +4042,4 @@ const modalSubtitle = { margin: '6px 0 0', color: '#94a3b8', fontSize: 14 }
 const modalClose = { border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18, lineHeight: 1 }
 const modalActions = { display: 'flex', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap', marginTop: 6 }
 const loadingScreen = { minHeight: '100vh', background: 'linear-gradient(180deg, #020617 0%, #0f172a 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }
-const loadingCard = { background: 'linear-gradient(180deg, rgba(15,23,42,0.95), rgba(2,6,23,1))', color: '#f8fafc', border: '1px solid rgba(51,65,85,0.95)', borderRadius: 20, padding: '24px 28px', fontWeight: 800, boxShadow: '0 24px 60px rgba(0,0,0,0.36)' }
-const hintBox = { marginTop: 10, border: '1px solid rgba(56,189,248,0.25)', background: 'rgba(56,189,248,0.08)', color: '#cfefff', padding: '12px 14px', borderRadius: 14, fontSize: 13, lineHeight: 1.5 }
+const loadingCard = { background: 'linear-gradient(180deg, rgba(15,23,42,0.95), rgba(2,6,23,1))', color: '#f8fafc', border: '1px solid rgba(51,65,85,0.95)', border
