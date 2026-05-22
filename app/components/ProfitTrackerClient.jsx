@@ -678,6 +678,48 @@ useEffect(() => {
     setShowAgendaPopup(true)
   }
 }, [books])
+
+// Auto-snapshot a fine mese: scatta al primo accesso del mese nuovo
+useEffect(() => {
+  if (books.length === 0 || wallets.length === 0) return
+
+  const oggi = new Date()
+  const meseCorrenteKey = `${oggi.getFullYear()}-${String(oggi.getMonth() + 1).padStart(2, '0')}`
+  const chiaveLS = 'autoSnapshotMese'
+  const ultimoAutoSnap = localStorage.getItem(chiaveLS)
+
+  // Se già fatto questo mese, non fare nulla
+  if (ultimoAutoSnap === meseCorrenteKey) return
+
+  // Calcola la data dell'ultimo giorno del mese precedente
+  const mesePrecedente = new Date(oggi.getFullYear(), oggi.getMonth(), 0)
+  const snapshotDate = mesePrecedente.toISOString().split('T')[0]
+  const snapshotMeseKey = `${mesePrecedente.getFullYear()}-${String(mesePrecedente.getMonth() + 1).padStart(2, '0')}`
+
+  // Verifica se esiste già uno snapshot per il mese precedente
+  const giaEsiste = weeklySnapshots.some(s => s.snapshot_date && s.snapshot_date.startsWith(snapshotMeseKey))
+  if (giaEsiste) {
+    localStorage.setItem(chiaveLS, meseCorrenteKey)
+    return
+  }
+
+  const totalCash = books.reduce((sum, b) => sum + Number(b.saldo || 0), 0) +
+    wallets.reduce((sum, w) => sum + Number(w.saldo || 0), 0)
+  const externalWithdrawals = totaleEsterni
+  const baseCashMonth = BASE_CASSA_MESE
+  const profit = totalCash + externalWithdrawals - baseCashMonth
+
+  supabase.from('weekly_snapshots').upsert(
+    [{ snapshot_date: snapshotDate, total_cash: totalCash, external_withdrawals: externalWithdrawals, base_cash_month: baseCashMonth, profit }],
+    { onConflict: 'snapshot_date' }
+  ).then(({ error }) => {
+    if (!error) {
+      localStorage.setItem(chiaveLS, meseCorrenteKey)
+      loadData({ preserveMessages: true })
+    }
+  })
+}, [books, wallets, weeklySnapshots])
+
 function correggiTrascrizione(testo) {
   const correzioni = {
     'aggiornasaldi': 'aggiornaS saldi',
