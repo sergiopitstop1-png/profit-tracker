@@ -31,13 +31,17 @@ async function refreshToken(emailRow: any) {
 async function leggiTutteLeMail(accessToken: string) {
   const labels = ['INBOX', 'SPAM']
   const risultati = []
+  
+  // Filtro ultime 48 ore
+  const dopo48h = Math.floor((Date.now() - 48 * 60 * 60 * 1000) / 1000)
+  const query = `after:${dopo48h}`
 
   for (const label of labels) {
     let pageToken: string | null = null
     let totale = 0
 
-    while (totale < 100) {
-      const url: string = `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=20&labelIds=${label}${pageToken ? '&pageToken=' + pageToken : ''}`
+    while (totale < 200) {
+      const url: string = `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=50&labelIds=${label}&q=${encodeURIComponent(query)}${pageToken ? '&pageToken=' + pageToken : ''}`
       const listRes = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
       const listData = await listRes.json()
       if (!listData.messages) break
@@ -63,6 +67,35 @@ async function leggiTutteLeMail(accessToken: string) {
   return risultati
 }
 
+async function leggiTestoCompleto(accessToken: string, msgId: string): Promise<string> {
+  try {
+    const res = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgId}?format=full`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    )
+    const data = await res.json()
+    const parts = data.payload?.parts || [data.payload]
+    
+    // Cerca text/plain prima
+    for (const part of parts) {
+      if (part?.mimeType === 'text/plain' && part?.body?.data) {
+        return Buffer.from(part.body.data, 'base64').toString('utf-8')
+      }
+    }
+    // Fallback su text/html
+    for (const part of parts) {
+      if (part?.mimeType === 'text/html' && part?.body?.data) {
+        return Buffer.from(part.body.data, 'base64')
+          .toString('utf-8')
+          .replace(/<[^>]*>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+      }
+    }
+  } catch {}
+  return ''
+}
+
 async function analizzaPromozioni(mail: any[], nomeCliente: string) {
   const BATCH = 20
   const promozioni: any[] = []
@@ -83,7 +116,7 @@ async function analizzaPromozioni(mail: any[], nomeCliente: string) {
         max_tokens: 1000,
         messages: [{
           role: 'user',
-          content: `Analizza queste email di ${nomeCliente} e identifica SOLO quelle che contengono promozioni, bonus, offerte speciali o opportunità da bookmaker/casinò/operatori di gioco. Rispondi SOLO in JSON array senza markdown: [{"from": "mittente", "subject": "oggetto", "date": "data originale mail", "tipo": "promozione/bonus/offerta", "priorita": "alta/media/bassa"}]. Priorità ALTA = scadenza imminente o importo elevato. Se non ci sono promozioni rispondi []. Email:\n\n${testo}`
+          content: `Analizza queste email di ${nomeCliente} e identifica SOLO quelle che contengono promozioni, bonus, offerte speciali o opportunità da bookmaker/casinò/operatori di gioco. Includi tutto ciò che potrebbe essere una promo, meglio un falso positivo che perderne una. Rispondi SOLO in JSON array senza markdown: [{"from": "mittente", "subject": "oggetto", "date": "data originale mail", "msg_id": "id del messaggio originale", "tipo": "promozione/bonus/offerta", "priorita": "alta/media/bassa"}]. Priorità ALTA = scadenza imminente o importo elevato. Se non ci sono promozioni rispondi []. Email:\n\n${testo}\n\nID messaggi: ${batch.map(m => m.id).join(', ')}`
         }]
       })
     })
@@ -91,11 +124,11 @@ async function analizzaPromozioni(mail: any[], nomeCliente: string) {
     const data = await res.json()
     try {
       const parsed = JSON.parse(data.content[0].text.replace(/```json|```/g, '').trim())
-      // Aggiungo la data originale dalla mail se Claude non l'ha restituita
       for (let j = 0; j < parsed.length; j++) {
-        if (!parsed[j].date) {
-          const mailOriginale = batch.find(m => m.subject === parsed[j].subject)
-          if (mailOriginale) parsed[j].date = mailOriginale.date
+        const mailOriginale = batch.find(m => m.subject === parsed[j].subject || m.id === parsed[j].msg_id)
+        if (mailOriginale) {
+          if (!parsed[j].date) parsed[j].date = mailOriginale.date
+          parsed[j].msg_id = mailOriginale.id
         }
       }
       promozioni.push(...parsed)
@@ -133,42 +166,4 @@ export async function GET(request: Request) {
 
       const mail = await leggiTutteLeMail(accessToken)
       const nomeCliente = emailRow.clienti?.nome || emailRow.email
-      const promozioni = await analizzaPromozioni(mail, nomeCliente)
-
-      for (const p of promozioni) {
-        // Evita duplicati per oggetto+mittente nelle ultime 48 ore
-        const { data: esistente } = await supabase
-          .from('promozioni_clienti')
-          .select('id')
-          .eq('email_id', emailRow.id)
-          .eq('oggetto', p.subject)
-          .eq('mittente', p.from)
-          .gte('created_at', new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString())
-          .maybeSingle()
-
-        if (!esistente) {
-          await supabase.from('promozioni_clienti').insert([{
-            cliente_id: emailRow.clienti?.id,
-            email_id: emailRow.id,
-            mittente: p.from,
-            oggetto: p.subject,
-            tipo: p.tipo,
-            priorita: p.priorita,
-            data_mail: p.date ? new Date(p.date).toISOString() : null
-          }])
-        }
-      }
-
-      await supabase.from('gmail_sync_log').upsert([{
-        email_id: emailRow.id,
-        ultimo_controllo: new Date().toISOString()
-      }], { onConflict: 'email_id' })
-
-      risultati.push({ email: emailRow.email, promozioni: promozioni.length })
-    } catch (err) {
-      risultati.push({ email: emailRow.email, errore: String(err) })
-    }
-  }
-
-  return NextResponse.json({ sync: 'completato', risultati })
-}
+      const promozioni = await an
