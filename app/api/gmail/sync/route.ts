@@ -33,7 +33,7 @@ async function leggiTutteLeMail(accessToken: string) {
   const risultati = []
 
   for (const label of labels) {
-    let pageToken = null
+    let pageToken: string | null = null
     let totale = 0
 
     while (totale < 100) {
@@ -56,7 +56,7 @@ async function leggiTutteLeMail(accessToken: string) {
         totale++
       }
 
-      pageToken = listData.nextPageToken
+      pageToken = listData.nextPageToken || null
       if (!pageToken) break
     }
   }
@@ -83,7 +83,7 @@ async function analizzaPromozioni(mail: any[], nomeCliente: string) {
         max_tokens: 1000,
         messages: [{
           role: 'user',
-          content: `Analizza queste email di ${nomeCliente} e identifica SOLO quelle che contengono promozioni, bonus, offerte speciali o opportunità da bookmaker/casinò/operatori di gioco. Rispondi SOLO in JSON array senza markdown: [{"from": "mittente", "subject": "oggetto", "tipo": "promozione/bonus/offerta", "priorita": "alta/media/bassa"}]. Priorità ALTA = scadenza imminente o importo elevato. Se non ci sono promozioni rispondi []. Email:\n\n${testo}`
+          content: `Analizza queste email di ${nomeCliente} e identifica SOLO quelle che contengono promozioni, bonus, offerte speciali o opportunità da bookmaker/casinò/operatori di gioco. Rispondi SOLO in JSON array senza markdown: [{"from": "mittente", "subject": "oggetto", "date": "data originale mail", "tipo": "promozione/bonus/offerta", "priorita": "alta/media/bassa"}]. Priorità ALTA = scadenza imminente o importo elevato. Se non ci sono promozioni rispondi []. Email:\n\n${testo}`
         }]
       })
     })
@@ -91,6 +91,13 @@ async function analizzaPromozioni(mail: any[], nomeCliente: string) {
     const data = await res.json()
     try {
       const parsed = JSON.parse(data.content[0].text.replace(/```json|```/g, '').trim())
+      // Aggiungo la data originale dalla mail se Claude non l'ha restituita
+      for (let j = 0; j < parsed.length; j++) {
+        if (!parsed[j].date) {
+          const mailOriginale = batch.find(m => m.subject === parsed[j].subject)
+          if (mailOriginale) parsed[j].date = mailOriginale.date
+        }
+      }
       promozioni.push(...parsed)
     } catch { }
   }
@@ -98,7 +105,6 @@ async function analizzaPromozioni(mail: any[], nomeCliente: string) {
 }
 
 export async function GET(request: Request) {
-  // Verifica secret per sicurezza cron
   const { searchParams } = new URL(request.url)
   const secret = searchParams.get('secret')
   const forceEmailId = searchParams.get('email_id')
@@ -107,7 +113,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 })
   }
 
-  // Prendi tutte le email autorizzate (o solo quella richiesta)
   let query = supabase.from('clienti_email').select('*, clienti(id, nome)').not('gmail_access_token', 'is', null)
   if (forceEmailId) query = query.eq('id', forceEmailId)
 
@@ -120,27 +125,25 @@ export async function GET(request: Request) {
 
   for (const emailRow of emailRows) {
     try {
-      // Controlla se ha bisogno di refresh
       let accessToken = emailRow.gmail_access_token
       if (emailRow.gmail_token_expiry && new Date(emailRow.gmail_token_expiry) < new Date()) {
         accessToken = await refreshToken(emailRow)
         if (!accessToken) continue
       }
 
-      // Leggi tutte le mail
       const mail = await leggiTutteLeMail(accessToken)
       const nomeCliente = emailRow.clienti?.nome || emailRow.email
       const promozioni = await analizzaPromozioni(mail, nomeCliente)
 
-      // Salva su Supabase (evita duplicati per oggetto+mittente nelle ultime 24h)
       for (const p of promozioni) {
+        // Evita duplicati per oggetto+mittente nelle ultime 48 ore
         const { data: esistente } = await supabase
           .from('promozioni_clienti')
           .select('id')
           .eq('email_id', emailRow.id)
           .eq('oggetto', p.subject)
           .eq('mittente', p.from)
-          .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+          .gte('created_at', new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString())
           .maybeSingle()
 
         if (!esistente) {
@@ -150,12 +153,12 @@ export async function GET(request: Request) {
             mittente: p.from,
             oggetto: p.subject,
             tipo: p.tipo,
-            priorita: p.priorita
+            priorita: p.priorita,
+            data_mail: p.date ? new Date(p.date).toISOString() : null
           }])
         }
       }
 
-      // Aggiorna sync log
       await supabase.from('gmail_sync_log').upsert([{
         email_id: emailRow.id,
         ultimo_controllo: new Date().toISOString()
