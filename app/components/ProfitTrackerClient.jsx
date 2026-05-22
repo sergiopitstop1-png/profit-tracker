@@ -500,7 +500,7 @@ async function updateProfiloLivello(bookId, livello) {
     supabase.from('dashboard_settings').select('*').eq('id', 1).maybeSingle(),
   supabase.from('clienti').select('*').order('nome', { ascending: true }),
   supabase.from('clienti_email').select('*').order('cliente_id', { ascending: true }),
-  supabase.from('promozioni_clienti').select('*, clienti(nome)').order('created_at', { ascending: false }).limit(100),
+  supabase.from('promozioni_clienti').select('*, clienti(nome)').order('created_at', { ascending: false }).limit(500),
 ])
 const { data: esterniData } = await supabase
   .from('transactions')
@@ -2382,26 +2382,30 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 
         {showPromozioniPopup && (() => {
           const altePriorita = promozioni.filter(p => p.priorita === 'alta' && !p.letta)
-          if (altePriorita.length === 0) return null
+          const tutteNonLette = promozioni.filter(p => !p.letta).sort((a,b) => {
+            const ord = { alta: 0, media: 1, bassa: 2 }
+            return (ord[a.priorita] || 1) - (ord[b.priorita] || 1)
+          })
+          if (tutteNonLette.length === 0) return null
           return (
             <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2200, padding: 16 }}>
               <div style={{ width: '100%', maxWidth: 540, background: 'linear-gradient(180deg,rgba(15,23,42,0.99),rgba(2,6,23,1))', border: '2px solid rgba(239,68,68,0.6)', borderRadius: 22, padding: 24, maxHeight: '80vh', overflowY: 'auto' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                   <div>
-                    <h2 style={{ margin: 0, color: '#f8fafc', fontSize: 18 }}>🔥 PROMOZIONI AD ALTA PRIORITÀ</h2>
-                    <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 13 }}>{altePriorita.length} promozioni da non perdere</p>
+                    <h2 style={{ margin: 0, color: '#f8fafc', fontSize: 18 }}>🔥 PROMOZIONI</h2>
+                    <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 13 }}>{tutteNonLette.length} promozioni · {altePriorita.length} alta priorità</p>
                   </div>
                   <button style={{ border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18 }}
                     onClick={async () => {
-                      for (const p of altePriorita) {
+                      for (const p of tutteNonLette) {
                         await supabase.from('promozioni_clienti').update({ letta: true }).eq('id', p.id)
                       }
-                      setPromozioni(prev => prev.map(p => altePriorita.find(a => a.id === p.id) ? { ...p, letta: true } : p))
+                      setPromozioni(prev => prev.map(p => tutteNonLette.find(a => a.id === p.id) ? { ...p, letta: true } : p))
                       setShowPromozioniPopup(false)
                     }}>×</button>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {altePriorita.map((p, idx) => (
+                  {tutteNonLette.map((p, idx) => (
                     <div key={idx} style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 12, padding: '10px 14px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                         <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: 'rgba(239,68,68,0.15)', color: '#f87171' }}>🔥 ALTA</span>
@@ -2416,10 +2420,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
                   <button style={{ padding: '10px 22px', borderRadius: 12, border: 'none', background: '#ef4444', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 800 }}
                     onClick={async () => {
-                      for (const p of altePriorita) {
+                      for (const p of tutteNonLette) {
                         await supabase.from('promozioni_clienti').update({ letta: true }).eq('id', p.id)
                       }
-                      setPromozioni(prev => prev.map(p => altePriorita.find(a => a.id === p.id) ? { ...p, letta: true } : p))
+                      setPromozioni(prev => prev.map(p => tutteNonLette.find(a => a.id === p.id) ? { ...p, letta: true } : p))
                       setShowPromozioniPopup(false)
                     }}>Visto, chiudi</button>
                 </div>
