@@ -500,7 +500,7 @@ async function updateProfiloLivello(bookId, livello) {
     supabase.from('dashboard_settings').select('*').eq('id', 1).maybeSingle(),
   supabase.from('clienti').select('*').order('nome', { ascending: true }),
   supabase.from('clienti_email').select('*').order('cliente_id', { ascending: true }),
-  supabase.from('promozioni_clienti').select('*, clienti(nome)').order('created_at', { ascending: false }).limit(500),
+  supabase.from('promozioni_clienti').select('*, clienti(nome)').gte('created_at', new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()).order('created_at', { ascending: false }).limit(500),
 ])
 const { data: esterniData } = await supabase
   .from('transactions')
@@ -2381,11 +2381,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         {message && <div style={successBox}>{message}</div>}
 
         {showPromozioniPopup && (() => {
-          const altePriorita = promozioni.filter(p => p.priorita === 'alta' && !p.letta)
-          const tutteNonLette = promozioni.filter(p => !p.letta).sort((a,b) => {
-            const ord = { alta: 0, media: 1, bassa: 2 }
-            return (ord[a.priorita] || 1) - (ord[b.priorita] || 1)
-          })
+          const altePriorita = promozioni.filter(p => (p.priorita||'').toLowerCase() === 'alta' && !p.letta)
+          const tutteNonLette = promozioni.filter(p => !p.letta).sort((a,b) => { const ord={alta:0,media:1,bassa:2}; return (ord[(a.priorita||'').toLowerCase()]||1)-(ord[(b.priorita||'').toLowerCase()]||1) })
           if (tutteNonLette.length === 0) return null
           return (
             <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2200, padding: 16 }}>
@@ -2393,7 +2390,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                   <div>
                     <h2 style={{ margin: 0, color: '#f8fafc', fontSize: 18 }}>🔥 PROMOZIONI</h2>
-                    <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 13 }}>{tutteNonLette.length} promozioni · {altePriorita.length} alta priorità</p>
+                    <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 13 }}>{tutteNonLette.length} totali · {altePriorita.length} alta priorità</p>
                   </div>
                   <button style={{ border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18 }}
                     onClick={async () => {
@@ -2413,7 +2410,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                       </div>
                       <div style={{ color: '#fca5a5', fontWeight: 700, fontSize: 13 }}>{p.oggetto}</div>
                       <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 2 }}>Da: {p.mittente}</div>
-                      <div style={{ color: '#64748b', fontSize: 11 }}>{p.tipo} · {new Date(p.created_at).toLocaleDateString('it-IT')}</div>
+                      <div style={{ color: '#64748b', fontSize: 11 }}>{p.tipo} · {p.data_mail ? new Date(p.data_mail).toLocaleDateString('it-IT') : new Date(p.created_at).toLocaleDateString('it-IT')}</div>
                     </div>
                   ))}
                 </div>
@@ -3237,7 +3234,7 @@ onChange={(e) => {
                             const res = await fetch(`/api/gmail/read?email_id=${em.id}`)
                             const data = await res.json()
                             if (data.promozioni && data.promozioni.length > 0) {
-                              alert(`📧 ${em.email}\n${data.promozioni.length} promozioni:\n\n` + data.promozioni.map(p => `• ${p.subject} (${p.priorita})`).join('\n'))
+                              alert(`📧 ${em.email}\n${data.promozioni.length} promozioni:\n\n` + data.promozioni.map(p => `• ${p.subject}\n  Da: ${p.from}\n  Priorità: ${p.priorita}`).join('\n\n'))
                             } else {
                               alert(`📧 ${em.email}\nNessuna promozione trovata`)
                             }
@@ -3312,7 +3309,7 @@ onChange={(e) => {
                 color: p.priorita === 'alta' ? '#f87171' : p.priorita === 'media' ? '#fbbf24' : '#22c55e'
               }}>{p.priorita === 'alta' ? '🔥' : p.priorita === 'media' ? '⚡' : '✅'} {p.priorita}</span>
               <span style={{ fontWeight: 700, color: '#f8fafc', fontSize: 13 }}>{p.clienti?.nome}</span>
-              <span style={{ color: '#64748b', fontSize: 11 }}>{new Date(p.created_at).toLocaleDateString('it-IT')}</span>
+              <span style={{ color: '#64748b', fontSize: 11 }}>{p.data_mail ? new Date(p.data_mail).toLocaleDateString('it-IT') : new Date(p.created_at).toLocaleDateString('it-IT')}</span>
             </div>
             <div style={{ color: '#e2e8f0', fontSize: 13, marginTop: 3 }}>{p.oggetto}</div>
             <div style={{ color: '#64748b', fontSize: 11, marginTop: 1 }}>Da: {p.mittente}</div>
