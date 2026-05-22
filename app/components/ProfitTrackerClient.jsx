@@ -162,7 +162,7 @@ const CLASSI_BOOK = {
   C: ['admiral','codere','betpoint','staryes','sportium','vincitu','marathonbet','domusbet','betpassion'],
 }
 const MANUTENZIONE = {
-  A: { label: 'Serie A', frequenza: 'Slot 20€ ogni 10gg · Ricarica ogni mese · Bet solo Bet365/Planet ogni 2 sett', azioni: ['Sessione slot 20€+ ogni 10 giorni (esclusi Bet365 e Planetwin)', 'Ricarica conto ogni mese', 'Bet365 e Planetwin: anche 1 bet sportiva ogni 2 settimane'] },
+  A: { label: 'Serie A', frequenza: 'Bet ogni 2 sett · Ricarica+Slot ogni mese', azioni: ['1 bet sportiva ogni 2 settimane (giorno random)', 'Ricarica conto + sessione slot 5-10€ ogni mese (stesso giorno)'] },
   B: { label: 'Serie B', frequenza: 'Bet ogni mese · Ricarica+Slot ogni 45gg', azioni: ['1 bet sportiva al mese (giorno random)', 'Ricarica conto + sessione slot 5-10€ ogni 45 giorni (stesso giorno)'] },
   C: { label: 'Serie C', frequenza: 'Bet ogni 45gg · Ricarica+Slot ogni 3 mesi', azioni: ['1 bet da 5-10€ ogni 45 giorni (giorno random)', 'Ricarica conto + sessione slot 5-10€ ogni 3 mesi (stesso giorno)'] }
 }
@@ -173,10 +173,9 @@ function getClasseBook(nomeBook) {
   }
   return 'C'
 }
-const SOLO_CASINO_LIST = ['gioco digitale','giocodigitale','starcasino','betflag','tombola','zonagioco','perlaplay']
 function isSoloCasino(nomeBook) {
   const nome = (nomeBook || '').toLowerCase().replace(/\.it$/, '').trim()
-  return SOLO_CASINO_LIST.some(k => nome.includes(k))
+  return (CLASSI_BOOK['B_CASINO'] || []).some(k => nome.includes(k))
 }
 const AZIONI_ATTIVO = {
   'snai': {
@@ -366,25 +365,18 @@ function getAzioniOggi(book) {
     const classeEffettiva = livello === 'mantenimento-a' ? 'A' : livello === 'mantenimento-b' ? (isSoloCasino(book.nome) ? 'B_CASINO' : 'B') : livello === 'mantenimento-c' ? 'C' : classe
 
     if (classeEffettiva === 'A') {
+      // Serie A: bet ogni 14gg + ricarica+slot ogni 30gg
+      // Giorno zero = 18 maggio 2026
       const oggi2 = new Date()
       const GIORNO_ZERO = new Date('2026-05-18')
       const giorniDaZero = Math.floor((oggi2 - GIORNO_ZERO) / (1000 * 60 * 60 * 24))
-      const nomeBook = (book.nome || '').toLowerCase().replace(/\.it$/, '').trim()
-      const isBet365oPlanet = nomeBook.includes('bet365') || nomeBook.includes('planetwin')
-      // Ricarica: ogni 30gg
-      const offsetRicarica = hashBook(book.id, 202) % 30
-      const isRicaricaDay = (giorniDaZero - offsetRicarica) % 30 === 0
-      // Slot: ogni 10gg da almeno 20€ (tutti Serie A tranne bet365/planet)
-      const offsetSlot = hashBook(book.id, 303) % 10
-      const isSlotDay = !isBet365oPlanet && (giorniDaZero - offsetSlot) % 10 === 0
-      // Bet: solo bet365 e planet, ogni 14gg
+      // offset per book: distribuisce i book su tutto il ciclo
       const offsetBet = hashBook(book.id, 101) % 14
-      const isBetDay = isBet365oPlanet && (giorniDaZero - offsetBet) % 14 === 0
-      if (isRicaricaDay && isSlotDay) return { tipo: 'manutenzione-a', azioni: ['Ricarica conto', 'Sessione slot 20€+ (spin bassi)'], badge: '🟡 Mant. A' }
-      if (isRicaricaDay && !isSlotDay && !isBetDay) return { tipo: 'manutenzione-a', azioni: ['Ricarica conto'], badge: '🟡 Mant. A' }
-      if (isSlotDay && !isRicaricaDay) return { tipo: 'manutenzione-a', azioni: ['Sessione slot 20€+ (spin bassi)'], badge: '🟡 Mant. A' }
-      if (isBetDay && isRicaricaDay) return { tipo: 'manutenzione-a', azioni: ['Ricarica conto', '1 bet sportiva (qualsiasi importo)'], badge: '🟡 Mant. A' }
-      if (isBetDay) return { tipo: 'manutenzione-a', azioni: ['1 bet sportiva (qualsiasi importo)'], badge: '🟡 Mant. A' }
+      const offsetSlot = hashBook(book.id, 202) % 30
+      const isBetDay = (giorniDaZero - offsetBet) % 14 === 0
+      const isSlotDay = (giorniDaZero - offsetSlot) % 30 === 0
+      if (isSlotDay) return { tipo: 'manutenzione-a', azioni: ['Ricarica conto', 'Sessione slot 5-10€ (spin bassi)'], badge: '🟡 Mant. A' }
+      if (isBetDay && !isSlotDay) return { tipo: 'manutenzione-a', azioni: ['1 bet sportiva (qualsiasi importo)'], badge: '🟡 Mant. A' }
       return null
     }
 
@@ -2019,12 +2011,24 @@ const stimeCassaByMonth = useMemo(() => {
       totale: monthGroup.rows.reduce((sum, row) => sum + Number(row.importo || 0), 0)
     }))
     .sort((a, b) => {
-      if (a.anno !== b.anno) return a.anno - b.anno
-      return a.mese - b.mese
+      const currentKey = formatMonthKey()
+      if (a.key === currentKey) return -1
+      if (b.key === currentKey) return 1
+      if (a.anno !== b.anno) return b.anno - a.anno
+      return b.mese - a.mese
     })
 }, [stimeCassa])
 
 const meseCorrenteKey = formatMonthKey()
+
+const currentMonthRef = React.useRef(null)
+useEffect(() => {
+  if (activeTab === 'contabilita' && currentMonthRef.current) {
+    setTimeout(() => {
+      currentMonthRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 150)
+  }
+}, [activeTab])
 
 const totaleSpeseMeseCorrente = useMemo(() => {
   const meseCorrente = stimeCassaByMonth.find((item) => item.key === meseCorrenteKey)
@@ -2174,15 +2178,9 @@ const cassaDisponibile =
                           gruppi[az].push(book)
                         })
                       })
-                      const ORDINE_P = ['Ricarica conto','Ricarica 200€ (settimane alterne)','Sessione slot 20€+ (spin bassi)','Sessione slot 5-10€','Sessione slot 5-10€ (spin bassi)','1 bet sportiva (qualsiasi importo)','1 bet sportiva piccola','1 bet da 5-10€ (solo presenza)','Preleva e lascia meno di 50€ (se saldo alto)']
-                      const gruppiOrdinatiP = Object.entries(gruppi).sort(([a], [b]) => {
-                        const ia = ORDINE_P.findIndex(o => a.toLowerCase().includes(o.toLowerCase()))
-                        const ib = ORDINE_P.findIndex(o => b.toLowerCase().includes(o.toLowerCase()))
-                        return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
-                      })
                       return (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          {gruppiOrdinatiP.map(([azione, bookList]) => {
+                          {Object.entries(gruppi).map(([azione, bookList]) => {
                             const perBook = {}
                             bookList.forEach(b => {
                               if (!perBook[b.nome]) perBook[b.nome] = []
@@ -2701,11 +2699,9 @@ onChange={(e) => {
                 gruppi[az].push({ book, badge: agenda.badge })
               })
             })
-            const ORDINE = ['Ricarica conto','Ricarica 200€ (settimane alterne)','Sessione slot 20€+ (spin bassi)','Sessione slot 5-10€','Sessione slot 5-10€ (spin bassi)','1 bet sportiva (qualsiasi importo)','1 bet sportiva piccola','1 bet da 5-10€ (solo presenza)','Preleva e lascia meno di 50€ (se saldo alto)']
-            const gruppiOrdinati = Object.entries(gruppi).sort(([a], [b]) => { const ia = ORDINE.findIndex(o => a.toLowerCase().includes(o.toLowerCase())); const ib = ORDINE.findIndex(o => b.toLowerCase().includes(o.toLowerCase())); return (ia===-1?99:ia)-(ib===-1?99:ib) })
             return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {gruppiOrdinati.map(([azione, items]) => {
+                {Object.entries(gruppi).map(([azione, items]) => {
                   const perBook = {}
                   items.forEach(({ book }) => {
                     if (!perBook[book.nome]) perBook[book.nome] = []
@@ -2876,11 +2872,15 @@ onChange={(e) => {
         return (
           <div
             key={monthGroup.key}
+            ref={isCurrentMonth ? currentMonthRef : null}
             style={{
               ...stimeMonthCard,
               border: isCurrentMonth
-                ? '1px solid rgba(56,189,248,0.55)'
-                : '1px solid rgba(51,65,85,0.95)'
+                ? '2px solid rgba(56,189,248,0.90)'
+                : '1px solid rgba(51,65,85,0.95)',
+              boxShadow: isCurrentMonth
+                ? '0 0 18px rgba(56,189,248,0.25)'
+                : undefined
             }}
           >
             <div style={stimeMonthHeader}>
