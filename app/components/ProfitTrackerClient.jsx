@@ -3142,6 +3142,26 @@ onChange={(e) => {
                   >{rinnovato ? '✅ Rinnovato' : '🔄 Segna rinnovato'}</button>
                 )}
                 <button onClick={() => { setEditingCliente(c); setClienteForm({ nome: c.nome, email: c.email || '', telefono: c.telefono || '', sim_operatore: c.sim_operatore || '', sim_importo: c.sim_importo || '', sim_giorno_scadenza: c.sim_giorno_scadenza || '', note: c.note || '' }); setShowClienteModal(true) }} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>✏️ Modifica</button>
+                {c.email && (
+                  <button
+                    onClick={() => window.open(`/api/gmail/auth?email=${encodeURIComponent(c.email)}`, '_blank')}
+                    style={{ padding: '6px 12px', borderRadius: 10, border: `1px solid ${c.gmail_access_token ? 'rgba(34,197,94,0.4)' : 'rgba(168,85,247,0.4)'}`, background: c.gmail_access_token ? 'rgba(34,197,94,0.08)' : 'rgba(168,85,247,0.08)', color: c.gmail_access_token ? '#22c55e' : '#a855f7', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
+                  >{c.gmail_access_token ? '✅ Gmail OK' : '🔗 Autorizza Gmail'}</button>
+                )}
+                {c.gmail_access_token && (
+                  <button
+                    onClick={async () => {
+                      const res = await fetch(`/api/gmail/read?cliente_id=${c.id}`)
+                      const data = await res.json()
+                      if (data.promozioni && data.promozioni.length > 0) {
+                        alert(`📧 ${c.nome} — ${data.promozioni.length} promozioni trovate:\n\n` + data.promozioni.map(p => `• ${p.subject} (${p.priorita})`).join('\n'))
+                      } else {
+                        alert(`📧 ${c.nome} — Nessuna promozione trovata`)
+                      }
+                    }}
+                    style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
+                  >📬 Leggi mail</button>
+                )}
                 <button onClick={() => deleteCliente(c.id)} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.08)', color: '#f87171', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>🗑️</button>
               </div>
             </div>
