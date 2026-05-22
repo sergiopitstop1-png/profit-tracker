@@ -2024,7 +2024,7 @@ const stimeCassaByMonth = useMemo(() => {
         if (a.anno !== b.anno) return b.anno - a.anno
         return b.mese - a.mese
       }
-      return aIsFuture ? 1 : -1
+      return aIsFuture ? -1 : 1
     })
 }, [stimeCassa])
 
