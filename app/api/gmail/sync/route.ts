@@ -166,4 +166,49 @@ export async function GET(request: Request) {
 
       const mail = await leggiTutteLeMail(accessToken)
       const nomeCliente = emailRow.clienti?.nome || emailRow.email
-      const promozioni = await an
+      const promozioni = await analizzaPromozioni(mail, nomeCliente)
+
+      for (const p of promozioni) {
+        // Evita duplicati per oggetto+mittente nelle ultime 48 ore
+        const { data: esistente } = await supabase
+          .from('promozioni_clienti')
+          .select('id')
+          .eq('email_id', emailRow.id)
+          .eq('oggetto', p.subject)
+          .eq('mittente', p.from)
+          .gte('created_at', new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString())
+          .maybeSingle()
+
+        if (!esistente) {
+          // Leggi testo completo solo per le promozioni nuove
+          let testoCompleto = ''
+          if (p.msg_id) {
+            testoCompleto = await leggiTestoCompleto(accessToken, p.msg_id)
+          }
+
+          await supabase.from('promozioni_clienti').insert([{
+            cliente_id: emailRow.clienti?.id,
+            email_id: emailRow.id,
+            mittente: p.from,
+            oggetto: p.subject,
+            tipo: p.tipo,
+            priorita: p.priorita,
+            data_mail: p.date ? new Date(p.date).toISOString() : null,
+            testo_completo: testoCompleto.substring(0, 10000)
+          }])
+        }
+      }
+
+      await supabase.from('gmail_sync_log').upsert([{
+        email_id: emailRow.id,
+        ultimo_controllo: new Date().toISOString()
+      }], { onConflict: 'email_id' })
+
+      risultati.push({ email: emailRow.email, promozioni: promozioni.length })
+    } catch (err) {
+      risultati.push({ email: emailRow.email, errore: String(err) })
+    }
+  }
+
+  return NextResponse.json({ sync: 'completato', risultati })
+}
