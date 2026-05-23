@@ -29,11 +29,48 @@ async function refreshToken(emailRow: any) {
   return null
 }
 
-// Estrae testo da parti anche annidate (Gmail può avere parts dentro parts)
+async function leggiMail(accessToken: string) {
+  const labels = ['INBOX', 'SPAM']
+  const risultati: any[] = []
+
+  for (const label of labels) {
+    const listRes = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=30&labelIds=${label}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    )
+    const listData = await listRes.json()
+
+    if (listData.error) {
+      console.error('Gmail list error:', listData.error)
+      continue
+    }
+    if (!listData.messages) continue
+
+    for (const msg of listData.messages.slice(0, 30)) {
+      try {
+        const msgRes = await fetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        )
+        const msgData = await msgRes.json()
+        if (msgData.error) continue
+        const headers = msgData.payload?.headers || []
+        const from = headers.find((h: any) => h.name === 'From')?.value || ''
+        const subject = headers.find((h: any) => h.name === 'Subject')?.value || ''
+        const date = headers.find((h: any) => h.name === 'Date')?.value || ''
+        risultati.push({ from, subject, date, label, id: msg.id })
+      } catch (e) {
+        console.error('Errore lettura msg metadata:', e)
+      }
+    }
+  }
+
+  return risultati
+}
+
 function estraiTestoDaParts(parts: any[]): string {
   for (const part of parts) {
     if (!part) continue
-    // Ricorsione su parti annidate
     if (part.parts && part.parts.length > 0) {
       const nested = estraiTestoDaParts(part.parts)
       if (nested) return nested
@@ -42,7 +79,6 @@ function estraiTestoDaParts(parts: any[]): string {
       return Buffer.from(part.body.data, 'base64').toString('utf-8')
     }
   }
-  // Fallback su text/html se nessun plain trovato
   for (const part of parts) {
     if (!part) continue
     if (part.parts && part.parts.length > 0) {
@@ -61,56 +97,6 @@ function estraiTestoDaParts(parts: any[]): string {
   return ''
 }
 
-async function leggiTutteLeMail(accessToken: string) {
-  const labels = ['INBOX', 'SPAM']
-  const risultati: any[] = []
-
-  // 72 ore per sicurezza (copre mail di bordo che il cron potrebbe perdere)
-  const dopo72h = Math.floor((Date.now() - 72 * 60 * 60 * 1000) / 1000)
-  const query = `after:${dopo72h}`
-
-  for (const label of labels) {
-    let pageToken: string | null = null
-    let totale = 0
-
-    while (totale < 200) {
-      const url: string = `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=50&labelIds=${label}&q=${encodeURIComponent(query)}${pageToken ? '&pageToken=' + pageToken : ''}`
-      const listRes = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
-      const listData = await listRes.json()
-
-      if (listData.error) {
-        console.error('Gmail list error:', listData.error)
-        break
-      }
-      if (!listData.messages || listData.messages.length === 0) break
-
-      for (const msg of listData.messages) {
-        try {
-          const msgRes = await fetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
-            { headers: { Authorization: `Bearer ${accessToken}` } }
-          )
-          const msgData = await msgRes.json()
-          if (msgData.error) continue
-          const headers = msgData.payload?.headers || []
-          const from = headers.find((h: any) => h.name === 'From')?.value || ''
-          const subject = headers.find((h: any) => h.name === 'Subject')?.value || ''
-          const date = headers.find((h: any) => h.name === 'Date')?.value || ''
-          risultati.push({ from, subject, date, label, id: msg.id })
-          totale++
-        } catch (e) {
-          console.error('Errore lettura msg metadata:', e)
-        }
-      }
-
-      pageToken = listData.nextPageToken || null
-      if (!pageToken) break
-    }
-  }
-
-  return risultati
-}
-
 async function leggiTestoCompleto(accessToken: string, msgId: string): Promise<string> {
   try {
     const res = await fetch(
@@ -119,11 +105,8 @@ async function leggiTestoCompleto(accessToken: string, msgId: string): Promise<s
     )
     const data = await res.json()
     if (data.error) return ''
-
     const payload = data.payload
     if (!payload) return ''
-
-    // Corpo diretto (mail semplici senza parts)
     if (payload.body?.data && (!payload.parts || payload.parts.length === 0)) {
       const testo = Buffer.from(payload.body.data, 'base64').toString('utf-8')
       if (payload.mimeType === 'text/html') {
@@ -134,8 +117,6 @@ async function leggiTestoCompleto(accessToken: string, msgId: string): Promise<s
       }
       return testo
     }
-
-    // Mail con parts (anche annidate)
     const parts = payload.parts || [payload]
     return estraiTestoDaParts(parts)
   } catch (e) {
@@ -154,55 +135,47 @@ function parseDateSafe(dateStr: string): string | null {
 }
 
 async function analizzaPromozioni(mail: any[], nomeCliente: string) {
-  const BATCH = 20
-  const promozioni: any[] = []
+  const testo = mail.map((m, idx) =>
+    `[${idx}] ID:${m.id}\nDa: ${m.from}\nOggetto: ${m.subject}\nData: ${m.date}`
+  ).join('\n\n')
 
-  for (let i = 0; i < mail.length; i += BATCH) {
-    const batch = mail.slice(i, i + BATCH)
-    const testo = batch.map((m, idx) =>
-      `[${idx}] ID:${m.id}\nDa: ${m.from}\nOggetto: ${m.subject}\nData: ${m.date}`
-    ).join('\n\n')
-
-    try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': process.env.ANTHROPIC_API_KEY!,
-          'anthropic-version': '2023-06-01'
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 1000,
-          messages: [{
-            role: 'user',
-            content: `Analizza queste email di ${nomeCliente} e identifica SOLO quelle che contengono promozioni, bonus, offerte speciali o opportunità da bookmaker/casinò/operatori di gioco d'azzardo. Includi tutto ciò che potrebbe essere una promo: meglio un falso positivo che perderne una. Rispondi SOLO con un JSON array valido, senza markdown, senza testo prima o dopo: [{"msg_id": "id esatto del messaggio come scritto dopo ID:", "from": "mittente", "subject": "oggetto", "date": "data originale", "tipo": "promozione/bonus/offerta", "priorita": "alta/media/bassa"}]. Priorità ALTA = scadenza imminente o importo elevato. Se non ci sono promozioni rispondi []. Email:\n\n${testo}`
-          }]
-        })
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY!,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        messages: [{
+          role: 'user',
+          content: `Analizza queste email di ${nomeCliente} e identifica SOLO quelle che contengono promozioni, bonus, offerte speciali o opportunità da bookmaker/casinò/operatori di gioco d'azzardo. Includi tutto ciò che potrebbe essere una promo: meglio un falso positivo che perderne una. Rispondi SOLO con un JSON array valido, senza markdown, senza testo prima o dopo: [{"msg_id": "id esatto del messaggio come scritto dopo ID:", "from": "mittente", "subject": "oggetto", "date": "data originale", "tipo": "promozione/bonus/offerta", "priorita": "alta/media/bassa"}]. Priorità ALTA = scadenza imminente o importo elevato. Se non ci sono promozioni rispondi []. Email:\n\n${testo}`
+        }]
       })
+    })
 
-      const data = await res.json()
-      if (!data.content?.[0]?.text) continue
+    const data = await res.json()
+    if (!data.content?.[0]?.text) return []
 
-      const rawText = data.content[0].text.replace(/```json|```/g, '').trim()
-      const parsed = JSON.parse(rawText)
-
-      for (const p of parsed) {
-        // Trova la mail originale per avere dati certi
-        const mailOriginale = batch.find(m => m.id === p.msg_id || m.subject === p.subject)
+    const parsed = JSON.parse(data.content[0].text.replace(/```json|```/g, '').trim())
+    for (const p of parsed) {
+      if (!p.date || !p.from || !p.msg_id) {
+        const mailOriginale = mail.find(m => m.id === p.msg_id || m.subject === p.subject)
         if (mailOriginale) {
-          p.msg_id = mailOriginale.id
           if (!p.date) p.date = mailOriginale.date
           if (!p.from) p.from = mailOriginale.from
+          if (!p.msg_id) p.msg_id = mailOriginale.id
         }
-        promozioni.push(p)
       }
-    } catch (e) {
-      console.error('Errore analizzaPromozioni batch:', e)
     }
+    return parsed
+  } catch (e) {
+    console.error('Errore analizzaPromozioni:', e)
+    return []
   }
-
-  return promozioni
 }
 
 export async function GET(request: Request) {
@@ -210,7 +183,6 @@ export async function GET(request: Request) {
   const secret = searchParams.get('secret')
   const forceEmailId = searchParams.get('email_id')
 
-  // Autorizza se secret corretto OPPURE se è una richiesta per email specifica
   if (secret !== process.env.CRON_SECRET && !forceEmailId) {
     return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 })
   }
@@ -238,9 +210,8 @@ export async function GET(request: Request) {
     try {
       let accessToken = emailRow.gmail_access_token
 
-      // Refresh token se scaduto o mancante
       const scaduto = emailRow.gmail_token_expiry
-        ? new Date(emailRow.gmail_token_expiry) < new Date(Date.now() + 5 * 60 * 1000) // 5 min di margine
+        ? new Date(emailRow.gmail_token_expiry) < new Date(Date.now() + 5 * 60 * 1000)
         : false
 
       if (scaduto || !accessToken) {
@@ -251,11 +222,11 @@ export async function GET(request: Request) {
         }
       }
 
-      const mail = await leggiTutteLeMail(accessToken)
+      const mail = await leggiMail(accessToken)
       const nomeCliente = emailRow.clienti?.nome || emailRow.email
 
       if (mail.length === 0) {
-        risultati.push({ email: emailRow.email, mailTrovate: 0, promozioni: 0 })
+        risultati.push({ email: emailRow.email, mailTrovate: 0, salvate: 0 })
         continue
       }
 
@@ -265,7 +236,6 @@ export async function GET(request: Request) {
 
       for (const p of promozioni) {
         try {
-          // Controlla duplicati: stesso oggetto+mittente nelle ultime 72 ore
           const { data: esistente } = await supabase
             .from('promozioni_clienti')
             .select('id')
@@ -280,7 +250,6 @@ export async function GET(request: Request) {
             continue
           }
 
-          // Leggi testo completo solo per promo nuove
           let testoCompleto = ''
           if (p.msg_id) {
             testoCompleto = await leggiTestoCompleto(accessToken, p.msg_id)
@@ -297,17 +266,12 @@ export async function GET(request: Request) {
             testo_completo: testoCompleto ? testoCompleto.substring(0, 10000) : null
           }])
 
-          if (insertError) {
-            console.error('Insert error:', insertError)
-          } else {
-            salvate++
-          }
+          if (!insertError) salvate++
         } catch (e) {
           console.error('Errore su singola promo:', e)
         }
       }
 
-      // Aggiorna log sync
       await supabase.from('gmail_sync_log').upsert([{
         email_id: emailRow.id,
         ultimo_controllo: new Date().toISOString()
@@ -318,7 +282,8 @@ export async function GET(request: Request) {
         mailTrovate: mail.length,
         promozioniTrovate: promozioni.length,
         salvate,
-        duplicate
+        duplicate,
+        promozioni // <-- restituisce anche le promo per il popup
       })
 
     } catch (err) {
