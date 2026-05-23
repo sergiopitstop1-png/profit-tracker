@@ -30,34 +30,107 @@ async function refreshToken(emailRow: any) {
 
 async function leggiMail(accessToken: string) {
   const labels = ['INBOX', 'SPAM']
-  const risultati = []
+  const risultati: any[] = []
 
   for (const label of labels) {
     const listRes = await fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=20&labelIds=${label}`,
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=30&labelIds=${label}`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     )
     const listData = await listRes.json()
     if (!listData.messages) continue
 
-    for (const msg of listData.messages.slice(0, 10)) {
-      const msgRes = await fetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
-        { headers: { Authorization: `Bearer ${accessToken}` } }
-      )
-      const msgData = await msgRes.json()
-      const headers = msgData.payload?.headers || []
-      const from = headers.find((h: any) => h.name === 'From')?.value || ''
-      const subject = headers.find((h: any) => h.name === 'Subject')?.value || ''
-      const date = headers.find((h: any) => h.name === 'Date')?.value || ''
-      risultati.push({ from, subject, date, label, id: msg.id })
+    for (const msg of listData.messages.slice(0, 30)) {
+      try {
+        const msgRes = await fetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        )
+        const msgData = await msgRes.json()
+        if (msgData.error) continue
+        const headers = msgData.payload?.headers || []
+        const from = headers.find((h: any) => h.name === 'From')?.value || ''
+        const subject = headers.find((h: any) => h.name === 'Subject')?.value || ''
+        const date = headers.find((h: any) => h.name === 'Date')?.value || ''
+        risultati.push({ from, subject, date, label, id: msg.id })
+      } catch (e) {
+        console.error('Errore lettura msg:', e)
+      }
     }
   }
   return risultati
 }
 
+function estraiTestoDaParts(parts: any[]): string {
+  for (const part of parts) {
+    if (!part) continue
+    if (part.parts && part.parts.length > 0) {
+      const nested = estraiTestoDaParts(part.parts)
+      if (nested) return nested
+    }
+    if (part.mimeType === 'text/plain' && part.body?.data) {
+      return Buffer.from(part.body.data, 'base64').toString('utf-8')
+    }
+  }
+  for (const part of parts) {
+    if (!part) continue
+    if (part.parts && part.parts.length > 0) {
+      const nested = estraiTestoDaParts(part.parts)
+      if (nested) return nested
+    }
+    if (part.mimeType === 'text/html' && part.body?.data) {
+      return Buffer.from(part.body.data, 'base64')
+        .toString('utf-8')
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+    }
+  }
+  return ''
+}
+
+async function leggiTestoCompleto(accessToken: string, msgId: string): Promise<string> {
+  try {
+    const res = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgId}?format=full`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    )
+    const data = await res.json()
+    if (data.error) return ''
+    const payload = data.payload
+    if (!payload) return ''
+    if (payload.body?.data && (!payload.parts || payload.parts.length === 0)) {
+      const testo = Buffer.from(payload.body.data, 'base64').toString('utf-8')
+      if (payload.mimeType === 'text/html') {
+        return testo.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
+          .replace(/<[^>]*>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+      }
+      return testo
+    }
+    const parts = payload.parts || [payload]
+    return estraiTestoDaParts(parts)
+  } catch (e) {
+    console.error('Errore leggiTestoCompleto:', e)
+    return ''
+  }
+}
+
+function parseDateSafe(dateStr: string): string | null {
+  if (!dateStr) return null
+  try {
+    const d = new Date(dateStr)
+    if (!isNaN(d.getTime())) return d.toISOString()
+  } catch {}
+  return null
+}
+
 async function analizzaPromozioni(mail: any[], nomeCliente: string) {
-  const testo = mail.map(m => `Da: ${m.from}\nOggetto: ${m.subject}\nData: ${m.date}`).join('\n\n')
+  const testo = mail.map((m, idx) =>
+    `[${idx}] ID:${m.id}\nDa: ${m.from}\nOggetto: ${m.subject}\nData: ${m.date}`
+  ).join('\n\n')
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -71,7 +144,7 @@ async function analizzaPromozioni(mail: any[], nomeCliente: string) {
       max_tokens: 1000,
       messages: [{
         role: 'user',
-        content: `Analizza queste email di ${nomeCliente} e identifica SOLO quelle che contengono promozioni, bonus, offerte speciali o opportunità da bookmaker/casinò/operatori di gioco. Rispondi SOLO in JSON array senza markdown: [{"from": "mittente", "subject": "oggetto", "date": "data originale mail", "tipo": "promozione/bonus/offerta", "priorita": "alta/media/bassa"}]. Priorità ALTA = scadenza imminente o importo elevato. Se non ci sono promozioni rispondi []. Email:\n\n${testo}`
+        content: `Analizza queste email di ${nomeCliente} e identifica SOLO quelle che contengono promozioni, bonus, offerte speciali o opportunità da bookmaker/casinò/operatori di gioco d'azzardo. Includi tutto ciò che potrebbe essere una promo: meglio un falso positivo che perderne una. Rispondi SOLO con un JSON array valido, senza markdown, senza testo prima o dopo: [{"msg_id": "id esatto del messaggio come scritto dopo ID:", "from": "mittente", "subject": "oggetto", "date": "data originale", "tipo": "promozione/bonus/offerta", "priorita": "alta/media/bassa"}]. Priorità ALTA = scadenza imminente o importo elevato. Se non ci sono promozioni rispondi []. Email:\n\n${testo}`
       }]
     })
   })
@@ -79,11 +152,14 @@ async function analizzaPromozioni(mail: any[], nomeCliente: string) {
   const data = await res.json()
   try {
     const parsed = JSON.parse(data.content[0].text.replace(/```json|```/g, '').trim())
-    // Aggiungo la data originale dalla mail se Claude non l'ha restituita
-    for (let j = 0; j < parsed.length; j++) {
-      if (!parsed[j].date) {
-        const mailOriginale = mail.find(m => m.subject === parsed[j].subject)
-        if (mailOriginale) parsed[j].date = mailOriginale.date
+    for (const p of parsed) {
+      if (!p.date || !p.from) {
+        const mailOriginale = mail.find(m => m.id === p.msg_id || m.subject === p.subject)
+        if (mailOriginale) {
+          if (!p.date) p.date = mailOriginale.date
+          if (!p.from) p.from = mailOriginale.from
+          if (!p.msg_id) p.msg_id = mailOriginale.id
+        }
       }
     }
     return parsed
@@ -102,7 +178,7 @@ export async function GET(request: Request) {
 
   const { data: emailRow, error } = await supabase
     .from('clienti_email')
-    .select('*, clienti(nome)')
+    .select('*, clienti(id, nome)')
     .eq('id', emailId)
     .single()
 
@@ -123,11 +199,56 @@ export async function GET(request: Request) {
   }
 
   const mail = await leggiMail(accessToken)
-  const promozioni = await analizzaPromozioni(mail, emailRow.clienti?.nome || emailRow.email)
+  const nomeCliente = emailRow.clienti?.nome || emailRow.email
+  const promozioni = await analizzaPromozioni(mail, nomeCliente)
+
+  // Salva su Supabase (stesso comportamento della sync)
+  let salvate = 0
+  let duplicate = 0
+
+  for (const p of promozioni) {
+    try {
+      const { data: esistente } = await supabase
+        .from('promozioni_clienti')
+        .select('id')
+        .eq('email_id', emailRow.id)
+        .eq('oggetto', p.subject || '')
+        .eq('mittente', p.from || '')
+        .gte('created_at', new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString())
+        .maybeSingle()
+
+      if (esistente) {
+        duplicate++
+        continue
+      }
+
+      let testoCompleto = ''
+      if (p.msg_id) {
+        testoCompleto = await leggiTestoCompleto(accessToken, p.msg_id)
+      }
+
+      const { error: insertError } = await supabase.from('promozioni_clienti').insert([{
+        cliente_id: emailRow.clienti?.id,
+        email_id: emailRow.id,
+        mittente: p.from || '',
+        oggetto: p.subject || '',
+        tipo: p.tipo || 'promozione',
+        priorita: p.priorita || 'media',
+        data_mail: parseDateSafe(p.date),
+        testo_completo: testoCompleto ? testoCompleto.substring(0, 10000) : null
+      }])
+
+      if (!insertError) salvate++
+    } catch (e) {
+      console.error('Errore salvataggio promo:', e)
+    }
+  }
 
   return NextResponse.json({
     email: emailRow.email,
     totale_mail: mail.length,
-    promozioni
+    promozioni,
+    salvate,
+    duplicate
   })
 }
