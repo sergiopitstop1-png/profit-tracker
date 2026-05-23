@@ -97,6 +97,12 @@ const [agendaAperto, setAgendaAperto] = useState(null)
 const [popupAperto, setPopupAperto] = useState(null)
   const [clientePromoAperto, setClientePromoAperto] = useState(null)
   const [promoFiltri, setPromoFiltri] = useState({ priorita: '', stato: '', mittente: '' })
+  const [matrice, setMatrice] = useState([])
+const [matriceFiltroVista, setMatriceFiltroVista] = useState('cliente') // 'cliente' | 'bookmaker'
+const [matriceFiltroCliente, setMatriceFiltroCliente] = useState('')
+const [matriceFiltroBook, setMatriceFiltroBook] = useState('')
+const [matriceFiltroStato, setMatriceFiltroStato] = useState('DA APRIRE')
+const [matriceAperto, setMatriceAperto] = useState(null)
   useEffect(() => {
   initSession()
   loadData()
@@ -487,6 +493,7 @@ async function updateProfiloLivello(bookId, livello) {
   clientiRes,
   clientiEmailRes,
   promozioniRes,
+    matriceRes, 
 ] = await Promise.all([
   supabase.from('books').select('*').order('id', { ascending: true }),
   supabase.from('wallets').select('*').order('id', { ascending: true }),
@@ -508,6 +515,7 @@ async function updateProfiloLivello(bookId, livello) {
   supabase.from('clienti').select('*').order('nome', { ascending: true }),
   supabase.from('clienti_email').select('*').order('cliente_id', { ascending: true }),
   supabase.from('promozioni_clienti').select('*, clienti(nome)').gte('created_at', new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()).order('created_at', { ascending: false }).limit(500),
+   supabase.from('matrice_bookmakers').select('*').order('bookmaker', { ascending: true }),  
 ])
 const { data: esterniData } = await supabase
   .from('transactions')
@@ -546,6 +554,7 @@ if (promozioniRes && !promozioniRes.error) {
   const altaPriorita = (promozioniRes.data || []).filter(p => !p.letta)
   if (altaPriorita.length > 0) setShowPromozioniPopup(true)
 }
+    if (matriceRes && !matriceRes.error) setMatrice(matriceRes.data || [])
     if (errors.length) setErrorMessage(`Errore caricamento: ${errors.join(', ')}`)
     setLoading(false)
   }
@@ -2636,6 +2645,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 >
   Contabilità
 </button>
+  <button style={activeTab === 'matrice' ? activeTabButton : tabButton} onClick={() => handleTabChange('matrice')}>Matrice</button>       
         </nav>
 
        {activeTab === 'dashboard' && (
@@ -3529,6 +3539,117 @@ setTimeout(() => setMessage(''), 4000)
     </div>
   </div>
 )}
+   {activeTab === 'matrice' && (
+  <div style={tabContent}>
+    <div style={sectionTopBar}>
+      <div>
+        <h2 style={sectionTitle}>📊 Matrice Bookmakers</h2>
+        <p style={sectionDescription}>Stato apertura book per ogni cliente</p>
+      </div>
+    </div>
+
+    {/* Statistiche */}
+    <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+      {[
+        { label: 'Totale DA APRIRE', value: matrice.filter(r => r.stato === 'DA APRIRE').length, color: '#f87171' },
+        { label: 'Totale APERTI', value: matrice.filter(r => r.stato === 'APERTO').length, color: '#22c55e' },
+        { label: 'Bookmaker', value: [...new Set(matrice.map(r => r.bookmaker))].length, color: '#38bdf8' },
+        { label: 'Clienti', value: [...new Set(matrice.map(r => r.cliente))].length, color: '#a78bfa' },
+      ].map(s => (
+        <div key={s.label} style={{ background: 'rgba(15,23,42,0.8)', border: `1px solid ${s.color}33`, borderRadius: 12, padding: '10px 18px', minWidth: 140 }}>
+          <div style={{ color: s.color, fontWeight: 800, fontSize: 20 }}>{s.value}</div>
+          <div style={{ color: '#64748b', fontSize: 11 }}>{s.label}</div>
+        </div>
+      ))}
+    </div>
+
+    {/* Filtri */}
+    <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+      <select value={matriceFiltroVista} onChange={e => setMatriceFiltroVista(e.target.value)}
+        style={{ background: 'rgba(15,23,42,0.9)', border: '1px solid rgba(56,189,248,0.3)', color: '#f8fafc', borderRadius: 8, padding: '6px 10px', fontSize: 12 }}>
+        <option value="cliente">Vista per Cliente</option>
+        <option value="bookmaker">Vista per Bookmaker</option>
+      </select>
+      <select value={matriceFiltroStato} onChange={e => setMatriceFiltroStato(e.target.value)}
+        style={{ background: 'rgba(15,23,42,0.9)', border: '1px solid rgba(56,189,248,0.3)', color: '#f8fafc', borderRadius: 8, padding: '6px 10px', fontSize: 12 }}>
+        <option value="">Tutti</option>
+        <option value="DA APRIRE">Solo DA APRIRE</option>
+        <option value="APERTO">Solo APERTI</option>
+      </select>
+      {matriceFiltroVista === 'cliente' ? (
+        <input value={matriceFiltroCliente} onChange={e => setMatriceFiltroCliente(e.target.value)}
+          placeholder="Cerca cliente..." style={{ background: 'rgba(15,23,42,0.9)', border: '1px solid rgba(56,189,248,0.3)', color: '#f8fafc', borderRadius: 8, padding: '6px 10px', fontSize: 12, width: 160 }} />
+      ) : (
+        <input value={matriceFiltroBook} onChange={e => setMatriceFiltroBook(e.target.value)}
+          placeholder="Cerca bookmaker..." style={{ background: 'rgba(15,23,42,0.9)', border: '1px solid rgba(56,189,248,0.3)', color: '#f8fafc', borderRadius: 8, padding: '6px 10px', fontSize: 12, width: 160 }} />
+      )}
+      {(matriceFiltroCliente || matriceFiltroBook) && (
+        <button onClick={() => { setMatriceFiltroCliente(''); setMatriceFiltroBook('') }}
+          style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.08)', color: '#f87171', fontSize: 11, cursor: 'pointer' }}>✕ Pulisci</button>
+      )}
+    </div>
+
+    {/* Lista accordion */}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {(() => {
+        const gruppi = matriceFiltroVista === 'cliente'
+          ? [...new Set(matrice.map(r => r.cliente))].filter(c => !matriceFiltroCliente || c.toLowerCase().includes(matriceFiltroCliente.toLowerCase())).sort()
+          : [...new Set(matrice.map(r => r.bookmaker))].filter(b => !matriceFiltroBook || b.toLowerCase().includes(matriceFiltroBook.toLowerCase())).sort()
+
+        return gruppi.map(gruppo => {
+          const righe = matrice.filter(r =>
+            (matriceFiltroVista === 'cliente' ? r.cliente === gruppo : r.bookmaker === gruppo) &&
+            (!matriceFiltroStato || r.stato === matriceFiltroStato)
+          )
+          if (righe.length === 0) return null
+          const daAprire = righe.filter(r => r.stato === 'DA APRIRE').length
+          const expanded = matriceAperto === gruppo
+
+          return (
+            <div key={gruppo} style={{ background: 'rgba(11,18,32,0.85)', border: '1px solid rgba(56,189,248,0.2)', borderRadius: 14 }}>
+              <div onClick={() => setMatriceAperto(expanded ? null : gruppo)}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', cursor: 'pointer' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontWeight: 800, color: '#f8fafc', fontSize: 14 }}>{gruppo}</span>
+                  {daAprire > 0 && <span style={{ background: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>{daAprire} da aprire</span>}
+                  <span style={{ color: '#64748b', fontSize: 11 }}>{righe.length} totali</span>
+                </div>
+                <span style={{ color: '#64748b' }}>{expanded ? '▲' : '▼'}</span>
+              </div>
+              {expanded && (
+                <div style={{ borderTop: '1px solid rgba(56,189,248,0.1)', padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {righe.map(r => (
+                    <div key={r.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', borderRadius: 8, background: r.stato === 'APERTO' ? 'rgba(34,197,94,0.05)' : 'rgba(239,68,68,0.05)', border: `1px solid ${r.stato === 'APERTO' ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}` }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: r.stato === 'APERTO' ? '#22c55e' : '#f87171' }}>{r.stato === 'APERTO' ? '✅' : '🔴'} {r.stato}</span>
+                        <span style={{ color: '#e2e8f0', fontSize: 13 }}>{matriceFiltroVista === 'cliente' ? r.bookmaker : r.cliente}</span>
+                      </div>
+                      {r.stato === 'DA APRIRE' && (
+                        <button onClick={async () => {
+                          if (!window.confirm(`Segnare ${r.bookmaker} — ${r.cliente} come APERTO e creare il Book?`)) return
+                          // Aggiorna matrice
+                          await supabase.from('matrice_bookmakers').update({ stato: 'APERTO', updated_at: new Date().toISOString() }).eq('id', r.id)
+                          // Crea Book automaticamente
+                          await supabase.from('books').insert([{ nome: r.bookmaker, intestatario: r.cliente, saldo: 0, note: 'Aperto da Matrice' }])
+                          setMatrice(prev => prev.map(m => m.id === r.id ? { ...m, stato: 'APERTO' } : m))
+                          setMessage(`✅ ${r.bookmaker} aperto per ${r.cliente}!`)
+                          setTimeout(() => setMessage(''), 3000)
+                        }}
+                          style={{ padding: '4px 10px', borderRadius: 8, border: '1px solid rgba(34,197,94,0.4)', background: 'rgba(34,197,94,0.1)', color: '#22c55e', fontSize: 11, cursor: 'pointer', fontWeight: 700 }}>
+                          ✅ Segna aperto
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })
+      })()}
+    </div>
+  </div>
+)}     
        {activeTab === 'stime-cassa' && canViewStimeCassa && (
   <div style={tabContent}>
     <div style={sectionTopBar}>
