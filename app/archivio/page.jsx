@@ -1,4 +1,5 @@
 "use client";
+import AuthGuard from "../components/AuthGuard";
 import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -154,6 +155,7 @@ export default function Archivio() {
   };
 
   return (
+    <AuthGuard>
     <div style={{ minHeight: "100vh", background: "#0d0f14", color: "#e8ecf5", fontFamily: "system-ui, sans-serif", padding: "24px 16px" }}>
       <div style={{ maxWidth: 860, margin: "0 auto" }}>
 
@@ -288,6 +290,7 @@ export default function Archivio() {
         )}
       </div>
     </div>
+    </AuthGuard>
   );
 }
 
