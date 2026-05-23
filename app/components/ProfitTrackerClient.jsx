@@ -2011,7 +2011,6 @@ if (nota === null) return
       if (r.error) return setErrorMessage(r.error.message)
     }
 
-
     resetTxForm()
     setMessage('Transazione eseguita correttamente')
     await loadData({ preserveMessages: true })
