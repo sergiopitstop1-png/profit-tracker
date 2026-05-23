@@ -1388,8 +1388,8 @@ async function saveCliente(e) {
     const { data: nuovoCliente, error } = await supabase.from('clienti').insert([payload]).select().single()
     if (error) { setErrorMessage('Errore inserimento cliente'); return }
     // Aggiungi automaticamente tutti i bookmaker in matrice con stato DA APRIRE
-    const { data: bookmakerData } = await supabase.from('matrice_bookmakers').select('bookmaker').eq('cliente', 'Alfonso Apicella').limit(100)
-const bookmakerUnici = [...new Set((bookmakerData || []).map(m => m.bookmaker))]
+    const { data: bookmakerData } = await supabase.from('matrice_bookmakers').select('bookmaker').eq('cliente', 'Sergio Apicella').limit(100)
+    const bookmakerUnici = [...new Set((bookmakerData || []).map(m => m.bookmaker))]
     if (bookmakerUnici.length > 0 && nuovoCliente) {
       const righeMatrice = bookmakerUnici.map(book => ({
         bookmaker: book,
@@ -1407,7 +1407,9 @@ const bookmakerUnici = [...new Set((bookmakerData || []).map(m => m.bookmaker))]
 
 async function deleteCliente(id) {
   if (!window.confirm('Eliminare questo cliente?')) return
+  const clienteDaEliminare = clienti.find(c => c.id === id)
   await supabase.from('clienti').delete().eq('id', id)
+  if (clienteDaEliminare) await supabase.from('matrice_bookmakers').delete().eq('cliente', clienteDaEliminare.nome)
   loadData({ preserveMessages: true })
 }
 
