@@ -3494,9 +3494,9 @@ setTimeout(() => setMessage(''), 4000)
   }
 
   // Raggruppa per cliente e bookmaker
-  const matrice: Record<string, Record<string, any[]>> = {}
-  const tuttiBook = new Set<string>()
-  const tuttiClienti = new Set<string>()
+  const matrice = {}
+  const tuttiBook = new Set()
+  const tuttiClienti = new Set()
 
   for (const p of dati) {
     const cliente = clienti.find(c => c.id === p.cliente_id)?.nome || 'Sconosciuto'
