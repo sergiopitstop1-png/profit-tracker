@@ -541,7 +541,7 @@ if (clientiRes && !clientiRes.error) setClienti(clientiRes.data || [])
 if (clientiEmailRes && !clientiEmailRes.error) setClientiEmail(clientiEmailRes.data || [])
 if (promozioniRes && !promozioniRes.error) {
   setPromozioni(promozioniRes.data || [])
-  const altaPriorita = (promozioniRes.data || []).filter(p => p.priorita === 'alta' && !p.letta)
+  const altaPriorita = (promozioniRes.data || []).filter(p => !p.letta)
   if (altaPriorita.length > 0) setShowPromozioniPopup(true)
 }
     if (errors.length) setErrorMessage(`Errore caricamento: ${errors.join(', ')}`)
