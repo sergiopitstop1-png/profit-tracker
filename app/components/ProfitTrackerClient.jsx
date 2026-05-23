@@ -654,13 +654,15 @@ useEffect(() => {
   }
 }, [books])
 
-// Sync Gmail automatico: ogni 6 ore o al primo accesso
+// Sync Gmail automatico: al refresh + ogni 4 ore automatico
 useEffect(() => {
   if (clientiEmail.length === 0) return
-  const chiaveLS = 'ultimoSyncGmail'
-  const ultimoSync = localStorage.getItem(chiaveLS)
-  const seiFore = !ultimoSync || (Date.now() - new Date(ultimoSync).getTime()) > 5 * 60 * 1000
-  if (!seiFore) return
+
+  const eseguiSync = () => {
+    const chiaveLS = 'ultimoSyncGmail'
+    const ultimoSync = localStorage.getItem(chiaveLS)
+    const seiFore = !ultimoSync || (Date.now() - new Date(ultimoSync).getTime()) > 5 * 60 * 1000
+    if (!seiFore) return
 
   setSyncInCorso(true)
   setMessage('📧 Sincronizzazione mail in corso...')
@@ -682,6 +684,14 @@ useEffect(() => {
       setMessage('')
     })
     .finally(() => setSyncInCorso(false))
+  }
+
+  // Esegui al mount (refresh)
+  eseguiSync()
+
+  // Esegui automaticamente ogni 4 ore
+  const interval = setInterval(eseguiSync, 4 * 60 * 60 * 1000)
+  return () => clearInterval(interval)
 }, [clientiEmail])
 
 // Auto-snapshot a fine mese: scatta al primo accesso del mese nuovo
