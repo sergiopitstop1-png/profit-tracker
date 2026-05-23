@@ -96,6 +96,7 @@ const [agendaVista, setAgendaVista] = useState(false)
 const [agendaAperto, setAgendaAperto] = useState(null)
 const [popupAperto, setPopupAperto] = useState(null)
   const [clientePromoAperto, setClientePromoAperto] = useState(null)
+  const [promoFiltri, setPromoFiltri] = useState({ priorita: '', stato: '', mittente: '' })
   useEffect(() => {
   initSession()
   loadData()
@@ -3415,14 +3416,53 @@ setTimeout(() => setMessage(''), 4000)
         style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.08)', color: '#f87171', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
       >🗑️ Elimina tutte</button>
     </div>
+    <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+      <select
+        value={promoFiltri.priorita}
+        onChange={e => setPromoFiltri(prev => ({ ...prev, priorita: e.target.value }))}
+        style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(56,189,248,0.3)', background: 'rgba(15,23,42,0.9)', color: '#f8fafc', fontSize: 12, cursor: 'pointer' }}
+      >
+        <option value=''>Tutte le priorità</option>
+        <option value='alta'>🔥 Alta</option>
+        <option value='media'>⚡ Media</option>
+        <option value='bassa'>✅ Bassa</option>
+      </select>
+      <select
+        value={promoFiltri.stato}
+        onChange={e => setPromoFiltri(prev => ({ ...prev, stato: e.target.value }))}
+        style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(56,189,248,0.3)', background: 'rgba(15,23,42,0.9)', color: '#f8fafc', fontSize: 12, cursor: 'pointer' }}
+      >
+        <option value=''>Tutte</option>
+        <option value='nonlette'>Solo nuove</option>
+        <option value='lette'>Solo lette</option>
+      </select>
+      <input
+        type='text'
+        placeholder='Cerca mittente...'
+        value={promoFiltri.mittente}
+        onChange={e => setPromoFiltri(prev => ({ ...prev, mittente: e.target.value }))}
+        style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(56,189,248,0.3)', background: 'rgba(15,23,42,0.9)', color: '#f8fafc', fontSize: 12, width: 160 }}
+      />
+      {(promoFiltri.priorita || promoFiltri.stato || promoFiltri.mittente) && (
+        <button
+          onClick={() => setPromoFiltri({ priorita: '', stato: '', mittente: '' })}
+          style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(71,85,105,0.5)', background: 'transparent', color: '#94a3b8', fontSize: 12, cursor: 'pointer' }}
+        >✕ Reset</button>
+      )}
+    </div>
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {clienti.map(c => {
-        const promoCliente = promozioni.filter(p => p.cliente_id === c.id).sort((a, b) => {
+        let promoCliente = promozioni.filter(p => p.cliente_id === c.id)
+        if (promoFiltri.priorita) promoCliente = promoCliente.filter(p => (p.priorita || '').toLowerCase() === promoFiltri.priorita)
+        if (promoFiltri.stato === 'nonlette') promoCliente = promoCliente.filter(p => !p.letta)
+        if (promoFiltri.stato === 'lette') promoCliente = promoCliente.filter(p => p.letta)
+        if (promoFiltri.mittente) promoCliente = promoCliente.filter(p => (p.mittente || '').toLowerCase().includes(promoFiltri.mittente.toLowerCase()))
+        promoCliente = promoCliente.sort((a, b) => {
           const ord = { alta: 0, media: 1, bassa: 2 }
           return (ord[(a.priorita || '').toLowerCase()] || 1) - (ord[(b.priorita || '').toLowerCase()] || 1)
         })
         if (promoCliente.length === 0) return null
-        const nonLette = promoCliente.filter(p => !p.letta).length
+        const nonLette = promozioni.filter(p => p.cliente_id === c.id && !p.letta).length
         const expanded = clientePromoAperto === c.id
         return (
           <div key={c.id} style={{ background: 'rgba(11,18,32,0.85)', border: '1px solid rgba(56,189,248,0.2)', borderRadius: 14 }}>
@@ -3437,7 +3477,7 @@ setTimeout(() => setMessage(''), 4000)
                     {nonLette} nuove
                   </span>
                 )}
-                <span style={{ color: '#64748b', fontSize: 11 }}>{promoCliente.length} totali</span>
+                <span style={{ color: '#64748b', fontSize: 11 }}>{promoCliente.length} {promoFiltri.priorita || promoFiltri.stato || promoFiltri.mittente ? 'filtrate' : 'totali'}</span>
               </div>
               <span style={{ color: '#64748b', fontSize: 16 }}>{expanded ? '▲' : '▼'}</span>
             </div>
