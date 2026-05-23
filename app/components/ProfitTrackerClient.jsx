@@ -515,7 +515,7 @@ async function updateProfiloLivello(bookId, livello) {
   supabase.from('clienti').select('*').order('nome', { ascending: true }),
   supabase.from('clienti_email').select('*').order('cliente_id', { ascending: true }),
   supabase.from('promozioni_clienti').select('*, clienti(nome)').gte('created_at', new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()).order('created_at', { ascending: false }).limit(500),
-   supabase.from('matrice_bookmakers').select('*').order('bookmaker', { ascending: true }),  
+   supabase.from('matrice_bookmakers').select('*').order('bookmaker', { ascending: true }).limit(2000), 
 ])
 const { data: esterniData } = await supabase
   .from('transactions')
