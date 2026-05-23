@@ -1388,7 +1388,8 @@ async function saveCliente(e) {
     const { data: nuovoCliente, error } = await supabase.from('clienti').insert([payload]).select().single()
     if (error) { setErrorMessage('Errore inserimento cliente'); return }
     // Aggiungi automaticamente tutti i bookmaker in matrice con stato DA APRIRE
-    const bookmakerUnici = [...new Set(matrice.map(m => m.bookmaker))]
+    const { data: bookmakerData } = await supabase.from('matrice_bookmakers').select('bookmaker').limit(100)
+const bookmakerUnici = [...new Set((bookmakerData || []).map(m => m.bookmaker))]
     if (bookmakerUnici.length > 0 && nuovoCliente) {
       const righeMatrice = bookmakerUnici.map(book => ({
         bookmaker: book,
