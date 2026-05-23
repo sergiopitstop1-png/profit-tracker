@@ -3482,7 +3482,7 @@ setTimeout(() => setMessage(''), 4000)
   const dati = archivioMailDati.length > 0 ? archivioMailDati : promozioni
 
   // Estrai bookmaker dal mittente
-  const estraiBook = (mittente: string) => {
+  const estraiBook = (mittente) => {
     const m = (mittente || '').toLowerCase()
     const books = ['sisal','bet365','pokerstars','snai','lottomatica','eurobet','planetwin','netbet','betsson','bwin','gioco digitale','starcasino','betflag','william hill','admiral','codere','eplay24','sportium','goldbet','betpoint','stanleybet','marathonbet','betpassion','sportbet','tombola','zonagioco','vincitu','domusbet','quigioco','bgame','winamax']
     for (const b of books) {
