@@ -2563,6 +2563,9 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
   style={activeTab === 'clienti' ? activeTabButton : tabButton}
   onClick={() => handleTabChange('clienti')}
 >Clienti</button>
+
+  <button style={activeTab === 'matrice' ? activeTabButton : tabButton} onClick={() => handleTabChange('matrice')}>Matrice</button>
+          <button style={activeTab === 'archivio-mail' ? activeTabButton : tabButton} onClick={() => handleTabChange('archivio-mail')}>📧 Archivio Mail</button>
 <button
   style={activeTab === 'stime-cassa' ? activeTabButton : tabButton}
   onClick={() => {
@@ -2575,9 +2578,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
   }}
 >
   Contabilità
-</button>
-  <button style={activeTab === 'matrice' ? activeTabButton : tabButton} onClick={() => handleTabChange('matrice')}>Matrice</button>
-          <button style={activeTab === 'archivio-mail' ? activeTabButton : tabButton} onClick={() => handleTabChange('archivio-mail')}>📧 Archivio Mail</button>       
+</button>       
         </nav>
 
        {activeTab === 'dashboard' && (
