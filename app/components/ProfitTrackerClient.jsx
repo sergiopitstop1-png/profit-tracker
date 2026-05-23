@@ -493,7 +493,6 @@ async function updateProfiloLivello(bookId, livello) {
   clientiRes,
   clientiEmailRes,
   promozioniRes,
-    matriceRes, 
 ] = await Promise.all([
   supabase.from('books').select('*').order('id', { ascending: true }),
   supabase.from('wallets').select('*').order('id', { ascending: true }),
@@ -515,7 +514,6 @@ async function updateProfiloLivello(bookId, livello) {
   supabase.from('clienti').select('*').order('nome', { ascending: true }),
   supabase.from('clienti_email').select('*').order('cliente_id', { ascending: true }),
   supabase.from('promozioni_clienti').select('*, clienti(nome)').gte('created_at', new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()).order('created_at', { ascending: false }).limit(500),
-   supabase.from('matrice_bookmakers').select('*').order('bookmaker', { ascending: true }).limit(2000), 
 ])
 const { data: esterniData } = await supabase
   .from('transactions')
@@ -554,7 +552,12 @@ if (promozioniRes && !promozioniRes.error) {
   const altaPriorita = (promozioniRes.data || []).filter(p => !p.letta)
   if (altaPriorita.length > 0) setShowPromozioniPopup(true)
 }
-    if (matriceRes && !matriceRes.error) setMatrice(matriceRes.data || [])
+    // Carica matrice in due batch per superare limite 1000 righe Supabase
+    const [m1, m2] = await Promise.all([
+      supabase.from('matrice_bookmakers').select('*').order('bookmaker', { ascending: true }).range(0, 599),
+      supabase.from('matrice_bookmakers').select('*').order('bookmaker', { ascending: true }).range(600, 1199),
+    ])
+    setMatrice([...(m1.data || []), ...(m2.data || [])])
     if (errors.length) setErrorMessage(`Errore caricamento: ${errors.join(', ')}`)
     setLoading(false)
   }
