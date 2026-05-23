@@ -658,9 +658,6 @@ useEffect(() => {
 useEffect(() => {
   if (clientiEmail.length === 0) return
   const chiaveLS = 'ultimoSyncGmail'
-  const ultimoSync = localStorage.getItem(chiaveLS)
-  const seiFore = !ultimoSync || (Date.now() - new Date(ultimoSync).getTime()) > 30 * 60 * 1000
-  if (!seiFore) return
 
   setSyncInCorso(true)
   setMessage('📧 Sincronizzazione mail in corso...')
