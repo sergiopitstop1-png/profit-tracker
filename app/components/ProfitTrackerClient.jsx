@@ -709,16 +709,29 @@ useEffect(() => {
   if (clientiEmail.length === 0) return
   const chiaveLS = 'ultimoSyncGmail'
   const ultimoSync = localStorage.getItem(chiaveLS)
-  const seiFore = !ultimoSync || (Date.now() - new Date(ultimoSync).getTime()) > 6 * 60 * 60 * 1000
+  const seiFore = !ultimoSync || (Date.now() - new Date(ultimoSync).getTime()) > 30 * 60 * 1000
   if (!seiFore) return
 
+  setSyncInCorso(true)
+  setMessage('📧 Sincronizzazione mail in corso...')
   fetch('/api/gmail/sync?secret=' + (process.env.NEXT_PUBLIC_CRON_SECRET || 'pt_cron_2026_sergio'))
     .then(r => r.json())
-    .then(() => {
+    .then(data => {
       localStorage.setItem(chiaveLS, new Date().toISOString())
+      const totSalvate = (data.risultati || []).reduce((acc, r) => acc + (r.salvate || 0), 0)
+      if (totSalvate > 0) {
+        setMessage(`📧 ${totSalvate} nuove promozioni trovate!`)
+      } else {
+        setMessage('📧 Mail sincronizzate — nessuna novità')
+      }
+      setTimeout(() => setMessage(''), 4000)
       loadData({ preserveMessages: true })
     })
-    .catch(() => {})
+    .catch(() => {
+      setSyncInCorso(false)
+      setMessage('')
+    })
+    .finally(() => setSyncInCorso(false))
 }, [clientiEmail])
 
 // Auto-snapshot a fine mese: scatta al primo accesso del mese nuovo
