@@ -553,11 +553,12 @@ if (promozioniRes && !promozioniRes.error) {
   if (altaPriorita.length > 0) setShowPromozioniPopup(true)
 }
     // Carica matrice in due batch per superare limite 1000 righe Supabase
-    const [m1, m2] = await Promise.all([
-      supabase.from('matrice_bookmakers').select('*').order('bookmaker', { ascending: true }).range(0, 599),
-      supabase.from('matrice_bookmakers').select('*').order('bookmaker', { ascending: true }).range(600, 1199),
+    const [m1, m2, m3] = await Promise.all([
+      supabase.from('matrice_bookmakers').select('*').order('bookmaker', { ascending: true }).range(0, 999),
+      supabase.from('matrice_bookmakers').select('*').order('bookmaker', { ascending: true }).range(1000, 1999),
+      supabase.from('matrice_bookmakers').select('*').order('bookmaker', { ascending: true }).range(2000, 2999),
     ])
-    setMatrice([...(m1.data || []), ...(m2.data || [])])
+    setMatrice([...(m1.data || []), ...(m2.data || []), ...(m3.data || [])])
     if (errors.length) setErrorMessage(`Errore caricamento: ${errors.join(', ')}`)
     setLoading(false)
   }
