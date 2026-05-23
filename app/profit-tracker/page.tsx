@@ -10,7 +10,7 @@ export default async function ProfitTrackerPage() {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/login");
+    // redirect("/login");
   }
 
   return <ProfitTrackerClient />;
