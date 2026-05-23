@@ -150,7 +150,13 @@ async function analizzaPromozioni(mail: any[], nomeCliente: string) {
   })
 
   const data = await res.json()
+  console.log('Claude response status:', res.status)
+  console.log('Claude response:', JSON.stringify(data).substring(0, 500))
   try {
+    if (!data.content?.[0]?.text) {
+      console.error('Claude no content:', JSON.stringify(data))
+      return []
+    }
     const parsed = JSON.parse(data.content[0].text.replace(/```json|```/g, '').trim())
     for (const p of parsed) {
       if (!p.date || !p.from) {
