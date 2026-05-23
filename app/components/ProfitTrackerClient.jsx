@@ -1385,8 +1385,18 @@ async function saveCliente(e) {
     const { error } = await supabase.from('clienti').update(payload).eq('id', editingCliente.id)
     if (error) { setErrorMessage('Errore aggiornamento cliente'); return }
   } else {
-    const { error } = await supabase.from('clienti').insert([payload])
+    const { data: nuovoCliente, error } = await supabase.from('clienti').insert([payload]).select().single()
     if (error) { setErrorMessage('Errore inserimento cliente'); return }
+    // Aggiungi automaticamente tutti i bookmaker in matrice con stato DA APRIRE
+    const bookmakerUnici = [...new Set(matrice.map(m => m.bookmaker))]
+    if (bookmakerUnici.length > 0 && nuovoCliente) {
+      const righeMatrice = bookmakerUnici.map(book => ({
+        bookmaker: book,
+        cliente: nuovoCliente.nome,
+        stato: 'DA APRIRE'
+      }))
+      await supabase.from('matrice_bookmakers').insert(righeMatrice)
+    }
   }
   setShowClienteModal(false)
   setEditingCliente(null)
