@@ -2337,6 +2337,15 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 
  return (
     <div style={container}>
+     {message && (
+  <div style={{
+    position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)',
+    background: 'rgba(15,23,42,0.97)', border: '1px solid rgba(56,189,248,0.4)',
+    color: '#f8fafc', padding: '10px 24px', borderRadius: 12, zIndex: 9999,
+    fontSize: 13, fontWeight: 600, boxShadow: '0 4px 24px rgba(0,0,0,0.5)',
+    whiteSpace: 'nowrap'
+  }}>{message}</div>
+)} 
       <style>{`
         @keyframes blinkBorder {
           0%, 100% { border-color: #ef4444; }
