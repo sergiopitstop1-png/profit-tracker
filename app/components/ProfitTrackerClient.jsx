@@ -3403,7 +3403,7 @@ onChange={(e) => {
       })}
     </div>
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      {promozioni.filter(p => !p.letta).map(p => (
+      {promozioni.map(p => (
         <div key={p.id} style={{ background: 'rgba(11,18,32,0.85)', border: `1px solid ${p.priorita === 'alta' ? 'rgba(239,68,68,0.35)' : p.priorita === 'media' ? 'rgba(245,158,11,0.3)' : 'rgba(34,197,94,0.25)'}`, borderRadius: 12, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
