@@ -3283,8 +3283,9 @@ setTimeout(() => setMessage(''), 4000)
                             const res = await fetch(`/api/gmail/read?email_id=${em.id}`)
                             const data = await res.json()
                             setPromozioniManuali(data.promozioni || [])
-                            setPromozioniManualiEmail(em.email)
+                            setPromozioniManualiEmail(`${em.email} · ${data.totale_mail || 0} mail lette · ${data.salvate || 0} salvate`)
                             setShowPromozioniManualiPopup(true)
+                            if (data.salvate > 0) await loadData({ preserveMessages: true })
                           }}
                           style={{ padding: '3px 8px', borderRadius: 8, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}
                         >📬 Leggi</button>
@@ -3313,8 +3314,9 @@ setTimeout(() => setMessage(''), 4000)
                       const res = await fetch(`/api/gmail/read?cliente_id=${c.id}`)
                       const data = await res.json()
                       setPromozioniManuali(data.promozioni || [])
-                      setPromozioniManualiEmail(c.nome)
+                      setPromozioniManualiEmail(`${c.nome} · ${data.totale_mail || 0} mail lette · ${data.salvate || 0} salvate`)
                       setShowPromozioniManualiPopup(true)
+                      if (data.salvate > 0) await loadData({ preserveMessages: true })
                     }}
                     style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
                   >📬 Leggi mail</button>
