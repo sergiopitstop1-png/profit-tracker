@@ -100,6 +100,10 @@ const [matriceFiltroBook, setMatriceFiltroBook] = useState('')
 const [matriceFiltroStato, setMatriceFiltroStato] = useState('DA APRIRE')
 const [matriceAperto, setMatriceAperto] = useState(null)
   useEffect(() => {
+  if (typeof window !== 'undefined' && localStorage.getItem('site_unlocked') !== '1') {
+    window.location.href = '/login?from=/profit-tracker'
+    return
+  }
   loadData()
 }, [])
 
