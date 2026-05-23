@@ -1,17 +1,10 @@
-import { redirect } from "next/navigation";
-import { createClient } from "../../lib/supabase-server";
 import ProfitTrackerClient from "../components/ProfitTrackerClient";
+import AuthGuard from "../components/AuthGuard";
 
-export default async function ProfitTrackerPage() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
-
-  return <ProfitTrackerClient />;
+export default function ProfitTrackerPage() {
+  return (
+    <AuthGuard>
+      <ProfitTrackerClient />
+    </AuthGuard>
+  );
 }
