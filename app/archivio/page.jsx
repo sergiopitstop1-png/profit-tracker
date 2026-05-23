@@ -148,15 +148,25 @@ if (!m || !doneStatuses.includes(m.status)) { done++; continue; }
 
   const clearArchive = async () => {
     if (!confirm("⚠️ Sei sicuro di voler cancellare TUTTO l'archivio?\nQuesta operazione è irreversibile!")) return;
-    if (!confirm("🔴 ULTIMA CONFERMA — cancelli tutti i " + records.length + " pronostici salvati. Continuare?")) return;
     setClearingAll(true);
     try {
       let query = supabase.from("pronox_archive").delete();
-      if (user?.id) query = query.eq("user_id", user.id);
-      else query = query.neq("id", 0);
-      await query;
-      setRecords([]);
-    } catch (e) { console.error(e); }
+      if (user?.id) {
+        query = query.eq("user_id", user.id);
+      } else {
+        query = query.neq("id", 0);
+      }
+      const { error } = await query;
+      if (error) {
+        alert("Errore durante la cancellazione: " + error.message);
+        console.error("clearArchive error:", error);
+      } else {
+        setRecords([]);
+      }
+    } catch (e) {
+      console.error("clearArchive exception:", e);
+      alert("Errore imprevisto: " + e.message);
+    }
     setClearingAll(false);
   };
 
