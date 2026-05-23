@@ -161,7 +161,7 @@ async function analizzaPromozioni(mail: any[], nomeCliente: string) {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 2000,
+        max_tokens: 4000,
         messages: [{
           role: 'user',
           content: `Analizza queste email di ${nomeCliente} e identifica TUTTE quelle provenienti da bookmaker, casinò, siti di scommesse, poker, slot, giochi online, operatori di gioco. Classifica come promo QUALSIASI mail da questi mittenti, anche se è solo una newsletter o notifica. Includi tutto ciò che potrebbe essere una promo: meglio un falso positivo che perderne una. Rispondi SOLO con un JSON array valido, senza markdown, senza testo prima o dopo: [{"msg_id": "id esatto del messaggio come scritto dopo ID:", "from": "mittente", "subject": "oggetto", "date": "data originale", "tipo": "promozione/bonus/offerta", "priorita": "alta/media/bassa"}]. Priorità ALTA = scadenza imminente o importo elevato. Se non ci sono promozioni rispondi []. Email:\n\n${testo}`
