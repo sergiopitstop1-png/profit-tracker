@@ -99,6 +99,8 @@ const [matriceFiltroCliente, setMatriceFiltroCliente] = useState('')
 const [matriceFiltroBook, setMatriceFiltroBook] = useState('')
 const [matriceFiltroStato, setMatriceFiltroStato] = useState('DA APRIRE')
 const [matriceAperto, setMatriceAperto] = useState(null)
+const [archivioMailCella, setArchivioMailCella] = useState(null) // { cliente, bookmaker, promo[] }
+const [archivioMailDati, setArchivioMailDati] = useState([]) // tutte le promo
   useEffect(() => {
   if (typeof window !== 'undefined' && localStorage.getItem('site_unlocked') !== '1') {
     window.location.href = '/login?from=/profit-tracker'
@@ -2574,7 +2576,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 >
   Contabilità
 </button>
-  <button style={activeTab === 'matrice' ? activeTabButton : tabButton} onClick={() => handleTabChange('matrice')}>Matrice</button>       
+  <button style={activeTab === 'matrice' ? activeTabButton : tabButton} onClick={() => handleTabChange('matrice')}>Matrice</button>
+          <button style={activeTab === 'archivio-mail' ? activeTabButton : tabButton} onClick={() => handleTabChange('archivio-mail')}>📧 Archivio Mail</button>       
         </nav>
 
        {activeTab === 'dashboard' && (
@@ -3469,6 +3472,153 @@ setTimeout(() => setMessage(''), 4000)
     </div>
   </div>
 )}
+   {activeTab === 'archivio-mail' && (() => {
+  // Carica dati se non ancora caricati
+  if (archivioMailDati.length === 0 && promozioni.length > 0) {
+    setArchivioMailDati(promozioni)
+  }
+
+  // Costruisci matrice cliente x bookmaker
+  const dati = archivioMailDati.length > 0 ? archivioMailDati : promozioni
+
+  // Estrai bookmaker dal mittente
+  const estraiBook = (mittente: string) => {
+    const m = (mittente || '').toLowerCase()
+    const books = ['sisal','bet365','pokerstars','snai','lottomatica','eurobet','planetwin','netbet','betsson','bwin','gioco digitale','starcasino','betflag','william hill','admiral','codere','eplay24','sportium','goldbet','betpoint','stanleybet','marathonbet','betpassion','sportbet','tombola','zonagioco','vincitu','domusbet','quigioco','bgame','winamax']
+    for (const b of books) {
+      if (m.includes(b)) return b.charAt(0).toUpperCase() + b.slice(1)
+    }
+    // Fallback: prendi dominio mittente
+    const match = m.match(/@([^.>]+)/)
+    return match ? match[1].charAt(0).toUpperCase() + match[1].slice(1) : 'Altro'
+  }
+
+  // Raggruppa per cliente e bookmaker
+  const matrice: Record<string, Record<string, any[]>> = {}
+  const tuttiBook = new Set<string>()
+  const tuttiClienti = new Set<string>()
+
+  for (const p of dati) {
+    const cliente = clienti.find(c => c.id === p.cliente_id)?.nome || 'Sconosciuto'
+    const book = estraiBook(p.mittente)
+    tuttiClienti.add(cliente)
+    tuttiBook.add(book)
+    if (!matrice[cliente]) matrice[cliente] = {}
+    if (!matrice[cliente][book]) matrice[cliente][book] = []
+    matrice[cliente][book].push(p)
+  }
+
+  const righe = [...tuttiClienti].sort()
+  const colonne = [...tuttiBook].sort()
+
+  return (
+    <div style={tabContent}>
+      <div style={sectionTopBar}>
+        <div>
+          <h2 style={sectionTitle}>📧 Archivio Mail Promo</h2>
+          <p style={sectionDescription}>Matrice cliente × bookmaker — clicca sul numero per leggere le mail</p>
+        </div>
+        <button style={primaryButtonBlue} onClick={() => setArchivioMailDati([...promozioni])}>🔄 Aggiorna</button>
+      </div>
+
+      {/* Matrice */}
+      <div style={{ overflowX: 'auto', borderRadius: 16, border: '1px solid rgba(51,65,85,0.85)' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 600 }}>
+          <thead>
+            <tr>
+              <th style={{ ...th, background: '#0b1220', position: 'sticky', left: 0, zIndex: 3, minWidth: 140 }}>Cliente</th>
+              {colonne.map(book => (
+                <th key={book} style={{ ...th, textAlign: 'center', minWidth: 90 }}>{book}</th>
+              ))}
+              <th style={{ ...th, textAlign: 'center', minWidth: 80 }}>Totale</th>
+            </tr>
+          </thead>
+          <tbody>
+            {righe.map(cliente => {
+              const totaleCliente = colonne.reduce((sum, b) => sum + (matrice[cliente]?.[b]?.length || 0), 0)
+              return (
+                <tr key={cliente} style={tr}>
+                  <td style={{ ...tdStrong, position: 'sticky', left: 0, background: '#0b1220', zIndex: 2 }}>{cliente}</td>
+                  {colonne.map(book => {
+                    const promo = matrice[cliente]?.[book] || []
+                    return (
+                      <td key={book} style={{ ...td, textAlign: 'center' }}>
+                        {promo.length > 0 ? (
+                          <button
+                            onClick={() => setArchivioMailCella({ cliente, bookmaker: book, promo })}
+                            style={{
+                              background: 'rgba(200,241,53,0.15)',
+                              border: '1px solid rgba(200,241,53,0.4)',
+                              color: '#c8f135',
+                              fontWeight: 800,
+                              fontSize: 15,
+                              borderRadius: 8,
+                              padding: '4px 14px',
+                              cursor: 'pointer',
+                              minWidth: 40
+                            }}
+                          >
+                            {promo.length}
+                          </button>
+                        ) : (
+                          <span style={{ color: '#2a2f3f', fontSize: 13 }}>—</span>
+                        )}
+                      </td>
+                    )
+                  })}
+                  <td style={{ ...tdStrong, textAlign: 'center', color: '#38bdf8' }}>{totaleCliente}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Popup mail */}
+      {archivioMailCella && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: 16 }}>
+          <div style={{ width: '100%', maxWidth: 680, background: 'linear-gradient(180deg,rgba(15,23,42,0.99),rgba(2,6,23,1))', border: '2px solid rgba(56,189,248,0.4)', borderRadius: 22, padding: 24, maxHeight: '85vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div>
+                <h3 style={{ margin: 0, color: '#f8fafc', fontSize: 18 }}>
+                  {archivioMailCella.cliente} — {archivioMailCella.bookmaker}
+                </h3>
+                <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 13 }}>{archivioMailCella.promo.length} promozioni</p>
+              </div>
+              <button onClick={() => setArchivioMailCella(null)}
+                style={{ border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18 }}>×</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {archivioMailCella.promo.map((p: any, idx: number) => (
+                <div key={idx} style={{ background: 'rgba(11,18,32,0.85)', border: `1px solid ${p.priorita === 'alta' ? 'rgba(239,68,68,0.35)' : p.priorita === 'media' ? 'rgba(245,158,11,0.3)' : 'rgba(34,197,94,0.25)'}`, borderRadius: 12, padding: 16 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 6,
+                      background: p.priorita === 'alta' ? 'rgba(239,68,68,0.15)' : p.priorita === 'media' ? 'rgba(245,158,11,0.12)' : 'rgba(34,197,94,0.12)',
+                      color: p.priorita === 'alta' ? '#f87171' : p.priorita === 'media' ? '#fbbf24' : '#22c55e'
+                    }}>{p.priorita === 'alta' ? '🔥' : p.priorita === 'media' ? '⚡' : '✅'} {p.priorita}</span>
+                    <span style={{ color: '#64748b', fontSize: 12 }}>{p.data_mail ? new Date(p.data_mail).toLocaleDateString('it-IT') : ''}</span>
+                  </div>
+                  <div style={{ color: '#f8fafc', fontWeight: 700, fontSize: 14, marginBottom: 6 }}>{p.oggetto}</div>
+                  <div style={{ color: '#64748b', fontSize: 12, marginBottom: p.testo_completo ? 10 : 0 }}>Da: {p.mittente}</div>
+                  {p.testo_completo && (
+                    <div style={{ background: '#0d0f14', borderRadius: 8, padding: '10px 12px', fontSize: 12, color: '#cbd5e1', lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 300, overflowY: 'auto' }}>
+                      {p.testo_completo}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+              <button onClick={() => setArchivioMailCella(null)}
+                style={{ padding: '10px 22px', borderRadius: 12, border: 'none', background: '#38bdf8', color: '#0f172a', cursor: 'pointer', fontSize: 13, fontWeight: 800 }}>Chiudi</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+})()}
+
    {activeTab === 'matrice' && (
   <div style={tabContent}>
     <div style={sectionTopBar}>
