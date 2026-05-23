@@ -95,6 +95,7 @@ const [showAgendaPopup, setShowAgendaPopup] = useState(false)
 const [agendaVista, setAgendaVista] = useState(false)
 const [agendaAperto, setAgendaAperto] = useState(null)
 const [popupAperto, setPopupAperto] = useState(null)
+  const [clientePromoAperto, setClientePromoAperto] = useState(null)
   useEffect(() => {
   initSession()
   loadData()
@@ -3403,75 +3404,91 @@ setTimeout(() => setMessage(''), 4000)
   <div style={{ ...tabContent, marginTop: 16 }}>
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
       <h3 style={{ ...sectionTitle, fontSize: 16, margin: 0 }}>📧 Promozioni rilevate</h3>
-      {promozioni.length > 0 && (
-        <button
-          onClick={async () => {
-            if (!window.confirm(`Eliminare tutte le ${promozioni.length} promozioni?`)) return
-            for (const p of promozioni) {
-              await supabase.from('promozioni_clienti').delete().eq('id', p.id)
-            }
-            setPromozioni([])
-          }}
-          style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.08)', color: '#f87171', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
-        >🗑️ Elimina tutte</button>
-      )}
+      <button
+        onClick={async () => {
+          if (!window.confirm(`Eliminare tutte le ${promozioni.length} promozioni?`)) return
+          for (const p of promozioni) {
+            await supabase.from('promozioni_clienti').delete().eq('id', p.id)
+          }
+          setPromozioni([])
+        }}
+        style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.08)', color: '#f87171', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
+      >🗑️ Elimina tutte</button>
     </div>
-    <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-      {['alta','media','bassa'].map(p => {
-        const count = promozioni.filter(pr => pr.priorita === p && !pr.letta).length
-        return count > 0 ? (
-          <span key={p} style={{ fontSize: 12, padding: '3px 10px', borderRadius: 8, fontWeight: 700,
-            background: p === 'alta' ? 'rgba(239,68,68,0.12)' : p === 'media' ? 'rgba(245,158,11,0.12)' : 'rgba(34,197,94,0.12)',
-            color: p === 'alta' ? '#f87171' : p === 'media' ? '#fbbf24' : '#22c55e',
-            border: `1px solid ${p === 'alta' ? 'rgba(239,68,68,0.3)' : p === 'media' ? 'rgba(245,158,11,0.3)' : 'rgba(34,197,94,0.3)'}`
-          }}>{count} {p}</span>
-        ) : null
-      })}
-    </div>
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      {promozioni.map(p => (
-        <div key={p.id} style={{ background: 'rgba(11,18,32,0.85)', border: `1px solid ${p.priorita === 'alta' ? 'rgba(239,68,68,0.35)' : p.priorita === 'media' ? 'rgba(245,158,11,0.3)' : 'rgba(34,197,94,0.25)'}`, borderRadius: 12, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 6,
-                background: p.priorita === 'alta' ? 'rgba(239,68,68,0.15)' : p.priorita === 'media' ? 'rgba(245,158,11,0.12)' : 'rgba(34,197,94,0.12)',
-                color: p.priorita === 'alta' ? '#f87171' : p.priorita === 'media' ? '#fbbf24' : '#22c55e'
-              }}>{p.priorita === 'alta' ? '🔥' : p.priorita === 'media' ? '⚡' : '✅'} {p.priorita}</span>
-              <span style={{ fontWeight: 700, color: '#f8fafc', fontSize: 13 }}>{p.clienti?.nome}</span>
-              <span style={{ color: '#64748b', fontSize: 11 }}>{p.data_mail ? new Date(p.data_mail).toLocaleDateString('it-IT') : new Date(p.created_at).toLocaleDateString('it-IT')}</span>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {clienti.map(c => {
+        const promoCliente = promozioni.filter(p => p.cliente_id === c.id).sort((a, b) => {
+          const ord = { alta: 0, media: 1, bassa: 2 }
+          return (ord[(a.priorita || '').toLowerCase()] || 1) - (ord[(b.priorita || '').toLowerCase()] || 1)
+        })
+        if (promoCliente.length === 0) return null
+        const nonLette = promoCliente.filter(p => !p.letta).length
+        const expanded = clientePromoAperto === c.id
+        return (
+          <div key={c.id} style={{ background: 'rgba(11,18,32,0.85)', border: '1px solid rgba(56,189,248,0.2)', borderRadius: 14 }}>
+            <div
+              onClick={() => setClientePromoAperto(expanded ? null : c.id)}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', cursor: 'pointer' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontWeight: 800, color: '#f8fafc', fontSize: 14 }}>{c.nome}</span>
+                {nonLette > 0 && (
+                  <span style={{ background: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
+                    {nonLette} nuove
+                  </span>
+                )}
+                <span style={{ color: '#64748b', fontSize: 11 }}>{promoCliente.length} totali</span>
+              </div>
+              <span style={{ color: '#64748b', fontSize: 16 }}>{expanded ? '▲' : '▼'}</span>
             </div>
-            <div style={{ color: '#e2e8f0', fontSize: 13, marginTop: 3 }}>{p.oggetto}</div>
-            <div style={{ color: '#64748b', fontSize: 11, marginTop: 1 }}>Da: {p.mittente}</div>
-          </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {p.testo_completo && (
-              <button
-                onClick={() => setPromozioneDettaglio(p)}
-                style={{ padding: '4px 10px', borderRadius: 8, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontSize: 11, cursor: 'pointer', fontWeight: 700 }}
-              >📄 Testo</button>
+            {expanded && (
+              <div style={{ borderTop: '1px solid rgba(56,189,248,0.1)', padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {promoCliente.map(p => (
+                  <div key={p.id} style={{ background: p.letta ? 'rgba(15,23,42,0.5)' : 'rgba(11,18,32,0.85)', border: `1px solid ${p.priorita === 'alta' ? 'rgba(239,68,68,0.35)' : p.priorita === 'media' ? 'rgba(245,158,11,0.3)' : 'rgba(34,197,94,0.25)'}`, borderRadius: 10, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8, opacity: p.letta ? 0.6 : 1 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 6px', borderRadius: 6,
+                          background: p.priorita === 'alta' ? 'rgba(239,68,68,0.15)' : p.priorita === 'media' ? 'rgba(245,158,11,0.12)' : 'rgba(34,197,94,0.12)',
+                          color: p.priorita === 'alta' ? '#f87171' : p.priorita === 'media' ? '#fbbf24' : '#22c55e'
+                        }}>{p.priorita === 'alta' ? '🔥' : p.priorita === 'media' ? '⚡' : '✅'} {p.priorita}</span>
+                        <span style={{ color: '#64748b', fontSize: 11 }}>{p.data_mail ? new Date(p.data_mail).toLocaleDateString('it-IT') : new Date(p.created_at).toLocaleDateString('it-IT')}</span>
+                        {p.letta && <span style={{ color: '#475569', fontSize: 10 }}>✓ letta</span>}
+                      </div>
+                      <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>{p.oggetto}</div>
+                      <div style={{ color: '#64748b', fontSize: 11, marginTop: 1 }}>Da: {p.mittente}</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 5 }}>
+                      {p.testo_completo && (
+                        <button onClick={() => setPromozioneDettaglio(p)}
+                          style={{ padding: '4px 8px', borderRadius: 8, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontSize: 11, cursor: 'pointer', fontWeight: 700 }}>
+                          📄</button>
+                      )}
+                      {!p.letta && (
+                        <button onClick={async () => {
+                          await supabase.from('promozioni_clienti').update({ letta: true }).eq('id', p.id)
+                          setPromozioni(prev => prev.map(pr => pr.id === p.id ? { ...pr, letta: true } : pr))
+                        }}
+                          style={{ padding: '4px 8px', borderRadius: 8, border: '1px solid rgba(51,65,85,0.8)', background: 'rgba(15,23,42,0.8)', color: '#94a3b8', fontSize: 11, cursor: 'pointer', fontWeight: 700 }}>
+                          ✓</button>
+                      )}
+                      <button onClick={async () => {
+                        if (!window.confirm('Eliminare?')) return
+                        await supabase.from('promozioni_clienti').delete().eq('id', p.id)
+                        setPromozioni(prev => prev.filter(pr => pr.id !== p.id))
+                      }}
+                        style={{ padding: '4px 8px', borderRadius: 8, border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.06)', color: '#f87171', fontSize: 11, cursor: 'pointer' }}>
+                        🗑️</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
-            <button
-              onClick={async () => {
-                await supabase.from('promozioni_clienti').update({ letta: true }).eq('id', p.id)
-                setPromozioni(prev => prev.map(pr => pr.id === p.id ? { ...pr, letta: true } : pr))
-              }}
-              style={{ padding: '4px 10px', borderRadius: 8, border: '1px solid rgba(51,65,85,0.8)', background: 'rgba(15,23,42,0.8)', color: '#94a3b8', fontSize: 11, cursor: 'pointer', fontWeight: 700 }}
-            >✓ Letta</button>
-            <button
-              onClick={async () => {
-                if (!window.confirm('Eliminare questa promozione?')) return
-                await supabase.from('promozioni_clienti').delete().eq('id', p.id)
-                setPromozioni(prev => prev.filter(pr => pr.id !== p.id))
-              }}
-              style={{ padding: '4px 10px', borderRadius: 8, border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.06)', color: '#f87171', fontSize: 11, cursor: 'pointer', fontWeight: 700 }}
-            >🗑️</button>
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   </div>
 )}
-
        {activeTab === 'stime-cassa' && canViewStimeCassa && (
   <div style={tabContent}>
     <div style={sectionTopBar}>
