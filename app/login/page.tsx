@@ -22,7 +22,7 @@ function LoginForm() {
         body: JSON.stringify({ password }),
       });
       if (res.ok) {
-        router.push(from);
+        window.location.href = from;
       } else {
         setError("Password errata. Riprova.");
       }
