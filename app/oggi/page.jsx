@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 const API_FD = "/api/footballdata";
@@ -328,6 +328,12 @@ async function getSeasonData(code, supabaseClient) {
 // ─── COMPONENTE ───────────────────────────────────────────────
 
 export default function Oggi() {
+  useEffect(() => {
+    if (typeof window !== 'undefined' && localStorage.getItem('site_unlocked') !== '1') {
+      window.location.href = '/login?from=/oggi'
+    }
+  }, [])
+
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [selectedLeagues, setSelectedLeagues] = useState([]);
   const [matches, setMatches] = useState([]);
