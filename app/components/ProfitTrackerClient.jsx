@@ -3295,8 +3295,12 @@ onChange={(e) => {
           onClick={async () => {
             setSyncInCorso(true)
             try {
-              await fetch('/api/gmail/sync?secret=pt_cron_2026_sergio')
-              await loadData({ preserveMessages: true })
+              const res = await fetch('/api/gmail/sync?secret=pt_cron_2026_sergio')
+const data = await res.json()
+await loadData({ preserveMessages: true })
+const totSalvate = (data.risultati || []).reduce((acc, r) => acc + (r.salvate || 0), 0)
+setMessage(totSalvate > 0 ? `📧 ${totSalvate} nuove promozioni trovate!` : '📧 Nessuna novità')
+setTimeout(() => setMessage(''), 4000)
             } finally {
               setSyncInCorso(false)
             }
@@ -3304,7 +3308,7 @@ onChange={(e) => {
           disabled={syncInCorso}
           style={{ padding: '10px 16px', borderRadius: 12, border: '1px solid rgba(56,189,248,0.5)', background: syncInCorso ? 'rgba(51,65,85,0.3)' : 'rgba(56,189,248,0.1)', color: syncInCorso ? '#64748b' : '#38bdf8', fontWeight: 800, fontSize: 13, cursor: syncInCorso ? 'not-allowed' : 'pointer' }}
         >{syncInCorso ? '⏳ Sincronizzazione...' : '🔄 Sincronizza tutto'}</button>
-        {promozioni.filter(p => !p.letta).length > 0 && (
+        {promozioni.length > 0 && (
           <button
             onClick={() => setShowPromozioniPopup(true)}
             style={{ padding: '10px 16px', borderRadius: 12, border: '1px solid rgba(239,68,68,0.5)', background: 'rgba(239,68,68,0.1)', color: '#f87171', fontWeight: 800, fontSize: 13, cursor: 'pointer', animation: 'blinkPrevisto 2s ease-in-out infinite' }}
