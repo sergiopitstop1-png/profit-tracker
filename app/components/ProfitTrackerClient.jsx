@@ -13,10 +13,6 @@ export default function ProfitTrackerClient() {
   const [activeTab, setActiveTab] = useState('dashboard')
   const [books, setBooks] = useState([])
   const [wallets, setWallets] = useState([])
-  const [sessionToken, setSessionToken] = useState(null)
-  const [userId, setUserId] = useState(null)
-  const [accessDenied, setAccessDenied] = useState('')
-  const [userEmail, setUserEmail] = useState('')
   const [transactions, setTransactions] = useState([])
   const [totaleEsterni, setTotaleEsterni] = useState(0)
   const [contabilita, setContabilita] = useState([])
@@ -104,77 +100,12 @@ const [matriceFiltroBook, setMatriceFiltroBook] = useState('')
 const [matriceFiltroStato, setMatriceFiltroStato] = useState('DA APRIRE')
 const [matriceAperto, setMatriceAperto] = useState(null)
   useEffect(() => {
-  initSession()
   loadData()
 }, [])
 
-async function initSession() {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
 
-  if (!user) return
 
-  setUserId(user.id)
-  setUserEmail((user.email || '').toLowerCase())
 
-  const token = crypto.randomUUID()
-  setSessionToken(token)
-
-  await supabase.from("user_sessions").insert([
-  {
-    user_id: user.id,
-    user_email: user.email,
-    session_token: token,
-    status: "online",
-    page: "profit-tracker",
-    user_agent: navigator.userAgent
-  }
-])
-}
-
-async function updateActivity() {
-  if (!sessionToken) return
-
-  await supabase
-    .from("user_sessions")
-    .update({
-      last_seen_at: new Date().toISOString()
-    })
-    .eq("session_token", sessionToken)
-}
-
-async function logAction({ action, entity, entity_id = null, old_value = null, new_value = null }) {
-  if (!userId || !sessionToken) return
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  await supabase.from("audit_logs").insert([
-    {
-      user_id: userId,
-      user_email: user?.email || null,
-      session_token: sessionToken,
-      action,
-      entity,
-      entity_id,
-      old_value,
-      new_value,
-      page: "profit-tracker"
-    }
-  ])
-}
-
-useEffect(() => {
-  if (!sessionToken) return
-
-  const interval = setInterval(() => {
-    updateActivity()
-  }, 30000)
-
-  return () => clearInterval(interval)
-}, [sessionToken])
 
 const CLASSI_BOOK = {
   A: ['bet365','snai','sisal','lottomatica','goldbet','planetwin365','eurobet','pokerstars'],
@@ -615,7 +546,7 @@ const weeklyProfitColor =
   weeklyChartData[weeklyChartData.length - 1].profit < 0
     ? '#ef4444'
     : '#22c55e'
-const canViewStimeCassa = userEmail === 'sergiopitstop1@gmail.com'
+const canViewStimeCassa = true
 function normalizeOwner(value) {
   return String(value || '').trim().toLowerCase()
 }
@@ -1486,12 +1417,6 @@ if (error) {
   return
 }
 
-await logAction({
-  action: 'DELETE',
-  entity: 'book',
-  entity_id: String(book.id),
-  old_value: book
-})
 
 setMessage('Book eliminato correttamente')
 await loadData({ preserveMessages: true })
@@ -1513,12 +1438,6 @@ if (error) {
   return
 }
 
-await logAction({
-  action: 'DELETE',
-  entity: 'wallet',
-  entity_id: String(wallet.id),
-  old_value: wallet
-})
 
 setMessage('Wallet eliminato correttamente')
 await loadData({ preserveMessages: true })
@@ -1738,13 +1657,6 @@ async function handleDeleteTransaction(tx) {
       'Eliminazione transazione'
     )
 
-    await logAction({
-      action: 'DELETE',
-      entity: 'transaction',
-      entity_id: String(tx.id),
-      old_value: tx
-    })
-
     setMessage('Movimento eliminato e saldi ripristinati')
     await loadData({ preserveMessages: true })
   } catch (error) {
@@ -1778,12 +1690,6 @@ const { data, error } = await supabase.from('books').insert([newBook]).select()
 
 if (error) return setErrorMessage('Errore nel salvataggio del book')
 
-await logAction({
-  action: 'CREATE',
-  entity: 'book',
-  entity_id: data?.[0]?.id ? String(data[0].id) : null,
-  new_value: newBook
-})
 
 setShowBookModal(false)
 setBookForm({ nome: '', intestatario: '', saldo: '', note: '' })
@@ -1826,12 +1732,6 @@ const { data, error } = await supabase.from('wallets').insert([newWallet]).selec
 
 if (error) return setErrorMessage('Errore nel salvataggio del wallet')
 
-await logAction({
-  action: 'CREATE',
-  entity: 'wallet',
-  entity_id: data?.[0]?.id ? String(data[0].id) : null,
-  new_value: newWallet
-})
 
 setShowWalletModal(false)
 setWalletForm({ nome: '', intestatario: '', saldo: '', note: '' })
@@ -2106,9 +2006,7 @@ if (nota === null) return
       r = await salvaLogTransazione({ tipo: 'trasferisci', importo, riferimento: `wallet:${from.id}:${from.nome}:${from.intestatario} -> wallet:${to.id}:${to.nome}:${to.intestatario}`, note: txForm.note || `Trasferimento da wallet ${from.nome} a wallet ${to.nome}`, azione: 'wallet_to_wallet' })
       if (r.error) return setErrorMessage(r.error.message)
     }
-if (auditPayload) {
-  await logAction(auditPayload)
-}
+
 
     resetTxForm()
     setMessage('Transazione eseguita correttamente')
@@ -2667,7 +2565,6 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 
        {activeTab === 'dashboard' && (
   <div style={tabContent}>
-     {accessDenied && <div style={errorBox}>{accessDenied}</div>}
     {(() => {
   const oggi = new Date()
   const annoCorrente = oggi.getFullYear()
