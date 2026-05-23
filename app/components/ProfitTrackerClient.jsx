@@ -3589,7 +3589,7 @@ setTimeout(() => setMessage(''), 4000)
                 style={{ border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18 }}>×</button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {archivioMailCella.promo.map((p: any, idx: number) => (
+              {archivioMailCella.promo.map((p, idx) => (
                 <div key={idx} style={{ background: 'rgba(11,18,32,0.85)', border: `1px solid ${p.priorita === 'alta' ? 'rgba(239,68,68,0.35)' : p.priorita === 'media' ? 'rgba(245,158,11,0.3)' : 'rgba(34,197,94,0.25)'}`, borderRadius: 12, padding: 16 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                     <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 6,
