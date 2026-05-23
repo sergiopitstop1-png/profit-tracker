@@ -2301,9 +2301,12 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
       `}</style>
       <div style={pageWrap}>
         <header style={header}>
-          <div>
-            <h1 style={title}>🔥 Profit Tracker - La scalata al SUCCESSO</h1>
-            <p style={subtitle}>books · wallets · transactions</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <img src="/WhatsApp Image 2026-05-23 at 22.05.05.jpeg" alt="SGM Logo" style={{ width: 64, height: 64, borderRadius: 12, objectFit: 'cover' }} />
+            <div>
+              <h1 style={title}>🔥 Profit Tracker - La scalata al SUCCESSO</h1>
+              <p style={subtitle}>books · wallets · transactions</p>
+            </div>
           </div>
           <div style={copyrightBox}>© Sergio Apicella — Tutti i diritti riservati</div>
         </header>
