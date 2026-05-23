@@ -3509,7 +3509,15 @@ setTimeout(() => setMessage(''), 4000)
   }
 
   const righe = [...tuttiClienti].sort()
-  const colonne = [...tuttiBook].sort()
+  const ORDINE_BOOK = ['Sisal','Planetwin','Planetwin365','Lottomatica','Snai','Eurobet','Bet365','Goldbet','Pokerstars','Netbet','Bwin','Betsson','William','Admiral','Gioco','Starcasino','Betflag','Eplay24','Sportium','Codere','Stanleybet','Betpoint','Marathonbet','Betpassion','Tombola','Zonagioco','Vincitu','Domusbet','Quigioco','Bgame','Winamax']
+  const colonne = [...tuttiBook].sort((a, b) => {
+    const ia = ORDINE_BOOK.findIndex(k => a.toLowerCase().includes(k.toLowerCase()))
+    const ib = ORDINE_BOOK.findIndex(k => b.toLowerCase().includes(k.toLowerCase()))
+    if (ia === -1 && ib === -1) return a.localeCompare(b)
+    if (ia === -1) return 1
+    if (ib === -1) return -1
+    return ia - ib
+  })
 
   return (
     <div style={tabContent}>
