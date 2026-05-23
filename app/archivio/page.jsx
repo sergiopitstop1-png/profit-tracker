@@ -150,13 +150,15 @@ if (!m || !doneStatuses.includes(m.status)) { done++; continue; }
     if (!confirm("⚠️ Sei sicuro di voler cancellare TUTTO l'archivio?\nQuesta operazione è irreversibile!")) return;
     setClearingAll(true);
     try {
-      let query = supabase.from("pronox_archive").delete();
-      if (user?.id) {
-        query = query.eq("user_id", user.id);
-      } else {
-        query = query.neq("id", 0);
+      if (!user?.id) {
+        alert("Errore: utente non autenticato. Effettua il login.");
+        setClearingAll(false);
+        return;
       }
-      const { error } = await query;
+      const { error } = await supabase
+        .from("pronox_archive")
+        .delete()
+        .eq("user_id", user.id);
       if (error) {
         alert("Errore durante la cancellazione: " + error.message);
         console.error("clearArchive error:", error);
