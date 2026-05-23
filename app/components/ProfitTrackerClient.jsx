@@ -3630,9 +3630,7 @@ setTimeout(() => setMessage(''), 4000)
                       {r.stato === 'DA APRIRE' && (
                         <button onClick={async () => {
                           if (!window.confirm(`Segnare ${r.bookmaker} — ${r.cliente} come APERTO e creare il Book?`)) return
-                          // Aggiorna matrice
                           await supabase.from('matrice_bookmakers').update({ stato: 'APERTO', updated_at: new Date().toISOString() }).eq('id', r.id)
-                          // Crea Book automaticamente
                           await supabase.from('books').insert([{ nome: r.bookmaker, intestatario: r.cliente, saldo: 0, note: 'Aperto da Matrice' }])
                           setMatrice(prev => prev.map(m => m.id === r.id ? { ...m, stato: 'APERTO' } : m))
                           setMessage(`✅ ${r.bookmaker} aperto per ${r.cliente}!`)
@@ -3640,6 +3638,29 @@ setTimeout(() => setMessage(''), 4000)
                         }}
                           style={{ padding: '4px 10px', borderRadius: 8, border: '1px solid rgba(34,197,94,0.4)', background: 'rgba(34,197,94,0.1)', color: '#22c55e', fontSize: 11, cursor: 'pointer', fontWeight: 700 }}>
                           ✅ Segna aperto
+                        </button>
+                      )}
+                      {r.stato === 'APERTO' && (
+                        <button onClick={async () => {
+                          // Cerca il book corrispondente
+                          const { data: bookTrovato } = await supabase.from('books').select('id').eq('nome', r.bookmaker).eq('intestatario', r.cliente).maybeSingle()
+                          if (bookTrovato) {
+                            // Controlla se ha transazioni
+                            const { data: txBook } = await supabase.from('transactions').select('id').eq('book_id', bookTrovato.id).limit(1)
+                            if (txBook && txBook.length > 0) {
+                              window.alert(`⚠️ Il book ${r.bookmaker} — ${r.cliente} ha transazioni collegate e non può essere eliminato automaticamente. Eliminalo manualmente dalla sezione Books.`)
+                              return
+                            }
+                          }
+                          if (!window.confirm(`Chiudere ${r.bookmaker} — ${r.cliente}? Il book verrà eliminato.`)) return
+                          await supabase.from('matrice_bookmakers').update({ stato: 'DA APRIRE', updated_at: new Date().toISOString() }).eq('id', r.id)
+                          if (bookTrovato) await supabase.from('books').delete().eq('id', bookTrovato.id)
+                          setMatrice(prev => prev.map(m => m.id === r.id ? { ...m, stato: 'DA APRIRE' } : m))
+                          setMessage(`🔴 ${r.bookmaker} chiuso per ${r.cliente}`)
+                          setTimeout(() => setMessage(''), 3000)
+                        }}
+                          style={{ padding: '4px 10px', borderRadius: 8, border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.08)', color: '#f87171', fontSize: 11, cursor: 'pointer', fontWeight: 700 }}>
+                          🔴 Chiudi
                         </button>
                       )}
                     </div>
