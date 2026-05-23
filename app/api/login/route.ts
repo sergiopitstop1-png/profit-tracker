@@ -9,13 +9,11 @@ export async function POST(req: Request) {
 
   const res = NextResponse.json({ ok: true });
   res.cookies.set("site_unlocked", "1", {
-    httpOnly: true,
+    httpOnly: false,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    // Nessuna scadenza = sessione browser (scompare alla chiusura del browser)
-    // Se vuoi che duri anche dopo chiusura, decommenta la riga sotto:
-    // maxAge: 60 * 60 * 24 * 365,
+    maxAge: 60 * 60 * 24 * 365, // 1 anno — resta fino a logout manuale
   });
 
   return res;
