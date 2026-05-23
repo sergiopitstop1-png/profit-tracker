@@ -1,3 +1,4 @@
+"use client";
 import ProfitTrackerClient from "../components/ProfitTrackerClient";
 import AuthGuard from "../components/AuthGuard";
 
