@@ -1,7 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { useRouter } from "next/navigation";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -11,7 +10,6 @@ const supabase = createClient(
 const API_FD = "/api/footballdata";
 
 export default function Archivio() {
-  const router = useRouter();
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState("all");
@@ -20,32 +18,17 @@ export default function Archivio() {
   const [verifyingAll, setVerifyingAll] = useState(false);
   const [verifyProgress, setVerifyProgress] = useState("");
   const [clearingAll, setClearingAll] = useState(false);
-  const [user, setUser] = useState(null);
 
-  useEffect(() => {
-    const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
-      loadArchive(user?.id);
-    };
-    init();
-  }, []);
+  useEffect(() => { loadArchive(); }, []);
 
-  const loadArchive = async (userId) => {
+  const loadArchive = async () => {
     setLoading(true);
-    let query = supabase
+    const { data, error } = await supabase
       .from("pronox_archive")
       .select("*")
       .order("created_at", { ascending: false });
-    if (userId) query = query.eq("user_id", userId);
-    const { data, error } = await query;
     if (!error) setRecords(data || []);
     setLoading(false);
-  };
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push("/register");
   };
 
   const verifyResult = async (record) => {
@@ -75,71 +58,58 @@ export default function Archivio() {
       else if (label === "TRADING O0.5 HT → U2.5 LIVE") outcome = (htHome + htAway) >= 1 && total <= 2 ? "WIN" : "LOSS";
 
       const { error: updateError } = await supabase.from("pronox_archive")
-  .update({
-    status: outcome,
-    ft_home_goals: ftHome,
-    ft_away_goals: ftAway,
-    ht_home_goals: htHome,
-    ht_away_goals: htAway,
-    result_checked_at: new Date().toISOString()
-  })
-  .eq("id", record.id);
-
-if (updateError) {
-  alert("Errore aggiornamento Supabase: " + updateError.message);
-  setCheckingId(null);
-  return;
-}
-
+        .update({ status: outcome, ft_home_goals: ftHome, ft_away_goals: ftAway, ht_home_goals: htHome, ht_away_goals: htAway, result_checked_at: new Date().toISOString() })
+        .eq("id", record.id);
+      if (updateError) { alert("Errore aggiornamento: " + updateError.message); setCheckingId(null); return; }
       setRecords(prev => prev.map(r => r.id === record.id ? { ...r, status: outcome, ft_home_goals: ftHome, ft_away_goals: ftAway, ht_home_goals: htHome, ht_away_goals: htAway } : r));
     } catch (e) { console.error(e); }
     setCheckingId(null);
   };
-const manualVerify = async (id, outcome) => {
-  await supabase.from("pronox_archive").update({ 
-    status: outcome,
-    result_checked_at: new Date().toISOString()
-  }).eq("id", id);
-  setRecords(prev => prev.map(r => r.id === id ? { ...r, status: outcome } : r));
-};
+
+  const manualVerify = async (id, outcome) => {
+    await supabase.from("pronox_archive").update({ status: outcome, result_checked_at: new Date().toISOString() }).eq("id", id);
+    setRecords(prev => prev.map(r => r.id === id ? { ...r, status: outcome } : r));
+  };
+
   const verifyAll = async () => {
-  const pending = records.filter(r => r.status === "PENDING");
-  if (pending.length === 0) { alert("Nessun pronostico in attesa!"); return; }
-  setVerifyingAll(true);
-  let done = 0;
-  for (const record of pending) {
-    setVerifyProgress(`Verifico ${done + 1}/${pending.length}: ${record.home_team} vs ${record.away_team}...`);
-    try {
-      const r = await fetch(`${API_FD}?endpoint=matches/${record.match_id}`);
-      const d = await r.json();
-      const m = d.match || d;
-      const doneStatuses = ["FINISHED", "AWARDED", "CANCELLED"];
-if (!m || !doneStatuses.includes(m.status)) { done++; continue; }
-      const ftHome = m.score?.fullTime?.home ?? 0;
-      const ftAway = m.score?.fullTime?.away ?? 0;
-      const htHome = m.score?.halfTime?.home ?? 0;
-      const htAway = m.score?.halfTime?.away ?? 0;
-      const total = ftHome + ftAway;
-      let outcome = "LOSS";
-      const label = record.prediction_label;
-      if (label === "CASA VINCE") outcome = ftHome > ftAway ? "WIN" : "LOSS";
-      else if (label === "OSPITE VINCE") outcome = ftAway > ftHome ? "WIN" : "LOSS";
-      else if (label === "OVER 2.5") outcome = total > 2.5 ? "WIN" : "LOSS";
-      else if (label === "UNDER 2.5") outcome = total < 2.5 ? "WIN" : "LOSS";
-      else if (label === "OVER 0.5 HT") outcome = (htHome + htAway) > 0 ? "WIN" : "LOSS";
-      else if (label === "BTTS SÌ") outcome = ftHome > 0 && ftAway > 0 ? "WIN" : "LOSS";
-      else if (label === "TRADING O0.5 HT → U2.5 LIVE") outcome = (htHome + htAway) >= 1 && total <= 2 ? "WIN" : "LOSS";
-      await supabase.from("pronox_archive")
-        .update({ status: outcome, ft_home_goals: ftHome, ft_away_goals: ftAway, ht_home_goals: htHome, ht_away_goals: htAway, result_checked_at: new Date().toISOString() })
-        .eq("id", record.id);
-      setRecords(prev => prev.map(rec => rec.id === record.id ? { ...rec, status: outcome, ft_home_goals: ftHome, ft_away_goals: ftAway, ht_home_goals: htHome, ht_away_goals: htAway } : rec));
-    } catch (e) { console.error(e); }
-    done++;
-    await new Promise(r => setTimeout(r, 600)); // pausa tra chiamate API
-  }
-  setVerifyingAll(false);
-  setVerifyProgress("");
-};
+    const pending = records.filter(r => r.status === "PENDING");
+    if (pending.length === 0) { alert("Nessun pronostico in attesa!"); return; }
+    setVerifyingAll(true);
+    let done = 0;
+    for (const record of pending) {
+      setVerifyProgress(`Verifico ${done + 1}/${pending.length}: ${record.home_team} vs ${record.away_team}...`);
+      try {
+        const r = await fetch(`${API_FD}?endpoint=matches/${record.match_id}`);
+        const d = await r.json();
+        const m = d.match || d;
+        const doneStatuses = ["FINISHED", "AWARDED", "CANCELLED"];
+        if (!m || !doneStatuses.includes(m.status)) { done++; continue; }
+        const ftHome = m.score?.fullTime?.home ?? 0;
+        const ftAway = m.score?.fullTime?.away ?? 0;
+        const htHome = m.score?.halfTime?.home ?? 0;
+        const htAway = m.score?.halfTime?.away ?? 0;
+        const total = ftHome + ftAway;
+        let outcome = "LOSS";
+        const label = record.prediction_label;
+        if (label === "CASA VINCE") outcome = ftHome > ftAway ? "WIN" : "LOSS";
+        else if (label === "OSPITE VINCE") outcome = ftAway > ftHome ? "WIN" : "LOSS";
+        else if (label === "OVER 2.5") outcome = total > 2.5 ? "WIN" : "LOSS";
+        else if (label === "UNDER 2.5") outcome = total < 2.5 ? "WIN" : "LOSS";
+        else if (label === "OVER 0.5 HT") outcome = (htHome + htAway) > 0 ? "WIN" : "LOSS";
+        else if (label === "BTTS SÌ") outcome = ftHome > 0 && ftAway > 0 ? "WIN" : "LOSS";
+        else if (label === "TRADING O0.5 HT → U2.5 LIVE") outcome = (htHome + htAway) >= 1 && total <= 2 ? "WIN" : "LOSS";
+        await supabase.from("pronox_archive")
+          .update({ status: outcome, ft_home_goals: ftHome, ft_away_goals: ftAway, ht_home_goals: htHome, ht_away_goals: htAway, result_checked_at: new Date().toISOString() })
+          .eq("id", record.id);
+        setRecords(prev => prev.map(rec => rec.id === record.id ? { ...rec, status: outcome, ft_home_goals: ftHome, ft_away_goals: ftAway, ht_home_goals: htHome, ht_away_goals: htAway } : rec));
+      } catch (e) { console.error(e); }
+      done++;
+      await new Promise(r => setTimeout(r, 600));
+    }
+    setVerifyingAll(false);
+    setVerifyProgress("");
+  };
+
   const deleteRecord = async (id) => {
     if (!confirm("Eliminare questo pronostico?")) return;
     await supabase.from("pronox_archive").delete().eq("id", id);
@@ -150,15 +120,7 @@ if (!m || !doneStatuses.includes(m.status)) { done++; continue; }
     if (!confirm("⚠️ Sei sicuro di voler cancellare TUTTO l'archivio?\nQuesta operazione è irreversibile!")) return;
     setClearingAll(true);
     try {
-      if (!user?.id) {
-        alert("Errore: utente non autenticato. Effettua il login.");
-        setClearingAll(false);
-        return;
-      }
-      const { error } = await supabase
-        .from("pronox_archive")
-        .delete()
-        .eq("user_id", user.id);
+      const { error } = await supabase.from("pronox_archive").delete().neq("id", "00000000-0000-0000-0000-000000000000");
       if (error) {
         alert("Errore durante la cancellazione: " + error.message);
         console.error("clearArchive error:", error);
@@ -183,7 +145,6 @@ if (!m || !doneStatuses.includes(m.status)) { done++; continue; }
   const pending = records.filter(r => r.status === "PENDING").length;
   const total = wins + losses;
   const winRate = total > 0 ? ((wins / total) * 100).toFixed(1) : "—";
-
   const types = [...new Set(records.map(r => r.prediction_type))].filter(Boolean);
 
   const statusBadge = (status) => {
@@ -200,21 +161,10 @@ if (!m || !doneStatuses.includes(m.status)) { done++; continue; }
           PRONO<span style={{ color: "#c8f135" }}>X</span>
           <span style={{ fontSize: 13, fontWeight: 400, color: "#6b7490" }}> · archivio pronostici</span>
         </h1>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <div style={{ display: "flex", gap: 16 }}>
-            <a href="/" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>← home</a>
-            <a href="/oggi" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>📅 partite del giorno</a>
-            <a href="/pronosticatore" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>⚽ analisi manuale</a>
-          </div>
-          {user && (
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: 11, color: "#6b7490" }}>{user.email}</span>
-              <button onClick={handleLogout}
-                style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #2a2f3f", background: "transparent", color: "#6b7490", cursor: "pointer" }}>
-                Esci
-              </button>
-            </div>
-          )}
+        <div style={{ display: "flex", gap: 16, marginBottom: 16 }}>
+          <a href="/" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>← home</a>
+          <a href="/oggi" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>📅 partite del giorno</a>
+          <a href="/pronosticatore" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>⚽ analisi manuale</a>
         </div>
 
         {/* Statistiche */}
@@ -233,18 +183,17 @@ if (!m || !doneStatuses.includes(m.status)) { done++; continue; }
         </div>
 
         {pending > 0 && (
-  <div style={{ background: "rgba(255,208,96,0.08)", border: "1px solid rgba(255,208,96,0.3)", borderRadius: 10, padding: "12px 16px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-    <span style={{ fontSize: 13, color: "#ffd060" }}>
-      ⏳ <strong>{pending}</strong> pronostico/i in attesa
-      {verifyingAll && <span style={{ marginLeft: 10, fontSize: 12, opacity: 0.8 }}>{verifyProgress}</span>}
-    </span>
-    <button onClick={verifyAll} disabled={verifyingAll}
-      style={{ padding: "8px 18px", borderRadius: 8, border: "1px solid rgba(255,208,96,0.4)", background: verifyingAll ? "transparent" : "rgba(255,208,96,0.12)", color: "#ffd060", cursor: verifyingAll ? "not-allowed" : "pointer", fontWeight: 700, fontSize: 13 }}>
-      {verifyingAll ? "⏳ In corso..." : "⚡ Verifica tutto"}
-    </button>
-  </div>
-)}
-       
+          <div style={{ background: "rgba(255,208,96,0.08)", border: "1px solid rgba(255,208,96,0.3)", borderRadius: 10, padding: "12px 16px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 13, color: "#ffd060" }}>
+              ⏳ <strong>{pending}</strong> pronostico/i in attesa
+              {verifyingAll && <span style={{ marginLeft: 10, fontSize: 12, opacity: 0.8 }}>{verifyProgress}</span>}
+            </span>
+            <button onClick={verifyAll} disabled={verifyingAll}
+              style={{ padding: "8px 18px", borderRadius: 8, border: "1px solid rgba(255,208,96,0.4)", background: verifyingAll ? "transparent" : "rgba(255,208,96,0.12)", color: "#ffd060", cursor: verifyingAll ? "not-allowed" : "pointer", fontWeight: 700, fontSize: 13 }}>
+              {verifyingAll ? "⏳ In corso..." : "⚡ Verifica tutto"}
+            </button>
+          </div>
+        )}
 
         {/* Filtri */}
         <div style={{ background: "#161920", border: "1px solid #2a2f3f", borderRadius: 12, padding: 16, marginBottom: 16, display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -289,29 +238,16 @@ if (!m || !doneStatuses.includes(m.status)) { done++; continue; }
             const badge = statusBadge(r.status);
             return (
               <div key={r.id} style={{ background: "#161920", border: `1px solid ${r.status === "WIN" ? "rgba(200,241,53,0.25)" : r.status === "LOSS" ? "rgba(255,92,92,0.2)" : "#2a2f3f"}`, borderRadius: 12, padding: 16, marginBottom: 10 }}>
-
-                {/* Header */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
                   <div>
-                    <div style={{ fontSize: 11, color: "#6b7490", marginBottom: 4 }}>
-                      {r.league} · {r.match_date} · {r.match_time}
-                    </div>
-                    <div style={{ fontSize: 15, fontWeight: 700 }}>
-                      {r.home_team} <span style={{ color: "#6b7490", fontWeight: 400 }}>vs</span> {r.away_team}
-                    </div>
+                    <div style={{ fontSize: 11, color: "#6b7490", marginBottom: 4 }}>{r.league} · {r.match_date} · {r.match_time}</div>
+                    <div style={{ fontSize: 15, fontWeight: 700 }}>{r.home_team} <span style={{ color: "#6b7490", fontWeight: 400 }}>vs</span> {r.away_team}</div>
                   </div>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <span style={{ fontSize: 12, padding: "4px 12px", borderRadius: 8, background: badge.bg, color: badge.color, fontWeight: 700 }}>
-                      {badge.text}
-                    </span>
-                    <button onClick={() => deleteRecord(r.id)}
-                      style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "1px solid #2a2f3f", background: "transparent", color: "#6b7490", cursor: "pointer" }}>
-                      ✕
-                    </button>
+                    <span style={{ fontSize: 12, padding: "4px 12px", borderRadius: 8, background: badge.bg, color: badge.color, fontWeight: 700 }}>{badge.text}</span>
+                    <button onClick={() => deleteRecord(r.id)} style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "1px solid #2a2f3f", background: "transparent", color: "#6b7490", cursor: "pointer" }}>✕</button>
                   </div>
                 </div>
-
-                {/* Pronostico */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#0d0f14", borderRadius: 8, padding: "10px 14px", marginBottom: r.status === "PENDING" ? 10 : 0 }}>
                   <div>
                     <span style={{ fontSize: 11, color: "#6b7490", marginRight: 8 }}>{r.prediction_type}</span>
@@ -328,34 +264,24 @@ if (!m || !doneStatuses.includes(m.status)) { done++; continue; }
                     </div>
                   </div>
                 </div>
-
-                {/* Risultato se disponibile */}
                 {(r.ft_home_goals !== null && r.ft_home_goals !== undefined) && (
                   <div style={{ display: "flex", gap: 16, marginTop: 10, fontSize: 12, color: "#6b7490" }}>
                     <span>FT: <span style={{ color: "#e8ecf5", fontFamily: "monospace" }}>{r.ft_home_goals} - {r.ft_away_goals}</span></span>
                     {r.ht_home_goals !== null && <span>HT: <span style={{ color: "#e8ecf5", fontFamily: "monospace" }}>{r.ht_home_goals} - {r.ht_away_goals}</span></span>}
                   </div>
                 )}
-
-                {/* Bottone verifica */}
                 {r.status === "PENDING" && (
-  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-    <button onClick={() => verifyResult(r)} disabled={checkingId === r.id}
-      style={{ width: "100%", padding: "10px", borderRadius: 8, border: "1px solid rgba(255,208,96,0.3)", background: "rgba(255,208,96,0.08)", color: "#ffd060", cursor: "pointer", fontWeight: 700, fontSize: 13 }}>
-      {checkingId === r.id ? "⏳ Verifica in corso..." : "⏳ Verifica automatica"}
-    </button>
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-      <button onClick={() => manualVerify(r.id, "WIN")}
-        style={{ padding: "10px", borderRadius: 8, border: "none", background: "rgba(200,241,53,0.2)", color: "#c8f135", fontWeight: 800, cursor: "pointer", fontSize: 13 }}>
-        ✓ WIN
-      </button>
-      <button onClick={() => manualVerify(r.id, "LOSS")}
-        style={{ padding: "10px", borderRadius: 8, border: "none", background: "rgba(255,92,92,0.2)", color: "#ff5c5c", fontWeight: 800, cursor: "pointer", fontSize: 13 }}>
-        ✗ LOSS
-      </button>
-    </div>
-  </div>
-)}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+                    <button onClick={() => verifyResult(r)} disabled={checkingId === r.id}
+                      style={{ width: "100%", padding: "10px", borderRadius: 8, border: "1px solid rgba(255,208,96,0.3)", background: "rgba(255,208,96,0.08)", color: "#ffd060", cursor: "pointer", fontWeight: 700, fontSize: 13 }}>
+                      {checkingId === r.id ? "⏳ Verifica in corso..." : "⏳ Verifica automatica"}
+                    </button>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      <button onClick={() => manualVerify(r.id, "WIN")} style={{ padding: "10px", borderRadius: 8, border: "none", background: "rgba(200,241,53,0.2)", color: "#c8f135", fontWeight: 800, cursor: "pointer", fontSize: 13 }}>✓ WIN</button>
+                      <button onClick={() => manualVerify(r.id, "LOSS")} style={{ padding: "10px", borderRadius: 8, border: "none", background: "rgba(255,92,92,0.2)", color: "#ff5c5c", fontWeight: 800, cursor: "pointer", fontSize: 13 }}>✗ LOSS</button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })
