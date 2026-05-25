@@ -71,6 +71,8 @@ const [stimaForm, setStimaForm] = useState({
   const [bookForm, setBookForm] = useState({ nome: '', intestatario: '', saldo: '', note: '' })
   const [walletForm, setWalletForm] = useState({ nome: '', intestatario: '', saldo: '', note: '' })
   const [adjustSaldoForm, setAdjustSaldoForm] = useState({ nuovo_saldo: '', note: '' })
+  const [inlineEditBook, setInlineEditBook] = useState(null) // { id, value }
+
   const [adjustWalletSaldoForm, setAdjustWalletSaldoForm] = useState({ nuovo_saldo: '', note: '' })
   const [quickBookTxForm, setQuickBookTxForm] = useState({ tipo: 'versa', wallet_id: '', importo: '', note: '' })
   const [txForm, setTxForm] = useState({ tipo: '', da_tipo: '', importo: '', da_id: '', a_id: '', note: '' })
@@ -1780,6 +1782,32 @@ await loadData({ preserveMessages: true })
     setMessage('Saldo corretto e transazione registrata')
     await loadData({ preserveMessages: true })
   }
+  async function handleInlineBookSaldo(book, nuovoValore) {
+    const nuovoSaldo = Number(String(nuovoValore).replace(',', '.'))
+    if (Number.isNaN(nuovoSaldo) || nuovoSaldo < 0) {
+      setErrorMessage('Saldo non valido')
+      setInlineEditBook(null)
+      return
+    }
+    const saldoPrecedente = Number(book.saldo || 0)
+    if (nuovoSaldo === saldoPrecedente) { setInlineEditBook(null); return }
+    const differenza = nuovoSaldo - saldoPrecedente
+    let r = await updateSaldo('books', book.id, nuovoSaldo)
+    if (r.error) { setErrorMessage(`Errore: ${r.error.message}`); setInlineEditBook(null); return }
+    const intestatario = book.intestatario ? ` (${book.intestatario})` : ''
+    r = await salvaLogTransazione({
+      tipo: 'correzione',
+      importo: Math.abs(differenza),
+      riferimento: `${book.nome}${intestatario} | ${formatCurrency(saldoPrecedente)} -> ${formatCurrency(nuovoSaldo)}`,
+      note: `Correzione saldo inline. Delta: ${formatCurrency(differenza)}`,
+      azione: 'manual_balance_adjustment',
+    })
+    if (r.error) { setErrorMessage(`Errore tx: ${r.error.message}`); setInlineEditBook(null); return }
+    setInlineEditBook(null)
+    setMessage('Saldo corretto e transazione registrata')
+    await loadData({ preserveMessages: true })
+  }
+
 async function handleAdjustWalletSaldoPrompt(wallet) {
   setMessage('')
   setErrorMessage('')
@@ -3705,7 +3733,8 @@ setTimeout(() => setMessage(''), 4000)
                 <table style={tableLarge}><thead><tr><th style={th}>ID</th><th style={th}>Nome</th><th style={th}>Intestatario</th><th style={th}>Saldo</th><th style={th}>Note</th><th style={th}>Azioni</th></tr></thead><tbody>
                   {filteredBooks.map((book) => {
   const livBadge = book.profilo_livello === 'attivo' ? { bg: 'rgba(34,197,94,0.18)', color: '#22c55e', label: '🟢' } : (book.profilo_livello && book.profilo_livello.startsWith('mantenimento')) ? { bg: 'rgba(251,191,36,0.18)', color: '#fbbf24', label: '🟡' } : book.profilo_livello === 'dormiente' ? { bg: 'rgba(100,116,139,0.18)', color: '#94a3b8', label: '⚫' } : null
-  return <tr key={book.id} style={tr}><td style={td}>{book.id}</td><td style={tdStrong}><div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>{livBadge && <span title={book.profilo_livello} style={{ background: livBadge.bg, color: livBadge.color, padding: '2px 7px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }} onClick={() => setActiveTab('profilazione')}>{livBadge.label}</span>}{book.nome}</div></td><td style={td}>{book.intestatario || '-'}</td><td style={td}>{formatCurrency(book.saldo)}</td><td style={tdNote}><textarea defaultValue={book.note || ''} onBlur={(e) => updateNote('books', book.id, e.target.value)} style={{ ...noteTextarea, color: getNoteColor(book.note) }} /></td><td style={tdActions}><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button style={tinyGreenButton} onClick={() => openQuickBookTx(book, 'versa')}>Versa</button><button style={tinyBlueButton} onClick={() => openQuickBookTx(book, 'preleva')}>Preleva</button><button style={tinyOrangeButton} onClick={() => { setSelectedBook(book); resetAdjustSaldoForm(book); setShowAdjustSaldoModal(true) }}>Correggi saldo</button><button style={tinyRedButton} onClick={() => handleDeleteBook(book)}>Elimina</button></div></td></tr>
+  const isInlineEditing = inlineEditBook && inlineEditBook.id === book.id
+  return <tr key={book.id} style={tr}><td style={td}>{book.id}</td><td style={tdStrong}><div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>{livBadge && <span title={book.profilo_livello} style={{ background: livBadge.bg, color: livBadge.color, padding: '2px 7px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }} onClick={() => setActiveTab('profilazione')}>{livBadge.label}</span>}{book.nome}</div></td><td style={td}>{book.intestatario || '-'}</td><td style={td}>{isInlineEditing ? (<input autoFocus type="number" step="0.01" min="0" value={inlineEditBook.value} onChange={e => setInlineEditBook({ id: book.id, value: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') handleInlineBookSaldo(book, inlineEditBook.value); if (e.key === 'Escape') setInlineEditBook(null) }} onBlur={() => setInlineEditBook(null)} style={{ width: 110, background: '#0b1220', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.6)', borderRadius: 8, padding: '4px 8px', fontSize: 14, fontWeight: 800, outline: 'none' }} />) : (<span title="Clicca per modificare" style={{ cursor: 'pointer', borderBottom: '1px dashed rgba(148,163,184,0.4)', paddingBottom: 1 }} onClick={() => setInlineEditBook({ id: book.id, value: String(book.saldo ?? 0) })}>{formatCurrency(book.saldo)}</span>)}</td><td style={tdNote}><textarea defaultValue={book.note || ''} onBlur={(e) => updateNote('books', book.id, e.target.value)} style={{ ...noteTextarea, color: getNoteColor(book.note) }} /></td><td style={tdActions}><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button style={tinyGreenButton} onClick={() => openQuickBookTx(book, 'versa')}>Versa</button><button style={tinyBlueButton} onClick={() => openQuickBookTx(book, 'preleva')}>Preleva</button><button style={tinyOrangeButton} onClick={() => { setSelectedBook(book); resetAdjustSaldoForm(book); setShowAdjustSaldoModal(true) }}>Correggi saldo</button><button style={tinyRedButton} onClick={() => handleDeleteBook(book)}>Elimina</button></div></td></tr>
 })}
                 </tbody></table>
               </div>
