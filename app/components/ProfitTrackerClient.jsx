@@ -4660,6 +4660,10 @@ setTimeout(() => setMessage(''), 4000)
                             <div style={{ color: '#f8fafc', fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</div>
                             <div style={{ color: '#64748b', fontSize: 11 }}>{f.size ? (f.size / 1024).toFixed(1) + ' KB' : ''} {f.created_at ? '· ' + new Date(f.created_at).toLocaleDateString('it-IT') : ''}</div>
                           </div>
+                          <a href={f.url} target="_blank" rel="noreferrer"
+                            style={{ padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(34,197,94,0.4)', background: 'rgba(34,197,94,0.08)', color: '#22c55e', fontSize: 12, fontWeight: 700, textDecoration: 'none', cursor: 'pointer' }}>
+                            👁️
+                          </a>
                           <a href={f.url} download target="_blank" rel="noreferrer"
                             style={{ padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontSize: 12, fontWeight: 700, textDecoration: 'none', cursor: 'pointer' }}>
                             ⬇️
