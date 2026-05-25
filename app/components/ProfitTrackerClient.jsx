@@ -129,9 +129,9 @@ const CLASSI_BOOK = {
   C: ['admiral','codere','betpoint','staryes','sportium','vincitu','marathonbet','domusbet','betpassion'],
 }
 const MANUTENZIONE = {
-  A: { label: 'Serie A', frequenza: 'Bet ogni 2 sett · Ricarica+Slot ogni mese', azioni: ['1 bet sportiva ogni 2 settimane (giorno random)', 'Ricarica conto + sessione slot 5-10€ ogni mese (stesso giorno)'] },
-  B: { label: 'Serie B', frequenza: 'Bet ogni mese · Ricarica+Slot ogni 45gg', azioni: ['1 bet sportiva al mese (giorno random)', 'Ricarica conto + sessione slot 5-10€ ogni 45 giorni (stesso giorno)'] },
-  C: { label: 'Serie C', frequenza: 'Bet ogni 45gg · Ricarica+Slot ogni 3 mesi', azioni: ['1 bet da 5-10€ ogni 45 giorni (giorno random)', 'Ricarica conto + sessione slot 5-10€ ogni 3 mesi (stesso giorno)'] }
+  A: { label: 'Serie A', frequenza: 'Bet 1/mese · Slot 1/mese', azioni: ['1 bet sportiva al mese (giorno random)', 'Sessione slot 5-10€ al mese (giorno diverso dalla bet)'] },
+  B: { label: 'Serie B', frequenza: 'Bet 1 ogni 2 mesi · Slot 1 ogni 2 mesi', azioni: ['1 bet sportiva ogni 2 mesi (giorno random)', 'Sessione slot 5-10€ ogni 2 mesi (giorno diverso dalla bet)'] },
+  C: { label: 'Serie C', frequenza: 'Bet 1 ogni 2 mesi · Slot 1 ogni 2 mesi', azioni: ['1 bet da 5-10€ ogni 2 mesi (giorno random)', 'Sessione slot 5-10€ ogni 2 mesi (giorno diverso dalla bet)'] }
 }
 function getClasseBook(nomeBook) {
   const nome = (nomeBook || '').toLowerCase().replace(/\.it$/, '').trim()
@@ -332,18 +332,15 @@ function getAzioniOggi(book) {
     const classeEffettiva = livello === 'mantenimento-a' ? 'A' : livello === 'mantenimento-b' ? (isSoloCasino(book.nome) ? 'B_CASINO' : 'B') : livello === 'mantenimento-c' ? 'C' : classe
 
     if (classeEffettiva === 'A') {
-      // Serie A: bet ogni 14gg + ricarica+slot ogni 30gg
-      // Giorno zero = 18 maggio 2026
       const oggi2 = new Date()
       const GIORNO_ZERO = new Date('2026-05-18')
       const giorniDaZero = Math.floor((oggi2 - GIORNO_ZERO) / (1000 * 60 * 60 * 24))
-      // offset per book: distribuisce i book su tutto il ciclo
-      const offsetBet = hashBook(book.id, 101) % 14
+      const offsetBet = hashBook(book.id, 101) % 30
       const offsetSlot = hashBook(book.id, 202) % 30
-      const isBetDay = (giorniDaZero - offsetBet) % 14 === 0
+      const isBetDay = (giorniDaZero - offsetBet) % 30 === 0
       const isSlotDay = (giorniDaZero - offsetSlot) % 30 === 0
-      if (isSlotDay) return { tipo: 'manutenzione-a', azioni: ['Ricarica conto', 'Sessione slot 5-10€ (spin bassi)'], badge: '🟡 Mant. A' }
-      if (isBetDay && !isSlotDay) return { tipo: 'manutenzione-a', azioni: ['1 bet sportiva (qualsiasi importo)'], badge: '🟡 Mant. A' }
+      if (isSlotDay && !isBetDay) return { tipo: 'manutenzione-a', azioni: ['Sessione slot 5-10€ (spin bassi)'], badge: '🟡 Mant. A' }
+      if (isBetDay) return { tipo: 'manutenzione-a', azioni: ['1 bet sportiva (qualsiasi importo)'], badge: '🟡 Mant. A' }
       return null
     }
 
@@ -352,13 +349,13 @@ function getAzioniOggi(book) {
       const GIORNO_ZERO = new Date('2026-05-18')
       const giorniDaZero = Math.floor((oggi2 - GIORNO_ZERO) / (1000 * 60 * 60 * 24))
       const soloCasino = isSoloCasino(book.nome)
-      const offsetBet = hashBook(book.id, 303) % 30
-      const offsetSlot = hashBook(book.id, 404) % 45
-      const isBetDay = (giorniDaZero - offsetBet) % 30 === 0
-      const isSlotDay = (giorniDaZero - offsetSlot) % 45 === 0
-      if (isSlotDay) return { tipo: 'manutenzione-b', azioni: ['Ricarica conto', 'Sessione slot 5-10€'], badge: '🟡 Mant. B' }
-      if (isBetDay && !isSlotDay && !soloCasino) return { tipo: 'manutenzione-b', azioni: ['1 bet sportiva piccola'], badge: '🟡 Mant. B' }
-      if (isBetDay && soloCasino) return null
+      const offsetBet = hashBook(book.id, 303) % 60
+      const offsetSlot = hashBook(book.id, 404) % 60
+      const isBetDay = (giorniDaZero - offsetBet) % 60 === 0
+      const isSlotDay = (giorniDaZero - offsetSlot) % 60 === 0
+      if (isSlotDay && !isBetDay) return { tipo: 'manutenzione-b', azioni: ['Sessione slot 5-10€'], badge: '🟡 Mant. B' }
+      if (isBetDay && !soloCasino) return { tipo: 'manutenzione-b', azioni: ['1 bet sportiva piccola'], badge: '🟡 Mant. B' }
+      if (isBetDay && soloCasino) return { tipo: 'manutenzione-b', azioni: ['Sessione slot 5-10€'], badge: '🟡 Mant. B' }
       return null
     }
 
@@ -367,13 +364,13 @@ function getAzioniOggi(book) {
       const GIORNO_ZERO = new Date('2026-05-18')
       const giorniDaZero = Math.floor((oggi2 - GIORNO_ZERO) / (1000 * 60 * 60 * 24))
       const soloCasino = isSoloCasino(book.nome)
-      const offsetBet = hashBook(book.id, 505) % 45
-      const offsetSlot = hashBook(book.id, 606) % 90
-      const isBetDay = (giorniDaZero - offsetBet) % 45 === 0
-      const isSlotDay = (giorniDaZero - offsetSlot) % 90 === 0
-      if (isSlotDay) return { tipo: 'manutenzione-c', azioni: ['Ricarica conto', 'Sessione slot 5-10€'], badge: '🟡 Mant. C' }
-      if (isBetDay && !isSlotDay && !soloCasino) return { tipo: 'manutenzione-c', azioni: ['1 bet da 5-10€ (solo presenza)'], badge: '🟡 Mant. C' }
-      if (isBetDay && soloCasino) return null
+      const offsetBet = hashBook(book.id, 505) % 60
+      const offsetSlot = hashBook(book.id, 606) % 60
+      const isBetDay = (giorniDaZero - offsetBet) % 60 === 0
+      const isSlotDay = (giorniDaZero - offsetSlot) % 60 === 0
+      if (isSlotDay && !isBetDay) return { tipo: 'manutenzione-c', azioni: ['Sessione slot 5-10€'], badge: '🟡 Mant. C' }
+      if (isBetDay && !soloCasino) return { tipo: 'manutenzione-c', azioni: ['1 bet da 5-10€ (solo presenza)'], badge: '🟡 Mant. C' }
+      if (isBetDay && soloCasino) return { tipo: 'manutenzione-c', azioni: ['Sessione slot 5-10€'], badge: '🟡 Mant. C' }
       return null
     }
   }
