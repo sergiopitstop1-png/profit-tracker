@@ -8,6 +8,14 @@ const supabase = createClient(
 
 const BUCKET = 'documenti'
 
+function sanitizeFileName(name: string): string {
+  return name
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '') // rimuove accenti (à→a, è→e, ecc.)
+    .replace(/[^a-zA-Z0-9._\-]/g, '_') // sostituisce caratteri speciali con _
+    .replace(/__+/g, '_') // evita doppi underscore
+}
+
 // GET - lista file di un cliente
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
@@ -56,7 +64,7 @@ export async function POST(request: Request) {
   }
 
   const folder = cliente.toLowerCase().replace(/\s+/g, '-')
-  const fileName = `${folder}/${file.name}`
+  const fileName = `${folder}/${sanitizeFileName(file.name)}`
 
   const arrayBuffer = await file.arrayBuffer()
   const buffer = Buffer.from(arrayBuffer)
