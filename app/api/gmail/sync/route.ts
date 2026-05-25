@@ -151,27 +151,27 @@ async function analizzaPromozioni(mail: any[], nomeCliente: string) {
   ).join('\n\n')
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY!,
-        'anthropic-version': '2023-06-01'
+        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'llama-3.3-70b-versatile',
         max_tokens: 4000,
-        messages: [{
-          role: 'user',
+        messages: [
+          { role: 'system', content: 'Sei un assistente che analizza email. Rispondi SEMPRE e SOLO con un JSON array valido, senza markdown, senza testo prima o dopo.' },
+          { role: 'user',
           content: `Analizza queste email di ${nomeCliente} e identifica TUTTE quelle provenienti da bookmaker, casinò, siti di scommesse, poker, slot, giochi online, operatori di gioco. Classifica come promo QUALSIASI mail da questi mittenti, anche se è solo una newsletter o notifica. Includi tutto ciò che potrebbe essere una promo: meglio un falso positivo che perderne una. Rispondi SOLO con un JSON array valido, senza markdown, senza testo prima o dopo: [{"msg_id": "id esatto del messaggio come scritto dopo ID:", "from": "mittente", "subject": "oggetto", "date": "data originale", "tipo": "promozione/bonus/offerta", "priorita": "alta/media/bassa"}]. Priorità ALTA = scadenza imminente o importo elevato. Se non ci sono promozioni rispondi []. Email:\n\n${testo}`
         }]
       })
     })
 
     const data = await res.json()
-    if (!data.content?.[0]?.text) return []
+    if (!data.choices?.[0]?.message?.content) return []
 
-    const parsed = JSON.parse(data.content[0].text.replace(/```json|```/g, '').trim())
+    const parsed = JSON.parse(data.choices[0].message.content.replace(/```json|```/g, '').trim())
     for (const p of parsed) {
       if (!p.date || !p.from || !p.msg_id) {
         const mailOriginale = mail.find(m => m.id === p.msg_id || m.subject === p.subject)
