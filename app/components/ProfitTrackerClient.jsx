@@ -663,42 +663,33 @@ useEffect(() => {
   }
 }, [books])
 
-// Sync Gmail automatico: al refresh + ogni 4 ore automatico
+// Sync Gmail automatico: solo ogni 4 ore (non al refresh)
 useEffect(() => {
   if (clientiEmail.length === 0) return
 
   const eseguiSync = () => {
-    const chiaveLS = 'ultimoSyncGmail'
-    const ultimoSync = localStorage.getItem(chiaveLS)
-    const seiFore = !ultimoSync || (Date.now() - new Date(ultimoSync).getTime()) > 5 * 60 * 1000
-    if (!seiFore) return
-
-  setSyncInCorso(true)
-  setMessage('📧 Sincronizzazione mail in corso...')
-  fetch('/api/gmail/sync?secret=' + (process.env.NEXT_PUBLIC_CRON_SECRET || 'pt_cron_2026_sergio'))
-    .then(r => r.json())
-    .then(data => {
-      localStorage.setItem(chiaveLS, new Date().toISOString())
-      const totSalvate = (data.risultati || []).reduce((acc, r) => acc + (r.salvate || 0), 0)
-      if (totSalvate > 0) {
-        setMessage(`📧 ${totSalvate} nuove promozioni trovate!`)
-      } else {
-        setMessage('📧 Mail sincronizzate — nessuna novità')
-      }
-      setTimeout(() => setMessage(''), 4000)
-      loadData({ preserveMessages: true })
-    })
-    .catch(() => {
-      setSyncInCorso(false)
-      setMessage('')
-    })
-    .finally(() => setSyncInCorso(false))
+    setSyncInCorso(true)
+    setMessage('📧 Sincronizzazione mail in corso...')
+    fetch('/api/gmail/sync?secret=' + (process.env.NEXT_PUBLIC_CRON_SECRET || 'pt_cron_2026_sergio'))
+      .then(r => r.json())
+      .then(data => {
+        const totSalvate = (data.risultati || []).reduce((acc, r) => acc + (r.salvate || 0), 0)
+        if (totSalvate > 0) {
+          setMessage(`📧 ${totSalvate} nuove promozioni trovate!`)
+        } else {
+          setMessage('📧 Mail sincronizzate — nessuna novità')
+        }
+        setTimeout(() => setMessage(''), 4000)
+        loadData({ preserveMessages: true })
+      })
+      .catch(() => {
+        setSyncInCorso(false)
+        setMessage('')
+      })
+      .finally(() => setSyncInCorso(false))
   }
 
-  // Esegui al mount (refresh)
-  eseguiSync()
-
-  // Esegui automaticamente ogni 4 ore
+  // Solo automatico ogni 4 ore, NON al refresh
   const interval = setInterval(eseguiSync, 4 * 60 * 60 * 1000)
   return () => clearInterval(interval)
 }, [clientiEmail])
