@@ -71,7 +71,7 @@ const [stimaForm, setStimaForm] = useState({
   const [bookForm, setBookForm] = useState({ nome: '', intestatario: '', saldo: '', note: '' })
   const [walletForm, setWalletForm] = useState({ nome: '', intestatario: '', saldo: '', note: '' })
   const [adjustSaldoForm, setAdjustSaldoForm] = useState({ nuovo_saldo: '', note: '' })
-  const [inlineEditBook, setInlineEditBook] = useState(null) // { id, value }
+  const [pendingBookSaldi, setPendingBookSaldi] = useState({}) // { [bookId]: nuovoValore }
 
   const [adjustWalletSaldoForm, setAdjustWalletSaldoForm] = useState({ nuovo_saldo: '', note: '' })
   const [quickBookTxForm, setQuickBookTxForm] = useState({ tipo: 'versa', wallet_id: '', importo: '', note: '' })
@@ -1782,29 +1782,33 @@ await loadData({ preserveMessages: true })
     setMessage('Saldo corretto e transazione registrata')
     await loadData({ preserveMessages: true })
   }
-  async function handleInlineBookSaldo(book, nuovoValore) {
-    const nuovoSaldo = Number(String(nuovoValore).replace(',', '.'))
-    if (Number.isNaN(nuovoSaldo) || nuovoSaldo < 0) {
-      setErrorMessage('Saldo non valido')
-      setInlineEditBook(null)
-      return
+  async function handleSalvaBookSaldi() {
+    const entries = Object.entries(pendingBookSaldi)
+    if (entries.length === 0) return
+    let errori = []
+    for (const [idStr, valoreRaw] of entries) {
+      const id = Number(idStr)
+      const nuovoSaldo = Number(String(valoreRaw).replace(',', '.'))
+      const book = books.find(b => b.id === id)
+      if (!book || Number.isNaN(nuovoSaldo) || nuovoSaldo < 0) continue
+      const saldoPrecedente = Number(book.saldo || 0)
+      if (nuovoSaldo === saldoPrecedente) continue
+      const differenza = nuovoSaldo - saldoPrecedente
+      let r = await updateSaldo('books', id, nuovoSaldo)
+      if (r.error) { errori.push(book.nome); continue }
+      const intestatario = book.intestatario ? ` (${book.intestatario})` : ''
+      r = await salvaLogTransazione({
+        tipo: 'correzione',
+        importo: Math.abs(differenza),
+        riferimento: `${book.nome}${intestatario} | ${formatCurrency(saldoPrecedente)} -> ${formatCurrency(nuovoSaldo)}`,
+        note: `Correzione saldo inline. Delta: ${formatCurrency(differenza)}`,
+        azione: 'manual_balance_adjustment',
+      })
+      if (r.error) errori.push(`tx:${book.nome}`)
     }
-    const saldoPrecedente = Number(book.saldo || 0)
-    if (nuovoSaldo === saldoPrecedente) { setInlineEditBook(null); return }
-    const differenza = nuovoSaldo - saldoPrecedente
-    let r = await updateSaldo('books', book.id, nuovoSaldo)
-    if (r.error) { setErrorMessage(`Errore: ${r.error.message}`); setInlineEditBook(null); return }
-    const intestatario = book.intestatario ? ` (${book.intestatario})` : ''
-    r = await salvaLogTransazione({
-      tipo: 'correzione',
-      importo: Math.abs(differenza),
-      riferimento: `${book.nome}${intestatario} | ${formatCurrency(saldoPrecedente)} -> ${formatCurrency(nuovoSaldo)}`,
-      note: `Correzione saldo inline. Delta: ${formatCurrency(differenza)}`,
-      azione: 'manual_balance_adjustment',
-    })
-    if (r.error) { setErrorMessage(`Errore tx: ${r.error.message}`); setInlineEditBook(null); return }
-    setInlineEditBook(null)
-    setMessage('Saldo corretto e transazione registrata')
+    setPendingBookSaldi({})
+    if (errori.length > 0) setErrorMessage(`Errori: ${errori.join(', ')}`)
+    else setMessage(`✅ ${entries.length} saldo/i aggiornati e transazioni registrate`)
     await loadData({ preserveMessages: true })
   }
 
@@ -3718,7 +3722,7 @@ setTimeout(() => setMessage(''), 4000)
 )}
         {activeTab === 'books' && (
           <div style={tabContent}>
-            <div style={sectionTopBar}><div><h2 style={sectionTitle}>Books</h2><p style={sectionDescription}>Archivio bookmaker con filtri, note e azioni rapide</p></div><button style={primaryButtonGreen} onClick={() => setShowBookModal(true)}>+ Nuovo Book</button></div>
+            <div style={sectionTopBar}><div><h2 style={sectionTitle}>Books</h2><p style={sectionDescription}>Archivio bookmaker con filtri, note e azioni rapide</p></div><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>{Object.keys(pendingBookSaldi).some(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }) && (<button style={{ ...primaryButtonGreen, background: 'linear-gradient(135deg, #d97706, #f59e0b)', boxShadow: '0 0 14px rgba(245,158,11,0.4)', animation: 'blinkPrevisto 1.8s ease-in-out infinite' }} onClick={handleSalvaBookSaldi}>💾 Salva saldi ({Object.keys(pendingBookSaldi).filter(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }).length})</button>)}<button style={primaryButtonGreen} onClick={() => setShowBookModal(true)}>+ Nuovo Book</button></div></div>
             <div style={statsGridCompact}><StatCard label='Totale books' value={formatCurrency(totaleBooks)} sub={`${books.length} records`} accent='#22c55e' /><StatCard label='Totale filtrato' value={formatCurrency(totaleBooksFiltrati)} sub={`${filteredBooks.length} risultati visibili`} accent='#38bdf8' /></div>
             <div style={panel}>
               <div style={filterRow}>
@@ -3733,8 +3737,10 @@ setTimeout(() => setMessage(''), 4000)
                 <table style={tableLarge}><thead><tr><th style={th}>ID</th><th style={th}>Nome</th><th style={th}>Intestatario</th><th style={th}>Saldo</th><th style={th}>Note</th><th style={th}>Azioni</th></tr></thead><tbody>
                   {filteredBooks.map((book) => {
   const livBadge = book.profilo_livello === 'attivo' ? { bg: 'rgba(34,197,94,0.18)', color: '#22c55e', label: '🟢' } : (book.profilo_livello && book.profilo_livello.startsWith('mantenimento')) ? { bg: 'rgba(251,191,36,0.18)', color: '#fbbf24', label: '🟡' } : book.profilo_livello === 'dormiente' ? { bg: 'rgba(100,116,139,0.18)', color: '#94a3b8', label: '⚫' } : null
-  const isInlineEditing = inlineEditBook && inlineEditBook.id === book.id
-  return <tr key={book.id} style={tr}><td style={td}>{book.id}</td><td style={tdStrong}><div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>{livBadge && <span title={book.profilo_livello} style={{ background: livBadge.bg, color: livBadge.color, padding: '2px 7px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }} onClick={() => setActiveTab('profilazione')}>{livBadge.label}</span>}{book.nome}</div></td><td style={td}>{book.intestatario || '-'}</td><td style={td}>{isInlineEditing ? (<input autoFocus type="number" step="0.01" min="0" value={inlineEditBook.value} onChange={e => setInlineEditBook({ id: book.id, value: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') handleInlineBookSaldo(book, inlineEditBook.value); if (e.key === 'Escape') setInlineEditBook(null) }} onBlur={() => setInlineEditBook(null)} style={{ width: 110, background: '#0b1220', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.6)', borderRadius: 8, padding: '4px 8px', fontSize: 14, fontWeight: 800, outline: 'none' }} />) : (<span title="Clicca per modificare" style={{ cursor: 'pointer', borderBottom: '1px dashed rgba(148,163,184,0.4)', paddingBottom: 1 }} onClick={() => setInlineEditBook({ id: book.id, value: String(book.saldo ?? 0) })}>{formatCurrency(book.saldo)}</span>)}</td><td style={tdNote}><textarea defaultValue={book.note || ''} onBlur={(e) => updateNote('books', book.id, e.target.value)} style={{ ...noteTextarea, color: getNoteColor(book.note) }} /></td><td style={tdActions}><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button style={tinyGreenButton} onClick={() => openQuickBookTx(book, 'versa')}>Versa</button><button style={tinyBlueButton} onClick={() => openQuickBookTx(book, 'preleva')}>Preleva</button><button style={tinyOrangeButton} onClick={() => { setSelectedBook(book); resetAdjustSaldoForm(book); setShowAdjustSaldoModal(true) }}>Correggi saldo</button><button style={tinyRedButton} onClick={() => handleDeleteBook(book)}>Elimina</button></div></td></tr>
+  const pendingVal = pendingBookSaldi[book.id]
+  const displaySaldo = pendingVal !== undefined ? pendingVal : String(book.saldo ?? 0)
+  const hasPending = pendingVal !== undefined && Number(String(pendingVal).replace(',','.')) !== Number(book.saldo || 0)
+  return <tr key={book.id} style={tr}><td style={td}>{book.id}</td><td style={tdStrong}><div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>{livBadge && <span title={book.profilo_livello} style={{ background: livBadge.bg, color: livBadge.color, padding: '2px 7px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }} onClick={() => setActiveTab('profilazione')}>{livBadge.label}</span>}{book.nome}</div></td><td style={td}>{book.intestatario || '-'}</td><td style={td}><input type="number" step="0.01" min="0" value={displaySaldo} onChange={e => setPendingBookSaldi(prev => ({ ...prev, [book.id]: e.target.value }))} onKeyDown={e => { if (e.key === 'Escape') setPendingBookSaldi(prev => { const n = { ...prev }; delete n[book.id]; return n }) }} style={{ width: 110, background: hasPending ? 'rgba(251,191,36,0.08)' : '#0b1220', color: hasPending ? '#fbbf24' : '#e2e8f0', border: hasPending ? '1px solid rgba(251,191,36,0.7)' : '1px solid rgba(51,65,85,0.6)', borderRadius: 8, padding: '4px 8px', fontSize: 14, fontWeight: hasPending ? 800 : 600, outline: 'none' }} /></td><td style={tdNote}><textarea defaultValue={book.note || ''} onBlur={(e) => updateNote('books', book.id, e.target.value)} style={{ ...noteTextarea, color: getNoteColor(book.note) }} /></td><td style={tdActions}><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button style={tinyGreenButton} onClick={() => openQuickBookTx(book, 'versa')}>Versa</button><button style={tinyBlueButton} onClick={() => openQuickBookTx(book, 'preleva')}>Preleva</button><button style={tinyOrangeButton} onClick={() => { setSelectedBook(book); resetAdjustSaldoForm(book); setShowAdjustSaldoModal(true) }}>Correggi saldo</button><button style={tinyRedButton} onClick={() => handleDeleteBook(book)}>Elimina</button></div></td></tr>
 })}
                 </tbody></table>
               </div>
