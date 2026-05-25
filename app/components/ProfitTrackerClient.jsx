@@ -99,6 +99,13 @@ const [matriceFiltroCliente, setMatriceFiltroCliente] = useState('')
 const [matriceFiltroBook, setMatriceFiltroBook] = useState('')
 const [matriceFiltroStato, setMatriceFiltroStato] = useState('DA APRIRE')
 const [matriceAperto, setMatriceAperto] = useState(null)
+const [docCliente, setDocCliente] = useState(null) // cliente aperto nel file manager
+const [docPassword, setDocPassword] = useState('') // password inserita
+const [docPasswordOk, setDocPasswordOk] = useState(false) // password verificata
+const [docFiles, setDocFiles] = useState([]) // file del cliente
+const [docLoading, setDocLoading] = useState(false)
+const [docUploading, setDocUploading] = useState(false)
+const [docPasswordError, setDocPasswordError] = useState('')
 const [archivioMailCella, setArchivioMailCella] = useState(null) // { cliente, bookmaker, promo[] }
 const [archivioMailDati, setArchivioMailDati] = useState([]) // tutte le promo
   useEffect(() => {
@@ -3338,6 +3345,7 @@ setTimeout(() => setMessage(''), 4000)
                     style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
                   >📬 Leggi mail</button>
                 )}
+                <button onClick={() => { setDocCliente(c); setDocPassword(''); setDocPasswordOk(false); setDocPasswordError(''); setDocFiles([]) }} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(251,191,36,0.4)', background: 'rgba(251,191,36,0.08)', color: '#fbbf24', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>📁 Documenti</button>
                 <button onClick={() => deleteCliente(c.id)} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.08)', color: '#f87171', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>🗑️</button>
               </div>
             </div>
@@ -4529,6 +4537,152 @@ setTimeout(() => setMessage(''), 4000)
             </div>
           </div>
         )}
+        {/* POPUP FILE MANAGER DOCUMENTI */}
+        {docCliente && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000, padding: 16 }}>
+            <div style={{ width: '100%', maxWidth: 680, background: 'linear-gradient(180deg,rgba(15,23,42,0.99),rgba(2,6,23,1))', border: '2px solid rgba(251,191,36,0.4)', borderRadius: 22, padding: 24, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+              
+              {/* Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div>
+                  <h3 style={{ margin: 0, color: '#f8fafc', fontSize: 18 }}>📁 Documenti — {docCliente.nome}</h3>
+                  <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 13 }}>Accesso protetto da password</p>
+                </div>
+                <button onClick={() => { setDocCliente(null); setDocPasswordOk(false); setDocPassword('') }}
+                  style={{ border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18 }}>×</button>
+              </div>
+
+              {/* Form password */}
+              {!docPasswordOk ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center', padding: '32px 0' }}>
+                  <div style={{ fontSize: 40, marginBottom: 8 }}>🔒</div>
+                  <p style={{ color: '#94a3b8', fontSize: 14, margin: 0 }}>Inserisci la password per accedere ai documenti</p>
+                  <input
+                    type="password"
+                    value={docPassword}
+                    onChange={e => setDocPassword(e.target.value)}
+                    onKeyDown={async e => {
+                      if (e.key === 'Enter') {
+                        const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: docPassword }) })
+                        if (res.ok) {
+                          setDocPasswordOk(true)
+                          setDocPasswordError('')
+                          setDocLoading(true)
+                          const r = await fetch(`/api/documenti?cliente=${encodeURIComponent(docCliente.nome)}`)
+                          const d = await r.json()
+                          setDocFiles(d.files || [])
+                          setDocLoading(false)
+                        } else {
+                          setDocPasswordError('Password errata')
+                        }
+                      }
+                    }}
+                    placeholder="Password..."
+                    autoFocus
+                    style={{ padding: '12px 16px', borderRadius: 10, border: `1px solid ${docPasswordError ? 'rgba(239,68,68,0.5)' : 'rgba(51,65,85,0.95)'}`, background: '#0d0f14', color: '#f8fafc', fontSize: 15, outline: 'none', width: 280 }}
+                  />
+                  {docPasswordError && <span style={{ color: '#f87171', fontSize: 13 }}>{docPasswordError}</span>}
+                  <button
+                    onClick={async () => {
+                      const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: docPassword }) })
+                      if (res.ok) {
+                        setDocPasswordOk(true)
+                        setDocPasswordError('')
+                        setDocLoading(true)
+                        const r = await fetch(`/api/documenti?cliente=${encodeURIComponent(docCliente.nome)}`)
+                        const d = await r.json()
+                        setDocFiles(d.files || [])
+                        setDocLoading(false)
+                      } else {
+                        setDocPasswordError('Password errata')
+                      }
+                    }}
+                    style={{ padding: '12px 24px', borderRadius: 10, border: 'none', background: '#fbbf24', color: '#0d0f14', fontWeight: 800, fontSize: 15, cursor: 'pointer' }}>
+                    Entra 🔓
+                  </button>
+                </div>
+              ) : (
+                /* File manager */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, overflow: 'hidden' }}>
+                  
+                  {/* Upload */}
+                  <div style={{ border: '2px dashed rgba(251,191,36,0.3)', borderRadius: 12, padding: '14px 16px', textAlign: 'center', cursor: 'pointer', background: 'rgba(251,191,36,0.04)' }}
+                    onDragOver={e => e.preventDefault()}
+                    onDrop={async e => {
+                      e.preventDefault()
+                      const files = Array.from(e.dataTransfer.files)
+                      for (const file of files) {
+                        setDocUploading(true)
+                        const formData = new FormData()
+                        formData.append('file', file)
+                        formData.append('cliente', docCliente.nome)
+                        await fetch('/api/documenti', { method: 'POST', body: formData })
+                        setDocUploading(false)
+                      }
+                      const r = await fetch(`/api/documenti?cliente=${encodeURIComponent(docCliente.nome)}`)
+                      const d = await r.json()
+                      setDocFiles(d.files || [])
+                    }}
+                    onClick={() => document.getElementById('docUploadInput').click()}
+                  >
+                    <input id="docUploadInput" type="file" multiple style={{ display: 'none' }} onChange={async e => {
+                      const files = Array.from(e.target.files)
+                      for (const file of files) {
+                        setDocUploading(true)
+                        const formData = new FormData()
+                        formData.append('file', file)
+                        formData.append('cliente', docCliente.nome)
+                        await fetch('/api/documenti', { method: 'POST', body: formData })
+                        setDocUploading(false)
+                      }
+                      const r = await fetch(`/api/documenti?cliente=${encodeURIComponent(docCliente.nome)}`)
+                      const d = await r.json()
+                      setDocFiles(d.files || [])
+                      e.target.value = ''
+                    }} />
+                    {docUploading
+                      ? <span style={{ color: '#fbbf24', fontSize: 13 }}>⏳ Caricamento...</span>
+                      : <span style={{ color: '#94a3b8', fontSize: 13 }}>📤 Clicca o trascina qui per caricare file</span>
+                    }
+                  </div>
+
+                  {/* Lista file */}
+                  <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {docLoading ? (
+                      <div style={{ textAlign: 'center', color: '#94a3b8', padding: 24 }}>Carico...</div>
+                    ) : docFiles.length === 0 ? (
+                      <div style={{ textAlign: 'center', color: '#94a3b8', padding: 24 }}>Nessun documento ancora</div>
+                    ) : (
+                      docFiles.map((f, idx) => (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(11,18,32,0.85)', border: '1px solid rgba(51,65,85,0.8)', borderRadius: 10, padding: '10px 14px' }}>
+                          <span style={{ fontSize: 20 }}>{f.name.endsWith('.pdf') ? '📄' : f.name.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? '🖼️' : f.name.match(/\.(doc|docx)$/i) ? '📝' : f.name.match(/\.(xls|xlsx)$/i) ? '📊' : '📎'}</span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ color: '#f8fafc', fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</div>
+                            <div style={{ color: '#64748b', fontSize: 11 }}>{f.size ? (f.size / 1024).toFixed(1) + ' KB' : ''} {f.created_at ? '· ' + new Date(f.created_at).toLocaleDateString('it-IT') : ''}</div>
+                          </div>
+                          <a href={f.url} download target="_blank" rel="noreferrer"
+                            style={{ padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontSize: 12, fontWeight: 700, textDecoration: 'none', cursor: 'pointer' }}>
+                            ⬇️
+                          </a>
+                          <button onClick={async () => {
+                            if (!confirm('Eliminare ' + f.name + '?')) return
+                            await fetch(`/api/documenti?cliente=${encodeURIComponent(docCliente.nome)}&file=${encodeURIComponent(f.name)}`, { method: 'DELETE' })
+                            const r = await fetch(`/api/documenti?cliente=${encodeURIComponent(docCliente.nome)}`)
+                            const d = await r.json()
+                            setDocFiles(d.files || [])
+                          }} style={{ padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.08)', color: '#f87171', fontSize: 12, cursor: 'pointer' }}>
+                            🗑️
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {showClienteModal && (
   <div style={modalOverlay} onClick={() => setShowClienteModal(false)}>
     <div style={modalCard} onClick={(e) => e.stopPropagation()}>
