@@ -3345,7 +3345,7 @@ setTimeout(() => setMessage(''), 4000)
                     style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
                   >📬 Leggi mail</button>
                 )}
-                <button onClick={() => { setDocCliente(c); setDocPassword(''); setDocPasswordOk(false); setDocPasswordError(''); setDocFiles([]) }} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(251,191,36,0.4)', background: 'rgba(251,191,36,0.08)', color: '#fbbf24', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>📁 Documenti</button>
+                <button onClick={() => { setDocCliente(c); setDocPassword(''); setDocPasswordOk(false); setDocPasswordError(''); setDocFiles([]); setDocLoading(false); setDocUploading(false) }} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(251,191,36,0.4)', background: 'rgba(251,191,36,0.08)', color: '#fbbf24', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>📁 Documenti</button>
                 <button onClick={() => deleteCliente(c.id)} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.08)', color: '#f87171', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>🗑️</button>
               </div>
             </div>
@@ -4548,7 +4548,7 @@ setTimeout(() => setMessage(''), 4000)
                   <h3 style={{ margin: 0, color: '#f8fafc', fontSize: 18 }}>📁 Documenti — {docCliente.nome}</h3>
                   <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 13 }}>Accesso protetto da password</p>
                 </div>
-                <button onClick={() => { setDocCliente(null); setDocPasswordOk(false); setDocPassword('') }}
+                <button onClick={() => { setDocCliente(null); setDocPasswordOk(false); setDocPassword(''); setDocFiles([]); setDocLoading(false); setDocUploading(false); setDocPasswordError('') }}
                   style={{ border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18 }}>×</button>
               </div>
 
