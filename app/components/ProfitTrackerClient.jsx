@@ -1769,7 +1769,7 @@ await loadData({ preserveMessages: true })
     r = await salvaLogTransazione({
       tipo: 'correzione',
       importo: Math.abs(differenza),
-      riferimento: `${selectedBook.nome} | ${formatCurrency(saldoPrecedente)} -> ${formatCurrency(nuovoSaldo)}`,
+      riferimento: `${selectedBook.nome}${selectedBook.intestatario ? ` (${selectedBook.intestatario})` : ''} | ${formatCurrency(saldoPrecedente)} -> ${formatCurrency(nuovoSaldo)}`,
       note: `Correzione saldo manuale. Delta: ${formatCurrency(differenza)}${adjustSaldoForm.note.trim() ? `. Motivo: ${adjustSaldoForm.note.trim()}` : ''}`,
       azione: 'manual_balance_adjustment',
     })
