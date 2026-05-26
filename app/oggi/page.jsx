@@ -328,11 +328,19 @@ async function getSeasonData(code, supabaseClient) {
 // ─── COMPONENTE ───────────────────────────────────────────────
 
 export default function Oggi() {
+  const [authorized, setAuthorized] = useState(false)
+
   useEffect(() => {
-    if (typeof window !== 'undefined' && localStorage.getItem('site_unlocked') !== '1') {
-      window.location.href = '/login?from=/oggi'
+    if (typeof window !== 'undefined') {
+      if (localStorage.getItem('site_unlocked') !== '1') {
+        window.location.href = '/login?from=/oggi'
+      } else {
+        setAuthorized(true)
+      }
     }
   }, [])
+
+  if (!authorized) return null
 
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [selectedLeagues, setSelectedLeagues] = useState([]);
