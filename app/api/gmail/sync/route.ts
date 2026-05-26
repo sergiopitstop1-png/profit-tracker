@@ -38,7 +38,7 @@ async function leggiTutteMail(accessToken: string) {
   // Raccoglie tutti gli id da INBOX e SPAM
   for (const label of labels) {
     const res = await fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=50&labelIds=${label}`,
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=30&labelIds=${label}`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     )
     const data = await res.json()
