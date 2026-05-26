@@ -142,39 +142,37 @@ export async function GET(request: Request) {
       let salvate = 0
       let duplicate = 0
 
-      await Promise.all(
-        mail.map(async (m) => {
-          try {
-            // Controlla se già esiste tramite gmail_message_id (UNIQUE constraint)
-            const { data: esistente } = await supabase
-              .from('promozioni_clienti')
-              .select('id')
-              .eq('gmail_message_id', m.id)
-              .maybeSingle()
+      // Recupera i gmail_message_id già presenti per questo account
+      const { data: giàPresenti } = await supabase
+        .from('promozioni_clienti')
+        .select('gmail_message_id')
+        .eq('email_id', emailRow.id)
 
-            if (esistente) {
-              duplicate++
-              return
-            }
+      const idGiàPresenti = new Set((giàPresenti || []).map((r: any) => r.gmail_message_id))
 
-            const { error: insertError } = await supabase.from('promozioni_clienti').insert([{
-              cliente_id: emailRow.clienti?.id,
-              email_id: emailRow.id,
-              gmail_message_id: m.id,
-              mittente: m.from || '',
-              oggetto: m.subject || '',
-              tipo: 'mail',
-              priorita: 'media',
-              data_mail: parseDateSafe(m.date),
-              letta: false
-            }])
+      const nuove = mail.filter(m => !idGiàPresenti.has(m.id))
+      duplicate = mail.length - nuove.length
 
-            if (!insertError) salvate++
-          } catch (e) {
-            console.error('Errore insert mail:', e)
-          }
-        })
-      )
+      if (nuove.length > 0) {
+        const rows = nuove.map(m => ({
+          cliente_id: emailRow.clienti?.id,
+          email_id: emailRow.id,
+          gmail_message_id: m.id,
+          mittente: m.from || '',
+          oggetto: m.subject || '',
+          tipo: 'mail',
+          priorita: 'media',
+          data_mail: parseDateSafe(m.date),
+          letta: false
+        }))
+
+        const { error: insertError } = await supabase
+          .from('promozioni_clienti')
+          .insert(rows)
+
+        if (!insertError) salvate = nuove.length
+        else console.error('Insert batch error:', insertError.message)
+      }
 
       await supabase.from('gmail_sync_log').upsert([{
         email_id: emailRow.id,
