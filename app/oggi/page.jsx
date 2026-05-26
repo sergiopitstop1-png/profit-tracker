@@ -340,8 +340,6 @@ export default function Oggi() {
     }
   }, [])
 
-  if (!authorized) return null
-
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [selectedLeagues, setSelectedLeagues] = useState([]);
   const [matches, setMatches] = useState([]);
@@ -352,6 +350,8 @@ export default function Oggi() {
   const [savedMap, setSavedMap] = useState({});
   const [checkingId, setCheckingId] = useState(null);
   const [pianoMap, setPianoMap] = useState({});
+
+  if (!authorized) return null
 
   const toggleLeague = (code) => {
     setSelectedLeagues(prev => prev.includes(code) ? prev.filter(x => x !== code) : [...prev, code]);
