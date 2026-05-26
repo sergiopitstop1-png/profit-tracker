@@ -2529,11 +2529,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                     <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 13 }}>{tutteNonLette.length} totali · {altePriorita.length} alta priorità</p>
                   </div>
                   <button style={{ border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18 }}
-                    onClick={() => {
-                      setPromozioni(prev => prev.map(p => tutteNonLette.find(a => a.id === p.id) ? { ...p, letta: true } : p))
-                      setShowPromozioniPopup(false)
-                      Promise.all(tutteNonLette.map(p => supabase.from('promozioni_clienti').update({ letta: true }).eq('id', p.id)))
-                    }}>×</button>
+                    onClick={() => setShowPromozioniPopup(false)}>×</button>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {tutteNonLette.map((p, idx) => (
