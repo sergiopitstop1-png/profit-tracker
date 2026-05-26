@@ -56,6 +56,8 @@ const [stimaForm, setStimaForm] = useState({
   const [showPromozioniPopup, setShowPromozioniPopup] = useState(false)
   const [promozioniManuali, setPromozioniManuali] = useState([])
   const [syncInCorso, setSyncInCorso] = useState(false)
+  const [syncLog, setSyncLog] = useState([])
+  const [showSyncLog, setShowSyncLog] = useState(false)
   const [promozioneDettaglio, setPromozioneDettaglio] = useState(null)
   const [showPromozioniManualiPopup, setShowPromozioniManualiPopup] = useState(false)
   const [promozioniManualiEmail, setPromozioniManualiEmail] = useState('')
@@ -3323,16 +3325,25 @@ onChange={(e) => {
         <button
           onClick={async () => {
             setSyncInCorso(true)
+            setSyncLog([])
+            setShowSyncLog(true)
             let totSalvate = 0
             try {
               const emailsConToken = clientiEmail.filter(e => e.gmail_refresh_token)
               for (const emailRow of emailsConToken) {
                 try {
-                  setMessage(`📧 Sync ${emailRow.email}...`)
+                  setSyncLog(prev => [...prev, { email: emailRow.email, stato: '⏳ in corso...' }])
                   const res = await fetch(`/api/gmail/sync?secret=pt_cron_2026_sergio&email_id=${emailRow.id}`)
                   const data = await res.json()
-                  totSalvate += (data.risultati || []).reduce((acc, r) => acc + (r.salvate || 0), 0)
-                } catch {}
+                  const r = (data.risultati || [])[0] || {}
+                  const riga = r.errore
+                    ? { email: emailRow.email, stato: `❌ ${r.errore}` }
+                    : { email: emailRow.email, stato: `✅ ${r.mailTrovate||0} mail · ${r.promozioniTrovate||0} promo · ${r.salvate||0} salvate · ${r.duplicate||0} duplicate` }
+                  setSyncLog(prev => prev.map(l => l.email === emailRow.email ? riga : l))
+                  totSalvate += r.salvate || 0
+                } catch(e) {
+                  setSyncLog(prev => prev.map(l => l.email === emailRow.email ? { email: emailRow.email, stato: `❌ ${String(e)}` } : l))
+                }
               }
               await loadData({ preserveMessages: true })
               setMessage(totSalvate > 0 ? `📧 ${totSalvate} nuove promozioni trovate!` : '📧 Nessuna novità')
@@ -3344,6 +3355,24 @@ onChange={(e) => {
           disabled={syncInCorso}
           style={{ padding: '10px 16px', borderRadius: 12, border: '1px solid rgba(56,189,248,0.5)', background: syncInCorso ? 'rgba(51,65,85,0.3)' : 'rgba(56,189,248,0.1)', color: syncInCorso ? '#64748b' : '#38bdf8', fontWeight: 800, fontSize: 13, cursor: syncInCorso ? 'not-allowed' : 'pointer' }}
         >{syncInCorso ? '⏳ Sincronizzazione...' : '🔄 Sincronizza tutto'}</button>
+        {showSyncLog && syncLog.length > 0 && (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ background: '#0f172a', border: '1px solid rgba(56,189,248,0.3)', borderRadius: 16, padding: 24, width: 600, maxHeight: '80vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <h3 style={{ color: '#38bdf8', margin: 0 }}>📧 Log Sincronizzazione</h3>
+                {!syncInCorso && <button onClick={() => setShowSyncLog(false)} style={{ background: 'rgba(239,68,68,0.2)', color: '#f87171', border: 'none', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontWeight: 700 }}>Chiudi</button>}
+              </div>
+              {syncLog.map((l, i) => (
+                <div key={i} style={{ padding: '8px 12px', marginBottom: 6, background: 'rgba(255,255,255,0.04)', borderRadius: 8, fontSize: 12, fontFamily: 'monospace' }}>
+                  <span style={{ color: '#94a3b8' }}>{l.email}</span>
+                  <br/>
+                  <span style={{ color: '#e2e8f0' }}>{l.stato}</span>
+                </div>
+              ))}
+              {syncInCorso && <div style={{ color: '#38bdf8', textAlign: 'center', marginTop: 12, fontSize: 13 }}>⏳ Sincronizzazione in corso...</div>}
+            </div>
+          </div>
+        )}
         {promozioni.length > 0 && (
           <button
             onClick={() => setShowPromozioniPopup(true)}
