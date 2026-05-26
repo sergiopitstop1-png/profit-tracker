@@ -4325,8 +4325,17 @@ setTimeout(() => setMessage(''), 4000)
                 <div style={panelHeader}>
                   <div><h2 style={panelTitle}>Storico movimenti</h2><p style={panelSubtitle}>{txLoadAll ? 'Tutti i movimenti' : 'Ultimi 3 mesi'} · {filteredTransactions.length} righe</p></div>
                   {!txLoadAll && <button style={secondaryButton} onClick={async () => {
-                    const { data } = await supabase.from('transactions').select('*').order('data', { ascending: false })
-                    if (data) { setTransactions(data); setTxLoadAll(true) }
+                    let all = []
+                    let from = 0
+                    const pageSize = 1000
+                    while (true) {
+                      const { data } = await supabase.from('transactions').select('*').order('data', { ascending: false }).range(from, from + pageSize - 1)
+                      if (!data || data.length === 0) break
+                      all = [...all, ...data]
+                      if (data.length < pageSize) break
+                      from += pageSize
+                    }
+                    if (all.length > 0) { setTransactions(all); setTxLoadAll(true) }
                   }}>📂 Carica tutto</button>}
                 </div>
                 <div style={filterRow}>
