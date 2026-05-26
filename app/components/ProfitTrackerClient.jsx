@@ -2442,7 +2442,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         {message && <div style={successBox}>{message}</div>}
 
         {promozioneDettaglio && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2400, padding: 16 }}>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000, padding: 16 }}>
             <div style={{ width: '100%', maxWidth: 600, background: 'linear-gradient(180deg,rgba(15,23,42,0.99),rgba(2,6,23,1))', border: '2px solid rgba(56,189,248,0.4)', borderRadius: 22, padding: 24, maxHeight: '85vh', overflowY: 'auto' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
                 <div style={{ flex: 1, marginRight: 12 }}>
