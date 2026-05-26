@@ -3380,7 +3380,7 @@ onChange={(e) => {
           <button
             onClick={() => setShowPromozioniPopup(true)}
             style={{ padding: '10px 16px', borderRadius: 12, border: '1px solid rgba(239,68,68,0.5)', background: 'rgba(239,68,68,0.1)', color: '#f87171', fontWeight: 800, fontSize: 13, cursor: 'pointer', animation: 'blinkPrevisto 2s ease-in-out infinite' }}
-          >🔥 {promozioni.filter(p => !p.letta).length} promozioni nuove</button>
+          >🔥 {promozioni.filter(p => !p.letta).length} e-mail nuove</button>
         )}
       </div>
     </div>
@@ -3768,11 +3768,11 @@ onChange={(e) => {
               })}
               {/* Riga footer con nomi bookmaker ripetuti */}
               <tr style={{ ...tr, background: 'rgba(15,23,42,0.9)', borderTop: '2px solid rgba(51,65,85,0.7)' }}>
-                <td style={{ ...tdStrong, position: 'sticky', left: 0, background: '#0b1220', zIndex: 2, borderRight: '1px solid rgba(51,65,85,0.7)', fontSize: 11, color: '#94a3b8' }}>MITTENTE</td>
+                <th style={{ ...tdStrong, position: 'sticky', left: 0, background: '#0b1220', zIndex: 3, textAlign: 'left', padding: '10px 14px', fontSize: 11, color: '#94a3b8', fontWeight: 700, borderRight: '1px solid rgba(51,65,85,0.7)', minWidth: 120 }}>MITTENTE</th>
                 {colonneFiltered.map(book => (
-                  <td key={book} style={{ ...td, textAlign: 'center', padding: '8px 4px' }}>
-                    <span style={{ background: 'rgba(56,189,248,0.08)', color: '#38bdf8', padding: '2px 6px', borderRadius: 6, fontSize: 10, fontWeight: 700 }}>{book}</span>
-                  </td>
+                  <th key={book} style={{ ...tdStrong, textAlign: 'center', padding: '10px 8px', fontSize: 11, fontWeight: 700, minWidth: 90 }}>
+                    <span style={{ background: 'rgba(56,189,248,0.12)', color: '#38bdf8', padding: '3px 8px', borderRadius: 6 }}>{book}</span>
+                  </th>
                 ))}
               </tr>
             </tbody>
