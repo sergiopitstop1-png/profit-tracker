@@ -500,8 +500,8 @@ if (memoFreeBoxesRes.error) errors.push('memo_free_boxes'); else setMemoFreeBoxe
 }
 if (clientiRes && !clientiRes.error) setClienti(clientiRes.data || [])
 if (clientiEmailRes && !clientiEmailRes.error) setClientiEmail(clientiEmailRes.data || [])
-const { data: pmData } = await supabase.from('punti_monete').select('*').order('book_nome').order('cliente_nome')
-if (pmData) {
+const { data: pmData, error: pmError } = await supabase.from('punti_monete').select('*').order('book_nome').order('cliente_nome')
+if (!pmError && pmData && pmData.length > 0) {
   const bookMap = {}
   const saldiMap = {}
   pmData.forEach(r => {
@@ -512,8 +512,8 @@ if (pmData) {
   setPuntiMoneteBooks(booksArr)
   setPmBooks(booksArr)
   setPmSaldi(saldiMap)
-  setPmLoading(false)
 }
+setPmLoading(false)
 if (promozioniRes && !promozioniRes.error) {
   setPromozioni(promozioniRes.data || [])
   const altaPriorita = (promozioniRes.data || []).filter(p => !p.letta)
@@ -3651,15 +3651,14 @@ setTimeout(() => setMessage(''), 4000)
                                 position: 'relative'
                               }}
                             >
-                              {mailCella.length}
+                              <span>{mailCella.length}</span>
                               {nonLette > 0 && (
                                 <span style={{
-                                  position: 'absolute', top: -4, right: -4,
+                                  marginLeft: 4,
                                   background: '#ef4444', color: '#fff',
-                                  borderRadius: '50%', width: 14, height: 14,
-                                  fontSize: 9, fontWeight: 900,
-                                  display: 'flex', alignItems: 'center', justifyContent: 'center'
-                                }}>{nonLette}</span>
+                                  borderRadius: 6, padding: '1px 5px',
+                                  fontSize: 10, fontWeight: 900,
+                                }}>+{nonLette}</span>
                               )}
                             </button>
                           ) : (
@@ -3689,7 +3688,12 @@ setTimeout(() => setMessage(''), 4000)
               </div>
               <button
                 style={{ border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18 }}
-                onClick={() => setArchivioMailCella(null)}>×</button>
+                onClick={() => {
+                  const nonLette = archivioMailCella.promo.filter(p => !p.letta)
+                  setPromozioni(prev => prev.map(p => nonLette.find(n => n.id === p.id) ? { ...p, letta: true } : p))
+                  setArchivioMailCella(null)
+                  Promise.all(nonLette.map(p => supabase.from('promozioni_clienti').update({ letta: true }).eq('id', p.id)))
+                }}>×</button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {archivioMailCella.promo.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).map((p, idx) => (
@@ -3717,7 +3721,12 @@ setTimeout(() => setMessage(''), 4000)
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
               <button
                 style={{ padding: '10px 22px', borderRadius: 12, border: 'none', background: '#38bdf8', color: '#0f172a', cursor: 'pointer', fontSize: 13, fontWeight: 800 }}
-                onClick={() => setArchivioMailCella(null)}>Chiudi</button>
+                onClick={() => {
+                  const nonLette = archivioMailCella.promo.filter(p => !p.letta)
+                  setPromozioni(prev => prev.map(p => nonLette.find(n => n.id === p.id) ? { ...p, letta: true } : p))
+                  setArchivioMailCella(null)
+                  Promise.all(nonLette.map(p => supabase.from('promozioni_clienti').update({ letta: true }).eq('id', p.id)))
+                }}>Chiudi</button>
             </div>
           </div>
         </div>
@@ -3817,6 +3826,15 @@ setTimeout(() => setMessage(''), 4000)
   }
 
   if (pmLoading) return <div style={tabContent}><div style={{ color: '#94a3b8', marginTop: 40, textAlign: 'center' }}>⏳ Caricamento punti...</div></div>
+  if (!pmLoading && pmBooks.length === 0) return (
+    <div style={tabContent}>
+      <div style={{ color: '#94a3b8', marginTop: 40, textAlign: 'center' }}>
+        <p>Nessun dato trovato nella tabella <code>punti_monete</code>.</p>
+        <p style={{ fontSize: 12, marginTop: 8 }}>Verifica che la tabella esista su Supabase e che le RLS permettano la lettura.</p>
+        <button style={primaryButtonBlue} onClick={() => setPmLoading(true) || loadData()}>🔄 Ricarica</button>
+      </div>
+    </div>
+  )
 
   return (
     <div style={tabContent}>
