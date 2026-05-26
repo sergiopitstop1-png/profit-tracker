@@ -2299,7 +2299,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           <option value='Casa'>🏠 Casa</option>
           <option value='Auto'>🚗 Auto</option>
           <option value='Alimentari'>🛒 Alimentari</option>
-          <option value='Ristoranti/Svago'>🍽️ Ristoranti/Svago</option>
+          <option value='Ristoranti/Svago/Viaggi'>✈️ Ristoranti/Svago/Viaggi</option>
           <option value='Abbigliamento'>👕 Abbigliamento</option>
           <option value='Salute/Farmacia'>💊 Salute/Farmacia</option>
           <option value='Tecnologia/Abbonamenti'>📱 Tecnologia/Abbonamenti</option>
@@ -4294,7 +4294,7 @@ setTimeout(() => setMessage(''), 4000)
                     .filter(tx => tx.categoria_spesa)
                     .reduce((acc, tx) => { acc[tx.categoria_spesa] = (acc[tx.categoria_spesa] || 0) + Number(tx.importo || 0); return acc }, {})
                   const totaleCategorie = Object.values(speseCategoria).reduce((a, b) => a + b, 0)
-                  const EMOJI = { 'Casa': '🏠', 'Auto': '🚗', 'Alimentari': '🛒', 'Ristoranti/Svago': '🍽️', 'Abbigliamento': '👕', 'Salute/Farmacia': '💊', 'Tecnologia/Abbonamenti': '📱', 'Famiglia': '👨‍👩‍👦', 'Attività Lavorativa': '💼', 'Altro': '📦', 'Spese Personali Sergio': '🚬' }
+                  const EMOJI = { 'Casa': '🏠', 'Auto': '🚗', 'Alimentari': '🛒', 'Ristoranti/Svago': '🍽️', 'Ristoranti/Svago/Viaggi': '✈️', 'Abbigliamento': '👕', 'Salute/Farmacia': '💊', 'Tecnologia/Abbonamenti': '📱', 'Famiglia': '👨‍👩‍👦', 'Attività Lavorativa': '💼', 'Altro': '📦', 'Spese Personali Sergio': '🚬' }
                   const COLORI = ['#38bdf8','#4ade80','#f87171','#fbbf24','#a78bfa','#fb923c','#34d399','#e879f9','#60a5fa','#94a3b8']
                   const voci = Object.entries(speseCategoria).sort((a, b) => b[1] - a[1])
                   if (voci.length === 0) return <div style={{ color: '#64748b', textAlign: 'center', padding: '24px 0', fontSize: 13 }}>Nessuna spesa categorizzata questo mese.<br/><span style={{ fontSize: 11 }}>Seleziona una categoria nei prossimi prelievi verso esterno.</span></div>
