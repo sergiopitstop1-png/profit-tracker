@@ -160,7 +160,7 @@ async function analizzaPromozioni(mail: any[], nomeCliente: string) {
         'Authorization': `Bearer ${process.env.GROQ_API_KEY}`
       },
       body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
+        model: 'llama3-8b-8192',
         max_tokens: 4000,
         messages: [
           { role: 'system', content: 'Sei un assistente che analizza email. Rispondi SEMPRE e SOLO con un JSON array valido, senza markdown, senza testo prima o dopo.' },
