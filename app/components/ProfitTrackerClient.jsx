@@ -3792,12 +3792,7 @@ onChange={(e) => {
               </div>
               <button
                 style={{ border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18 }}
-                onClick={() => {
-                  const nonLette = archivioMailCella.promo.filter(p => !p.letta)
-                  setPromozioni(prev => prev.map(p => nonLette.find(n => n.id === p.id) ? { ...p, letta: true } : p))
-                  setArchivioMailCella(null)
-                  Promise.all(nonLette.map(p => supabase.from('promozioni_clienti').update({ letta: true }).eq('id', p.id)))
-                }}>×</button>
+                onClick={() => setArchivioMailCella(null)}>×</button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {archivioMailCella.promo.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).map((p, idx) => (
@@ -3816,7 +3811,14 @@ onChange={(e) => {
                   <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{p.oggetto}</div>
                   <div style={{ color: '#64748b', fontSize: 11, marginBottom: 8 }}>Da: {p.mittente}</div>
                   <button
-                    onClick={() => setPromozioneDettaglio(p)}
+                    onClick={() => {
+                      setPromozioneDettaglio(p)
+                      if (!p.letta) {
+                        setPromozioni(prev => prev.map(x => x.id === p.id ? { ...x, letta: true } : x))
+                        setArchivioMailCella(prev => prev ? { ...prev, promo: prev.promo.map(x => x.id === p.id ? { ...x, letta: true } : x) } : null)
+                        supabase.from('promozioni_clienti').update({ letta: true }).eq('id', p.id)
+                      }
+                    }}
                     style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
                   >📖 Leggi testo completo</button>
                 </div>
@@ -3825,12 +3827,7 @@ onChange={(e) => {
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
               <button
                 style={{ padding: '10px 22px', borderRadius: 12, border: 'none', background: '#38bdf8', color: '#0f172a', cursor: 'pointer', fontSize: 13, fontWeight: 800 }}
-                onClick={() => {
-                  const nonLette = archivioMailCella.promo.filter(p => !p.letta)
-                  setPromozioni(prev => prev.map(p => nonLette.find(n => n.id === p.id) ? { ...p, letta: true } : p))
-                  setArchivioMailCella(null)
-                  Promise.all(nonLette.map(p => supabase.from('promozioni_clienti').update({ letta: true }).eq('id', p.id)))
-                }}>Chiudi</button>
+                onClick={() => setArchivioMailCella(null)}>Chiudi</button>
             </div>
           </div>
         </div>
