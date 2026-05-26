@@ -118,6 +118,8 @@ const [archivioSearch, setArchivioSearch] = useState('')
 const [pmBooks, setPmBooks] = useState([])
 const [pmSaldi, setPmSaldi] = useState({})
 const [pmLoading, setPmLoading] = useState(true)
+const [speseCategoriaMese, setSpeseCategoriaMese] = useState([])
+const [txLoadAll, setTxLoadAll] = useState(false)
 const [pmNuovoBook, setPmNuovoBook] = useState({ nome: '', valorePunto: 0.001818, bookId: '' })
 const [pmShowAggiungi, setPmShowAggiungi] = useState(false)
   useEffect(() => {
@@ -449,7 +451,7 @@ async function updateProfiloLivello(bookId, livello) {
 ] = await Promise.all([
   supabase.from('books').select('*').order('id', { ascending: true }),
   supabase.from('wallets').select('*').order('id', { ascending: true }),
-  supabase.from('transactions').select('*').order('data', { ascending: false }).limit(500),
+  supabase.from('transactions').select('*').order('data', { ascending: false }).gte('data', new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()).limit(2000),
   supabase.from('contabilita').select('*').order('data_movimento', { ascending: false }),
   supabase.from('weekly_snapshots').select('*').order('snapshot_date', { ascending: true }),
   supabase.from('monthly_snapshots').select('*').order('snapshot_month', { ascending: true }),
@@ -514,6 +516,15 @@ if (!pmError && pmData && pmData.length > 0) {
   setPmSaldi(saldiMap)
 }
 setPmLoading(false)
+// Carica tutte wallet_to_external del mese corrente per grafico spese
+const meseCorrenteISO = new Date().toISOString().slice(0, 7)
+const { data: speseData } = await supabase
+  .from('transactions')
+  .select('id, note, importo, categoria_spesa, data, azione')
+  .eq('azione', 'wallet_to_external')
+  .gte('data', meseCorrenteISO + '-01')
+  .lt('data', new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toISOString())
+if (speseData) setSpeseCategoriaMese(speseData)
 if (promozioniRes && !promozioniRes.error) {
   setPromozioni(promozioniRes.data || [])
   const altaPriorita = (promozioniRes.data || []).filter(p => !p.letta)
@@ -4279,9 +4290,8 @@ setTimeout(() => setMessage(''), 4000)
               <div style={panel}>
                 <div style={panelHeader}><div><h2 style={panelTitle}>📊 Spese per Categoria</h2><p style={panelSubtitle}>Solo prelievi verso esterno con categoria · mese corrente</p></div></div>
                 {(() => {
-                  const meseCorrente = new Date().toISOString().slice(0, 7)
-                  const speseCategoria = transactions
-                    .filter(tx => tx.azione === 'wallet_to_external' && tx.categoria_spesa && tx.data?.slice(0, 7) === meseCorrente)
+                  const speseCategoria = speseCategoriaMese
+                    .filter(tx => tx.categoria_spesa)
                     .reduce((acc, tx) => { acc[tx.categoria_spesa] = (acc[tx.categoria_spesa] || 0) + Number(tx.importo || 0); return acc }, {})
                   const totaleCategorie = Object.values(speseCategoria).reduce((a, b) => a + b, 0)
                   const EMOJI = { 'Casa': '🏠', 'Auto': '🚗', 'Alimentari': '🛒', 'Ristoranti/Svago': '🍽️', 'Abbigliamento': '👕', 'Salute/Farmacia': '💊', 'Tecnologia/Abbonamenti': '📱', 'Famiglia': '👨‍👩‍👦', 'Attività Lavorativa': '💼', 'Altro': '📦', 'Spese Personali Sergio': '🚬' }
@@ -4312,7 +4322,13 @@ setTimeout(() => setMessage(''), 4000)
             </div>
 
             <div style={{ ...panel, marginTop: 16 }}>
-                <div style={panelHeader}><div><h2 style={panelTitle}>Storico movimenti</h2><p style={panelSubtitle}>Filtro per tipo, azione, testo e importo</p></div></div>
+                <div style={panelHeader}>
+                  <div><h2 style={panelTitle}>Storico movimenti</h2><p style={panelSubtitle}>{txLoadAll ? 'Tutti i movimenti' : 'Ultimi 3 mesi'} · {filteredTransactions.length} righe</p></div>
+                  {!txLoadAll && <button style={secondaryButton} onClick={async () => {
+                    const { data } = await supabase.from('transactions').select('*').order('data', { ascending: false })
+                    if (data) { setTransactions(data); setTxLoadAll(true) }
+                  }}>📂 Carica tutto</button>}
+                </div>
                 <div style={filterRow}>
                   <select value={txFilters.tipo} onChange={(e) => setTxFilters({ ...txFilters, tipo: e.target.value })} style={filterInput}><option value=''>Tutti i tipi</option><option value='versa'>Versa</option><option value='preleva'>Preleva</option><option value='trasferisci'>Trasferisci</option><option value='correzione'>Correzione</option></select>
                   <select value={txFilters.azione} onChange={(e) => setTxFilters({ ...txFilters, azione: e.target.value })} style={filterInput}><option value=''>Tutte le azioni</option><option value='wallet_to_book'>wallet_to_book</option><option value='book_to_wallet'>book_to_wallet</option><option value='wallet_to_wallet'>wallet_to_wallet</option><option value='wallet_to_external'>wallet_to_external</option><option value='manual_balance_adjustment'>manual_balance_adjustment</option></select>
