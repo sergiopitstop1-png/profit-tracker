@@ -2468,12 +2468,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                     <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 13 }}>{tutteNonLette.length} totali · {altePriorita.length} alta priorità</p>
                   </div>
                   <button style={{ border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18 }}
-                    onClick={async () => {
-                      for (const p of tutteNonLette) {
-                        await supabase.from('promozioni_clienti').update({ letta: true }).eq('id', p.id)
-                      }
+                    onClick={() => {
                       setPromozioni(prev => prev.map(p => tutteNonLette.find(a => a.id === p.id) ? { ...p, letta: true } : p))
                       setShowPromozioniPopup(false)
+                      Promise.all(tutteNonLette.map(p => supabase.from('promozioni_clienti').update({ letta: true }).eq('id', p.id)))
                     }}>×</button>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -2491,12 +2489,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
                   <button style={{ padding: '10px 22px', borderRadius: 12, border: 'none', background: '#ef4444', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 800 }}
-                    onClick={async () => {
-                      for (const p of tutteNonLette) {
-                        await supabase.from('promozioni_clienti').update({ letta: true }).eq('id', p.id)
-                      }
+                    onClick={() => {
                       setPromozioni(prev => prev.map(p => tutteNonLette.find(a => a.id === p.id) ? { ...p, letta: true } : p))
                       setShowPromozioniPopup(false)
+                      Promise.all(tutteNonLette.map(p => supabase.from('promozioni_clienti').update({ letta: true }).eq('id', p.id)))
                     }}>Visto, chiudi</button>
                 </div>
               </div>
@@ -3510,7 +3506,205 @@ setTimeout(() => setMessage(''), 4000)
     </div>
   </div>
 )}     
-       {activeTab === 'stime-cassa' && canViewStimeCassa && (
+       {activeTab === 'archivio-mail' && (() => {
+  const BOOK_PRINCIPALI = ['sisal','bet365','pokerstars','snai','lottomatica','eurobet','betfair','planetwin','goldbet']
+
+  // Estrai tutti i mittenti unici dalle promozioni e costruisci lista colonne
+  const tutteLePromo = promozioni
+  const mittenteNormalizzato = (m) => {
+    if (!m) return ''
+    const s = m.toLowerCase()
+    // estrai dominio o nome principale
+    const match = s.match(/@([\w.-]+)/) || s.match(/([\w-]+)\.(it|com|eu|net)/)
+    if (match) {
+      const parts = match[1].split('.')
+      return parts[parts.length - 1] || parts[0]
+    }
+    return s.split(' ')[0].replace(/[^a-z0-9]/g, '')
+  }
+
+  const bookmakerDaPromo = [...new Set(tutteLePromo.map(p => {
+    const norm = mittenteNormalizzato(p.mittente)
+    // Trova se corrisponde a un principale
+    const principale = BOOK_PRINCIPALI.find(bp => norm.includes(bp) || p.mittente?.toLowerCase().includes(bp))
+    return principale ? principale : (p.mittente || '').toLowerCase().trim()
+  }))].filter(Boolean)
+
+  const principaliPresenti = BOOK_PRINCIPALI.filter(bp => bookmakerDaPromo.includes(bp))
+  const altriPresenti = bookmakerDaPromo
+    .filter(b => !BOOK_PRINCIPALI.includes(b))
+    .sort((a, b) => a.localeCompare(b))
+  const colonneBook = [...principaliPresenti, ...altriPresenti]
+
+  // Raggruppa promozioni per cliente + bookmaker
+  const getBookKey = (mittente) => {
+    if (!mittente) return ''
+    const norm = mittenteNormalizzato(mittente)
+    const principale = BOOK_PRINCIPALI.find(bp => norm.includes(bp) || mittente.toLowerCase().includes(bp))
+    return principale ? principale : mittente.toLowerCase().trim()
+  }
+
+  // Clienti ordinati alfabeticamente
+  const clientiOrdinati = [...clienti].sort((a, b) => a.nome.localeCompare(b.nome))
+
+  // Filtro mittente (ricerca rapida)
+  const [archivioSearch, setArchivioSearch] = React.useState('')
+
+  const colonneFiltered = archivioSearch
+    ? colonneBook.filter(b => b.toLowerCase().includes(archivioSearch.toLowerCase()))
+    : colonneBook
+
+  return (
+    <div style={tabContent}>
+      <div style={sectionTopBar}>
+        <div>
+          <h2 style={sectionTitle}>📧 Archivio Mail</h2>
+          <p style={sectionDescription}>Promozioni ricevute per cliente × bookmaker · clicca il numero per leggere le mail</p>
+        </div>
+        <input
+          placeholder="🔍 Filtra bookmaker..."
+          value={archivioSearch}
+          onChange={e => setArchivioSearch(e.target.value)}
+          style={{ ...filterInput, maxWidth: 220 }}
+        />
+      </div>
+
+      {colonneBook.length === 0 ? (
+        <div style={{ marginTop: 32, color: '#94a3b8', textAlign: 'center', fontSize: 15 }}>
+          Nessuna promozione in archivio. Sincronizza le mail dalla tab Clienti.
+        </div>
+      ) : (
+        <div style={{ overflowX: 'auto', marginTop: 16, borderRadius: 16, border: '1px solid rgba(51,65,85,0.7)' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: Math.max(600, 160 + colonneFiltered.length * 100) }}>
+            <thead>
+              <tr>
+                <th style={{ ...th, position: 'sticky', left: 0, zIndex: 4, background: '#0b1220', minWidth: 140, borderRight: '1px solid rgba(51,65,85,0.7)' }}>
+                  Cliente
+                </th>
+                {colonneFiltered.map(book => (
+                  <th key={book} style={{ ...th, textAlign: 'center', minWidth: 90, padding: '12px 8px' }}>
+                    <span style={{
+                      display: 'inline-block',
+                      padding: '2px 7px',
+                      borderRadius: 6,
+                      fontSize: 11,
+                      fontWeight: 800,
+                      background: BOOK_PRINCIPALI.includes(book) ? 'rgba(56,189,248,0.12)' : 'rgba(51,65,85,0.4)',
+                      color: BOOK_PRINCIPALI.includes(book) ? '#38bdf8' : '#94a3b8',
+                      textTransform: 'capitalize'
+                    }}>{book}</span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {clientiOrdinati.map(c => {
+                const promoCliente = tutteLePromo.filter(p => p.cliente_id === c.id || p.clienti?.nome === c.nome)
+                // skip clienti senza nessuna promo
+                const haAlcunaPromo = colonneFiltered.some(book => promoCliente.filter(p => getBookKey(p.mittente) === book).length > 0)
+                if (!haAlcunaPromo) return null
+                return (
+                  <tr key={c.id} style={{ ...tr, ':hover': { background: 'rgba(56,189,248,0.04)' } }}>
+                    <td style={{ ...tdStrong, position: 'sticky', left: 0, background: '#0b1220', zIndex: 2, borderRight: '1px solid rgba(51,65,85,0.7)', fontSize: 13 }}>
+                      {c.nome}
+                    </td>
+                    {colonneFiltered.map(book => {
+                      const mailCella = promoCliente.filter(p => getBookKey(p.mittente) === book)
+                      const nonLette = mailCella.filter(p => !p.letta).length
+                      return (
+                        <td key={book} style={{ ...td, textAlign: 'center', padding: '10px 8px', verticalAlign: 'middle' }}>
+                          {mailCella.length > 0 ? (
+                            <button
+                              onClick={() => setArchivioMailCella({ cliente: c, bookmaker: book, promo: mailCella })}
+                              style={{
+                                border: 'none',
+                                borderRadius: 8,
+                                padding: '4px 12px',
+                                fontWeight: 900,
+                                fontSize: 14,
+                                cursor: 'pointer',
+                                background: nonLette > 0 ? 'rgba(239,68,68,0.18)' : 'rgba(34,197,94,0.12)',
+                                color: nonLette > 0 ? '#f87171' : '#4ade80',
+                                minWidth: 36,
+                                position: 'relative'
+                              }}
+                            >
+                              {mailCella.length}
+                              {nonLette > 0 && (
+                                <span style={{
+                                  position: 'absolute', top: -4, right: -4,
+                                  background: '#ef4444', color: '#fff',
+                                  borderRadius: '50%', width: 14, height: 14,
+                                  fontSize: 9, fontWeight: 900,
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                }}>{nonLette}</span>
+                              )}
+                            </button>
+                          ) : (
+                            <span style={{ color: '#334155', fontSize: 13 }}>·</span>
+                          )}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Popup dettaglio cella */}
+      {archivioMailCella && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2500, padding: 16 }}>
+          <div style={{ width: '100%', maxWidth: 620, background: 'linear-gradient(180deg,rgba(15,23,42,0.99),rgba(2,6,23,1))', border: '2px solid rgba(56,189,248,0.4)', borderRadius: 22, padding: 24, maxHeight: '85vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <div>
+                <h3 style={{ margin: 0, color: '#f8fafc', fontSize: 17 }}>
+                  📧 {archivioMailCella.cliente.nome} · <span style={{ color: '#38bdf8', textTransform: 'capitalize' }}>{archivioMailCella.bookmaker}</span>
+                </h3>
+                <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 13 }}>{archivioMailCella.promo.length} mail in archivio</p>
+              </div>
+              <button
+                style={{ border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18 }}
+                onClick={() => setArchivioMailCella(null)}>×</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {archivioMailCella.promo.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).map((p, idx) => (
+                <div key={idx} style={{ background: 'rgba(11,18,32,0.85)', border: `1px solid ${!p.letta ? 'rgba(239,68,68,0.35)' : 'rgba(51,65,85,0.6)'}`, borderRadius: 12, padding: '12px 14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: (p.priorita||'').toLowerCase() === 'alta' ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.12)', color: (p.priorita||'').toLowerCase() === 'alta' ? '#f87171' : '#fbbf24' }}>
+                        {(p.priorita||'media').toUpperCase()}
+                      </span>
+                      {!p.letta && <span style={{ fontSize: 10, fontWeight: 800, color: '#ef4444' }}>● NUOVA</span>}
+                    </div>
+                    <span style={{ fontSize: 11, color: '#64748b' }}>
+                      {p.data_mail ? new Date(p.data_mail).toLocaleDateString('it-IT') : new Date(p.created_at).toLocaleDateString('it-IT')}
+                    </span>
+                  </div>
+                  <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{p.oggetto}</div>
+                  <div style={{ color: '#64748b', fontSize: 11, marginBottom: 8 }}>Da: {p.mittente}</div>
+                  <button
+                    onClick={() => setPromozioneDettaglio(p)}
+                    style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
+                  >📖 Leggi testo completo</button>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+              <button
+                style={{ padding: '10px 22px', borderRadius: 12, border: 'none', background: '#38bdf8', color: '#0f172a', cursor: 'pointer', fontSize: 13, fontWeight: 800 }}
+                onClick={() => setArchivioMailCella(null)}>Chiudi</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+})()}
+
+      {activeTab === 'stime-cassa' && canViewStimeCassa && (
   <div style={tabContent}>
     <div style={sectionTopBar}>
       <div>
