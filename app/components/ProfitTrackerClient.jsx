@@ -2295,6 +2295,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           <option value='Famiglia'>👨‍👩‍👦 Famiglia</option>
           <option value='Attività Lavorativa'>💼 Attività Lavorativa</option>
           <option value='Altro'>📦 Altro</option>
+          <option value='Spese Personali Sergio'>🚬 Spese Personali Sergio</option>
         </select>
       </>
     }
@@ -4283,7 +4284,7 @@ setTimeout(() => setMessage(''), 4000)
                     .filter(tx => tx.azione === 'wallet_to_external' && tx.categoria_spesa && tx.data?.slice(0, 7) === meseCorrente)
                     .reduce((acc, tx) => { acc[tx.categoria_spesa] = (acc[tx.categoria_spesa] || 0) + Number(tx.importo || 0); return acc }, {})
                   const totaleCategorie = Object.values(speseCategoria).reduce((a, b) => a + b, 0)
-                  const EMOJI = { 'Casa': '🏠', 'Auto': '🚗', 'Alimentari': '🛒', 'Ristoranti/Svago': '🍽️', 'Abbigliamento': '👕', 'Salute/Farmacia': '💊', 'Tecnologia/Abbonamenti': '📱', 'Famiglia': '👨‍👩‍👦', 'Attività Lavorativa': '💼', 'Altro': '📦' }
+                  const EMOJI = { 'Casa': '🏠', 'Auto': '🚗', 'Alimentari': '🛒', 'Ristoranti/Svago': '🍽️', 'Abbigliamento': '👕', 'Salute/Farmacia': '💊', 'Tecnologia/Abbonamenti': '📱', 'Famiglia': '👨‍👩‍👦', 'Attività Lavorativa': '💼', 'Altro': '📦', 'Spese Personali Sergio': '🚬' }
                   const COLORI = ['#38bdf8','#4ade80','#f87171','#fbbf24','#a78bfa','#fb923c','#34d399','#e879f9','#60a5fa','#94a3b8']
                   const voci = Object.entries(speseCategoria).sort((a, b) => b[1] - a[1])
                   if (voci.length === 0) return <div style={{ color: '#64748b', textAlign: 'center', padding: '24px 0', fontSize: 13 }}>Nessuna spesa categorizzata questo mese.<br/><span style={{ fontSize: 11 }}>Seleziona una categoria nei prossimi prelievi verso esterno.</span></div>
