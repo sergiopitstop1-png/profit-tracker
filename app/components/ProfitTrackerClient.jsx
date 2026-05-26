@@ -3747,17 +3747,25 @@ setTimeout(() => setMessage(''), 4000)
 
   const getCellKey = (bookId, clienteNome) => `${bookId}__${clienteNome}`
 
-  const calcolaTotaleBook = (book) => {
-    return clientiOrdinati.reduce((sum, c) => {
+  const calcolaTotaleBook = (book, applicaSconto = true) => {
+    const totale = clientiOrdinati.reduce((sum, c) => {
       const punti = Number(pmSaldi[getCellKey(book.id, c.nome)] || 0)
       return sum + punti * Number(book.valorePunto)
     }, 0)
+    const sconto = applicaSconto ? (SCONTO_BOOK?.[book.id] || 0) : 0
+    return totale * (1 - sconto)
   }
 
+  const SCONTO_BOOK = { 'sisal': 0.10 } // 10% sconto sul totale Sisal
+  const BOOK_ID_FISSO = { 'sisal': '2' }  // book ID 2 = PUNTI E MONETE
+
   const aggiornaSaldoBookInBooks = async (book, totale) => {
-    if (!book.bookId) return
-    await supabase.from('books').update({ saldo: totale }).eq('id', book.bookId)
-    setBooks(prev => prev.map(b => b.id === Number(book.bookId) ? { ...b, saldo: totale } : b))
+    const bookId = book.bookId || BOOK_ID_FISSO[book.id] || null
+    if (!bookId) return
+    const sconto = SCONTO_BOOK[book.id] || 0
+    const totaleScontato = totale * (1 - sconto)
+    await supabase.from('books').update({ saldo: totaleScontato }).eq('id', bookId)
+    setBooks(prev => prev.map(b => b.id === Number(bookId) ? { ...b, saldo: totaleScontato } : b))
   }
 
   const handlePuntiChange = async (book, clienteNome, valore) => {
@@ -3865,6 +3873,7 @@ setTimeout(() => setMessage(''), 4000)
                     </div>
                     <div style={{ fontSize: 11, color: '#4ade80', fontWeight: 700 }}>
                       Tot: {calcolaTotaleBook(book).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                      {SCONTO_BOOK[book.id] && <span style={{ fontSize: 10, color: '#f87171', marginLeft: 4 }}>(-{SCONTO_BOOK[book.id]*100}%)</span>}
                     </div>
                     {book.bookId && <div style={{ fontSize: 10, color: '#64748b' }}>→ {books.find(b => b.id === Number(book.bookId))?.nome || ''}</div>}
                   </div>
@@ -4173,7 +4182,7 @@ setTimeout(() => setMessage(''), 4000)
   const displaySaldo = pendingVal !== undefined ? pendingVal : String(book.saldo ?? 0)
   const hasPending = pendingVal !== undefined && Number(String(pendingVal).replace(',','.')) !== Number(book.saldo || 0)
   const bookIndex = filteredBooks.indexOf(book)
-  const isPuntiMoneteBook = puntiMoneteBooks.some(pb => pb.bookId && String(pb.bookId) === String(book.id))
+  const isPuntiMoneteBook = puntiMoneteBooks.some(pb => pb.bookId && String(pb.bookId) === String(book.id)) || String(book.id) === '2'
   return <tr key={book.id} style={tr}><td style={td}>{book.id}</td><td style={tdStrong}><div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>{livBadge && <span title={book.profilo_livello} style={{ background: livBadge.bg, color: livBadge.color, padding: '2px 7px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }} onClick={() => setActiveTab('profilazione')}>{livBadge.label}</span>}{book.nome}</div></td><td style={td}>{book.intestatario || '-'}</td><td style={td}>{isPuntiMoneteBook ? <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ fontSize: 14, fontWeight: 700, color: '#4ade80' }}>{Number(book.saldo || 0).toFixed(2)} €</span><span style={{ fontSize: 10, color: '#38bdf8', background: 'rgba(56,189,248,0.1)', padding: '2px 6px', borderRadius: 6, fontWeight: 700 }}>🏆 auto</span></div> : <input ref={el => { bookSaldoRefs.current[book.id] = el }} type="number" step="0.01" min="0" value={displaySaldo} onChange={e => setPendingBookSaldi(prev => ({ ...prev, [book.id]: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); const nextBook = filteredBooks[bookIndex + 1]; if (nextBook && bookSaldoRefs.current[nextBook.id]) { bookSaldoRefs.current[nextBook.id].focus(); bookSaldoRefs.current[nextBook.id].select() } } if (e.key === 'Escape') setPendingBookSaldi(prev => { const n = { ...prev }; delete n[book.id]; return n }) }} style={{ width: 110, background: hasPending ? 'rgba(251,191,36,0.08)' : '#0b1220', color: hasPending ? '#fbbf24' : '#e2e8f0', border: hasPending ? '1px solid rgba(251,191,36,0.7)' : '1px solid rgba(51,65,85,0.6)', borderRadius: 8, padding: '4px 8px', fontSize: 14, fontWeight: hasPending ? 800 : 600, outline: 'none' }} />}</td><td style={tdNote}><textarea defaultValue={book.note || ''} onBlur={(e) => updateNote('books', book.id, e.target.value)} style={{ ...noteTextarea, color: getNoteColor(book.note) }} /></td><td style={tdActions}><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button style={tinyGreenButton} onClick={() => openQuickBookTx(book, 'versa')}>Versa</button><button style={tinyBlueButton} onClick={() => openQuickBookTx(book, 'preleva')}>Preleva</button><button style={tinyOrangeButton} onClick={() => { setSelectedBook(book); resetAdjustSaldoForm(book); setShowAdjustSaldoModal(true) }}>Correggi saldo</button><button style={tinyRedButton} onClick={() => handleDeleteBook(book)}>Elimina</button></div></td></tr>
 })}
                 </tbody></table>
