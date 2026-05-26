@@ -4260,7 +4260,7 @@ setTimeout(() => setMessage(''), 4000)
 
         {activeTab === 'transactions' && (
           <div style={tabContent}>
-            <div style={transactionsLayout}>
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
               <div style={panelForm}>
                 <div style={panelHeader}><div><h2 style={panelTitle}>Nuova transazione</h2><p style={panelSubtitle}>Versa, preleva esterno e trasferisci tra wallet</p></div></div>
                 <form onSubmit={handleTransaction}>
@@ -4308,8 +4308,9 @@ setTimeout(() => setMessage(''), 4000)
                   </div>
                 })()}
               </div>
+            </div>
 
-              <div style={panel}>
+            <div style={{ ...panel, marginTop: 16 }}>
                 <div style={panelHeader}><div><h2 style={panelTitle}>Storico movimenti</h2><p style={panelSubtitle}>Filtro per tipo, azione, testo e importo</p></div></div>
                 <div style={filterRow}>
                   <select value={txFilters.tipo} onChange={(e) => setTxFilters({ ...txFilters, tipo: e.target.value })} style={filterInput}><option value=''>Tutti i tipi</option><option value='versa'>Versa</option><option value='preleva'>Preleva</option><option value='trasferisci'>Trasferisci</option><option value='correzione'>Correzione</option></select>
@@ -4326,7 +4327,6 @@ setTimeout(() => setMessage(''), 4000)
                     {filteredTransactions.map((tx) => <tr key={tx.id} style={tr}><td style={td}>{formatDate(tx.data)}</td><td style={td}><span style={badge(tx.tipo)}>{tx.tipo || '-'}</span></td><td style={td}>{formatCurrency(tx.importo)}</td><td style={td}>{tx.riferimento || '-'}</td><td style={td}>{tx.azione || '-'}</td><td style={tdNoteText}>{tx.note || '-'}</td><td style={td}>{tx.categoria_spesa ? <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: 'rgba(56,189,248,0.12)', color: '#38bdf8' }}>{tx.categoria_spesa}</span> : <span style={{ color: '#334155' }}>-</span>}</td><td style={tdActions}>{tx.azione !== 'manual_balance_adjustment' ? <button style={tinyRedButton} onClick={() => handleDeleteTransaction(tx)}>Elimina</button> : <span style={{ color: '#94a3b8', fontSize: 12 }}>Protetta</span>}</td></tr>)}
                   </tbody></table>
                 </div>
-              </div>
             </div>
           </div>
         )}
