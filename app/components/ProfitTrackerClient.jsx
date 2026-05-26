@@ -3323,13 +3323,20 @@ onChange={(e) => {
         <button
           onClick={async () => {
             setSyncInCorso(true)
+            let totSalvate = 0
             try {
-              const res = await fetch('/api/gmail/sync?secret=pt_cron_2026_sergio')
-const data = await res.json()
-await loadData({ preserveMessages: true })
-const totSalvate = (data.risultati || []).reduce((acc, r) => acc + (r.salvate || 0), 0)
-setMessage(totSalvate > 0 ? `📧 ${totSalvate} nuove promozioni trovate!` : '📧 Nessuna novità')
-setTimeout(() => setMessage(''), 4000)
+              const emailsConToken = clientiEmail.filter(e => e.gmail_refresh_token)
+              for (const emailRow of emailsConToken) {
+                try {
+                  setMessage(`📧 Sync ${emailRow.email}...`)
+                  const res = await fetch(`/api/gmail/sync?secret=pt_cron_2026_sergio&email_id=${emailRow.id}`)
+                  const data = await res.json()
+                  totSalvate += (data.risultati || []).reduce((acc, r) => acc + (r.salvate || 0), 0)
+                } catch {}
+              }
+              await loadData({ preserveMessages: true })
+              setMessage(totSalvate > 0 ? `📧 ${totSalvate} nuove promozioni trovate!` : '📧 Nessuna novità')
+              setTimeout(() => setMessage(''), 4000)
             } finally {
               setSyncInCorso(false)
             }
