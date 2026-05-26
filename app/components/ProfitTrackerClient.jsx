@@ -76,7 +76,7 @@ const [stimaForm, setStimaForm] = useState({
 
   const [adjustWalletSaldoForm, setAdjustWalletSaldoForm] = useState({ nuovo_saldo: '', note: '' })
   const [quickBookTxForm, setQuickBookTxForm] = useState({ tipo: 'versa', wallet_id: '', importo: '', note: '' })
-  const [txForm, setTxForm] = useState({ tipo: '', da_tipo: '', importo: '', da_id: '', a_id: '', note: '' })
+  const [txForm, setTxForm] = useState({ tipo: '', da_tipo: '', importo: '', da_id: '', a_id: '', note: '', categoria_spesa: '' })
 
   const [bookFilters, setBookFilters] = useState({ nome: '', intestatario: '', saldoMin: '', saldoMax: '' })
   const [walletFilters, setWalletFilters] = useState({ nome: '', intestatario: '', saldoMin: '', saldoMax: '' })
@@ -1414,7 +1414,7 @@ async function updateStatoStima(row, nuovoStato) {
   setStimeCassa(prev => prev.map(r => r.id === row.id ? { ...r, ...payload } : r))
   setPendingRefresh(true)
 } 
-  async function salvaLogTransazione({ tipo, importo, riferimento, note, azione }) {
+  async function salvaLogTransazione({ tipo, importo, riferimento, note, azione, categoria_spesa }) {
     return supabase.from('transactions').insert([{
       tipo,
       importo,
@@ -1422,6 +1422,7 @@ async function updateStatoStima(row, nuovoStato) {
       note,
       data: new Date().toISOString(),
       azione,
+      ...(categoria_spesa ? { categoria_spesa } : {})
     }])
   }
 
@@ -1701,7 +1702,7 @@ async function handleDeleteTransaction(tx) {
   }
 }
   function resetTxForm() {
-    setTxForm({ tipo: '', da_tipo: '', importo: '', da_id: '', a_id: '', note: '' })
+    setTxForm({ tipo: '', da_tipo: '', importo: '', da_id: '', a_id: '', note: '', categoria_spesa: '' })
   }
 
   function openQuickBookTx(book, tipo) {
@@ -2051,7 +2052,7 @@ if (nota === null) return
         r = await updateSaldo('wallets', wallet.id, Number(wallet.saldo) - importo)
         if (r.error) return setErrorMessage(r.error.message)
         const riferimento = `wallet:${wallet.id}:${wallet.nome}:${wallet.intestatario} -> esterno`
-        r = await salvaLogTransazione({ tipo: 'preleva', importo, riferimento, note: txForm.note || `Prelievo esterno da wallet ${wallet.nome}`, azione: 'wallet_to_external' })
+        r = await salvaLogTransazione({ tipo: 'preleva', importo, riferimento, note: txForm.note || `Prelievo esterno da wallet ${wallet.nome}`, azione: 'wallet_to_external', categoria_spesa: txForm.categoria_spesa || null })
         if (r.error) return setErrorMessage(r.error.message)
         r = await salvaSpesaGestione({ importo, riferimento, note: txForm.note || `Prelievo esterno da wallet ${wallet.nome}` })
         if (r.error) return setErrorMessage(r.error.message)
@@ -2280,7 +2281,22 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
       return <select name='da_id' value={txForm.da_id} onChange={handleTransactionChange} style={input}><option value=''>Seleziona book origine</option>{books.map((book) => <option key={book.id} value={book.id}>{getEntityLabel(book)}</option>)}</select>
     }
     if (txForm.tipo === 'preleva' && txForm.da_tipo === 'wallet') {
-      return <select name='da_id' value={txForm.da_id} onChange={handleTransactionChange} style={input}><option value=''>Seleziona wallet origine</option>{wallets.map((wallet) => <option key={wallet.id} value={wallet.id}>{getEntityLabel(wallet)}</option>)}</select>
+      return <>
+        <select name='da_id' value={txForm.da_id} onChange={handleTransactionChange} style={input}><option value=''>Seleziona wallet origine</option>{wallets.map((wallet) => <option key={wallet.id} value={wallet.id}>{getEntityLabel(wallet)}</option>)}</select>
+        <select name='categoria_spesa' value={txForm.categoria_spesa} onChange={handleTransactionChange} style={{ ...input, borderColor: txForm.categoria_spesa ? 'rgba(56,189,248,0.6)' : 'rgba(51,65,85,0.6)', color: txForm.categoria_spesa ? '#38bdf8' : '#94a3b8' }}>
+          <option value=''>📂 Categoria spesa (opzionale)</option>
+          <option value='Casa'>🏠 Casa</option>
+          <option value='Auto'>🚗 Auto</option>
+          <option value='Alimentari'>🛒 Alimentari</option>
+          <option value='Ristoranti/Svago'>🍽️ Ristoranti/Svago</option>
+          <option value='Abbigliamento'>👕 Abbigliamento</option>
+          <option value='Salute/Farmacia'>💊 Salute/Farmacia</option>
+          <option value='Tecnologia/Abbonamenti'>📱 Tecnologia/Abbonamenti</option>
+          <option value='Famiglia'>👨‍👩‍👦 Famiglia</option>
+          <option value='Attività Lavorativa'>💼 Attività Lavorativa</option>
+          <option value='Altro'>📦 Altro</option>
+        </select>
+      </>
     }
     if (txForm.tipo === 'trasferisci') {
       return <select name='da_id' value={txForm.da_id} onChange={handleTransactionChange} style={input}><option value=''>Seleziona wallet origine</option>{wallets.map((wallet) => <option key={wallet.id} value={wallet.id}>{getEntityLabel(wallet)}</option>)}</select>
@@ -4260,6 +4276,40 @@ setTimeout(() => setMessage(''), 4000)
               </div>
 
               <div style={panel}>
+                <div style={panelHeader}><div><h2 style={panelTitle}>📊 Spese per Categoria</h2><p style={panelSubtitle}>Solo prelievi verso esterno con categoria · mese corrente</p></div></div>
+                {(() => {
+                  const meseCorrente = new Date().toISOString().slice(0, 7)
+                  const speseCategoria = transactions
+                    .filter(tx => tx.azione === 'wallet_to_external' && tx.categoria_spesa && tx.data?.slice(0, 7) === meseCorrente)
+                    .reduce((acc, tx) => { acc[tx.categoria_spesa] = (acc[tx.categoria_spesa] || 0) + Number(tx.importo || 0); return acc }, {})
+                  const totaleCategorie = Object.values(speseCategoria).reduce((a, b) => a + b, 0)
+                  const EMOJI = { 'Casa': '🏠', 'Auto': '🚗', 'Alimentari': '🛒', 'Ristoranti/Svago': '🍽️', 'Abbigliamento': '👕', 'Salute/Farmacia': '💊', 'Tecnologia/Abbonamenti': '📱', 'Famiglia': '👨‍👩‍👦', 'Attività Lavorativa': '💼', 'Altro': '📦' }
+                  const COLORI = ['#38bdf8','#4ade80','#f87171','#fbbf24','#a78bfa','#fb923c','#34d399','#e879f9','#60a5fa','#94a3b8']
+                  const voci = Object.entries(speseCategoria).sort((a, b) => b[1] - a[1])
+                  if (voci.length === 0) return <div style={{ color: '#64748b', textAlign: 'center', padding: '24px 0', fontSize: 13 }}>Nessuna spesa categorizzata questo mese.<br/><span style={{ fontSize: 11 }}>Seleziona una categoria nei prossimi prelievi verso esterno.</span></div>
+                  return <div style={{ padding: '0 4px 8px' }}>
+                    {voci.map(([cat, importo], idx) => {
+                      const perc = totaleCategorie > 0 ? (importo / totaleCategorie) * 100 : 0
+                      return <div key={cat} style={{ marginBottom: 10 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>{EMOJI[cat] || '📦'} {cat}</span>
+                          <span style={{ fontSize: 13, fontWeight: 900, color: COLORI[idx % COLORI.length] }}>{importo.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
+                        </div>
+                        <div style={{ background: 'rgba(51,65,85,0.4)', borderRadius: 6, height: 8, overflow: 'hidden' }}>
+                          <div style={{ width: `${perc}%`, height: '100%', background: COLORI[idx % COLORI.length], borderRadius: 6, transition: 'width 0.5s ease' }} />
+                        </div>
+                        <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{perc.toFixed(1)}% del totale</div>
+                      </div>
+                    })}
+                    <div style={{ borderTop: '1px solid rgba(51,65,85,0.6)', paddingTop: 10, marginTop: 6, display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#94a3b8' }}>TOTALE CATEGORIZZATO</span>
+                      <span style={{ fontSize: 14, fontWeight: 900, color: '#f87171' }}>{totaleCategorie.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
+                    </div>
+                  </div>
+                })()}
+              </div>
+
+              <div style={panel}>
                 <div style={panelHeader}><div><h2 style={panelTitle}>Storico movimenti</h2><p style={panelSubtitle}>Filtro per tipo, azione, testo e importo</p></div></div>
                 <div style={filterRow}>
                   <select value={txFilters.tipo} onChange={(e) => setTxFilters({ ...txFilters, tipo: e.target.value })} style={filterInput}><option value=''>Tutti i tipi</option><option value='versa'>Versa</option><option value='preleva'>Preleva</option><option value='trasferisci'>Trasferisci</option><option value='correzione'>Correzione</option></select>
@@ -4272,8 +4322,8 @@ setTimeout(() => setMessage(''), 4000)
                   <button type='button' style={secondaryButton} onClick={clearTxFilters}>Pulisci</button>
                 </div>
                 <div style={tableWrap}>
-                  <table style={tableLarge}><thead><tr><th style={th}>Data</th><th style={th}>Tipo</th><th style={th}>Importo</th><th style={th}>Riferimento</th><th style={th}>Azione</th><th style={th}>Note</th><th style={thActions}>Azioni</th></tr></thead><tbody>
-                    {filteredTransactions.map((tx) => <tr key={tx.id} style={tr}><td style={td}>{formatDate(tx.data)}</td><td style={td}><span style={badge(tx.tipo)}>{tx.tipo || '-'}</span></td><td style={td}>{formatCurrency(tx.importo)}</td><td style={td}>{tx.riferimento || '-'}</td><td style={td}>{tx.azione || '-'}</td><td style={tdNoteText}>{tx.note || '-'}</td><td style={tdActions}>{tx.azione !== 'manual_balance_adjustment' ? <button style={tinyRedButton} onClick={() => handleDeleteTransaction(tx)}>Elimina</button> : <span style={{ color: '#94a3b8', fontSize: 12 }}>Protetta</span>}</td></tr>)}
+                  <table style={tableLarge}><thead><tr><th style={th}>Data</th><th style={th}>Tipo</th><th style={th}>Importo</th><th style={th}>Riferimento</th><th style={th}>Azione</th><th style={th}>Note</th><th style={th}>Categoria</th><th style={thActions}>Azioni</th></tr></thead><tbody>
+                    {filteredTransactions.map((tx) => <tr key={tx.id} style={tr}><td style={td}>{formatDate(tx.data)}</td><td style={td}><span style={badge(tx.tipo)}>{tx.tipo || '-'}</span></td><td style={td}>{formatCurrency(tx.importo)}</td><td style={td}>{tx.riferimento || '-'}</td><td style={td}>{tx.azione || '-'}</td><td style={tdNoteText}>{tx.note || '-'}</td><td style={td}>{tx.categoria_spesa ? <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: 'rgba(56,189,248,0.12)', color: '#38bdf8' }}>{tx.categoria_spesa}</span> : <span style={{ color: '#334155' }}>-</span>}</td><td style={tdActions}>{tx.azione !== 'manual_balance_adjustment' ? <button style={tinyRedButton} onClick={() => handleDeleteTransaction(tx)}>Elimina</button> : <span style={{ color: '#94a3b8', fontSize: 12 }}>Protetta</span>}</td></tr>)}
                   </tbody></table>
                 </div>
               </div>
