@@ -111,9 +111,15 @@ const [docUploading, setDocUploading] = useState(false)
 const [docPasswordError, setDocPasswordError] = useState('')
 const [archivioMailCella, setArchivioMailCella] = useState(null) // { cliente, bookmaker, promo[] }
 const [archivioMailDati, setArchivioMailDati] = useState([]) // tutte le promo
-const [puntiMoneteBooks, setPuntiMoneteBooks] = useState([]) // [{ id, nome, valorepunto }]
-const [puntiMoneteSaldi, setPuntiMoneteSaldi] = useState({}) // { bookNome_clienteNome: punti }
+const [puntiMoneteBooks, setPuntiMoneteBooks] = useState([])
+const [puntiMoneteSaldi, setPuntiMoneteSaldi] = useState({})
 const [puntiMoneteLoading, setPuntiMoneteLoading] = useState(false)
+const [archivioSearch, setArchivioSearch] = useState('')
+const [pmBooks, setPmBooks] = useState([])
+const [pmSaldi, setPmSaldi] = useState({})
+const [pmLoading, setPmLoading] = useState(true)
+const [pmNuovoBook, setPmNuovoBook] = useState({ nome: '', valorePunto: 0.001818, bookId: '' })
+const [pmShowAggiungi, setPmShowAggiungi] = useState(false)
   useEffect(() => {
   if (typeof window !== 'undefined' && localStorage.getItem('site_unlocked') !== '1') {
     window.location.href = '/login?from=/profit-tracker'
@@ -494,11 +500,19 @@ if (memoFreeBoxesRes.error) errors.push('memo_free_boxes'); else setMemoFreeBoxe
 }
 if (clientiRes && !clientiRes.error) setClienti(clientiRes.data || [])
 if (clientiEmailRes && !clientiEmailRes.error) setClientiEmail(clientiEmailRes.data || [])
-const { data: pmData } = await supabase.from('punti_monete').select('book_nome, book_id, valore_punto').order('book_nome')
+const { data: pmData } = await supabase.from('punti_monete').select('*').order('book_nome').order('cliente_nome')
 if (pmData) {
   const bookMap = {}
-  pmData.forEach(r => { if (!bookMap[r.book_nome]) bookMap[r.book_nome] = { id: r.book_nome.toLowerCase(), nome: r.book_nome, valorePunto: Number(r.valore_punto), bookId: r.book_id ? String(r.book_id) : '' } })
-  setPuntiMoneteBooks(Object.values(bookMap))
+  const saldiMap = {}
+  pmData.forEach(r => {
+    if (!bookMap[r.book_nome]) bookMap[r.book_nome] = { id: r.book_nome.toLowerCase(), nome: r.book_nome, valorePunto: Number(r.valore_punto), bookId: r.book_id ? String(r.book_id) : '' }
+    saldiMap[`${r.book_nome.toLowerCase()}__${r.cliente_nome}`] = r.punti
+  })
+  const booksArr = Object.values(bookMap)
+  setPuntiMoneteBooks(booksArr)
+  setPmBooks(booksArr)
+  setPmSaldi(saldiMap)
+  setPmLoading(false)
 }
 if (promozioniRes && !promozioniRes.error) {
   setPromozioni(promozioniRes.data || [])
@@ -3558,8 +3572,6 @@ setTimeout(() => setMessage(''), 4000)
   const clientiOrdinati = [...clienti].sort((a, b) => a.nome.localeCompare(b.nome))
 
   // Filtro mittente (ricerca rapida)
-  const [archivioSearch, setArchivioSearch] = React.useState('')
-
   const colonneFiltered = archivioSearch
     ? colonneBook.filter(b => b.toLowerCase().includes(archivioSearch.toLowerCase()))
     : colonneBook
@@ -3722,33 +3734,7 @@ setTimeout(() => setMessage(''), 4000)
     ...clienti.filter(c => !ORDINE_CLIENTI.some(n => n.toLowerCase() === c.nome?.toLowerCase()))
   ]
 
-  const [pmBooks, setPmBooks] = React.useState([])
-  const [pmSaldi, setPmSaldi] = React.useState({}) // { bookNome__clienteNome: punti }
-  const [pmLoading, setPmLoading] = React.useState(true)
-  const [pmNuovoBook, setPmNuovoBook] = React.useState({ nome: '', valorePunto: 0.001818, bookId: '' })
-  const [pmShowAggiungi, setPmShowAggiungi] = React.useState(false)
 
-  // Carica da Supabase al mount
-  React.useEffect(() => {
-    const carica = async () => {
-      setPmLoading(true)
-      const { data, error } = await supabase.from('punti_monete').select('*').order('book_nome').order('cliente_nome')
-      if (!error && data) {
-        // Estrai books unici
-        const bookMap = {}
-        data.forEach(r => {
-          if (!bookMap[r.book_nome]) bookMap[r.book_nome] = { id: r.book_nome.toLowerCase(), nome: r.book_nome, valorePunto: Number(r.valore_punto), bookId: r.book_id ? String(r.book_id) : '' }
-        })
-        setPmBooks(Object.values(bookMap))
-        // Costruisci mappa saldi
-        const saldi = {}
-        data.forEach(r => { saldi[`${r.book_nome.toLowerCase()}__${r.cliente_nome}`] = r.punti })
-        setPmSaldi(saldi)
-      }
-      setPmLoading(false)
-    }
-    carica()
-  }, [])
 
   const getCellKey = (bookId, clienteNome) => `${bookId}__${clienteNome}`
 
@@ -5176,7 +5162,6 @@ setTimeout(() => setMessage(''), 4000)
  
   </div>
     )
-  }
 const container = { minHeight: '100vh', background: 'linear-gradient(180deg, #020617 0%, #0f172a 100%)', color: '#e5eefb', padding: '24px 16px 48px' }
 const pageWrap = { maxWidth: 1500, margin: '0 auto' }
 const header = { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap', marginBottom: 18 }
