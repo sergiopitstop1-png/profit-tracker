@@ -59,6 +59,8 @@ const [stimaForm, setStimaForm] = useState({
   const [syncLog, setSyncLog] = useState([])
   const [showSyncLog, setShowSyncLog] = useState(false)
   const [promozioneDettaglio, setPromozioneDettaglio] = useState(null)
+  const [testoLive, setTestoLive] = useState('')
+  const [testoLoading, setTestoLoading] = useState(false)
   const [showPromozioniManualiPopup, setShowPromozioniManualiPopup] = useState(false)
   const [promozioniManualiEmail, setPromozioniManualiEmail] = useState('')
   const [showClienteModal, setShowClienteModal] = useState(false)
@@ -2455,10 +2457,13 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                   {promozioneDettaglio.data_mail && <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>{new Date(promozioneDettaglio.data_mail).toLocaleDateString('it-IT')}</div>}
                 </div>
                 <button style={{ border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18, flexShrink: 0 }}
-                  onClick={() => setPromozioneDettaglio(null)}>×</button>
+                  onClick={() => { setPromozioneDettaglio(null); setTestoLive('') }}>×</button>
               </div>
-              <div style={{ background: 'rgba(11,18,32,0.8)', border: '1px solid rgba(51,65,85,0.6)', borderRadius: 12, padding: 16, color: '#cbd5e1', fontSize: 13, lineHeight: 1.7, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                {promozioneDettaglio.testo_completo}
+              <div style={{ background: 'rgba(11,18,32,0.8)', border: '1px solid rgba(51,65,85,0.6)', borderRadius: 12, padding: 16, color: '#cbd5e1', fontSize: 13, lineHeight: 1.7, whiteSpace: 'pre-wrap', wordBreak: 'break-word', minHeight: 80 }}>
+                {testoLoading
+                  ? <span style={{ color: '#64748b' }}>⏳ Caricamento testo...</span>
+                  : testoLive || promozioneDettaglio.testo_completo || <span style={{ color: '#64748b' }}>Nessun testo disponibile</span>
+                }
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
                 <button
@@ -2470,7 +2475,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                   }}
                   style={{ padding: '10px 18px', borderRadius: 12, border: 'none', background: 'rgba(239,68,68,0.15)', color: '#f87171', cursor: 'pointer', fontSize: 13, fontWeight: 800 }}>🗑️ Elimina</button>
                 <button style={{ padding: '10px 22px', borderRadius: 12, border: 'none', background: '#38bdf8', color: '#0f172a', cursor: 'pointer', fontSize: 13, fontWeight: 800 }}
-                  onClick={() => setPromozioneDettaglio(null)}>Chiudi</button>
+                  onClick={() => { setPromozioneDettaglio(null); setTestoLive('') }}>Chiudi</button>
               </div>
             </div>
           </div>
@@ -3807,12 +3812,22 @@ onChange={(e) => {
                   <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{p.oggetto}</div>
                   <div style={{ color: '#64748b', fontSize: 11, marginBottom: 8 }}>Da: {p.mittente}</div>
                   <button
-                    onClick={() => {
+                    onClick={async () => {
+                      setTestoLive('')
                       setPromozioneDettaglio(p)
                       if (!p.letta) {
                         setPromozioni(prev => prev.map(x => x.id === p.id ? { ...x, letta: true } : x))
                         setArchivioMailCella(prev => prev ? { ...prev, promo: prev.promo.map(x => x.id === p.id ? { ...x, letta: true } : x) } : null)
                         supabase.from('promozioni_clienti').update({ letta: true }).eq('id', p.id)
+                      }
+                      if (!p.testo_completo && p.gmail_message_id && p.email_id) {
+                        setTestoLoading(true)
+                        try {
+                          const res = await fetch(`/api/gmail/read-single?email_id=${p.email_id}&message_id=${p.gmail_message_id}`)
+                          const data = await res.json()
+                          if (data.testo) setTestoLive(data.testo)
+                        } catch {}
+                        setTestoLoading(false)
                       }
                     }}
                     style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
