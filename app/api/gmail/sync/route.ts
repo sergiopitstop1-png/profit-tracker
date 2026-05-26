@@ -171,9 +171,30 @@ async function analizzaPromozioni(mail: any[], nomeCliente: string) {
     })
 
     const data = await res.json()
-    if (!data.choices?.[0]?.message?.content) return []
+    const rawContent = data.choices?.[0]?.message?.content
+    if (!rawContent) {
+      console.error('Groq risposta vuota:', JSON.stringify(data))
+      return []
+    }
 
-    const parsed = JSON.parse(data.choices[0].message.content.replace(/```json|```/g, '').trim())
+    // Prova parsing robusto — estrae il JSON array anche se c'è testo intorno
+    let parsed: any[] = []
+    try {
+      const clean = rawContent.replace(/```json|```/g, '').trim()
+      parsed = JSON.parse(clean)
+    } catch {
+      // Fallback: cerca il primo [...] nel testo
+      const match = rawContent.match(/\[[\s\S]*\]/)
+      if (match) {
+        try { parsed = JSON.parse(match[0]) } catch { parsed = [] }
+      }
+    }
+
+    if (!Array.isArray(parsed)) {
+      console.error('Groq non ha restituito array:', rawContent.substring(0, 200))
+      return []
+    }
+
     for (const p of parsed) {
       if (!p.date || !p.from || !p.msg_id) {
         const mailOriginale = mail.find(m => m.id === p.msg_id || m.subject === p.subject)
@@ -243,7 +264,14 @@ export async function GET(request: Request) {
         continue
       }
 
-      const promozioni = await analizzaPromozioni(mail, nomeCliente)
+      // Processa in batch da 10 per non superare il limite token di Groq
+      const promozioni: any[] = []
+      const batchMailSize = 10
+      for (let i = 0; i < mail.length; i += batchMailSize) {
+        const batch = mail.slice(i, i + batchMailSize)
+        const risultatoBatch = await analizzaPromozioni(batch, nomeCliente)
+        promozioni.push(...risultatoBatch)
+      }
       let salvate = 0
       let duplicate = 0
 
