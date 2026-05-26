@@ -154,7 +154,12 @@ export async function GET(request: Request) {
       duplicate = mail.length - nuove.length
 
       if (nuove.length > 0) {
-        const rows = nuove.map(m => ({
+        // Leggi testo completo per ogni mail nuova
+        const testiCompleti = await Promise.all(
+          nuove.map(m => leggiTestoCompleto(accessToken, m.id))
+        )
+
+        const rows = nuove.map((m, idx) => ({
           cliente_id: emailRow.clienti?.id,
           email_id: emailRow.id,
           gmail_message_id: m.id,
@@ -163,6 +168,7 @@ export async function GET(request: Request) {
           tipo: 'mail',
           priorita: 'media',
           data_mail: parseDateSafe(m.date),
+          testo_completo: testiCompleti[idx] ? testiCompleti[idx].substring(0, 10000) : null,
           letta: false
         }))
 
