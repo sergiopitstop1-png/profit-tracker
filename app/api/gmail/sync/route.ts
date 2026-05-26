@@ -247,13 +247,11 @@ export async function GET(request: Request) {
 
       const promozioniDaSalvare: any[] = []
       for (const p of promozioni) {
+        if (!p.msg_id) { duplicate++; continue }
         const { data: esistente } = await supabase
           .from('promozioni_clienti')
           .select('id')
-          .eq('email_id', emailRow.id)
-          .eq('oggetto', p.subject || '')
-          .eq('mittente', p.from || '')
-          .gte('created_at', new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString())
+          .eq('gmail_message_id', p.msg_id)
           .maybeSingle()
         if (esistente) { duplicate++; } else { promozioniDaSalvare.push(p) }
       }
@@ -270,6 +268,7 @@ export async function GET(request: Request) {
             const { error: insertError } = await supabase.from('promozioni_clienti').insert([{
               cliente_id: emailRow.clienti?.id,
               email_id: emailRow.id,
+              gmail_message_id: p.msg_id || null,
               mittente: p.from || '',
               oggetto: p.subject || '',
               tipo: p.tipo || 'promozione',
