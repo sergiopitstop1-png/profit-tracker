@@ -117,6 +117,8 @@ const [puntiMoneteBooks, setPuntiMoneteBooks] = useState([])
 const [puntiMoneteSaldi, setPuntiMoneteSaldi] = useState({})
 const [puntiMoneteLoading, setPuntiMoneteLoading] = useState(false)
 const [archivioSearch, setArchivioSearch] = useState('')
+const [archivioFiltroCliente, setArchivioFiltroCliente] = useState('')
+const [archivioFiltroData, setArchivioFiltroData] = useState('')
 const [pmBooks, setPmBooks] = useState([])
 const [pmSaldi, setPmSaldi] = useState({})
 const [pmLoading, setPmLoading] = useState(true)
@@ -3648,17 +3650,39 @@ onChange={(e) => {
 
   return (
     <div style={tabContent}>
-      <div style={sectionTopBar}>
-        <div>
-          <h2 style={sectionTitle}>📧 Archivio Mail</h2>
-          <p style={sectionDescription}>Promozioni ricevute per cliente × bookmaker · clicca il numero per leggere le mail</p>
+      <div style={{ marginBottom: 16 }}>
+        <div style={sectionTopBar}>
+          <div>
+            <h2 style={sectionTitle}>📧 Archivio Mail</h2>
+            <p style={sectionDescription}>Promozioni ricevute per cliente × bookmaker · clicca il numero per leggere le mail</p>
+          </div>
         </div>
-        <input
-          placeholder="🔍 Filtra bookmaker..."
-          value={archivioSearch}
-          onChange={e => setArchivioSearch(e.target.value)}
-          style={{ ...filterInput, maxWidth: 220 }}
-        />
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10 }}>
+          <input
+            placeholder="🔍 Filtra bookmaker/mittente..."
+            value={archivioSearch}
+            onChange={e => setArchivioSearch(e.target.value)}
+            style={{ ...filterInput, maxWidth: 200 }}
+          />
+          <input
+            placeholder="👤 Filtra cliente..."
+            value={archivioFiltroCliente}
+            onChange={e => setArchivioFiltroCliente(e.target.value)}
+            style={{ ...filterInput, maxWidth: 180 }}
+          />
+          <input
+            type="date"
+            value={archivioFiltroData}
+            onChange={e => setArchivioFiltroData(e.target.value)}
+            style={{ ...filterInput, maxWidth: 160 }}
+          />
+          {(archivioSearch || archivioFiltroCliente || archivioFiltroData) && (
+            <button
+              onClick={() => { setArchivioSearch(''); setArchivioFiltroCliente(''); setArchivioFiltroData('') }}
+              style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.1)', color: '#f87171', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
+            >✕ Azzera filtri</button>
+          )}
+        </div>
       </div>
 
       {colonneBook.length === 0 ? (
@@ -3690,13 +3714,22 @@ onChange={(e) => {
               </tr>
             </thead>
             <tbody>
-              {clientiOrdinati.map(c => {
-                const promoCliente = tutteLePromo.filter(p => p.cliente_id === c.id || p.clienti?.nome === c.nome)
-                // skip clienti senza nessuna promo
+              {clientiOrdinati
+                .filter(c => !archivioFiltroCliente || c.nome.toLowerCase().includes(archivioFiltroCliente.toLowerCase()))
+                .map(c => {
+                const promoCliente = tutteLePromo.filter(p => {
+                  if (p.cliente_id !== c.id && p.clienti?.nome !== c.nome) return false
+                  if (archivioFiltroData) {
+                    const dataMail = p.data_mail ? new Date(p.data_mail) : new Date(p.created_at)
+                    const filtroDate = new Date(archivioFiltroData)
+                    if (dataMail.toDateString() !== filtroDate.toDateString()) return false
+                  }
+                  return true
+                })
                 const haAlcunaPromo = colonneFiltered.some(book => promoCliente.filter(p => getBookKey(p.mittente) === book).length > 0)
                 if (!haAlcunaPromo) return null
                 return (
-                  <tr key={c.id} style={{ ...tr, ':hover': { background: 'rgba(56,189,248,0.04)' } }}>
+                  <tr key={c.id} style={{ ...tr }}>
                     <td style={{ ...tdStrong, position: 'sticky', left: 0, background: '#0b1220', zIndex: 2, borderRight: '1px solid rgba(51,65,85,0.7)', fontSize: 13 }}>
                       {c.nome}
                     </td>
@@ -3721,15 +3754,7 @@ onChange={(e) => {
                                 position: 'relative'
                               }}
                             >
-                              <span>{mailCella.length}</span>
-                              {nonLette > 0 && (
-                                <span style={{
-                                  marginLeft: 4,
-                                  background: '#ef4444', color: '#fff',
-                                  borderRadius: 6, padding: '1px 5px',
-                                  fontSize: 10, fontWeight: 900,
-                                }}>+{nonLette}</span>
-                              )}
+                              {nonLette > 0 ? nonLette : mailCella.length}
                             </button>
                           ) : (
                             <span style={{ color: '#334155', fontSize: 13 }}>·</span>
@@ -3740,6 +3765,15 @@ onChange={(e) => {
                   </tr>
                 )
               })}
+              {/* Riga footer con nomi bookmaker ripetuti */}
+              <tr style={{ ...tr, background: 'rgba(15,23,42,0.9)', borderTop: '2px solid rgba(51,65,85,0.7)' }}>
+                <td style={{ ...tdStrong, position: 'sticky', left: 0, background: '#0b1220', zIndex: 2, borderRight: '1px solid rgba(51,65,85,0.7)', fontSize: 11, color: '#94a3b8' }}>MITTENTE</td>
+                {colonneFiltered.map(book => (
+                  <td key={book} style={{ ...td, textAlign: 'center', padding: '8px 4px' }}>
+                    <span style={{ background: 'rgba(56,189,248,0.08)', color: '#38bdf8', padding: '2px 6px', borderRadius: 6, fontSize: 10, fontWeight: 700 }}>{book}</span>
+                  </td>
+                ))}
+              </tr>
             </tbody>
           </table>
         </div>
