@@ -120,6 +120,10 @@ const [pmSaldi, setPmSaldi] = useState({})
 const [pmLoading, setPmLoading] = useState(true)
 const [speseCategoriaMese, setSpeseCategoriaMese] = useState([])
 const [txLoadAll, setTxLoadAll] = useState(false)
+const [speseMeseSelezionato, setSpeseMeseSelezionato] = useState(() => new Date().toISOString().slice(0, 7))
+const [speseStorico, setSpeseStorico] = useState({}) // { 'YYYY-MM': [...tx] }
+const [soglieBudget, setSoglieBudget] = useState(() => { try { return JSON.parse(localStorage.getItem('soglie_budget') || '{}') } catch { return {} } })
+const [showSoglieEditor, setShowSoglieEditor] = useState(false)
 const [pmNuovoBook, setPmNuovoBook] = useState({ nome: '', valorePunto: 0.001818, bookId: '' })
 const [pmShowAggiungi, setPmShowAggiungi] = useState(false)
   useEffect(() => {
@@ -4288,35 +4292,125 @@ setTimeout(() => setMessage(''), 4000)
               </div>
 
               <div style={panel}>
-                <div style={panelHeader}><div><h2 style={panelTitle}>📊 Spese per Categoria</h2><p style={panelSubtitle}>Solo prelievi verso esterno con categoria · mese corrente</p></div></div>
                 {(() => {
-                  const speseCategoria = speseCategoriaMese
-                    .filter(tx => tx.categoria_spesa)
-                    .reduce((acc, tx) => { acc[tx.categoria_spesa] = (acc[tx.categoria_spesa] || 0) + Number(tx.importo || 0); return acc }, {})
-                  const totaleCategorie = Object.values(speseCategoria).reduce((a, b) => a + b, 0)
                   const EMOJI = { 'Casa': '🏠', 'Auto': '🚗', 'Alimentari': '🛒', 'Ristoranti/Svago': '🍽️', 'Ristoranti/Svago/Viaggi': '✈️', 'Abbigliamento': '👕', 'Salute/Farmacia': '💊', 'Tecnologia/Abbonamenti': '📱', 'Famiglia': '👨‍👩‍👦', 'Attività Lavorativa': '💼', 'Altro': '📦', 'Spese Personali Sergio': '🚬' }
                   const COLORI = ['#38bdf8','#4ade80','#f87171','#fbbf24','#a78bfa','#fb923c','#34d399','#e879f9','#60a5fa','#94a3b8']
+                  const meseCorrente = new Date().toISOString().slice(0, 7)
+                  const isMeseCorrente = speseMeseSelezionato === meseCorrente
+
+                  // Naviga al mese precedente/successivo
+                  const navigaMese = async (delta) => {
+                    const [y, m] = speseMeseSelezionato.split('-').map(Number)
+                    const d = new Date(y, m - 1 + delta, 1)
+                    const nuovoMese = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+                    setSpeseMeseSelezionato(nuovoMese)
+                    if (!speseStorico[nuovoMese] && nuovoMese !== meseCorrente) {
+                      const inizioMese = nuovoMese + '-01'
+                      const fineMese = new Date(d.getFullYear(), d.getMonth() + 1, 1).toISOString()
+                      const { data } = await supabase.from('transactions').select('id,note,importo,categoria_spesa,data,azione').eq('azione', 'wallet_to_external').gte('data', inizioMese).lt('data', fineMese)
+                      if (data) setSpeseStorico(prev => ({ ...prev, [nuovoMese]: data }))
+                    }
+                  }
+
+                  const txMese = isMeseCorrente ? speseCategoriaMese : (speseStorico[speseMeseSelezionato] || [])
+                  const speseCategoria = txMese.filter(tx => tx.categoria_spesa).reduce((acc, tx) => { acc[tx.categoria_spesa] = (acc[tx.categoria_spesa] || 0) + Number(tx.importo || 0); return acc }, {})
+                  const totaleCategorie = Object.values(speseCategoria).reduce((a, b) => a + b, 0)
                   const voci = Object.entries(speseCategoria).sort((a, b) => b[1] - a[1])
-                  if (voci.length === 0) return <div style={{ color: '#64748b', textAlign: 'center', padding: '24px 0', fontSize: 13 }}>Nessuna spesa categorizzata questo mese.<br/><span style={{ fontSize: 11 }}>Seleziona una categoria nei prossimi prelievi verso esterno.</span></div>
-                  return <div style={{ padding: '0 4px 8px' }}>
-                    {voci.map(([cat, importo], idx) => {
-                      const perc = totaleCategorie > 0 ? (importo / totaleCategorie) * 100 : 0
-                      return <div key={cat} style={{ marginBottom: 10 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>{EMOJI[cat] || '📦'} {cat}</span>
-                          <span style={{ fontSize: 13, fontWeight: 900, color: COLORI[idx % COLORI.length] }}>{importo.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
-                        </div>
-                        <div style={{ background: 'rgba(51,65,85,0.4)', borderRadius: 6, height: 8, overflow: 'hidden' }}>
-                          <div style={{ width: `${perc}%`, height: '100%', background: COLORI[idx % COLORI.length], borderRadius: 6, transition: 'width 0.5s ease' }} />
-                        </div>
-                        <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{perc.toFixed(1)}% del totale</div>
+                  const sforati = voci.filter(([cat, imp]) => soglieBudget[cat] && imp > Number(soglieBudget[cat]))
+
+                  return <>
+                    <div style={panelHeader}>
+                      <div><h2 style={panelTitle}>📊 Spese per Categoria</h2><p style={panelSubtitle}>Solo wallet → esterno categorizzate</p></div>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <button style={{ ...secondaryButton, padding: '4px 10px', fontSize: 16 }} onClick={() => navigaMese(-1)}>‹</button>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#38bdf8', minWidth: 80, textAlign: 'center' }}>{speseMeseSelezionato}</span>
+                        <button style={{ ...secondaryButton, padding: '4px 10px', fontSize: 16, opacity: isMeseCorrente ? 0.3 : 1 }} onClick={() => !isMeseCorrente && navigaMese(1)} disabled={isMeseCorrente}>›</button>
+                        <button style={{ ...secondaryButton, fontSize: 11, padding: '4px 8px' }} onClick={() => setShowSoglieEditor(true)}>⚙️ Budget</button>
                       </div>
-                    })}
-                    <div style={{ borderTop: '1px solid rgba(51,65,85,0.6)', paddingTop: 10, marginTop: 6, display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: '#94a3b8' }}>TOTALE CATEGORIZZATO</span>
-                      <span style={{ fontSize: 14, fontWeight: 900, color: '#f87171' }}>{totaleCategorie.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
                     </div>
-                  </div>
+
+                    {sforati.length > 0 && (
+                      <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: 10, padding: '8px 12px', marginBottom: 12 }}>
+                        <div style={{ fontSize: 12, fontWeight: 800, color: '#f87171', marginBottom: 4 }}>⚠️ Budget sforato!</div>
+                        {sforati.map(([cat, imp]) => (
+                          <div key={cat} style={{ fontSize: 11, color: '#fca5a5' }}>
+                            {EMOJI[cat] || '📦'} {cat}: {imp.toLocaleString('it-IT', {minimumFractionDigits:2})} € / budget {Number(soglieBudget[cat]).toLocaleString('it-IT', {minimumFractionDigits:2})} € (+{(imp - Number(soglieBudget[cat])).toLocaleString('it-IT', {minimumFractionDigits:2})} €)
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {voci.length === 0
+                      ? <div style={{ color: '#64748b', textAlign: 'center', padding: '24px 0', fontSize: 13 }}>Nessuna spesa categorizzata.<br/><span style={{ fontSize: 11 }}>Seleziona una categoria nei prelievi verso esterno.</span></div>
+                      : <div style={{ padding: '0 4px 8px' }}>
+                          {voci.map(([cat, importo], idx) => {
+                            const perc = totaleCategorie > 0 ? (importo / totaleCategorie) * 100 : 0
+                            const soglia = soglieBudget[cat] ? Number(soglieBudget[cat]) : null
+                            const sforato = soglia && importo > soglia
+                            const percSoglia = soglia ? Math.min((importo / soglia) * 100, 100) : null
+                            return <div key={cat} style={{ marginBottom: 12 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <span style={{ fontSize: 13, fontWeight: 700, color: sforato ? '#f87171' : '#e2e8f0' }}>{EMOJI[cat] || '📦'} {cat}</span>
+                                  {sforato && <span style={{ fontSize: 10, fontWeight: 800, color: '#ef4444', background: 'rgba(239,68,68,0.15)', padding: '1px 5px', borderRadius: 4 }}>⚠️ SFORATO</span>}
+                                </div>
+                                <div style={{ textAlign: 'right' }}>
+                                  <span style={{ fontSize: 13, fontWeight: 900, color: sforato ? '#f87171' : COLORI[idx % COLORI.length] }}>{importo.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
+                                  {soglia && <span style={{ fontSize: 10, color: '#64748b', marginLeft: 4 }}>/ {soglia.toLocaleString('it-IT')} €</span>}
+                                </div>
+                              </div>
+                              <div style={{ background: 'rgba(51,65,85,0.4)', borderRadius: 6, height: 8, overflow: 'hidden' }}>
+                                <div style={{ width: `${perc}%`, height: '100%', background: sforato ? '#ef4444' : COLORI[idx % COLORI.length], borderRadius: 6, transition: 'width 0.5s ease' }} />
+                              </div>
+                              {soglia && (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
+                                  <span style={{ fontSize: 10, color: '#64748b' }}>{perc.toFixed(1)}% del totale</span>
+                                  <span style={{ fontSize: 10, color: sforato ? '#f87171' : '#64748b' }}>{percSoglia?.toFixed(0)}% del budget</span>
+                                </div>
+                              )}
+                              {!soglia && <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{perc.toFixed(1)}% del totale</div>}
+                            </div>
+                          })}
+                          <div style={{ borderTop: '1px solid rgba(51,65,85,0.6)', paddingTop: 10, marginTop: 6, display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: '#94a3b8' }}>TOTALE CATEGORIZZATO</span>
+                            <span style={{ fontSize: 14, fontWeight: 900, color: '#f87171' }}>{totaleCategorie.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
+                          </div>
+                        </div>
+                    }
+
+                    {showSoglieEditor && (
+                      <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2500, padding: 16 }}>
+                        <div style={{ width: '100%', maxWidth: 460, background: 'linear-gradient(180deg,rgba(15,23,42,0.99),rgba(2,6,23,1))', border: '2px solid rgba(56,189,248,0.4)', borderRadius: 22, padding: 24, maxHeight: '85vh', overflowY: 'auto' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                            <h3 style={{ margin: 0, color: '#f8fafc' }}>⚙️ Budget per Categoria</h3>
+                            <button style={{ border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18 }} onClick={() => setShowSoglieEditor(false)}>×</button>
+                          </div>
+                          <p style={{ fontSize: 12, color: '#64748b', marginBottom: 16 }}>Imposta un budget mensile per categoria. Se superi la soglia la barra diventa rossa.</p>
+                          {['Casa','Auto','Alimentari','Ristoranti/Svago/Viaggi','Abbigliamento','Salute/Farmacia','Tecnologia/Abbonamenti','Famiglia','Attività Lavorativa','Spese Personali Sergio','Altro'].map(cat => (
+                            <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                              <span style={{ fontSize: 13, flex: 1, color: '#e2e8f0' }}>{EMOJI[cat] || '📦'} {cat}</span>
+                              <input
+                                type="number" min="0" step="10"
+                                value={soglieBudget[cat] || ''}
+                                placeholder="Nessun limite"
+                                onChange={e => {
+                                  const nuove = { ...soglieBudget, [cat]: e.target.value }
+                                  if (!e.target.value) delete nuove[cat]
+                                  setSoglieBudget(nuove)
+                                  localStorage.setItem('soglie_budget', JSON.stringify(nuove))
+                                }}
+                                style={{ width: 110, background: '#0b1220', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 8, padding: '5px 8px', fontSize: 13, textAlign: 'right', outline: 'none' }}
+                              />
+                              <span style={{ fontSize: 12, color: '#64748b' }}>€</span>
+                            </div>
+                          ))}
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+                            <button style={primaryButtonBlue} onClick={() => setShowSoglieEditor(false)}>Salva e chiudi</button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 })()}
               </div>
             </div>
