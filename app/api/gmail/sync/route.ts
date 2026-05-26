@@ -163,9 +163,9 @@ async function analizzaPromozioni(mail: any[], nomeCliente: string) {
         model: 'llama3-8b-8192',
         max_tokens: 4000,
         messages: [
-          { role: 'system', content: 'Sei un assistente che analizza email. Rispondi SEMPRE e SOLO con un JSON array valido, senza markdown, senza testo prima o dopo.' },
+          { role: 'system', content: 'You are a JSON-only responder. You must always respond with a valid JSON array and nothing else. No markdown, no explanation.' },
           { role: 'user',
-          content: `Analizza queste email di ${nomeCliente} e identifica TUTTE quelle provenienti da bookmaker, casinò, siti di scommesse, poker, slot, giochi online, operatori di gioco. Classifica come promo QUALSIASI mail da questi mittenti, anche se è solo una newsletter o notifica. Includi tutto ciò che potrebbe essere una promo: meglio un falso positivo che perderne una. Rispondi SOLO con un JSON array valido, senza markdown, senza testo prima o dopo: [{"msg_id": "id esatto del messaggio come scritto dopo ID:", "from": "mittente", "subject": "oggetto", "date": "data originale", "tipo": "promozione/bonus/offerta", "priorita": "alta/media/bassa"}]. Priorità ALTA = scadenza imminente o importo elevato. Se non ci sono promozioni rispondi []. Email:\n\n${testo}`
+          content: `Look at these emails and return a JSON array of those that come from gambling/betting/casino/poker/slot/gaming websites (like Sisal, Lottomatica, Eurobet, Bet365, Planetwin, Snai, Goldbet, Betsson, Pokerstars, 888, Domusbet, Betflag, and similar). Include ANY email from such senders, even newsletters. Return ONLY a JSON array like: [{"msg_id":"exact id after ID:","from":"sender","subject":"subject","date":"date","tipo":"promozione","priorita":"alta"}]. Priority alta = urgent/expiring bonus. If none found return []. Emails:\n\n${testo}`
         }]
       })
     })
