@@ -88,6 +88,64 @@ function parseDateSafe(dateStr: string): string | null {
   return null
 }
 
+
+function estraiTestoDaParts(parts: any[]): string {
+  for (const part of parts) {
+    if (!part) continue
+    if (part.parts && part.parts.length > 0) {
+      const nested = estraiTestoDaParts(part.parts)
+      if (nested) return nested
+    }
+    if (part.mimeType === 'text/plain' && part.body?.data) {
+      return Buffer.from(part.body.data, 'base64').toString('utf-8')
+    }
+  }
+  for (const part of parts) {
+    if (!part) continue
+    if (part.parts && part.parts.length > 0) {
+      const nested = estraiTestoDaParts(part.parts)
+      if (nested) return nested
+    }
+    if (part.mimeType === 'text/html' && part.body?.data) {
+      return Buffer.from(part.body.data, 'base64')
+        .toString('utf-8')
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+    }
+  }
+  return ''
+}
+
+async function leggiTestoCompleto(accessToken: string, msgId: string): Promise<string> {
+  try {
+    const res = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgId}?format=full`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    )
+    const data = await res.json()
+    if (data.error) return ''
+    const payload = data.payload
+    if (!payload) return ''
+    if (payload.body?.data && (!payload.parts || payload.parts.length === 0)) {
+      const testo = Buffer.from(payload.body.data, 'base64').toString('utf-8')
+      if (payload.mimeType === 'text/html') {
+        return testo.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
+          .replace(/<[^>]*>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+      }
+      return testo
+    }
+    const parts = payload.parts || [payload]
+    return estraiTestoDaParts(parts)
+  } catch (e) {
+    console.error('Errore leggiTestoCompleto:', e)
+    return ''
+  }
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const secret = searchParams.get('secret')
