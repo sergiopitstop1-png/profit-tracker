@@ -122,7 +122,7 @@ const [speseCategoriaMese, setSpeseCategoriaMese] = useState([])
 const [txLoadAll, setTxLoadAll] = useState(false)
 const [speseMeseSelezionato, setSpeseMeseSelezionato] = useState(() => new Date().toISOString().slice(0, 7))
 const [speseStorico, setSpeseStorico] = useState({}) // { 'YYYY-MM': [...tx] }
-const [soglieBudget, setSoglieBudget] = useState(() => { try { return JSON.parse(localStorage.getItem('soglie_budget') || '{}') } catch { return {} } })
+const [soglieBudget, setSoglieBudget] = useState({})
 const [showSoglieEditor, setShowSoglieEditor] = useState(false)
 const [pmNuovoBook, setPmNuovoBook] = useState({ nome: '', valorePunto: 0.001818, bookId: '' })
 const [pmShowAggiungi, setPmShowAggiungi] = useState(false)
@@ -502,7 +502,9 @@ if (memoFreeBoxesRes.error) errors.push('memo_free_boxes'); else setMemoFreeBoxe
     if (dashboardSettingsRes.error) {
   errors.push('dashboard_settings')
 } else {
-  setDashboardSettings(dashboardSettingsRes.data || { accantonamento_royalty: 0, risparmi_samu_massi: 0 })
+  const ds = dashboardSettingsRes.data || { accantonamento_royalty: 0, risparmi_samu_massi: 0 }
+  setDashboardSettings(ds)
+  if (ds.soglie_budget) setSoglieBudget(ds.soglie_budget)
 }
 if (clientiRes && !clientiRes.error) setClienti(clientiRes.data || [])
 if (clientiEmailRes && !clientiEmailRes.error) setClientiEmail(clientiEmailRes.data || [])
@@ -4397,7 +4399,7 @@ setTimeout(() => setMessage(''), 4000)
                                   const nuove = { ...soglieBudget, [cat]: e.target.value }
                                   if (!e.target.value) delete nuove[cat]
                                   setSoglieBudget(nuove)
-                                  localStorage.setItem('soglie_budget', JSON.stringify(nuove))
+                                  supabase.from('dashboard_settings').update({ soglie_budget: nuove }).eq('id', 1)
                                 }}
                                 style={{ width: 110, background: '#0b1220', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 8, padding: '5px 8px', fontSize: 13, textAlign: 'right', outline: 'none' }}
                               />
