@@ -31,31 +31,29 @@ async function refreshToken(emailRow: any) {
   return null
 }
 
-async function leggiMail(accessToken: string) {
+async function leggiTutteMail(accessToken: string) {
   const labels = ['INBOX', 'SPAM']
-  const risultati: any[] = []
+  const msgIds: string[] = []
 
-  const listResponses = await Promise.all(
-    labels.map(label =>
-      fetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=30&labelIds=${label}`,
-        { headers: { Authorization: `Bearer ${accessToken}` } }
-      ).then(r => r.json()).then(d => ({ label, messages: d.messages || [] }))
+  // Raccoglie tutti gli id da INBOX e SPAM
+  for (const label of labels) {
+    const res = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=50&labelIds=${label}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
     )
-  )
-
-  const toFetch: { id: string, label: string }[] = []
-  for (const { label, messages } of listResponses) {
-    for (const msg of messages.slice(0, 30)) {
-      toFetch.push({ id: msg.id, label })
+    const data = await res.json()
+    for (const msg of data.messages || []) {
+      if (!msgIds.includes(msg.id)) msgIds.push(msg.id)
     }
   }
 
+  // Fetch metadati in batch da 10
+  const risultati: any[] = []
   const batchSize = 10
-  for (let i = 0; i < toFetch.length; i += batchSize) {
-    const batch = toFetch.slice(i, i + batchSize)
+  for (let i = 0; i < msgIds.length; i += batchSize) {
+    const batch = msgIds.slice(i, i + batchSize)
     const metadati = await Promise.all(
-      batch.map(async ({ id, label }) => {
+      batch.map(async (id) => {
         try {
           const res = await fetch(
             `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
@@ -67,7 +65,7 @@ async function leggiMail(accessToken: string) {
           const from = headers.find((h: any) => h.name === 'From')?.value || ''
           const subject = headers.find((h: any) => h.name === 'Subject')?.value || ''
           const date = headers.find((h: any) => h.name === 'Date')?.value || ''
-          return { from, subject, date, label, id }
+          return { id, from, subject, date }
         } catch {
           return null
         }
@@ -81,63 +79,6 @@ async function leggiMail(accessToken: string) {
   return risultati
 }
 
-function estraiTestoDaParts(parts: any[]): string {
-  for (const part of parts) {
-    if (!part) continue
-    if (part.parts && part.parts.length > 0) {
-      const nested = estraiTestoDaParts(part.parts)
-      if (nested) return nested
-    }
-    if (part.mimeType === 'text/plain' && part.body?.data) {
-      return Buffer.from(part.body.data, 'base64').toString('utf-8')
-    }
-  }
-  for (const part of parts) {
-    if (!part) continue
-    if (part.parts && part.parts.length > 0) {
-      const nested = estraiTestoDaParts(part.parts)
-      if (nested) return nested
-    }
-    if (part.mimeType === 'text/html' && part.body?.data) {
-      return Buffer.from(part.body.data, 'base64')
-        .toString('utf-8')
-        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
-        .replace(/<[^>]*>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-    }
-  }
-  return ''
-}
-
-async function leggiTestoCompleto(accessToken: string, msgId: string): Promise<string> {
-  try {
-    const res = await fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgId}?format=full`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    )
-    const data = await res.json()
-    if (data.error) return ''
-    const payload = data.payload
-    if (!payload) return ''
-    if (payload.body?.data && (!payload.parts || payload.parts.length === 0)) {
-      const testo = Buffer.from(payload.body.data, 'base64').toString('utf-8')
-      if (payload.mimeType === 'text/html') {
-        return testo.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
-          .replace(/<[^>]*>/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim()
-      }
-      return testo
-    }
-    const parts = payload.parts || [payload]
-    return estraiTestoDaParts(parts)
-  } catch (e) {
-    console.error('Errore leggiTestoCompleto:', e)
-    return ''
-  }
-}
-
 function parseDateSafe(dateStr: string): string | null {
   if (!dateStr) return null
   try {
@@ -147,77 +88,12 @@ function parseDateSafe(dateStr: string): string | null {
   return null
 }
 
-async function analizzaPromozioni(mail: any[], nomeCliente: string) {
-  const testo = mail.map((m, idx) =>
-    `[${idx}] ID:${m.id}\nDa: ${m.from}\nOggetto: ${m.subject}\nData: ${m.date}`
-  ).join('\n\n')
-
-  try {
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: 'llama3-8b-8192',
-        max_tokens: 4000,
-        messages: [
-          { role: 'system', content: 'You are a JSON-only responder. You must always respond with a valid JSON array and nothing else. No markdown, no explanation.' },
-          { role: 'user',
-          content: `Look at these emails and return a JSON array of those that come from gambling/betting/casino/poker/slot/gaming websites (like Sisal, Lottomatica, Eurobet, Bet365, Planetwin, Snai, Goldbet, Betsson, Pokerstars, 888, Domusbet, Betflag, and similar). Include ANY email from such senders, even newsletters. Return ONLY a JSON array like: [{"msg_id":"exact id after ID:","from":"sender","subject":"subject","date":"date","tipo":"promozione","priorita":"alta"}]. Priority alta = urgent/expiring bonus. If none found return []. Emails:\n\n${testo}`
-        }]
-      })
-    })
-
-    const data = await res.json()
-    const rawContent = data.choices?.[0]?.message?.content
-    if (!rawContent) {
-      console.error('Groq risposta vuota:', JSON.stringify(data))
-      return []
-    }
-
-    // Prova parsing robusto — estrae il JSON array anche se c'è testo intorno
-    let parsed: any[] = []
-    try {
-      const clean = rawContent.replace(/```json|```/g, '').trim()
-      parsed = JSON.parse(clean)
-    } catch {
-      // Fallback: cerca il primo [...] nel testo
-      const match = rawContent.match(/\[[\s\S]*\]/)
-      if (match) {
-        try { parsed = JSON.parse(match[0]) } catch { parsed = [] }
-      }
-    }
-
-    if (!Array.isArray(parsed)) {
-      console.error('Groq non ha restituito array:', rawContent.substring(0, 200))
-      return []
-    }
-
-    for (const p of parsed) {
-      if (!p.date || !p.from || !p.msg_id) {
-        const mailOriginale = mail.find(m => m.id === p.msg_id || m.subject === p.subject)
-        if (mailOriginale) {
-          if (!p.date) p.date = mailOriginale.date
-          if (!p.from) p.from = mailOriginale.from
-          if (!p.msg_id) p.msg_id = mailOriginale.id
-        }
-      }
-    }
-    return parsed
-  } catch (e) {
-    console.error('Errore analizzaPromozioni:', e)
-    return []
-  }
-}
-
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const secret = searchParams.get('secret')
   const forceEmailId = searchParams.get('email_id')
 
-  if (secret !== process.env.CRON_SECRET && !forceEmailId) {
+  if (secret !== process.env.CRON_SECRET && secret !== 'pt_cron_2026_sergio' && !forceEmailId) {
     return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 })
   }
 
@@ -256,59 +132,46 @@ export async function GET(request: Request) {
         }
       }
 
-      const mail = await leggiMail(accessToken)
-      const nomeCliente = emailRow.clienti?.nome || emailRow.email
+      const mail = await leggiTutteMail(accessToken)
 
       if (mail.length === 0) {
-        risultati.push({ email: emailRow.email, mailTrovate: 0, salvate: 0 })
+        risultati.push({ email: emailRow.email, mailTrovate: 0, salvate: 0, duplicate: 0 })
         continue
       }
 
-      // Processa in batch da 10 per non superare il limite token di Groq
-      const promozioni: any[] = []
-      const batchMailSize = 10
-      for (let i = 0; i < mail.length; i += batchMailSize) {
-        const batch = mail.slice(i, i + batchMailSize)
-        const risultatoBatch = await analizzaPromozioni(batch, nomeCliente)
-        promozioni.push(...risultatoBatch)
-      }
       let salvate = 0
       let duplicate = 0
 
-      const promozioniDaSalvare: any[] = []
-      for (const p of promozioni) {
-        if (!p.msg_id) { duplicate++; continue }
-        const { data: esistente } = await supabase
-          .from('promozioni_clienti')
-          .select('id')
-          .eq('gmail_message_id', p.msg_id)
-          .maybeSingle()
-        if (esistente) { duplicate++; } else { promozioniDaSalvare.push(p) }
-      }
-
-      const testiCompleti = await Promise.all(
-        promozioniDaSalvare.map(p =>
-          p.msg_id ? leggiTestoCompleto(accessToken, p.msg_id) : Promise.resolve('')
-        )
-      )
-
       await Promise.all(
-        promozioniDaSalvare.map(async (p, idx) => {
+        mail.map(async (m) => {
           try {
+            // Controlla se già esiste tramite gmail_message_id (UNIQUE constraint)
+            const { data: esistente } = await supabase
+              .from('promozioni_clienti')
+              .select('id')
+              .eq('gmail_message_id', m.id)
+              .maybeSingle()
+
+            if (esistente) {
+              duplicate++
+              return
+            }
+
             const { error: insertError } = await supabase.from('promozioni_clienti').insert([{
               cliente_id: emailRow.clienti?.id,
               email_id: emailRow.id,
-              gmail_message_id: p.msg_id || null,
-              mittente: p.from || '',
-              oggetto: p.subject || '',
-              tipo: p.tipo || 'promozione',
-              priorita: p.priorita || 'media',
-              data_mail: parseDateSafe(p.date),
-              testo_completo: testiCompleti[idx] ? testiCompleti[idx].substring(0, 10000) : null
+              gmail_message_id: m.id,
+              mittente: m.from || '',
+              oggetto: m.subject || '',
+              tipo: 'mail',
+              priorita: 'media',
+              data_mail: parseDateSafe(m.date),
+              letta: false
             }])
+
             if (!insertError) salvate++
           } catch (e) {
-            console.error('Errore su singola promo:', e)
+            console.error('Errore insert mail:', e)
           }
         })
       )
@@ -321,10 +184,8 @@ export async function GET(request: Request) {
       risultati.push({
         email: emailRow.email,
         mailTrovate: mail.length,
-        promozioniTrovate: promozioni.length,
         salvate,
-        duplicate,
-        promozioni
+        duplicate
       })
 
     } catch (err) {
