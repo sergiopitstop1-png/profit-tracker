@@ -134,6 +134,7 @@ const [pmNuovoBook, setPmNuovoBook] = useState({ nome: '', valorePunto: 0.001818
 const [pmShowAggiungi, setPmShowAggiungi] = useState(false)
 
 // SMS state
+const [smsSelezionato, setSmsSelezionato] = useState(null)
 const [smsClienti, setSmsClienti] = useState([])
 const [smsFiltroCliente, setSmsFiltroCliente] = useState('')
 const [smsFiltroDa, setSmsFiltroDa] = useState('')
@@ -722,25 +723,35 @@ useEffect(() => {
   }
 }, [books])
 
-// Popup SMS ogni 4 ore
+// Popup SMS agli orari fissi: 9, 13, 17, 21
 useEffect(() => {
   if (smsClienti.length === 0) return
+
+  const ORI_CONTROLLO = [9, 13, 17, 21]
+
   const controlla = () => {
+    const ora = new Date().getHours()
+    if (!ORI_CONTROLLO.includes(ora)) return
+
+    // Chiave univoca per ora+giorno: evita popup multipli nella stessa ora
+    const chiaveOra = `smsVistaOra_${new Date().toISOString().slice(0, 13)}`
+    if (localStorage.getItem(chiaveOra)) return
+
     const ultimaVista = localStorage.getItem('smsUltimaVista')
-    const ora = Date.now()
-    if (!ultimaVista || ora - Number(ultimaVista) >= 4 * 60 * 60 * 1000) {
-      const ultimaData = ultimaVista ? new Date(Number(ultimaVista)).toISOString() : null
-      const nuovi = ultimaData
-        ? smsClienti.filter(s => s.data_ricezione && s.data_ricezione > ultimaData)
-        : smsClienti.slice(0, 10)
-      if (nuovi.length > 0) {
-        setSmsNuovi(nuovi)
-        setShowSmsPopup(true)
-      }
+    const ultimaData = ultimaVista ? new Date(Number(ultimaVista)).toISOString() : null
+    const nuovi = ultimaData
+      ? smsClienti.filter(s => s.data_ricezione && s.data_ricezione > ultimaData)
+      : smsClienti.slice(0, 10)
+
+    if (nuovi.length > 0) {
+      setSmsNuovi(nuovi)
+      setShowSmsPopup(true)
+      localStorage.setItem(chiaveOra, '1')
     }
   }
+
   controlla()
-  const interval = setInterval(controlla, 4 * 60 * 60 * 1000)
+  const interval = setInterval(controlla, 60 * 1000)
   return () => clearInterval(interval)
 }, [smsClienti])
 useEffect(() => {
@@ -5465,19 +5476,48 @@ onChange={(e) => {
                         return clienteMatch && daMatch && dalMatch && alMatch
                       })
                       .map(sms => (
-                        <tr key={sms.id} style={tr}>
+                        <tr key={sms.id} style={{ ...tr, cursor: 'pointer' }} onClick={() => setSmsSelezionato(sms)}>
                           <td style={{ ...td, whiteSpace: 'nowrap', fontSize: 12, color: '#94a3b8' }}>{sms.data_ricezione ? new Date(sms.data_ricezione).toLocaleString('it-IT') : '-'}</td>
                           <td style={tdStrong}>{sms.cliente || sms.telefono || '-'}</td>
                           <td style={td}>
                             <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: sms.tipo === 'OTP' ? 'rgba(239,68,68,0.15)' : 'rgba(56,189,248,0.12)', color: sms.tipo === 'OTP' ? '#f87171' : '#38bdf8' }}>{sms.tipo || 'GENERICO'}</span>
                           </td>
                           <td style={{ ...td, color: '#94a3b8' }}>{sms.mittente || '-'}</td>
-                          <td style={{ ...td, maxWidth: 400, wordBreak: 'break-word' }}>{sms.testo || '-'}</td>
+                          <td style={{ ...td, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#94a3b8', fontSize: 12 }}>{sms.testo || '-'}</td>
                         </tr>
                       ))
                     }
                   </tbody>
                 </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* POPUP DETTAGLIO SMS */}
+        {smsSelezionato && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000, padding: 16 }}
+            onClick={() => setSmsSelezionato(null)}>
+            <div style={{ width: '100%', maxWidth: 540, background: 'linear-gradient(180deg,rgba(15,23,42,0.99),rgba(2,6,23,1))', border: '2px solid rgba(56,189,248,0.4)', borderRadius: 22, padding: 24 }}
+              onClick={e => e.stopPropagation()}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: smsSelezionato.tipo === 'OTP' ? 'rgba(239,68,68,0.15)' : 'rgba(56,189,248,0.12)', color: smsSelezionato.tipo === 'OTP' ? '#f87171' : '#38bdf8' }}>{smsSelezionato.tipo || 'GENERICO'}</span>
+                    <span style={{ fontWeight: 800, color: '#f8fafc', fontSize: 15 }}>{smsSelezionato.cliente || smsSelezionato.telefono}</span>
+                  </div>
+                  <div style={{ color: '#94a3b8', fontSize: 13 }}>Da: {smsSelezionato.mittente}</div>
+                  <div style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>{smsSelezionato.data_ricezione ? new Date(smsSelezionato.data_ricezione).toLocaleString('it-IT') : ''}</div>
+                </div>
+                <button style={{ border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18, flexShrink: 0 }}
+                  onClick={() => setSmsSelezionato(null)}>×</button>
+              </div>
+              <div style={{ background: 'rgba(11,18,32,0.8)', border: '1px solid rgba(51,65,85,0.6)', borderRadius: 12, padding: 16, color: '#e2e8f0', fontSize: 15, lineHeight: 1.7, whiteSpace: 'pre-wrap', wordBreak: 'break-word', minHeight: 80 }}>
+                {smsSelezionato.testo || 'Nessun testo'}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+                <button style={{ padding: '10px 22px', borderRadius: 12, border: 'none', background: '#38bdf8', color: '#0f172a', cursor: 'pointer', fontSize: 13, fontWeight: 800 }}
+                  onClick={() => setSmsSelezionato(null)}>Chiudi</button>
               </div>
             </div>
           </div>
