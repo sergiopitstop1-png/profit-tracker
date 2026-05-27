@@ -738,10 +738,9 @@ useEffect(() => {
     if (localStorage.getItem(chiaveOra)) return
 
     const ultimaVista = localStorage.getItem('smsUltimaVista')
-    const ultimaData = ultimaVista ? new Date(Number(ultimaVista)).toISOString() : null
-    const nuovi = ultimaData
-      ? smsClienti.filter(s => s.data_ricezione && s.data_ricezione > ultimaData)
-      : smsClienti.slice(0, 10)
+    const ieri = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    const ultimaData = ultimaVista ? new Date(Number(ultimaVista)).toISOString() : ieri
+    const nuovi = smsClienti.filter(s => s.data_ricezione && s.data_ricezione > ultimaData)
 
     if (nuovi.length > 0) {
       setSmsNuovi(nuovi)
@@ -5450,15 +5449,14 @@ onChange={(e) => {
                   }}>🔄 Aggiorna</button>
                   <button style={tinyBlueButton} onClick={() => {
                     const ultimaVista = localStorage.getItem('smsUltimaVista')
-                    const ultimaData = ultimaVista ? new Date(Number(ultimaVista)).toISOString() : null
-                    const nuovi = ultimaData
-                      ? smsClienti.filter(s => s.data_ricezione && s.data_ricezione > ultimaData)
-                      : smsClienti.slice(0, 10)
+                    const ieri = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+                    const ultimaData = ultimaVista ? new Date(Number(ultimaVista)).toISOString() : ieri
+                    const nuovi = smsClienti.filter(s => s.data_ricezione && s.data_ricezione > ultimaData)
                     if (nuovi.length > 0) {
                       setSmsNuovi(nuovi)
                       setShowSmsPopup(true)
                     } else {
-                      alert('Nessun nuovo SMS dall\'ultima visita')
+                      alert('Nessun nuovo SMS nelle ultime 24 ore')
                     }
                   }}>🔔 Controlla ora</button>
                 </div>
