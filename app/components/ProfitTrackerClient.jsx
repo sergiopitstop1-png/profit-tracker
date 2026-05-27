@@ -132,6 +132,15 @@ const [soglieBudget, setSoglieBudget] = useState({})
 const [showSoglieEditor, setShowSoglieEditor] = useState(false)
 const [pmNuovoBook, setPmNuovoBook] = useState({ nome: '', valorePunto: 0.001818, bookId: '' })
 const [pmShowAggiungi, setPmShowAggiungi] = useState(false)
+
+// SMS state
+const [smsClienti, setSmsClienti] = useState([])
+const [smsFiltroCliente, setSmsFiltroCliente] = useState('')
+const [smsFiltroDa, setSmsFiltroDa] = useState('')
+const [smsFiltroDal, setSmsFiltroDal] = useState('')
+const [smsFiltroAl, setSmsFiltroAl] = useState('')
+const [showSmsPopup, setShowSmsPopup] = useState(false)
+const [smsNuovi, setSmsNuovi] = useState([])
   useEffect(() => {
   if (typeof window !== 'undefined' && localStorage.getItem('site_unlocked') !== '1') {
     window.location.href = '/login?from=/profit-tracker'
@@ -514,6 +523,10 @@ if (memoFreeBoxesRes.error) errors.push('memo_free_boxes'); else setMemoFreeBoxe
 }
 if (clientiRes && !clientiRes.error) setClienti(clientiRes.data || [])
 if (clientiEmailRes && !clientiEmailRes.error) setClientiEmail(clientiEmailRes.data || [])
+
+// Carica SMS
+const { data: smsData } = await supabase.from('sms_clienti').select('*').order('data_ricezione', { ascending: false }).limit(500)
+if (smsData) setSmsClienti(smsData)
 const { data: pmData, error: pmError } = await supabase.from('punti_monete').select('*').order('book_nome').order('cliente_nome')
 if (!pmError && pmData && pmData.length > 0) {
   const bookMap = {}
@@ -709,7 +722,27 @@ useEffect(() => {
   }
 }, [books])
 
-// Sync Gmail automatico: solo ogni 4 ore (non al refresh)
+// Popup SMS ogni 4 ore
+useEffect(() => {
+  if (smsClienti.length === 0) return
+  const controlla = () => {
+    const ultimaVista = localStorage.getItem('smsUltimaVista')
+    const ora = Date.now()
+    if (!ultimaVista || ora - Number(ultimaVista) >= 4 * 60 * 60 * 1000) {
+      const ultimaData = ultimaVista ? new Date(Number(ultimaVista)).toISOString() : null
+      const nuovi = ultimaData
+        ? smsClienti.filter(s => s.data_ricezione && s.data_ricezione > ultimaData)
+        : smsClienti.slice(0, 10)
+      if (nuovi.length > 0) {
+        setSmsNuovi(nuovi)
+        setShowSmsPopup(true)
+      }
+    }
+  }
+  controlla()
+  const interval = setInterval(controlla, 4 * 60 * 60 * 1000)
+  return () => clearInterval(interval)
+}, [smsClienti])
 useEffect(() => {
   if (clientiEmail.length === 0) return
 
@@ -2656,6 +2689,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
   <button style={activeTab === 'matrice' ? activeTabButton : tabButton} onClick={() => handleTabChange('matrice')}>Matrice</button>
           <button style={activeTab === 'archivio-mail' ? activeTabButton : tabButton} onClick={() => handleTabChange('archivio-mail')}>📧 Archivio Mail</button>
           <button style={activeTab === 'punti-monete' ? activeTabButton : tabButton} onClick={() => handleTabChange('punti-monete')}>🏆 Punti &amp; Monete</button>
+          <button style={activeTab === 'sms' ? activeTabButton : tabButton} onClick={() => handleTabChange('sms')}>📱 SMS</button>
 <button
   style={activeTab === 'stime-cassa' ? activeTabButton : tabButton}
   onClick={() => {
@@ -5354,6 +5388,101 @@ onChange={(e) => {
     </div>
   </div>    
 )}
+        {/* POPUP SMS ogni 4 ore */}
+        {showSmsPopup && smsNuovi.length > 0 && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2200, padding: 16 }}>
+            <div style={{ width: '100%', maxWidth: 560, background: 'linear-gradient(180deg,rgba(15,23,42,0.99),rgba(2,6,23,1))', border: '2px solid rgba(56,189,248,0.5)', borderRadius: 22, padding: 24, maxHeight: '80vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div>
+                  <h2 style={{ margin: 0, color: '#f8fafc', fontSize: 18 }}>📱 Nuovi SMS ricevuti</h2>
+                  <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 13 }}>{smsNuovi.length} messaggi dall'ultima visita</p>
+                </div>
+                <button style={{ border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18 }}
+                  onClick={() => { setShowSmsPopup(false); localStorage.setItem('smsUltimaVista', String(Date.now())) }}>×</button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {smsNuovi.map((sms) => (
+                  <div key={sms.id} style={{ background: 'rgba(11,18,32,0.85)', border: '1px solid rgba(56,189,248,0.2)', borderRadius: 12, padding: '10px 14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: sms.tipo === 'OTP' ? 'rgba(239,68,68,0.15)' : 'rgba(56,189,248,0.12)', color: sms.tipo === 'OTP' ? '#f87171' : '#38bdf8' }}>{sms.tipo}</span>
+                      <span style={{ fontWeight: 700, color: '#f8fafc', fontSize: 13 }}>{sms.cliente}</span>
+                      <span style={{ marginLeft: 'auto', fontSize: 11, color: '#64748b' }}>{sms.data_ricezione ? new Date(sms.data_ricezione).toLocaleString('it-IT') : ''}</span>
+                    </div>
+                    <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 2 }}>Da: {sms.mittente}</div>
+                    <div style={{ color: '#e2e8f0', fontSize: 13 }}>{sms.testo}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
+                <button style={{ padding: '10px 18px', borderRadius: 12, border: 'none', background: '#1D4ED8', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}
+                  onClick={() => { setShowSmsPopup(false); localStorage.setItem('smsUltimaVista', String(Date.now())); handleTabChange('sms') }}>Vai ad Archivio SMS →</button>
+                <button style={{ padding: '10px 18px', borderRadius: 12, border: '1px solid rgba(51,65,85,0.95)', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontSize: 13 }}
+                  onClick={() => { setShowSmsPopup(false); localStorage.setItem('smsUltimaVista', String(Date.now())) }}>Chiudi</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB SMS */}
+        {activeTab === 'sms' && (
+          <div style={tabContent}>
+            <div style={panel}>
+              <div style={panelHeader}>
+                <div>
+                  <h2 style={panelTitle}>📱 Archivio SMS</h2>
+                  <p style={panelSubtitle}>{smsClienti.length} messaggi totali</p>
+                </div>
+                <button style={secondaryButton} onClick={async () => {
+                  const { data } = await supabase.from('sms_clienti').select('*').order('data_ricezione', { ascending: false }).limit(500)
+                  if (data) setSmsClienti(data)
+                }}>🔄 Aggiorna</button>
+              </div>
+              <div style={filterRow}>
+                <input style={filterInput} placeholder='Filtra per cliente...' value={smsFiltroCliente} onChange={e => setSmsFiltroCliente(e.target.value)} />
+                <input style={filterInput} placeholder='Filtra per mittente...' value={smsFiltroDa} onChange={e => setSmsFiltroDa(e.target.value)} />
+                <input type='date' style={filterInput} value={smsFiltroDal} onChange={e => setSmsFiltroDal(e.target.value)} />
+                <input type='date' style={filterInput} value={smsFiltroAl} onChange={e => setSmsFiltroAl(e.target.value)} />
+                <button style={secondaryButton} onClick={() => { setSmsFiltroCliente(''); setSmsFiltroDa(''); setSmsFiltroDal(''); setSmsFiltroAl('') }}>Reset</button>
+              </div>
+              <div style={tableWrap}>
+                <table style={table}>
+                  <thead>
+                    <tr>
+                      <th style={th}>Data</th>
+                      <th style={th}>Cliente</th>
+                      <th style={th}>Tipo</th>
+                      <th style={th}>Mittente</th>
+                      <th style={th}>Testo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {smsClienti
+                      .filter(sms => {
+                        const clienteMatch = !smsFiltroCliente || (sms.cliente || '').toLowerCase().includes(smsFiltroCliente.toLowerCase())
+                        const daMatch = !smsFiltroDa || (sms.mittente || '').toLowerCase().includes(smsFiltroDa.toLowerCase())
+                        const dalMatch = !smsFiltroDal || (sms.data_ricezione && sms.data_ricezione >= smsFiltroDal)
+                        const alMatch = !smsFiltroAl || (sms.data_ricezione && sms.data_ricezione <= smsFiltroAl + 'T23:59:59')
+                        return clienteMatch && daMatch && dalMatch && alMatch
+                      })
+                      .map(sms => (
+                        <tr key={sms.id} style={tr}>
+                          <td style={{ ...td, whiteSpace: 'nowrap', fontSize: 12, color: '#94a3b8' }}>{sms.data_ricezione ? new Date(sms.data_ricezione).toLocaleString('it-IT') : '-'}</td>
+                          <td style={tdStrong}>{sms.cliente || sms.telefono || '-'}</td>
+                          <td style={td}>
+                            <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: sms.tipo === 'OTP' ? 'rgba(239,68,68,0.15)' : 'rgba(56,189,248,0.12)', color: sms.tipo === 'OTP' ? '#f87171' : '#38bdf8' }}>{sms.tipo || 'GENERICO'}</span>
+                          </td>
+                          <td style={{ ...td, color: '#94a3b8' }}>{sms.mittente || '-'}</td>
+                          <td style={{ ...td, maxWidth: 400, wordBreak: 'break-word' }}>{sms.testo || '-'}</td>
+                        </tr>
+                      ))
+                    }
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
  {/* MICROFONO VOCALE - fisso in basso a destra */}
 <div style={{ position: 'fixed', bottom: 28, right: 28, zIndex: 2000, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10 }}>
   {(voiceTranscript || voiceStatus || listBuffer) && (
