@@ -5443,10 +5443,25 @@ onChange={(e) => {
                   <h2 style={panelTitle}>📱 Archivio SMS</h2>
                   <p style={panelSubtitle}>{smsClienti.length} messaggi totali</p>
                 </div>
-                <button style={secondaryButton} onClick={async () => {
-                  const { data } = await supabase.from('sms_clienti').select('*').order('data_ricezione', { ascending: false }).limit(500)
-                  if (data) setSmsClienti(data)
-                }}>🔄 Aggiorna</button>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button style={secondaryButton} onClick={async () => {
+                    const { data } = await supabase.from('sms_clienti').select('*').order('data_ricezione', { ascending: false }).limit(500)
+                    if (data) setSmsClienti(data)
+                  }}>🔄 Aggiorna</button>
+                  <button style={tinyBlueButton} onClick={() => {
+                    const ultimaVista = localStorage.getItem('smsUltimaVista')
+                    const ultimaData = ultimaVista ? new Date(Number(ultimaVista)).toISOString() : null
+                    const nuovi = ultimaData
+                      ? smsClienti.filter(s => s.data_ricezione && s.data_ricezione > ultimaData)
+                      : smsClienti.slice(0, 10)
+                    if (nuovi.length > 0) {
+                      setSmsNuovi(nuovi)
+                      setShowSmsPopup(true)
+                    } else {
+                      alert('Nessun nuovo SMS dall\'ultima visita')
+                    }
+                  }}>🔔 Controlla ora</button>
+                </div>
               </div>
               <div style={filterRow}>
                 <input style={filterInput} placeholder='Filtra per cliente...' value={smsFiltroCliente} onChange={e => setSmsFiltroCliente(e.target.value)} />
