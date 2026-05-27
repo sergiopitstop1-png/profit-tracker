@@ -3212,10 +3212,14 @@ onChange={(e) => {
         <button style={{ ...tinyBlueButton, fontSize: 13, padding: '8px 16px' }} onClick={() => setShowAgendaPopup(true)}>📋 Agenda di oggi</button>
       </div>
 
-      {agendaOggi.length > 0 && (
-        <div style={{ background: 'rgba(29,78,216,0.12)', border: '1px solid rgba(29,78,216,0.35)', borderRadius: 16, padding: '16px 20px', marginBottom: 16 }}>
-          <div style={{ fontSize: 14, fontWeight: 800, color: '#93c5fd', marginBottom: 12 }}>📋 {giornoLabel} — {agendaOggi.length} account da movimentare oggi <span style={{ fontSize: 12, fontWeight: 400, color: '#64748b' }}>({agendaOggi.filter(x => x.agenda.tipo === 'attivo').length} attivi · {agendaOggi.filter(x => x.agenda.tipo !== 'attivo').length} mantenimento)</span></div>
-          {(() => {
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+
+        {/* AGENDA rimpicciolita */}
+        <div style={{ background: 'rgba(29,78,216,0.10)', border: '1px solid rgba(29,78,216,0.30)', borderRadius: 16, padding: '14px 16px' }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#93c5fd', marginBottom: 10 }}>📋 {giornoLabel} — {agendaOggi.length} account da movimentare oggi <span style={{ fontSize: 11, fontWeight: 400, color: '#64748b' }}>({agendaOggi.filter(x => x.agenda.tipo === 'attivo').length} attivi · {agendaOggi.filter(x => x.agenda.tipo !== 'attivo').length} mantenimento)</span></div>
+          {agendaOggi.length === 0 ? (
+            <div style={{ color: '#64748b', fontSize: 13 }}>Nessuna azione per oggi</div>
+          ) : (() => {
             const gruppi = {}
             agendaOggi.forEach(({ book, agenda }) => {
               agenda.azioni.forEach(az => {
@@ -3224,7 +3228,7 @@ onChange={(e) => {
               })
             })
             return (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                 {Object.entries(gruppi).map(([azione, items]) => {
                   const perBook = {}
                   items.forEach(({ book }) => {
@@ -3233,17 +3237,17 @@ onChange={(e) => {
                   })
                   const isOpen = agendaAperto === azione
                   return (
-                    <div key={azione} style={{ background: 'rgba(11,18,32,0.7)', borderRadius: 12, border: `1px solid ${isOpen ? 'rgba(56,189,248,0.4)' : 'rgba(51,65,85,0.6)'}`, overflow: 'hidden' }}>
+                    <div key={azione} style={{ background: 'rgba(11,18,32,0.7)', borderRadius: 10, border: `1px solid ${isOpen ? 'rgba(56,189,248,0.4)' : 'rgba(51,65,85,0.6)'}`, overflow: 'hidden' }}>
                       <div onClick={() => setAgendaAperto(agendaAperto === azione ? null : azione)}
-                        style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
-                        <span style={{ color: '#38bdf8', fontSize: 13, transition: 'transform 0.2s', display: 'inline-block', transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
-                        <span style={{ fontWeight: 700, color: '#f8fafc', fontSize: 13 }}>{azione}</span>
-                        <span style={{ marginLeft: 'auto', fontSize: 12, background: 'rgba(56,189,248,0.12)', color: '#38bdf8', padding: '2px 8px', borderRadius: 6, fontWeight: 700 }}>{items.length}</span>
+                        style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
+                        <span style={{ color: '#38bdf8', fontSize: 11, display: 'inline-block', transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
+                        <span style={{ fontWeight: 700, color: '#f8fafc', fontSize: 12 }}>{azione}</span>
+                        <span style={{ marginLeft: 'auto', fontSize: 11, background: 'rgba(56,189,248,0.12)', color: '#38bdf8', padding: '2px 7px', borderRadius: 6, fontWeight: 700 }}>{items.length}</span>
                       </div>
                       {isOpen && (
-                        <div style={{ padding: '4px 14px 12px', borderTop: '1px solid rgba(51,65,85,0.4)', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        <div style={{ padding: '3px 12px 10px', borderTop: '1px solid rgba(51,65,85,0.4)', display: 'flex', flexDirection: 'column', gap: 2 }}>
                           {Object.entries(perBook).map(([bookNome, intestatari]) => (
-                            <div key={bookNome} style={{ fontSize: 12, color: '#cbd5e1', padding: '3px 0' }}>
+                            <div key={bookNome} style={{ fontSize: 11, color: '#cbd5e1', padding: '2px 0' }}>
                               <span style={{ color: '#38bdf8', fontWeight: 700 }}>{bookNome}</span>
                               <span style={{ color: '#64748b' }}> — </span>
                               <span style={{ color: '#94a3b8' }}>{intestatari.join(', ')}</span>
@@ -3258,7 +3262,48 @@ onChange={(e) => {
             )
           })()}
         </div>
-      )}
+
+        {/* PROTOCOLLI DI MANTENIMENTO */}
+        <div style={{ background: 'rgba(11,18,32,0.7)', border: '1px solid rgba(51,65,85,0.85)', borderRadius: 16, padding: '14px 16px' }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#f8fafc', marginBottom: 10 }}>📖 Protocolli di mantenimento</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+
+            <div style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 10, padding: '10px 12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                <span style={{ fontSize: 11, fontWeight: 800, background: 'rgba(251,191,36,0.18)', color: '#fbbf24', padding: '2px 8px', borderRadius: 6 }}>Serie A</span>
+                <span style={{ fontSize: 11, color: '#64748b' }}>bet365 · snai · sisal · lottomatica · goldbet · planetwin · eurobet · pokerstars</span>
+              </div>
+              <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.5 }}>1 bet sportiva / mese · 1 sessione slot 5-10€ / mese (giorni diversi)</div>
+            </div>
+
+            <div style={{ background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.22)', borderRadius: 10, padding: '10px 12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                <span style={{ fontSize: 11, fontWeight: 800, background: 'rgba(56,189,248,0.15)', color: '#38bdf8', padding: '2px 8px', borderRadius: 6 }}>Serie B</span>
+                <span style={{ fontSize: 11, color: '#64748b' }}>netbet · bwin · betsson · william hill · stanleybet · e-play24 · betfair</span>
+              </div>
+              <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.5 }}>1 bet sportiva ogni 2 mesi · 1 sessione slot 5-10€ ogni 2 mesi</div>
+            </div>
+
+            <div style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.22)', borderRadius: 10, padding: '10px 12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                <span style={{ fontSize: 11, fontWeight: 800, background: 'rgba(34,197,94,0.15)', color: '#22c55e', padding: '2px 8px', borderRadius: 6 }}>B Casino</span>
+                <span style={{ fontSize: 11, color: '#64748b' }}>gioco digitale · starcasino · betflag · tombola · zonagioco</span>
+              </div>
+              <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.5 }}>2 sessioni slot 5-10€ ogni 2 mesi (no bet sportiva)</div>
+            </div>
+
+            <div style={{ background: 'rgba(100,116,139,0.08)', border: '1px solid rgba(100,116,139,0.22)', borderRadius: 10, padding: '10px 12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                <span style={{ fontSize: 11, fontWeight: 800, background: 'rgba(100,116,139,0.18)', color: '#94a3b8', padding: '2px 8px', borderRadius: 6 }}>Serie C</span>
+                <span style={{ fontSize: 11, color: '#64748b' }}>tutti gli altri bookmaker</span>
+              </div>
+              <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.5 }}>1 bet 5-10€ ogni 2 mesi · 1 sessione slot 5-10€ ogni 2 mesi</div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
 
       <div style={statsGridCompact}>
         <div style={{ background: 'rgba(34,197,94,0.10)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: 16, padding: '14px 18px' }}>
