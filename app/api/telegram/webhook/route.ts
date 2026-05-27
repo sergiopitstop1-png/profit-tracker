@@ -40,6 +40,10 @@ function parseMessaggio(testo: string) {
   return result
 }
 
+export async function GET() {
+  return NextResponse.json({ ok: true, message: 'Webhook attivo' })
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json()
@@ -71,7 +75,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true })
   } catch (e) {
-    console.error('Webhook error:', e)
-    return NextResponse.json({ ok: true }) // sempre 200 a Telegram
+    console.error('Webhook error:', String(e))
+    return NextResponse.json({ ok: true, error: String(e) })
   }
 }
