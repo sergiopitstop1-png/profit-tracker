@@ -7,45 +7,25 @@ const supabase = createClient(
 )
 
 function parseMessaggio(testo: string) {
-  const result: any = { telefono: null, cliente: null, tipo: null, mittente: null, testo: null }
+  // Ignora completamente le emoji - cerca solo le parole chiave
+  // Rimuove qualsiasi carattere non ASCII prima della parola chiave
+  const strip = (pattern: string) =>
+    new RegExp(`[^\\n]*${pattern}:\\s*(.+)`, 'i')
 
-  // Emoji ESATTE usate dal Python (senza varianti U+FE0F)
-  // 📱 Telefono: Alfonso
-  // 🏷 Tipo: OTP
-  // 👤 Da: SNAITECH
-  // 🔑 Codice: 123456  (opzionale)
-  // 💬 Testo: contenuto
+  const telefono = testo.match(strip('Telefono'))
+  const tipo     = testo.match(strip('Tipo'))
+  const mittente = testo.match(strip('Da'))
+  const testoMsg = testo.match(/[^\n]*Testo:\s*([\s\S]+)/i)
 
-  const telefono = testo.match(/📱\s*Telefono:\s*(.+)/i)
-  const tipo     = testo.match(/🏷\s*Tipo:\s*(.+)/i)
-  const mittente = testo.match(/👤\s*Da:\s*(.+)/i)
-  const testoMsg = testo.match(/💬\s*Testo:\s*([\s\S]+)/i)
+  const cliente = telefono?.[1]?.trim() || null
 
-  if (telefono) result.cliente  = telefono[1].trim()
-  if (tipo)     result.tipo     = tipo[1].trim()
-  if (mittente) result.mittente = mittente[1].trim()
-  if (testoMsg) result.testo    = testoMsg[1].trim()
-
-  // Fallback senza emoji (per test manuali)
-  if (!result.cliente) {
-    const t = testo.match(/Telefono:\s*(.+)/i)
-    if (t) result.cliente = t[1].trim()
+  return {
+    telefono: cliente,
+    cliente:  cliente,
+    tipo:     tipo?.[1]?.trim()     || 'GENERICO',
+    mittente: mittente?.[1]?.trim() || 'Sconosciuto',
+    testo:    testoMsg?.[1]?.trim() || testo,
   }
-  if (!result.tipo) {
-    const t = testo.match(/Tipo:\s*(.+)/i)
-    if (t) result.tipo = t[1].trim()
-  }
-  if (!result.mittente) {
-    const t = testo.match(/Da:\s*(.+)/i)
-    if (t) result.mittente = t[1].trim()
-  }
-  if (!result.testo) {
-    const t = testo.match(/Testo:\s*([\s\S]+)/i)
-    if (t) result.testo = t[1].trim()
-  }
-
-  result.telefono = result.cliente
-  return result
 }
 
 export async function GET() {
@@ -87,9 +67,9 @@ export async function POST(request: Request) {
       telegram_message_id: telegramMessageId,
       telefono: parsed.telefono || 'sconosciuto',
       cliente:  parsed.cliente  || 'sconosciuto',
-      tipo:     parsed.tipo     || 'GENERICO',
-      mittente: parsed.mittente || 'Sconosciuto',
-      testo:    parsed.testo    || testo,
+      tipo:     parsed.tipo,
+      mittente: parsed.mittente,
+      testo:    parsed.testo,
       data_ricezione: dataRicezione,
       letta: false
     }])
