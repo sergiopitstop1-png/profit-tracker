@@ -47,8 +47,10 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json()
+    console.log('TELEGRAM BODY:', JSON.stringify(body).substring(0, 500))
     const message = body.message || body.channel_post
     if (!message || !message.text) {
+      console.log('TELEGRAM: nessun messaggio testo trovato')
       return NextResponse.json({ ok: true })
     }
 
