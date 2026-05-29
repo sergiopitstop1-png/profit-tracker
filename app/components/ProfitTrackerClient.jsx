@@ -2751,14 +2751,22 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
     })
     .filter(r => r.diff <= 7)
 
-  // Scadenze SIM (2 giorni prima)
+  // Scadenze SIM (2 giorni prima) — fix: se il giorno è già passato nel mese corrente, considera il mese prossimo
   const meseKey2 = `${annoCorrente}-${String(meseCorrente).padStart(2,'0')}`
   const scadenzeSim = clienti
     .filter(c => c.sim_giorno_scadenza)
     .map(c => {
-      const dataReale = `${annoCorrente}-${String(meseCorrente).padStart(2,'0')}-${String(c.sim_giorno_scadenza).padStart(2,'0')}`
-      const diff = Math.ceil((new Date(dataReale + 'T00:00:00') - oggi) / (1000 * 60 * 60 * 24))
-      const rinnovato = c.sim_rinnovato && c.sim_rinnovato_mese === meseKey2
+      const oggiNorm = new Date(oggi)
+      oggiNorm.setHours(0, 0, 0, 0)
+      let dataScad = new Date(oggiNorm.getFullYear(), oggiNorm.getMonth(), c.sim_giorno_scadenza)
+      // Se la scadenza nel mese corrente è già passata, sposta al mese prossimo
+      if (dataScad < oggiNorm) {
+        dataScad = new Date(oggiNorm.getFullYear(), oggiNorm.getMonth() + 1, c.sim_giorno_scadenza)
+      }
+      const diff = Math.round((dataScad - oggiNorm) / (1000 * 60 * 60 * 24))
+      // La chiave mese per il rinnovo è quella del mese in cui cade la scadenza calcolata
+      const meseScadKey = `${dataScad.getFullYear()}-${String(dataScad.getMonth() + 1).padStart(2, '0')}`
+      const rinnovato = c.sim_rinnovato && c.sim_rinnovato_mese === meseScadKey
       return { descrizione: `SIM ${c.nome} (${c.sim_operatore || ''})`, diff, tipo: 'sim', rinnovato }
     })
     .filter(r => r.diff <= 2 && !r.rinnovato)
