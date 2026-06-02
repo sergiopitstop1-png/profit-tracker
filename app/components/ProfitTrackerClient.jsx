@@ -588,25 +588,23 @@ const externalWithdrawals = totaleEsterni
     }
   }
 // Dati storici fissi per gen/feb 2026 (non presenti nel DB)
-// profit = cumulativo proprio; da aprile il DB riprende con la sua sequenza cumulativa
+// I valori _prelievi e _cashflow sono fissi; profit è cumulativo nella sequenza
 const STORICO_FISSO = [
-  { id: 'fisso-gen', snapshot_date: '2026-01-31', total_cash: 51532.70, external_withdrawals: 15749.48, base_cash_month: 57229.62, profit: 10052.56, _fisso: true },
-  { id: 'fisso-feb', snapshot_date: '2026-02-28', total_cash: 57229.62, external_withdrawals: 16622.02, base_cash_month: 57229.62, profit: 16622.02, _fisso: true },
+  { id: 'fisso-gen', snapshot_date: '2026-01-31', total_cash: 51532.70, base_cash_month: 57229.62, profit: 10052.56, _prelievi: 5859.65, _cashflow: 4192.91, _fisso: true },
+  { id: 'fisso-feb', snapshot_date: '2026-02-28', total_cash: 57229.62, base_cash_month: 57229.62, profit: 16622.02, _prelievi: 5572.01, _cashflow: 997.45, _fisso: true },
 ]
-// Per marzo correggiamo solo total_cash; profit resta dal DB per non sfasare aprile/maggio
-const MARZO_FIX = { total_cash: 60069.41 }
+// Per marzo: total_cash e profitto corretti fissi; prelievi e cashflow fissi
+const MARZO_FIX = { total_cash: 60069.41, _profitto_periodo: 10930.56, _prelievi: 8090.77, _cashflow: 2839.79 }
 
-// Sequenza normalizzata: inietta gen/feb se mancanti, fix total_cash marzo
+// Sequenza normalizzata: inietta gen/feb se mancanti, fix marzo
 const normalizedSnapshots = useMemo(() => {
   let snaps = [...weeklySnapshots]
-  // Fix total_cash marzo (profit invariato = delta aprile/maggio rimane corretto)
   snaps = snaps.map(s => {
     if (s.snapshot_date && s.snapshot_date.startsWith('2026-03')) {
       return { ...s, ...MARZO_FIX }
     }
     return s
   })
-  // Inietta gen/feb se non esistono già
   for (const fisso of STORICO_FISSO) {
     const mese = fisso.snapshot_date.slice(0, 7)
     if (!snaps.some(s => s.snapshot_date && s.snapshot_date.startsWith(mese))) {
@@ -3151,11 +3149,17 @@ onChange={(e) => {
         {activeTab === 'periodi' && (() => {
           const annoCorrente = new Date().getFullYear()
           const snapshotAnno = normalizedSnapshots.filter(s => s.snapshot_date && s.snapshot_date.startsWith(String(annoCorrente)))
-          const cashFlowAnno = snapshotAnno.reduce((tot, snap, idx) => {
+          const cashFlowAnno = snapshotAnno.reduce((tot, snap) => {
+            if (snap._cashflow !== undefined) return tot + snap._cashflow
+            // Per righe DB: cashflow = profitto_periodo - prelievi_periodo
             const allIdx = normalizedSnapshots.indexOf(snap)
-            const cashPrec = allIdx > 0 ? Number(normalizedSnapshots[allIdx - 1].total_cash || 0) : Number(normalizedSnapshots[0]?.total_cash || 0)
-            const delta = allIdx === 0 ? Number(snap.total_cash || 0) - Number(snap.base_cash_month || 0) : Number(snap.total_cash || 0) - cashPrec
-            return tot + delta
+            const profitCur = Number(snap.profit || 0)
+            const profitPrec = allIdx > 0 ? Number(normalizedSnapshots[allIdx - 1].profit || 0) : 0
+            const profitPeriodo = allIdx === 0 ? profitCur : profitCur - profitPrec
+            const preliCur = Number(snap.external_withdrawals || 0)
+            const preliPrec = allIdx > 0 ? Number(normalizedSnapshots[allIdx - 1].external_withdrawals || 0) : 0
+            const preliPeriodo = allIdx === 0 ? preliCur : preliCur - preliPrec
+            return tot + (profitPeriodo - preliPeriodo)
           }, 0)
           return (
           <div style={tabContent}>
@@ -3192,33 +3196,43 @@ onChange={(e) => {
                       <th style={th}>Ora salvataggio</th>
                       <th style={th}>Cassa totale</th>
                       <th style={th}>Prelievi (periodo)</th>
-                      <th style={th}>Base</th>
                       <th style={th}>Profitto</th>
                       <th style={th}>Cash Flow</th>
                     </tr>
                   </thead>
                   <tbody>
                     {normalizedSnapshots.map((snap, idx) => {
-                      const profitCum = Number(snap.profit || 0)
-                      const profitPrec = idx > 0 ? Number(normalizedSnapshots[idx - 1].profit || 0) : 0
-                      const profitPeriodo = idx === 0 ? profitCum : profitCum - profitPrec
+                      // Se la riga ha valori fissi (_fisso o _profitto_periodo), li usa direttamente
+                      // Altrimenti calcola i delta dal DB (aprile in poi)
+                      const profitPeriodo = snap._fisso
+                        ? Number(snap.profit || 0)
+                        : snap._profitto_periodo !== undefined
+                          ? snap._profitto_periodo
+                          : (() => {
+                              const cur = Number(snap.profit || 0)
+                              const prec = idx > 0 ? Number(normalizedSnapshots[idx - 1].profit || 0) : 0
+                              return idx === 0 ? cur : cur - prec
+                            })()
 
-                      const preliCum = Number(snap.external_withdrawals || 0)
-                      const preliPrec = idx > 0 ? Number(normalizedSnapshots[idx - 1].external_withdrawals || 0) : 0
-                      const preliPeriodo = idx === 0 ? preliCum : preliCum - preliPrec
+                      const preliPeriodo = snap._prelievi !== undefined
+                        ? snap._prelievi
+                        : (() => {
+                            const cur = Number(snap.external_withdrawals || 0)
+                            const prec = idx > 0 ? Number(normalizedSnapshots[idx - 1].external_withdrawals || 0) : 0
+                            return idx === 0 ? cur : cur - prec
+                          })()
 
-                      const cashCurr = Number(snap.total_cash || 0)
-                      const cashPrec = idx > 0 ? Number(normalizedSnapshots[idx - 1].total_cash || 0) : Number(snap.base_cash_month || 0)
-                      const cashFlow = idx === 0 ? cashCurr - Number(snap.base_cash_month || 0) : cashCurr - cashPrec
+                      const cashFlow = snap._cashflow !== undefined
+                        ? snap._cashflow
+                        : profitPeriodo - preliPeriodo
 
                       return (
                       <tr key={snap.id} style={tr}>
-                        <td style={td}>{snap.id}</td>
+                        <td style={td}>{snap._fisso ? '-' : snap.id}</td>
                         <td style={td}>{snap.snapshot_date || '-'}</td>
-                        <td style={td}>{formatDate(snap.created_at)}</td>
+                        <td style={td}>{snap._fisso ? '-' : formatDate(snap.created_at)}</td>
                         <td style={td}>{formatCurrency(snap.total_cash)}</td>
                         <td style={td}>{formatCurrency(preliPeriodo)}</td>
-                        <td style={td}>{formatCurrency(snap.base_cash_month)}</td>
                         <td style={tdStrong}>{formatCurrency(profitPeriodo)}</td>
                         <td style={{ ...tdStrong, color: cashFlow >= 0 ? '#4ade80' : '#f87171' }}>{formatCurrency(cashFlow)}</td>
                       </tr>
