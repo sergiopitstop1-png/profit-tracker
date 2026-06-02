@@ -451,120 +451,104 @@ async function updateProfiloLivello(bookId, livello) {
       setErrorMessage('')
     }
 
-   const [
-  booksRes,
-  walletsRes,
-  txRes,
-  contRes,
-  weeklyRes,
-  monthlyRes,
-  stimeRes,
-  memoRoyaltyAccountsRes,
-  memoRoyaltyEntriesRes,
-  memoSavingsRowsRes,
-  memoFutureNotesRes,
-  memoFreeBoxesRes,
-     dashboardSettingsRes,
-  clientiRes,
-  clientiEmailRes,
-  promozioniRes,
-] = await Promise.all([
-  supabase.from('books').select('*').order('id', { ascending: true }),
-  supabase.from('wallets').select('*').order('id', { ascending: true }),
-  supabase.from('transactions').select('*').order('data', { ascending: false }).gte('data', new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()).limit(2000),
-  supabase.from('contabilita').select('*').order('data_movimento', { ascending: false }),
-  supabase.from('weekly_snapshots').select('*').order('snapshot_date', { ascending: true }),
-  supabase.from('monthly_snapshots').select('*').order('snapshot_month', { ascending: true }),
-  supabase.from('stime_cassa').select('*')
-    .order('anno', { ascending: true })
-    .order('mese', { ascending: true })
-    .order('ordine', { ascending: true })
-    .order('id', { ascending: true }),
-  supabase.from('memo_royalty_accounts').select('*').order('id', { ascending: true }),
-  supabase.from('memo_royalty_entries').select('*').order('id', { ascending: true }),
-  supabase.from('memo_savings_rows').select('*').order('id', { ascending: true }),
-  supabase.from('memo_future_notes').select('*').order('ordine', { ascending: true }).order('id', { ascending: true }),
-  supabase.from('memo_free_boxes').select('*').order('id', { ascending: true }),
-    supabase.from('dashboard_settings').select('*').eq('id', 1).maybeSingle(),
-  supabase.from('clienti').select('*').order('nome', { ascending: true }),
-  supabase.from('clienti_email').select('*').order('cliente_id', { ascending: true }),
-  supabase.from('promozioni_clienti').select('*, clienti(nome)').order('data_mail', { ascending: false }).limit(5000),
-])
-const { data: esterniData } = await supabase
-  .from('transactions')
-  .select('importo')
-  .eq('azione', 'wallet_to_external')
+    // ── FASE 1: dati critici per la dashboard (parallelo) ──────────────────
+    const sei_mesi_fa = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString()
+    const anno_corrente = new Date().getFullYear() + '-01-01'
+    const [
+      booksRes, walletsRes, txRes, contRes,
+      weeklyRes, monthlyRes, stimeRes,
+      memoRoyaltyAccountsRes, memoRoyaltyEntriesRes,
+      memoSavingsRowsRes, memoFutureNotesRes, memoFreeBoxesRes,
+      dashboardSettingsRes, clientiRes, clientiEmailRes,
+      esterniRes,
+    ] = await Promise.all([
+      supabase.from('books').select('*').order('id', { ascending: true }),
+      supabase.from('wallets').select('*').order('id', { ascending: true }),
+      supabase.from('transactions').select('*').order('data', { ascending: false }).gte('data', new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()).limit(2000),
+      supabase.from('contabilita').select('*').order('data_movimento', { ascending: false }).gte('data_movimento', sei_mesi_fa),
+      supabase.from('weekly_snapshots').select('*').order('snapshot_date', { ascending: true }),
+      supabase.from('monthly_snapshots').select('*').order('snapshot_month', { ascending: true }),
+      supabase.from('stime_cassa').select('*').order('anno', { ascending: true }).order('mese', { ascending: true }).order('ordine', { ascending: true }).order('id', { ascending: true }),
+      supabase.from('memo_royalty_accounts').select('*').order('id', { ascending: true }),
+      supabase.from('memo_royalty_entries').select('*').order('id', { ascending: true }),
+      supabase.from('memo_savings_rows').select('*').order('id', { ascending: true }),
+      supabase.from('memo_future_notes').select('*').order('ordine', { ascending: true }).order('id', { ascending: true }),
+      supabase.from('memo_free_boxes').select('*').order('id', { ascending: true }),
+      supabase.from('dashboard_settings').select('*').eq('id', 1).maybeSingle(),
+      supabase.from('clienti').select('*').order('nome', { ascending: true }),
+      supabase.from('clienti_email').select('*').order('cliente_id', { ascending: true }),
+      supabase.from('transactions').select('importo').eq('azione', 'wallet_to_external').gte('data', anno_corrente),
+    ])
 
-const sommaEsterni = (esterniData || [])
-  .reduce((t, tx) => t + Number(tx.importo || 0), 0)
-setTotaleEsterni(sommaEsterni)
+    // Applica subito i dati critici e togli il loading
     const errors = []
-if (booksRes.error) errors.push('books'); else {
-  const booksData = booksRes.data || []
-  setBooks(booksData)
-  setTimeout(() => autoAssegnaProfiloDefault(booksData), 500)
-}
-if (walletsRes.error) errors.push('wallets'); else setWallets(walletsRes.data || [])
-if (txRes.error) errors.push('transactions'); else setTransactions(txRes.data || [])
-if (contRes.error) errors.push('contabilita'); else setContabilita(contRes.data || [])
-if (weeklyRes.error) errors.push('weekly_snapshots'); else setWeeklySnapshots(weeklyRes.data || [])
-if (monthlyRes.error) errors.push('monthly_snapshots'); else setMonthlySnapshots(monthlyRes.data || [])
-if (stimeRes.error) errors.push('stime_cassa'); else setStimeCassa(stimeRes.data || [])
-if (memoRoyaltyAccountsRes.error) errors.push('memo_royalty_accounts'); else setMemoRoyaltyAccounts(memoRoyaltyAccountsRes.data || [])
-if (memoRoyaltyEntriesRes.error) errors.push('memo_royalty_entries'); else setMemoRoyaltyEntries(memoRoyaltyEntriesRes.data || [])
-if (memoSavingsRowsRes.error) errors.push('memo_savings_rows'); else setMemoSavingsRows(memoSavingsRowsRes.data || [])
-if (memoFutureNotesRes.error) errors.push('memo_future_notes'); else setMemoFutureNotes(memoFutureNotesRes.data || [])
-if (memoFreeBoxesRes.error) errors.push('memo_free_boxes'); else setMemoFreeBoxes(memoFreeBoxesRes.data || [])
+    if (booksRes.error) errors.push('books'); else {
+      const booksData = booksRes.data || []
+      setBooks(booksData)
+      setTimeout(() => autoAssegnaProfiloDefault(booksData), 500)
+    }
+    if (walletsRes.error) errors.push('wallets'); else setWallets(walletsRes.data || [])
+    if (txRes.error) errors.push('transactions'); else setTransactions(txRes.data || [])
+    if (contRes.error) errors.push('contabilita'); else setContabilita(contRes.data || [])
+    if (weeklyRes.error) errors.push('weekly_snapshots'); else setWeeklySnapshots(weeklyRes.data || [])
+    if (monthlyRes.error) errors.push('monthly_snapshots'); else setMonthlySnapshots(monthlyRes.data || [])
+    if (stimeRes.error) errors.push('stime_cassa'); else setStimeCassa(stimeRes.data || [])
+    if (memoRoyaltyAccountsRes.error) errors.push('memo_royalty_accounts'); else setMemoRoyaltyAccounts(memoRoyaltyAccountsRes.data || [])
+    if (memoRoyaltyEntriesRes.error) errors.push('memo_royalty_entries'); else setMemoRoyaltyEntries(memoRoyaltyEntriesRes.data || [])
+    if (memoSavingsRowsRes.error) errors.push('memo_savings_rows'); else setMemoSavingsRows(memoSavingsRowsRes.data || [])
+    if (memoFutureNotesRes.error) errors.push('memo_future_notes'); else setMemoFutureNotes(memoFutureNotesRes.data || [])
+    if (memoFreeBoxesRes.error) errors.push('memo_free_boxes'); else setMemoFreeBoxes(memoFreeBoxesRes.data || [])
     if (dashboardSettingsRes.error) {
-  errors.push('dashboard_settings')
-} else {
-  const ds = dashboardSettingsRes.data || { accantonamento_royalty: 0, risparmi_samu_massi: 0 }
-  setDashboardSettings(ds)
-  if (ds.soglie_budget) setSoglieBudget(ds.soglie_budget)
-}
-if (clientiRes && !clientiRes.error) setClienti(clientiRes.data || [])
-if (clientiEmailRes && !clientiEmailRes.error) setClientiEmail(clientiEmailRes.data || [])
+      errors.push('dashboard_settings')
+    } else {
+      const ds = dashboardSettingsRes.data || { accantonamento_royalty: 0, risparmi_samu_massi: 0 }
+      setDashboardSettings(ds)
+      if (ds.soglie_budget) setSoglieBudget(ds.soglie_budget)
+    }
+    if (clientiRes && !clientiRes.error) setClienti(clientiRes.data || [])
+    if (clientiEmailRes && !clientiEmailRes.error) setClientiEmail(clientiEmailRes.data || [])
+    if (esterniRes && !esterniRes.error) {
+      const sommaEsterni = (esterniRes.data || []).reduce((t, tx) => t + Number(tx.importo || 0), 0)
+      setTotaleEsterni(sommaEsterni)
+    }
+    if (errors.length) setErrorMessage(`Errore caricamento: ${errors.join(', ')}`)
 
-// Carica SMS
-const { data: smsData } = await supabase.from('sms_clienti').select('*').order('data_ricezione', { ascending: false }).limit(500)
-if (smsData) setSmsClienti(smsData)
-const { data: pmData, error: pmError } = await supabase.from('punti_monete').select('*').order('book_nome').order('cliente_nome')
-if (!pmError && pmData && pmData.length > 0) {
-  const bookMap = {}
-  const saldiMap = {}
-  pmData.forEach(r => {
-    if (!bookMap[r.book_nome]) bookMap[r.book_nome] = { id: r.book_nome.toLowerCase(), nome: r.book_nome, valorePunto: Number(r.valore_punto), bookId: r.book_id ? String(r.book_id) : '' }
-    saldiMap[`${r.book_nome.toLowerCase()}__${r.cliente_nome}`] = r.punti
-  })
-  const booksArr = Object.values(bookMap)
-  setPuntiMoneteBooks(booksArr)
-  setPmBooks(booksArr)
-  setPmSaldi(saldiMap)
-}
-setPmLoading(false)
-// Carica tutte wallet_to_external del mese corrente per grafico spese
-const meseCorrenteISO = new Date().toISOString().slice(0, 7)
-const { data: speseData } = await supabase
-  .from('transactions')
-  .select('id, note, importo, categoria_spesa, data, azione')
-  .eq('azione', 'wallet_to_external')
-  .gte('data', meseCorrenteISO + '-01')
-  .lt('data', new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toISOString())
-if (speseData) setSpeseCategoriaMese(speseData)
-if (promozioniRes && !promozioniRes.error) {
-  setPromozioni(promozioniRes.data || [])
-  const altaPriorita = (promozioniRes.data || []).filter(p => !p.letta)
-  if (altaPriorita.length > 0) setShowPromozioniPopup(true)
-}
-    // Carica matrice in due batch per superare limite 1000 righe Supabase
-    const [m1, m2, m3] = await Promise.all([
+    // ── UI visibile subito ─────────────────────────────────────────────────
+    setLoading(false)
+
+    // ── FASE 2: dati pesanti in background (non bloccano la UI) ───────────
+    const meseCorrenteISO = new Date().toISOString().slice(0, 7)
+    Promise.all([
+      supabase.from('sms_clienti').select('*').order('data_ricezione', { ascending: false }).limit(500),
+      supabase.from('punti_monete').select('*').order('book_nome').order('cliente_nome'),
+      supabase.from('transactions').select('id, note, importo, categoria_spesa, data, azione').eq('azione', 'wallet_to_external').gte('data', meseCorrenteISO + '-01').lt('data', new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toISOString()),
+      supabase.from('promozioni_clienti').select('*, clienti(nome)').order('data_mail', { ascending: false }).limit(5000),
       supabase.from('matrice_bookmakers').select('*').order('bookmaker', { ascending: true }).range(0, 999),
       supabase.from('matrice_bookmakers').select('*').order('bookmaker', { ascending: true }).range(1000, 1999),
       supabase.from('matrice_bookmakers').select('*').order('bookmaker', { ascending: true }).range(2000, 2999),
-    ])
-    setMatrice([...(m1.data || []), ...(m2.data || []), ...(m3.data || [])])
-    if (errors.length) setErrorMessage(`Errore caricamento: ${errors.join(', ')}`)
-    setLoading(false)
+    ]).then(([smsRes, pmRes, speseRes, promoRes, m1, m2, m3]) => {
+      if (smsRes.data) setSmsClienti(smsRes.data)
+      if (!pmRes.error && pmRes.data && pmRes.data.length > 0) {
+        const bookMap = {}
+        const saldiMap = {}
+        pmRes.data.forEach(r => {
+          if (!bookMap[r.book_nome]) bookMap[r.book_nome] = { id: r.book_nome.toLowerCase(), nome: r.book_nome, valorePunto: Number(r.valore_punto), bookId: r.book_id ? String(r.book_id) : '' }
+          saldiMap[`${r.book_nome.toLowerCase()}__${r.cliente_nome}`] = r.punti
+        })
+        const booksArr = Object.values(bookMap)
+        setPuntiMoneteBooks(booksArr)
+        setPmBooks(booksArr)
+        setPmSaldi(saldiMap)
+      }
+      setPmLoading(false)
+      if (speseRes.data) setSpeseCategoriaMese(speseRes.data)
+      if (promoRes && !promoRes.error) {
+        setPromozioni(promoRes.data || [])
+        const altaPriorita = (promoRes.data || []).filter(p => !p.letta)
+        if (altaPriorita.length > 0) setShowPromozioniPopup(true)
+      }
+      setMatrice([...(m1.data || []), ...(m2.data || []), ...(m3.data || [])])
+    })
   }
   const saveWeeklySnapshot = async () => {
     try {
