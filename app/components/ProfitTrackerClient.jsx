@@ -3508,14 +3508,9 @@ onChange={(e) => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 16 }}>
       {clienti.length === 0 && <p style={{ color: '#94a3b8' }}>Nessun cliente ancora. Clicca "+ Nuovo Cliente" per iniziare.</p>}
       {[...clienti].sort((a, b) => {
-        const oggi = new Date(); oggi.setHours(0,0,0,0)
-        const getGiorni = (c) => {
-          if (!c.sim_giorno_scadenza) return 9999
-          let d = new Date(oggi.getFullYear(), oggi.getMonth(), c.sim_giorno_scadenza)
-          if (d < oggi) d = new Date(oggi.getFullYear(), oggi.getMonth() + 1, c.sim_giorno_scadenza)
-          return Math.round((d - oggi) / (1000 * 60 * 60 * 24))
-        }
-        return getGiorni(a) - getGiorni(b)
+        const ga = a.sim_giorno_scadenza ? Number(a.sim_giorno_scadenza) : 9999
+        const gb = b.sim_giorno_scadenza ? Number(b.sim_giorno_scadenza) : 9999
+        return ga - gb
       }).map(c => {
         const oggi = new Date()
         const meseKey = `${oggi.getFullYear()}-${String(oggi.getMonth() + 1).padStart(2, '0')}`
