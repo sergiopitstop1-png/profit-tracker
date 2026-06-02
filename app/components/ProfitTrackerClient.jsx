@@ -2188,6 +2188,41 @@ const totaleUsciteEsterne = ultimoSnapshot
 
 const guadagnoCorrente =
   (totaleCassa - basePeriodo) + totaleUsciteEsterne
+
+// Guadagno annuo: somma profitti di periodo di tutti gli snapshot dell'anno corrente
+const guadagnoAnnuo = useMemo(() => {
+  const annoCorrente = new Date().getFullYear()
+  const snapsAnno = normalizedSnapshots.filter(s => s.snapshot_date && s.snapshot_date.startsWith(String(annoCorrente)))
+  return snapsAnno.reduce((tot, snap, i) => {
+    const allIdx = normalizedSnapshots.indexOf(snap)
+    if (snap._fisso) {
+      const cur = Number(snap.profit || 0)
+      const prec = allIdx > 0 ? Number(normalizedSnapshots[allIdx - 1].profit || 0) : 0
+      return tot + (allIdx === 0 ? cur : cur - prec)
+    }
+    if (snap._profitto_periodo !== undefined) return tot + snap._profitto_periodo
+    const cur = Number(snap.profit || 0)
+    const prec = allIdx > 0 ? Number(normalizedSnapshots[allIdx - 1].profit || 0) : 0
+    return tot + (allIdx === 0 ? cur : cur - prec)
+  }, 0)
+}, [normalizedSnapshots])
+
+// Cash flow annuo: uguale a quello calcolato in periodi
+const cashFlowAnnuo = useMemo(() => {
+  const annoCorrente = new Date().getFullYear()
+  const snapsAnno = normalizedSnapshots.filter(s => s.snapshot_date && s.snapshot_date.startsWith(String(annoCorrente)))
+  return snapsAnno.reduce((tot, snap) => {
+    if (snap._cashflow !== undefined) return tot + snap._cashflow
+    const allIdx = normalizedSnapshots.indexOf(snap)
+    const profitCur = Number(snap.profit || 0)
+    const profitPrec = allIdx > 0 ? Number(normalizedSnapshots[allIdx - 1].profit || 0) : 0
+    const profitPeriodo = allIdx === 0 ? profitCur : profitCur - profitPrec
+    const preliCur = Number(snap.external_withdrawals || 0)
+    const preliPrec = allIdx > 0 ? Number(normalizedSnapshots[allIdx - 1].external_withdrawals || 0) : 0
+    const preliPeriodo = allIdx === 0 ? preliCur : preliCur - preliPrec
+    return tot + (profitPeriodo - preliPeriodo)
+  }, 0)
+}, [normalizedSnapshots])
   
   const filteredBooks = useMemo(() =>
   books
@@ -2852,7 +2887,29 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                   </div>
                 </div>
               </div>
-      
+
+      {/* Card Riepilogo Anno */}
+      <div style={{
+        background: 'linear-gradient(135deg, rgba(56,189,248,0.07), rgba(34,197,94,0.06), rgba(15,23,42,0.96))',
+        border: '1px solid rgba(56,189,248,0.18)',
+        borderRadius: 22,
+        padding: '20px 24px',
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: 16
+      }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1, color: '#7dd3fc', marginBottom: 8 }}>Guadagno Anno {new Date().getFullYear()}</div>
+          <div style={{ fontSize: 28, fontWeight: 900, color: '#f8fafc', lineHeight: 1 }}>{formatCurrency(guadagnoAnnuo)}</div>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>Somma profitti periodi chiusi</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1, color: cashFlowAnnuo >= 0 ? '#4ade80' : '#f87171', marginBottom: 8 }}>Cash Flow Anno {new Date().getFullYear()}</div>
+          <div style={{ fontSize: 28, fontWeight: 900, color: cashFlowAnnuo >= 0 ? '#4ade80' : '#f87171', lineHeight: 1 }}>{formatCurrency(cashFlowAnnuo)}</div>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>Variazione netta cassa</div>
+        </div>
+      </div>
+
      <div style={{ marginTop: 20 }}>
   <div style={{
     fontSize: 14,
@@ -3148,19 +3205,7 @@ onChange={(e) => {
         )}
         {activeTab === 'periodi' && (() => {
           const annoCorrente = new Date().getFullYear()
-          const snapshotAnno = normalizedSnapshots.filter(s => s.snapshot_date && s.snapshot_date.startsWith(String(annoCorrente)))
-          const cashFlowAnno = snapshotAnno.reduce((tot, snap) => {
-            if (snap._cashflow !== undefined) return tot + snap._cashflow
-            // Per righe DB: cashflow = profitto_periodo - prelievi_periodo
-            const allIdx = normalizedSnapshots.indexOf(snap)
-            const profitCur = Number(snap.profit || 0)
-            const profitPrec = allIdx > 0 ? Number(normalizedSnapshots[allIdx - 1].profit || 0) : 0
-            const profitPeriodo = allIdx === 0 ? profitCur : profitCur - profitPrec
-            const preliCur = Number(snap.external_withdrawals || 0)
-            const preliPrec = allIdx > 0 ? Number(normalizedSnapshots[allIdx - 1].external_withdrawals || 0) : 0
-            const preliPeriodo = allIdx === 0 ? preliCur : preliCur - preliPrec
-            return tot + (profitPeriodo - preliPeriodo)
-          }, 0)
+          const cashFlowAnno = cashFlowAnnuo
           return (
           <div style={tabContent}>
             <div style={sectionTopBar}>
