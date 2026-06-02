@@ -3118,12 +3118,30 @@ onChange={(e) => {
             </div>
           </div>
         )}
-        {activeTab === 'periodi' && (
+        {activeTab === 'periodi' && (() => {
+          const annoCorrente = new Date().getFullYear()
+          const snapshotAnno = weeklySnapshots.filter(s => s.snapshot_date && s.snapshot_date.startsWith(String(annoCorrente)))
+          const cashFlowAnno = snapshotAnno.reduce((tot, snap, idx) => {
+            const allIdx = weeklySnapshots.indexOf(snap)
+            const cashPrec = allIdx > 0 ? Number(weeklySnapshots[allIdx - 1].total_cash || 0) : Number(weeklySnapshots[0]?.total_cash || 0)
+            const delta = allIdx === 0 ? Number(snap.total_cash || 0) - Number(snap.base_cash_month || 0) : Number(snap.total_cash || 0) - cashPrec
+            return tot + delta
+          }, 0)
+          return (
           <div style={tabContent}>
             <div style={sectionTopBar}>
               <div>
                 <h2 style={sectionTitle}>Periodi</h2>
                 <p style={sectionDescription}>Storico degli snapshot salvati con Salva Periodo</p>
+              </div>
+            </div>
+
+            {/* Box cash flow annuale */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginBottom: 16 }}>
+              <div style={{ ...statCard, borderColor: cashFlowAnno >= 0 ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)' }}>
+                <div style={statLabel}>Cash Flow {annoCorrente}</div>
+                <div style={{ ...statValue, color: cashFlowAnno >= 0 ? '#4ade80' : '#f87171', fontSize: 32 }}>{formatCurrency(cashFlowAnno)}</div>
+                <div style={statSub}>Variazione netta cassa anno in corso</div>
               </div>
             </div>
 
@@ -3143,9 +3161,10 @@ onChange={(e) => {
                       <th style={th}>Data periodo</th>
                       <th style={th}>Ora salvataggio</th>
                       <th style={th}>Cassa totale</th>
-                      <th style={th}>Prelievi esterni</th>
+                      <th style={th}>Prelievi (periodo)</th>
                       <th style={th}>Base</th>
                       <th style={th}>Profitto</th>
+                      <th style={th}>Cash Flow</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -3153,15 +3172,25 @@ onChange={(e) => {
                       const profitCum = Number(snap.profit || 0)
                       const profitPrec = idx > 0 ? Number(weeklySnapshots[idx - 1].profit || 0) : 0
                       const profitPeriodo = idx === 0 ? profitCum : profitCum - profitPrec
+
+                      const preliCum = Number(snap.external_withdrawals || 0)
+                      const preliPrec = idx > 0 ? Number(weeklySnapshots[idx - 1].external_withdrawals || 0) : 0
+                      const preliPeriodo = idx === 0 ? preliCum : preliCum - preliPrec
+
+                      const cashCurr = Number(snap.total_cash || 0)
+                      const cashPrec = idx > 0 ? Number(weeklySnapshots[idx - 1].total_cash || 0) : Number(snap.base_cash_month || 0)
+                      const cashFlow = idx === 0 ? cashCurr - Number(snap.base_cash_month || 0) : cashCurr - cashPrec
+
                       return (
                       <tr key={snap.id} style={tr}>
                         <td style={td}>{snap.id}</td>
                         <td style={td}>{snap.snapshot_date || '-'}</td>
                         <td style={td}>{formatDate(snap.created_at)}</td>
                         <td style={td}>{formatCurrency(snap.total_cash)}</td>
-                        <td style={td}>{formatCurrency(snap.external_withdrawals)}</td>
+                        <td style={td}>{formatCurrency(preliPeriodo)}</td>
                         <td style={td}>{formatCurrency(snap.base_cash_month)}</td>
                         <td style={tdStrong}>{formatCurrency(profitPeriodo)}</td>
+                        <td style={{ ...tdStrong, color: cashFlow >= 0 ? '#4ade80' : '#f87171' }}>{formatCurrency(cashFlow)}</td>
                       </tr>
                       )
                     })}
@@ -3170,7 +3199,8 @@ onChange={(e) => {
               </div>
             </div>
           </div>
-        )}
+          )
+        })()}
        {activeTab === 'profilazione' && (() => {
   const intestatari = [...new Set(books.map(b => b.intestatario).filter(Boolean))].sort()
   const giorno = new Date().getDay()
