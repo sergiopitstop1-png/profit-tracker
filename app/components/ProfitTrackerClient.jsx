@@ -2321,9 +2321,9 @@ const totaleSpeseProgrammateAnno = useMemo(() => {
     .reduce((sum, r) => sum + Math.abs(Number(r.importo || 0)), 0)
 }, [stimeCassa])
 
-// Media mensile residua: spese anno / mesi rimanenti (escluso mese corrente)
+// Media mensile residua: spese anno / mesi rimanenti (incluso mese corrente)
 const mediaMensileResidua = useMemo(() => {
-  const mesiRimanenti = 12 - meseCorrenteNum
+  const mesiRimanenti = 12 - meseCorrenteNum + 1
   if (mesiRimanenti <= 0) return 0
   return totaleSpeseProgrammateAnno / mesiRimanenti
 }, [totaleSpeseProgrammateAnno, meseCorrenteNum])
@@ -3072,7 +3072,7 @@ onChange={(e) => {
   <StatCard
     label='Media mensile residua'
     value={formatCurrency(mediaMensileResidua)}
-    sub={`Su ${12 - meseCorrenteNum} mesi rimanenti · obiettivo minimo`}
+    sub={`Su ${12 - meseCorrenteNum + 1} mesi rimanenti (mese corrente incluso) · obiettivo minimo`}
     accent='#a855f7'
   />
 
