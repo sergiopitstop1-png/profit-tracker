@@ -3205,7 +3205,11 @@ onChange={(e) => {
                       // Se la riga ha valori fissi (_fisso o _profitto_periodo), li usa direttamente
                       // Altrimenti calcola i delta dal DB (aprile in poi)
                       const profitPeriodo = snap._fisso
-                        ? Number(snap.profit || 0)
+                        ? (() => {
+                            const cur = Number(snap.profit || 0)
+                            const prec = idx > 0 ? Number(normalizedSnapshots[idx - 1].profit || 0) : 0
+                            return idx === 0 ? cur : cur - prec
+                          })()
                         : snap._profitto_periodo !== undefined
                           ? snap._profitto_periodo
                           : (() => {
