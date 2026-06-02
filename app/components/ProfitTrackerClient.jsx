@@ -604,14 +604,19 @@ const externalWithdrawals = totaleEsterni
     }
   }
 const weeklyChartData = useMemo(() => {
-  return weeklySnapshots.map(item => ({
-    name: new Date(item.snapshot_date).toLocaleDateString('it-IT', {
-      day: '2-digit',
-      month: '2-digit'
-    }),
-    profit: Number(item.profit || 0),
-    totalCash: Number(item.total_cash || 0)
-  }))
+  return weeklySnapshots.map((item, idx) => {
+    const profitCumulativo = Number(item.profit || 0)
+    const profitPrecedente = idx > 0 ? Number(weeklySnapshots[idx - 1].profit || 0) : 0
+    const profitPeriodo = idx === 0 ? profitCumulativo : profitCumulativo - profitPrecedente
+    return {
+      name: new Date(item.snapshot_date).toLocaleDateString('it-IT', {
+        day: '2-digit',
+        month: '2-digit'
+      }),
+      profit: profitPeriodo,
+      totalCash: Number(item.total_cash || 0)
+    }
+  })
 }, [weeklySnapshots])
 
 const weeklyProfitColor =
@@ -3160,7 +3165,11 @@ onChange={(e) => {
                     </tr>
                   </thead>
                   <tbody>
-                    {weeklySnapshots.map((snap) => (
+                    {weeklySnapshots.map((snap, idx) => {
+                      const profitCum = Number(snap.profit || 0)
+                      const profitPrec = idx > 0 ? Number(weeklySnapshots[idx - 1].profit || 0) : 0
+                      const profitPeriodo = idx === 0 ? profitCum : profitCum - profitPrec
+                      return (
                       <tr key={snap.id} style={tr}>
                         <td style={td}>{snap.id}</td>
                         <td style={td}>{snap.snapshot_date || '-'}</td>
@@ -3168,9 +3177,10 @@ onChange={(e) => {
                         <td style={td}>{formatCurrency(snap.total_cash)}</td>
                         <td style={td}>{formatCurrency(snap.external_withdrawals)}</td>
                         <td style={td}>{formatCurrency(snap.base_cash_month)}</td>
-                        <td style={tdStrong}>{formatCurrency(snap.profit)}</td>
+                        <td style={tdStrong}>{formatCurrency(profitPeriodo)}</td>
                       </tr>
-                    ))}
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -3483,7 +3493,16 @@ onChange={(e) => {
     </div>
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 16 }}>
       {clienti.length === 0 && <p style={{ color: '#94a3b8' }}>Nessun cliente ancora. Clicca "+ Nuovo Cliente" per iniziare.</p>}
-      {clienti.map(c => {
+      {[...clienti].sort((a, b) => {
+        const oggi = new Date(); oggi.setHours(0,0,0,0)
+        const getGiorni = (c) => {
+          if (!c.sim_giorno_scadenza) return 9999
+          let d = new Date(oggi.getFullYear(), oggi.getMonth(), c.sim_giorno_scadenza)
+          if (d < oggi) d = new Date(oggi.getFullYear(), oggi.getMonth() + 1, c.sim_giorno_scadenza)
+          return Math.round((d - oggi) / (1000 * 60 * 60 * 24))
+        }
+        return getGiorni(a) - getGiorni(b)
+      }).map(c => {
         const oggi = new Date()
         const meseKey = `${oggi.getFullYear()}-${String(oggi.getMonth() + 1).padStart(2, '0')}`
         const rinnovato = c.sim_rinnovato && c.sim_rinnovato_mese === meseKey
