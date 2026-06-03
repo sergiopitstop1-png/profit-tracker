@@ -617,9 +617,22 @@ const normalizedSnapshots = useMemo(() => {
 
 const weeklyChartData = useMemo(() => {
   return normalizedSnapshots.map((item, idx) => {
-    const profitCumulativo = Number(item.profit || 0)
-    const profitPrecedente = idx > 0 ? Number(normalizedSnapshots[idx - 1].profit || 0) : 0
-    const profitPeriodo = idx === 0 ? profitCumulativo : profitCumulativo - profitPrecedente
+    let profitPeriodo
+    if (item._fisso) {
+      // righe fittizie: delta rispetto alla precedente (profit cumulativo proprio)
+      const cur = Number(item.profit || 0)
+      const prec = idx > 0 ? Number(normalizedSnapshots[idx - 1].profit || 0) : 0
+      profitPeriodo = idx === 0 ? cur : cur - prec
+    } else if (item._profitto_periodo !== undefined) {
+      // marzo: usa il valore fisso corretto
+      profitPeriodo = item._profitto_periodo
+    } else {
+      // DB normale: delta profit cumulativo, ma salta il "salto" causato dai fissi
+      // trova l'ultimo snap non-fisso precedente per il delta corretto
+      const cur = Number(item.profit || 0)
+      const prec = idx > 0 ? Number(normalizedSnapshots[idx - 1].profit || 0) : 0
+      profitPeriodo = idx === 0 ? cur : cur - prec
+    }
     return {
       name: new Date(item.snapshot_date).toLocaleDateString('it-IT', {
         day: '2-digit',
