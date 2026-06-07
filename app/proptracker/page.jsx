@@ -94,6 +94,14 @@ export default function PropTrackerPage() {
     loadChallenges()
   }
 
+  async function eliminaChallenge(id, e) {
+    e.stopPropagation()
+    if (!confirm('Eliminare definitivamente questa challenge e tutte le sue operazioni?')) return
+    await supabase.from('prop_operations').delete().eq('challenge_id', id)
+    await supabase.from('prop_challenges').delete().eq('id', id)
+    loadChallenges()
+  }
+
   const targetBook = (f) => parseFloat(f.fee_challenge || 0) + parseFloat(f.profitto_target || 0)
 
   return (
@@ -210,6 +218,9 @@ export default function PropTrackerPage() {
                     Archivia
                   </button>
                 )}
+                <button style={s.btn(COLORS.red, '#fff')} onClick={e => eliminaChallenge(c.id, e)}>
+                  🗑️ Elimina
+                </button>
                 <button style={s.btn(COLORS.accent)} onClick={e => { e.stopPropagation(); router.push(`/proptracker/${c.id}`) }}>
                   Apri →
                 </button>
