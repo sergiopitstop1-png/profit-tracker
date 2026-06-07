@@ -134,7 +134,7 @@ export default function PropTrackerPage() {
           <div style={{ ...s.grid3, marginBottom: '16px' }}>
             {[
               ['saldo_iniziale','Saldo iniziale (€)'],['fee_challenge','Fee challenge (€)'],
-              ['profitto_target','Profitto netto (€)'],['puntata_prop_default','Puntata prop default (€)'],
+              ['profitto_target','Profitto (€)'],['puntata_prop_default','Puntata prop default (€)'],
               ['quota_prop_default','Quota prop default'],['quota_book_default','Quota book default'],
             ].map(([k,l]) => (
               <div key={k}>
@@ -148,8 +148,8 @@ export default function PropTrackerPage() {
           <div style={{ ...s.grid3, marginBottom: '16px' }}>
             {[
               ['puntate_fase1','Puntate Fase 1'],['puntate_fase2','Puntate Fase 2'],
-              ['perdita_max_pct','Perdita max (es. 0.15)'],['drawdown_giornaliero_pct','DD giornaliero (es. 0.10)'],
-              ['target_fase1_pct','Target F1 % (es. 0.25)'],['target_fase2_pct','Target F2 % (es. 0.19)'],
+              ['perdita_max_pct','Perdita max %'],['drawdown_giornaliero_pct','DD giornaliero %'],
+              ['target_fase1_pct','Target Fase 1 %'],['target_fase2_pct','Target Fase 2 %'],
             ].map(([k,l]) => (
               <div key={k}>
                 <label style={s.label}>{l}</label>
