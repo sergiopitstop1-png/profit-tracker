@@ -14,22 +14,18 @@ const C = {
   input:'#1C2128', border:'#30363D', orange:'#E8622A', greenDark:'#0D2010'
 }
 
-// ─── Calcoli puri ────────────────────────────────────────────────────────────
+// ─── Calcoli puri ─────────────────────────────────────────────────────────────
 
 function getFase(prevOps) {
-  // La fase cambia SOLO al raggiungimento del target, mai per numero operazione
-  const prevF2 = prevOps.some(o => o.stato_operazione?.includes('F2 TARGET'))
-  const prevF1 = prevOps.some(o => o.stato_operazione?.includes('F1 TARGET'))
-  if (prevF2) return 'Finanziato'
-  if (prevF1) return 'Fase 2'
+  // Cambia fase SOLO al raggiungimento del target, mai per numero operazione
+  if (prevOps.some(o => o.stato_operazione?.includes('F2 TARGET'))) return 'Finanziato'
+  if (prevOps.some(o => o.stato_operazione?.includes('F1 TARGET'))) return 'Fase 2'
   return 'Fase 1'
 }
 
 function isFirstOfFase(fase, prevOps) {
-  // Prima op di una nuova fase = la precedente aveva fase diversa
   if (prevOps.length === 0) return false
-  const prevFase = prevOps[prevOps.length - 1]?.fase
-  return prevFase !== fase
+  return prevOps[prevOps.length - 1]?.fase !== fase
 }
 
 function calcIncasso(esito, puntata, quota) {
@@ -45,10 +41,11 @@ function calcIncasso(esito, puntata, quota) {
 function calcPuntataBook(cfg, prevPnlBook, quotaBook, puntataProp, targetDinamico, puntateRimanenti) {
   const residuo = Math.max(0, targetDinamico - (prevPnlBook || 0))
   const rim = Math.max(1, puntateRimanenti)
-  const agg = Math.min(100, Math.max(10, parseFloat(cfg.aggressivita_pct || 50))) / 100
+  const agg = Math.min(100, Math.max(10, parseFloat(cfg.aggressivita_pct || 35))) / 100
   const base = residuo / (rim * (parseFloat(quotaBook) - 1) * agg)
   const scaled = base * (parseFloat(puntataProp) / parseFloat(cfg.puntata_prop_default))
-  const cap = parseFloat(cfg.puntata_prop_default) * 3
+  // Cap: MAI più della puntata prop (1x)
+  const cap = parseFloat(cfg.puntata_prop_default)
   return Math.max(1, Math.min(Math.round(scaled), cap))
 }
 
@@ -72,39 +69,25 @@ function getStato(op, cfg) {
   if (saldo < parseFloat(cfg.saldo_iniziale) - perdMax) return '🔴 PROP BRUCIATA'
   if (op.fase === 'Finanziato' && pnlBook >= (op.target_dinamico ?? targetBase)) return '🏦 FINANZIATO OK'
   if (pnlBook >= targetBase) return '✅ TARGET OK'
+  if (op.fase === 'Fase 1' && saldo >= parseFloat(cfg.saldo_iniziale) + targetF1) return '✅ F1 TARGET'
+  if (op.fase === 'Fase 2' && saldo >= parseFloat(cfg.saldo_iniziale) + targetF2) return '✅ F2 TARGET'
   if (pnlBook >= parseFloat(cfg.fee_challenge)) return '🔔 FEE COPERTA'
-  if (op.fase === 'Fase 1' && saldo >= parseFloat(cfg.saldo_iniziale) * (1 + parseFloat(cfg.target_fase1_pct))) return '✅ F1 TARGET'
-  if (op.fase === 'Fase 2' && saldo >= parseFloat(cfg.saldo_iniziale) * (1 + parseFloat(cfg.target_fase2_pct))) return '✅ F2 TARGET'
   if (op.esito_prop === 'V') return '🟢 PROP WIN'
   return '🟡 PROP LOSS'
 }
 
-// ─── Arricchimento operazioni ─────────────────────────────────────────────────
-
 function enrichOps(ops, cfg) {
-  const puntateF1 = parseInt(cfg.puntate_fase1) // usato solo per stima puntate rimanenti
-  const totalOps = puntateF1 + parseInt(cfg.puntate_fase2)
+  const orizzonteStimato = parseInt(cfg.puntate_fase1) + parseInt(cfg.puntate_fase2)
 
   return ops.reduce((acc, op, i) => {
-    const prevOps = acc // già arricchite
-    const fase = getFase(prevOps)
-    const firstOfFase = isFirstOfFase(fase, prevOps)
-
-    // Saldo prop: reset a 1000 alla prima op di ogni nuova fase
+    const fase = getFase(acc)
+    const firstOfFase = isFirstOfFase(fase, acc)
     const prevSaldo = firstOfFase
       ? parseFloat(cfg.saldo_iniziale)
-      : (prevOps[i - 1]?.saldo_prop ?? parseFloat(cfg.saldo_iniziale))
-    const prevPnlBook = i > 0 ? (prevOps[i - 1]?.pnl_cum_book ?? 0) : 0
-
-    // Target dinamico (considera prelievi confermati fino a questa op)
-    const targetDinamico = calcTargetDinamico(cfg, prevOps)
-
-    // Puntate rimanenti stimate: usiamo un orizzonte fisso di 30 operazioni
-    // come riferimento conservativo per la formula della puntata book
-    const orizzonteStimato = parseInt(cfg.puntate_fase1) + parseInt(cfg.puntate_fase2)
+      : (acc[i - 1]?.saldo_prop ?? parseFloat(cfg.saldo_iniziale))
+    const prevPnlBook = i > 0 ? (acc[i - 1]?.pnl_cum_book ?? 0) : 0
+    const targetDinamico = calcTargetDinamico(cfg, acc)
     const puntateRimanenti = Math.max(1, orizzonteStimato - i)
-
-    // Incassi
     const incProp = calcIncasso(op.esito_prop, op.puntata_prop, op.quota_prop)
     const incBook = calcIncasso(op.esito_book, op.puntata_book, op.quota_book)
     const pnlOp = (incProp != null && incBook != null) ? incProp + incBook : null
@@ -124,15 +107,15 @@ function enrichOps(ops, cfg) {
   }, [])
 }
 
-// ─── Colori stato ────────────────────────────────────────────────────────────
 const STATO_BG = {
   '🔴 PROP BRUCIATA': C.red,
   '✅ TARGET OK': C.green,
   '🏦 FINANZIATO OK': C.blue,
   '🔔 FEE COPERTA': C.orange,
+  '✅ F1 TARGET': C.green,
+  '✅ F2 TARGET': C.orange,
 }
 
-// ─── Componente principale ────────────────────────────────────────────────────
 export default function PropTrackerDetail() {
   const router = useRouter()
   const params = useParams()
@@ -166,7 +149,8 @@ export default function PropTrackerDetail() {
     const nextNum = ops.length + 1
     const prevPnlBook = lastEnriched?.pnl_cum_book ?? 0
     const targetDin = calcTargetDinamico(cfg, enriched)
-    const puntateRim = parseInt(cfg.puntate_fase1) + parseInt(cfg.puntate_fase2) - ops.length
+    const orizzonteStimato = parseInt(cfg.puntate_fase1) + parseInt(cfg.puntate_fase2)
+    const puntateRim = Math.max(1, orizzonteStimato - ops.length)
     const puntataBook = calcPuntataBook(cfg, prevPnlBook, cfg.quota_book_default, cfg.puntata_prop_default, targetDin, puntateRim)
 
     const newOp = {
@@ -216,7 +200,6 @@ export default function PropTrackerDetail() {
       pnl_cum_book: op.pnl_cum_book, profitto_residuo: op.profitto_residuo,
       stato_operazione: op.stato_operazione
     }).eq('id', opId)
-
     if (op.stato_operazione?.includes('BRUCIATA'))
       await supabase.from('prop_challenges').update({ stato: 'bruciata' }).eq('id', id)
     else if (op.stato_operazione?.includes('FINANZIATO OK') || op.stato_operazione?.includes('TARGET OK'))
@@ -225,14 +208,14 @@ export default function PropTrackerDetail() {
 
   async function updateField(opId, field, value) {
     const newOps = ops.map(o => o.id === opId ? { ...o, [field]: value } : o)
-    // Ricalcola puntata book se cambiano quota o puntata
     if (['quota_book', 'quota_prop', 'puntata_prop'].includes(field)) {
       const enriched = enrichOps(newOps, cfg)
       const opIdx = newOps.findIndex(o => o.id === opId)
       const prevPnl = opIdx > 0 ? enriched[opIdx - 1]?.pnl_cum_book ?? 0 : 0
       const op = newOps[opIdx]
       const targetDin = calcTargetDinamico(cfg, enriched.slice(0, opIdx))
-      const puntateRim = parseInt(cfg.puntate_fase1) + parseInt(cfg.puntate_fase2) - opIdx
+      const orizzonteStimato = parseInt(cfg.puntate_fase1) + parseInt(cfg.puntate_fase2)
+      const puntateRim = Math.max(1, orizzonteStimato - opIdx)
       const newBook = calcPuntataBook(cfg, prevPnl, op.quota_book, op.puntata_prop, targetDin, puntateRim)
       const finalOps = newOps.map(o => o.id === opId ? { ...o, puntata_book: newBook } : o)
       setOps(finalOps)
@@ -296,7 +279,7 @@ export default function PropTrackerDetail() {
           [faseAttuale === 'Finanziato' ? 'Target Dinamico' : 'Target Book',
             `€${targetDinamicoAttuale.toFixed(2)}`,
             faseAttuale === 'Finanziato' ? C.blue : C.accent],
-          [faseAttuale === 'Finanziato' ? `Prelievi 75%` : 'Operazioni',
+          [faseAttuale === 'Finanziato' ? 'Prelievi 75%' : 'Operazioni',
             faseAttuale === 'Finanziato' ? `€${prelieviTotali.toFixed(2)}` : `${ops.length} / ${totalOps}`,
             faseAttuale === 'Finanziato' ? C.green : C.muted],
           ['Residuo', `€${Math.max(0, targetDinamicoAttuale - pnlBookAttuale).toFixed(2)}`, C.text],
@@ -308,23 +291,30 @@ export default function PropTrackerDetail() {
         ))}
       </div>
 
-      {/* Config panel */}
+      {/* Config */}
       {editCfg && (
         <div style={{ background:C.panel, border:`1px solid ${C.accent}`, borderRadius:'12px', padding:'20px', marginBottom:'24px' }}>
           <div style={{ fontSize:'15px', fontWeight:'bold', color:C.accent, marginBottom:'16px' }}>⚙ Configurazione</div>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'12px' }}>
             {[
-              ['fee_challenge','Fee challenge (€)'],['profitto_target','Profitto (€)'],
-              ['puntata_prop_default','Puntata prop def.'],['quota_prop_default','Quota prop def.'],
-              ['quota_book_default','Quota book def.'],['puntate_fase1','Puntate Fase 1'],
-              ['puntate_fase2','Puntate Fase 2'],['aggressivita_pct','Aggressività % (10-100)'],
-              ['perdita_max_pct','Perdita max (es.0.15)'],['target_fase1_pct','Target Fase 1 (es.0.25)'],
+              ['fee_challenge','Fee challenge (€)'],
+              ['profitto_target','Profitto (€)'],
+              ['puntata_prop_default','Puntata prop def.'],
+              ['quota_prop_default','Quota prop def.'],
+              ['quota_book_default','Quota book def.'],
+              ['puntate_fase1','Puntate Fase 1 (stima)'],
+              ['puntate_fase2','Puntate Fase 2 (stima)'],
+              ['aggressivita_pct','Aggressività % (10-100)'],
+              ['perdita_max_pct','Perdita max (es.0.15)'],
+              ['target_fase1_pct','Target Fase 1 (es.0.25)'],
               ['target_fase2_pct','Target Fase 2 (es.0.19)'],
             ].map(([k,l]) => (
               <div key={k}>
                 <label style={{ fontSize:'11px', color:C.muted, marginBottom:'4px', display:'block' }}>{l}</label>
-                <input style={{ background:C.input, border:`1px solid ${C.border}`, borderRadius:'6px', padding:'6px 10px', color:C.blue, fontWeight:'bold', fontSize:'13px', width:'100%', boxSizing:'border-box' }}
-                  value={cfg[k] ?? ''} onChange={e => setCfg({...cfg, [k]: e.target.value})}
+                <input
+                  style={{ background:C.input, border:`1px solid ${C.border}`, borderRadius:'6px', padding:'6px 10px', color:C.blue, fontWeight:'bold', fontSize:'13px', width:'100%', boxSizing:'border-box' }}
+                  value={cfg[k] ?? ''}
+                  onChange={e => setCfg({...cfg, [k]: e.target.value})}
                   onBlur={async e => await supabase.from('prop_challenges').update({ [k]: e.target.value }).eq('id', id)} />
               </div>
             ))}
@@ -332,6 +322,8 @@ export default function PropTrackerDetail() {
           <div style={{ marginTop:'12px', background:'#1A2A0A', border:`1px solid ${C.green}`, borderRadius:'8px', padding:'10px', display:'flex', gap:'24px', alignItems:'center' }}>
             <span style={{ color:C.muted, fontSize:'13px' }}>📌 Target book totale:</span>
             <span style={{ color:C.accent, fontWeight:'bold', fontSize:'16px' }}>€{targetBase.toFixed(2)}</span>
+            <span style={{ color:C.muted, fontSize:'13px' }}>Cap puntata book:</span>
+            <span style={{ color:C.blue, fontWeight:'bold' }}>€{parseFloat(cfg.puntata_prop_default).toFixed(0)} (= puntata prop)</span>
           </div>
         </div>
       )}
@@ -346,8 +338,13 @@ export default function PropTrackerDetail() {
           <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'13px' }}>
             <thead>
               <tr>
-                {['#','Fase','Q.Prop','Q.Book','Punt.Prop','Punt.Book [AUTO]','Esito Prop','Esito Book','Inc.Prop','Inc.Book','P&L Op','Saldo Prop','P&L Cum Book','Residuo','Stato','',''].map((h,i) => (
-                  <th key={i} style={{ background: h==='Punt.Book [AUTO]' ? C.green : C.accent, color:'#000', padding:'8px 6px', textAlign:'center', fontWeight:'bold', fontSize:'10px', whiteSpace:'nowrap' }}>{h}</th>
+                {['#','Fase','Q.Prop','Q.Book','Punt.Prop','Punt.Book [AUTO]','Esito Prop','Esito Book',
+                  'Inc.Prop','Inc.Book','P&L Op','Saldo Prop','P&L Cum Book','Residuo','Stato','',''].map((h,i) => (
+                  <th key={i} style={{
+                    background: h==='Punt.Book [AUTO]' ? C.green : C.accent,
+                    color:'#000', padding:'8px 6px', textAlign:'center',
+                    fontWeight:'bold', fontSize:'10px', whiteSpace:'nowrap'
+                  }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -365,36 +362,35 @@ export default function PropTrackerDetail() {
                   <>
                     {isSep && (
                       <tr key={`sep-${op.id}`}>
-                        <td colSpan={17} style={{ background:sepColor, color:'#fff', textAlign:'center', fontWeight:'bold', fontSize:'13px', padding:'10px', letterSpacing:'0.5px' }}>
+                        <td colSpan={17} style={{ background:sepColor, color:'#fff', textAlign:'center', fontWeight:'bold', fontSize:'13px', padding:'10px' }}>
                           {sepLabel}
                         </td>
                       </tr>
                     )}
                     <tr key={op.id} style={{ background:rowBg, borderBottom:`1px solid ${C.border}` }}>
                       <td style={{ padding:'6px', textAlign:'center', color:C.muted, fontWeight:'bold' }}>{op.numero}</td>
-                      <td style={{ padding:'6px', textAlign:'center', color: op.fase==='Finanziato' ? C.blue : op.fase==='Fase 2' ? C.orange : C.text, fontSize:'11px', fontWeight:'bold' }}>{op.fase}</td>
+                      <td style={{ padding:'6px', textAlign:'center', fontSize:'11px', fontWeight:'bold',
+                        color: op.fase==='Finanziato' ? C.blue : op.fase==='Fase 2' ? C.orange : C.text }}>
+                        {op.fase}
+                      </td>
 
-                      {/* Quote e puntate editabili */}
-                      {[['quota_prop','D',60],['quota_book','E',60],['puntata_prop','F',70]].map(([field,,w]) => (
+                      {[['quota_prop',60],['quota_book',60],['puntata_prop',70]].map(([field,w]) => (
                         <td key={field} style={{ padding:'3px' }}>
                           <input style={{ background:C.input, border:`1px solid ${C.border}`, borderRadius:'4px', padding:'4px 6px', color:C.blue, fontWeight:'bold', width:`${w}px`, textAlign:'center', fontSize:'12px' }}
                             value={op[field]} onChange={e => updateField(op.id, field, e.target.value)} />
                         </td>
                       ))}
 
-                      {/* Puntata book AUTO */}
                       <td style={{ padding:'6px', textAlign:'center', color:C.green, fontWeight:'bold', background:C.greenDark }}>
                         €{parseFloat(op.puntata_book || 0).toFixed(0)}
                       </td>
 
-                      {/* Esito prop */}
                       <td style={{ padding:'3px' }}>
                         <input style={{ background:C.input, border:`1px solid ${C.border}`, borderRadius:'4px', padding:'4px 6px', color:C.blue, fontWeight:'bold', width:'55px', textAlign:'center', fontSize:'12px' }}
                           value={op.esito_prop || ''} placeholder='V/P/€'
                           onChange={e => updateEsito(op.id, e.target.value.toUpperCase())} />
                       </td>
 
-                      {/* Esito book */}
                       <td style={{ padding:'3px' }}>
                         <input style={{ background: op.esito_book==='NC' ? C.orange+'22' : C.input, border:`1px solid ${op.esito_book==='NC' ? C.orange : C.border}`, borderRadius:'4px', padding:'4px 6px', color: op.esito_book==='NC' ? C.orange : C.blue, fontWeight:'bold', width:'55px', textAlign:'center', fontSize:'12px' }}
                           value={op.esito_book || ''} placeholder='V/P/€'
@@ -405,18 +401,20 @@ export default function PropTrackerDetail() {
                           }} />
                       </td>
 
-                      {/* Valori calcolati */}
                       {[op.incasso_prop, op.incasso_book, op.pnl_operazione].map((v, vi) => (
-                        <td key={vi} style={{ padding:'6px', textAlign:'center', color: v == null ? C.muted : v >= 0 ? C.green : C.red, fontWeight:'bold' }}>
+                        <td key={vi} style={{ padding:'6px', textAlign:'center', fontWeight:'bold',
+                          color: v == null ? C.muted : v >= 0 ? C.green : C.red }}>
                           {v != null ? (v >= 0 ? '+' : '') + v.toFixed(2) + '€' : '—'}
                         </td>
                       ))}
 
-                      <td style={{ padding:'6px', textAlign:'center', color: op.saldo_prop == null ? C.muted : op.saldo_prop < parseFloat(cfg.saldo_iniziale) ? C.red : C.green, fontWeight:'bold' }}>
+                      <td style={{ padding:'6px', textAlign:'center', fontWeight:'bold',
+                        color: op.saldo_prop == null ? C.muted : op.saldo_prop < parseFloat(cfg.saldo_iniziale) ? C.red : C.green }}>
                         {op.saldo_prop != null ? '€' + op.saldo_prop.toFixed(2) : '—'}
                       </td>
 
-                      <td style={{ padding:'6px', textAlign:'center', color: op.pnl_cum_book == null ? C.muted : op.pnl_cum_book >= 0 ? C.green : C.red, fontWeight:'bold' }}>
+                      <td style={{ padding:'6px', textAlign:'center', fontWeight:'bold',
+                        color: op.pnl_cum_book == null ? C.muted : op.pnl_cum_book >= 0 ? C.green : C.red }}>
                         {op.pnl_cum_book != null ? (op.pnl_cum_book >= 0 ? '+' : '') + op.pnl_cum_book.toFixed(2) + '€' : '—'}
                       </td>
 
@@ -424,13 +422,12 @@ export default function PropTrackerDetail() {
                         {op.profitto_residuo != null ? '€' + op.profitto_residuo.toFixed(2) : '—'}
                       </td>
 
-                      {/* Stato */}
                       <td style={{ padding:'4px 6px', textAlign:'center', minWidth:'120px' }}>
                         {op.stato_operazione ? (
                           <span style={{
-                            background: statoBg ? statoBg : op.stato_operazione.includes('BRUCIATA') ? C.red : C.panel,
-                            color: statoBg ? '#fff' : C.text,
-                            border: `1px solid ${statoBg || C.border}`,
+                            background: op.stato_operazione.includes('BRUCIATA') ? C.red : statoBg ? statoBg+'22' : C.panel,
+                            color: op.stato_operazione.includes('BRUCIATA') ? '#fff' : statoBg || C.text,
+                            border:`1px solid ${statoBg || C.border}`,
                             borderRadius:'20px', padding:'3px 8px', fontSize:'10px', fontWeight:'bold', whiteSpace:'nowrap'
                           }}>
                             {op.stato_operazione}
@@ -438,20 +435,22 @@ export default function PropTrackerDetail() {
                         ) : '—'}
                       </td>
 
-                      {/* Prelievo (solo Finanziato) */}
-                      <td style={{ padding:'3px', minWidth:'80px' }}>
+                      {/* Prelievo Finanziato */}
+                      <td style={{ padding:'3px', minWidth:'85px' }}>
                         {op.fase === 'Finanziato' ? (
                           <div style={{ display:'flex', flexDirection:'column', gap:'3px', alignItems:'center' }}>
-                            <input style={{ background:C.input, border:`1px solid ${C.border}`, borderRadius:'4px', padding:'3px 6px', color:C.blue, fontWeight:'bold', width:'70px', textAlign:'center', fontSize:'11px' }}
+                            <input
+                              style={{ background:C.input, border:`1px solid ${C.border}`, borderRadius:'4px', padding:'3px 6px', color:C.blue, fontWeight:'bold', width:'75px', textAlign:'center', fontSize:'11px' }}
                               value={op.prelievo_lordo || ''} placeholder='Prel.€'
+                              onChange={e => setOps(ops.map(o => o.id === op.id ? {...o, prelievo_lordo: e.target.value} : o))}
                               onBlur={async e => {
                                 const v = parseFloat(e.target.value) || null
                                 setOps(ops.map(o => o.id === op.id ? {...o, prelievo_lordo: v} : o))
                                 await supabase.from('prop_operations').update({prelievo_lordo: v}).eq('id', op.id)
-                              }}
-                              onChange={e => setOps(ops.map(o => o.id === op.id ? {...o, prelievo_lordo: e.target.value} : o))} />
+                              }} />
                             {op.prelievo_lordo && (
-                              <label style={{ display:'flex', alignItems:'center', gap:'4px', fontSize:'10px', color: op.prelievo_confermato ? C.green : C.muted, cursor:'pointer' }}>
+                              <label style={{ display:'flex', alignItems:'center', gap:'4px', fontSize:'10px', cursor:'pointer',
+                                color: op.prelievo_confermato ? C.green : C.muted }}>
                                 <input type='checkbox' checked={op.prelievo_confermato || false}
                                   onChange={async e => {
                                     const v = e.target.checked
