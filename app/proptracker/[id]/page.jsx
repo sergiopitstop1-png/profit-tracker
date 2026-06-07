@@ -49,7 +49,8 @@ function getStato(op, cfg) {
   if (pnlBook >= targetBook) return '✅ TARGET OK'
   if (pnlBook >= parseFloat(cfg.fee_challenge)) return '🔔 FEE COPERTA'
   if (op.fase === 'Fase 1' && saldo >= parseFloat(cfg.saldo_iniziale) + targetF1) return '✅ F1 TARGET'
-  if (op.fase === 'Fase 2' && saldo >= parseFloat(cfg.saldo_iniziale) * (1 + parseFloat(cfg.target_fase1_pct)) + targetF2) return '✅ F2 TARGET'
+  // In Fase 2 il saldo riparte da saldo_iniziale, quindi target F2 = saldo_iniziale * (1 + target_fase2_pct)
+  if (op.fase === 'Fase 2' && saldo >= parseFloat(cfg.saldo_iniziale) * (1 + parseFloat(cfg.target_fase2_pct))) return '✅ F2 TARGET'
   if (op.esito_prop === 'V') return '🟢 PROP WIN'
   return '🟡 PROP LOSS'
 }
@@ -90,7 +91,12 @@ export default function PropTrackerDetail() {
   // Calcola tutti i valori derivati per la riga corrente
   function buildRow(op, index, allOps, challenge) {
     const prevOp = index > 0 ? allOps[index - 1] : null
-    const prevSaldo = prevOp?.saldo_prop ?? parseFloat(challenge.saldo_iniziale)
+    const fase1Puntate = parseInt(challenge.puntate_fase1)
+    // Se è la prima operazione di Fase 2, il saldo riparte da saldo_iniziale
+    const isFirstFase2 = op.numero === fase1Puntate + 1
+    const prevSaldo = isFirstFase2
+      ? parseFloat(challenge.saldo_iniziale)
+      : (prevOp?.saldo_prop ?? parseFloat(challenge.saldo_iniziale))
     const prevPnlBook = prevOp?.pnl_cum_book ?? 0
 
     const incProp = calcIncasso(op.esito_prop, parseFloat(op.puntata_prop), parseFloat(op.quota_prop))
