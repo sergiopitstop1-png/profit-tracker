@@ -273,7 +273,7 @@ export default function PropTrackerDetail() {
               ['fee_challenge','Fee challenge (€)'],['profitto_target','Profitto netto (€)'],
               ['puntata_prop_default','Puntata prop def.'],['quota_prop_default','Quota prop def.'],
               ['quota_book_default','Quota book def.'],['puntate_fase1','Puntate Fase 1'],
-              ['puntate_fase2','Puntate Fase 2'],['aggressivita_pct','Aggressività % (10-100)'],['perdita_max_pct','Perdita max (es.0.15)'],
+              ['puntate_fase2','Puntate Fase 2'],['aggressivita_pct','Aggressività % (10-100)'],['perdita_max_pct','Perdita max (es.0.15)'],['target_fase1_pct','Target Fase 1 (es.0.25)'],['target_fase2_pct','Target Fase 2 (es.0.19)'],
             ].map(([k,l]) => (
               <div key={k}>
                 <label style={{ fontSize:'11px', color:C.muted, marginBottom:'4px', display:'block' }}>{l}</label>
