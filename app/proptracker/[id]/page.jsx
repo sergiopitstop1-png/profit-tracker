@@ -173,7 +173,7 @@ export default function PropTrackerDetail() {
 
     const newOp = {
       challenge_id: id,
-      user_id: (await supabase.auth.getUser()).data?.user?.id || '00000000-0000-0000-0000-000000000000',
+
       numero: nextNum,
       fase: nextNum <= parseInt(cfg.puntate_fase1) ? 'Fase 1' : 'Fase 2',
       quota_prop: cfg.quota_prop_default,
