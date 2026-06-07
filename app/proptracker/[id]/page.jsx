@@ -14,17 +14,26 @@ const C = {
   input:'#1C2128', border:'#30363D', orange:'#E8622A', greenDark:'#0D2010'
 }
 
-function calcPuntataBook(cfg, opIndex, prevPnlBook, quotaBook, puntataProp) {
+function calcTargetDinamico(cfg, enrichedOps) {
+  // Target base: fee + profitto desiderato
+  const targetBase = parseFloat(cfg.fee_challenge) + parseFloat(cfg.profitto_target)
+  // Somma prelievi confermati (75% del lordo)
+  const prelieviConfermati = enrichedOps
+    .filter(o => o.prelievo_confermato && o.prelievo_lordo)
+    .reduce((sum, o) => sum + parseFloat(o.prelievo_lordo) * 0.75, 0)
+  // Il target si riduce dei prelievi già incassati
+  return Math.max(0, targetBase - prelieviConfermati)
+}
+
+function calcPuntataBook(cfg, opIndex, prevPnlBook, quotaBook, puntataProp, targetDinamico) {
   const totalOps = parseInt(cfg.puntate_fase1) + parseInt(cfg.puntate_fase2)
-  const targetBook = parseFloat(cfg.fee_challenge) + parseFloat(cfg.profitto_target)
+  const targetBook = targetDinamico ?? (parseFloat(cfg.fee_challenge) + parseFloat(cfg.profitto_target))
   const residuo = targetBook - (prevPnlBook || 0)
   const puntateRim = Math.max(1, totalOps - opIndex)
   const defaultPuntata = parseFloat(cfg.puntata_prop_default)
-  // Aggressività: 50=conservativo (assume 50% vittorie book), 100=aggressivo (assume tutte vinte)
   const aggressivita = Math.min(100, Math.max(10, parseFloat(cfg.aggressivita_pct || 50))) / 100
   const base = Math.max(0, residuo) / (puntateRim * (quotaBook - 1) * aggressivita)
   const scaled = base * (puntataProp / defaultPuntata)
-  // Cap: mai più di 3x la puntata prop default per evitare esplosioni con quote basse
   const cap = parseFloat(cfg.puntata_prop_default) * 3
   return Math.max(1, Math.min(Math.round(scaled), cap))
 }
@@ -45,6 +54,9 @@ function getStato(op, cfg) {
   const pnlBook = op.pnl_cum_book
   const perdMax = parseFloat(cfg.saldo_iniziale) * parseFloat(cfg.perdita_max_pct)
   const targetBook = parseFloat(cfg.fee_challenge) + parseFloat(cfg.profitto_target)
+  const prelieviTotali = enrichedOps.filter(o => o.prelievo_confermato && o.prelievo_lordo).reduce((s,o) => s + parseFloat(o.prelievo_lordo)*0.75, 0)
+  const targetDinamicoAttuale = Math.max(0, targetBook - prelieviTotali)
+  const faseAttuale = lastOp?.fase ?? 'Fase 1'
   const targetF1 = parseFloat(cfg.saldo_iniziale) * parseFloat(cfg.target_fase1_pct)
   const targetF2 = parseFloat(cfg.saldo_iniziale) * (1 + parseFloat(cfg.target_fase1_pct)) * parseFloat(cfg.target_fase2_pct)
 
@@ -52,8 +64,8 @@ function getStato(op, cfg) {
   if (pnlBook >= targetBook) return '✅ TARGET OK'
   if (pnlBook >= parseFloat(cfg.fee_challenge)) return '🔔 FEE COPERTA'
   if (op.fase === 'Fase 1' && saldo >= parseFloat(cfg.saldo_iniziale) + targetF1) return '✅ F1 TARGET'
-  // In Fase 2 il saldo riparte da saldo_iniziale, quindi target F2 = saldo_iniziale * (1 + target_fase2_pct)
   if (op.fase === 'Fase 2' && saldo >= parseFloat(cfg.saldo_iniziale) * (1 + parseFloat(cfg.target_fase2_pct))) return '✅ F2 TARGET'
+  if (op.fase === 'Finanziato' && pnlBook >= op.target_dinamico) return '🏦 FINANZIATO OK'
   if (op.esito_prop === 'V') return '🟢 PROP WIN'
   return '🟡 PROP LOSS'
 }
@@ -133,11 +145,17 @@ export default function PropTrackerDetail() {
     // Fase 2 se: numero > puntate_fase1 OPPURE una delle op precedenti ha già raggiunto F1 TARGET
     const prevOps = Array.isArray(allOps) ? allOps.slice(0, index) : []
     const prevTargetF1Reached = prevOps.some(o => o?.stato_operazione?.includes('F1 TARGET'))
-    const fase = (op.numero > parseInt(challenge.puntate_fase1) || prevTargetF1Reached) ? 'Fase 2' : 'Fase 1'
+    const prevTargetF2Reached = prevOps.some(o => o?.stato_operazione?.includes('F2 TARGET'))
+    const fase = prevTargetF2Reached ? 'Finanziato'
+      : (op.numero > parseInt(challenge.puntate_fase1) || prevTargetF1Reached) ? 'Fase 2'
+      : 'Fase 1'
 
+    const prelieviOps = [...prevOps, {prelievo_confermato: op.prelievo_confermato, prelievo_lordo: op.prelievo_lordo}]
+    const targetDinamico = calcTargetDinamico(challenge, prelieviOps)
+    const profResiduoReale = pnlCumBook != null ? targetDinamico - pnlCumBook : null
     const enriched = { ...op, incasso_prop: incProp, incasso_book: incBook, pnl_operazione: pnlOp,
-      saldo_prop: saldoProp, pnl_cum_book: pnlCumBook, profitto_residuo: profResiduo,
-      puntate_rimanenti: totalOps - op.numero, fase }
+      saldo_prop: saldoProp, pnl_cum_book: pnlCumBook, profitto_residuo: profResiduoReale,
+      puntate_rimanenti: totalOps - op.numero, fase, target_dinamico: targetDinamico }
     return { ...enriched, stato_operazione: getStato(enriched, challenge) }
   }
 
@@ -245,6 +263,9 @@ export default function PropTrackerDetail() {
   const enrichedOps = getEnrichedOpsFrom(ops, cfg)
   const lastOp = enrichedOps.slice(-1)[0]
   const targetBook = parseFloat(cfg.fee_challenge) + parseFloat(cfg.profitto_target)
+  const prelieviTotali = enrichedOps.filter(o => o.prelievo_confermato && o.prelievo_lordo).reduce((s,o) => s + parseFloat(o.prelievo_lordo)*0.75, 0)
+  const targetDinamicoAttuale = Math.max(0, targetBook - prelieviTotali)
+  const faseAttuale = lastOp?.fase ?? 'Fase 1'
   const pnlBookAttuale = lastOp?.pnl_cum_book ?? 0
   const saldoAttuale = lastOp?.saldo_prop ?? parseFloat(cfg.saldo_iniziale)
   const totalOps = parseInt(cfg.puntate_fase1) + parseInt(cfg.puntate_fase2)
@@ -279,10 +300,10 @@ export default function PropTrackerDetail() {
       <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:'12px', marginBottom:'24px' }}>
         {[
           ['Saldo Prop', `€${saldoAttuale.toFixed(2)}`, saldoAttuale < parseFloat(cfg.saldo_iniziale) * (1 - parseFloat(cfg.perdita_max_pct)) ? C.red : saldoAttuale >= parseFloat(cfg.saldo_iniziale) * (1 + parseFloat(cfg.target_fase1_pct)) ? C.green : C.text],
-          ['P&L Book', `€${pnlBookAttuale.toFixed(2)}`, pnlBookAttuale >= targetBook ? C.green : pnlBookAttuale >= parseFloat(cfg.fee_challenge) ? C.orange : pnlBookAttuale >= 0 ? C.text : C.red],
-          ['Target Book', `€${targetBook.toFixed(2)}`, C.accent],
-          ['Operazioni', `${ops.length} / ${totalOps}`, C.muted],
-          ['Residuo', `€${Math.max(0, targetBook - pnlBookAttuale).toFixed(2)}`, C.text],
+          ['P&L Book', `€${pnlBookAttuale.toFixed(2)}`, pnlBookAttuale >= targetDinamicoAttuale ? C.green : pnlBookAttuale >= parseFloat(cfg.fee_challenge) ? C.orange : pnlBookAttuale >= 0 ? C.text : C.red],
+          [faseAttuale === 'Finanziato' ? 'Target Dinamico' : 'Target Book', `€${targetDinamicoAttuale.toFixed(2)}`, faseAttuale === 'Finanziato' ? C.blue : C.accent],
+          [faseAttuale === 'Finanziato' ? 'Prelievi (75%)' : 'Operazioni', faseAttuale === 'Finanziato' ? `€${prelieviTotali.toFixed(2)}` : `${ops.length} / ${totalOps}`, faseAttuale === 'Finanziato' ? C.green : C.muted],
+          ['Residuo', `€${Math.max(0, targetDinamicoAttuale - pnlBookAttuale).toFixed(2)}`, C.text],
         ].map(([label, val, color]) => (
           <div key={label} style={{ background:C.panel, border:`1px solid ${C.border}`, borderRadius:'10px', padding:'14px', textAlign:'center' }}>
             <div style={{ fontSize:'11px', color:C.muted, marginBottom:'6px' }}>{label}</div>
@@ -336,7 +357,7 @@ export default function PropTrackerDetail() {
             </thead>
             <tbody>
               {enrichedOps.map((op, i) => {
-                const isSep = i > 0 && op.fase === 'Fase 2' && enrichedOps[i-1].fase === 'Fase 1'
+                const isSep = i > 0 && op.fase !== enrichedOps[i-1].fase && (enrichedOps[i-1].fase === 'Fase 1' || enrichedOps[i-1].fase === 'Fase 2')
                 const statoBg = STATO_BG[op.stato_operazione]
                 const rowBg = op.stato_operazione?.includes('BRUCIATA') ? '#1A0000' : C.panel
 
@@ -344,8 +365,10 @@ export default function PropTrackerDetail() {
                   <>
                     {isSep && (
                       <tr key={`sep-${op.id}`}>
-                        <td colSpan={17} style={{ background:C.green, color:'#fff', textAlign:'center', fontWeight:'bold', fontSize:'14px', padding:'12px', letterSpacing:'1px' }}>
-                          🏆 FASE 1 COMPLETATA — Nuovo conto prop da €1.000 assegnato &nbsp;|&nbsp; INIZIO FASE 2
+                        <td colSpan={17} style={{ background: op.fase === 'Finanziato' ? C.blue : C.green, color:'#fff', textAlign:'center', fontWeight:'bold', fontSize:'14px', padding:'12px', letterSpacing:'1px' }}>
+                          {op.fase === 'Finanziato'
+                            ? '🏦 FASE 2 COMPLETATA — Sei in FINANZIATO! Conto reale attivo'
+                            : '🏆 FASE 1 COMPLETATA — Nuovo conto prop da €1.000 assegnato | INIZIO FASE 2'}
                         </td>
                       </tr>
                     )}
@@ -428,6 +451,28 @@ export default function PropTrackerDetail() {
                             title='Elimina operazione'>🗑️</button>
                         </div>
                       </td>
+                      {/* Prelievo — visibile solo in Finanziato */}
+                      <td style={{ padding:'4px 6px' }}>
+                        {op.fase === 'Finanziato' ? (
+                          <input style={{ background:C.input, border:`1px solid ${C.border}`, borderRadius:'4px', padding:'4px 6px', color:C.blue, fontWeight:'bold', width:'70px', textAlign:'center', fontSize:'13px' }}
+                            value={op.prelievo_lordo || ''} placeholder='€'
+                            onChange={e => updateField(op.id, 'prelievo_lordo', e.target.value)}
+                            onBlur={async e => await supabase.from('prop_operations').update({prelievo_lordo: parseFloat(e.target.value)||null}).eq('id',op.id)} />
+                        ) : <span style={{color:C.muted, fontSize:'11px'}}>—</span>}
+                      </td>
+                      {/* Checkbox pagato */}
+                      <td style={{ padding:'4px 6px', textAlign:'center' }}>
+                        {op.fase === 'Finanziato' && op.prelievo_lordo ? (
+                          <input type='checkbox'
+                            checked={op.prelievo_confermato || false}
+                            onChange={async e => {
+                              const val = e.target.checked
+                              setOps(ops.map(o => o.id === op.id ? {...o, prelievo_confermato: val} : o))
+                              await supabase.from('prop_operations').update({prelievo_confermato: val}).eq('id', op.id)
+                            }}
+                            style={{ width:'16px', height:'16px', cursor:'pointer', accentColor: C.green }} />
+                        ) : <span style={{color:C.muted, fontSize:'11px'}}>—</span>}
+                      </td>
                     </tr>
                   </>
                 )
@@ -446,7 +491,7 @@ export default function PropTrackerDetail() {
               ['P&L Lordo Book', pnlBookAttuale, C.green],
               ['Fee Challenge', -parseFloat(cfg.fee_challenge), C.red],
               ['P&L NETTO', pnlBookAttuale - parseFloat(cfg.fee_challenge), pnlBookAttuale - parseFloat(cfg.fee_challenge) >= 0 ? C.green : C.red],
-              ['Target Raggiunto', pnlBookAttuale >= targetBook ? '✅ SÌ' : '❌ NON ANCORA', pnlBookAttuale >= targetBook ? C.green : C.muted],
+              ['Obiettivo raggiunto?', pnlBookAttuale >= targetDinamicoAttuale ? '✅ SÌ' : '❌ NON ANCORA', pnlBookAttuale >= targetDinamicoAttuale ? C.green : C.muted],
             ].map(([label, val, color]) => (
               <div key={label} style={{ background:C.input, borderRadius:'10px', padding:'14px', textAlign:'center' }}>
                 <div style={{ fontSize:'11px', color:C.muted, marginBottom:'6px' }}>{label}</div>
