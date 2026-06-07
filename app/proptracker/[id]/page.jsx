@@ -336,7 +336,7 @@ export default function PropTrackerDetail() {
             </thead>
             <tbody>
               {enrichedOps.map((op, i) => {
-                const isSep = op.numero === parseInt(cfg.puntate_fase1) + 1 && i > 0 && enrichedOps[i-1].fase === 'Fase 1'
+                const isSep = i > 0 && op.fase === 'Fase 2' && enrichedOps[i-1].fase === 'Fase 1'
                 const statoBg = STATO_BG[op.stato_operazione]
                 const rowBg = op.stato_operazione?.includes('BRUCIATA') ? '#1A0000' : C.panel
 
