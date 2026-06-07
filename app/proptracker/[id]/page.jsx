@@ -29,6 +29,7 @@ function calcPuntataBook(cfg, opIndex, prevPnlBook, quotaBook, puntataProp) {
 
 function calcIncasso(esito, puntata, quota) {
   if (esito === '' || esito == null) return null
+  if (esito === 'NC') return 0  // No copertura
   const n = parseFloat(esito)
   if (!isNaN(n) && esito !== 'V' && esito !== 'P') return n
   if (esito === 'V') return puntata * (quota - 1)
@@ -85,6 +86,16 @@ export default function PropTrackerDetail() {
     setOps(ops.filter(o => o.id !== opId))
   }
 
+  async function noCopertura(opId) {
+    // Azzera la copertura book: puntata 0, esito neutro
+    setOps(ops.map(op => op.id === opId ? { ...op, esito_book: 'NC', puntata_book: 0 } : op))
+    await supabase.from('prop_operations').update({
+      esito_book: 'NC',
+      puntata_book: 0,
+      incasso_book: 0
+    }).eq('id', opId)
+  }
+
   async function loadData() {
     setLoading(true)
     const { data: challenge } = await supabase.from('prop_challenges').select('*').eq('id', id).single()
@@ -137,9 +148,10 @@ export default function PropTrackerDetail() {
       const updated = { ...op, [field]: value }
       // Auto-opposto book se esito prop è V o P
       if (field === 'esito_prop') {
-        if (value === 'V') updated.esito_book = 'P'
+        if (op.esito_book === 'NC') {} // mantieni NC
+        else if (value === 'V') updated.esito_book = 'P'
         else if (value === 'P') updated.esito_book = 'V'
-        else updated.esito_book = '' // cash out manuale
+        else updated.esito_book = ''
       }
       return updated
     })
@@ -398,9 +410,14 @@ export default function PropTrackerDetail() {
                         ) : '—'}
                       </td>
                       <td style={{ padding:'4px 6px', textAlign:'center' }}>
-                        <button onClick={() => deleteOperation(op.id)}
-                          style={{ background:'none', border:`1px solid ${C.border}`, borderRadius:'4px', color:C.muted, cursor:'pointer', padding:'3px 8px', fontSize:'13px' }}
-                          title='Elimina operazione'>🗑️</button>
+                        <div style={{ display:'flex', gap:'4px', justifyContent:'center' }}>
+                          <button onClick={() => noCopertura(op.id)}
+                            style={{ background: op.esito_book==='NC' ? C.orange+'33' : 'none', border:`1px solid ${op.esito_book==='NC' ? C.orange : C.border}`, borderRadius:'4px', color: op.esito_book==='NC' ? C.orange : C.muted, cursor:'pointer', padding:'3px 7px', fontSize:'11px', fontWeight:'bold' }}
+                            title='Nessuna copertura su questa operazione'>NC</button>
+                          <button onClick={() => deleteOperation(op.id)}
+                            style={{ background:'none', border:`1px solid ${C.border}`, borderRadius:'4px', color:C.muted, cursor:'pointer', padding:'3px 7px', fontSize:'13px' }}
+                            title='Elimina operazione'>🗑️</button>
+                        </div>
                       </td>
                     </tr>
                   </>
