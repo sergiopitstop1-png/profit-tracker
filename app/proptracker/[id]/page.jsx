@@ -126,8 +126,9 @@ export default function PropTrackerDetail() {
     const targetBook = parseFloat(challenge.fee_challenge) + parseFloat(challenge.profitto_target)
     const profResiduo = pnlCumBook != null ? targetBook - pnlCumBook : null
     const totalOps = parseInt(challenge.puntate_fase1) + parseInt(challenge.puntate_fase2)
-    // Fase 2 se: numero > puntate_fase1 OPPURE il target F1 era già raggiunto nell'op precedente
-    const prevTargetF1Reached = index > 0 && acc.some(o => o.stato_operazione?.includes('F1 TARGET'))
+    // Fase 2 se: numero > puntate_fase1 OPPURE una delle op precedenti ha già raggiunto F1 TARGET
+    const prevOps = Array.isArray(allOps) ? allOps.slice(0, index) : []
+    const prevTargetF1Reached = prevOps.some(o => o?.stato_operazione?.includes('F1 TARGET'))
     const fase = (op.numero > parseInt(challenge.puntate_fase1) || prevTargetF1Reached) ? 'Fase 2' : 'Fase 1'
 
     const enriched = { ...op, incasso_prop: incProp, incasso_book: incBook, pnl_operazione: pnlOp,
