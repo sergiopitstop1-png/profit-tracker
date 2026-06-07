@@ -71,7 +71,16 @@ export default function PropTrackerPage() {
   async function saveChallenge() {
     if (!form.nome) return alert('Inserisci un nome per la challenge')
     setSaving(true)
-    const { error } = await supabase.from('prop_challenges').insert([form])
+    // Converti percentuali: se utente scrive 15 → 0.15, se scrive 0.15 → 0.15
+    const pct = (v) => { const n = parseFloat(v); return n > 1 ? n / 100 : n }
+    const payload = {
+      ...form,
+      perdita_max_pct: pct(form.perdita_max_pct),
+      drawdown_giornaliero_pct: pct(form.drawdown_giornaliero_pct),
+      target_fase1_pct: pct(form.target_fase1_pct),
+      target_fase2_pct: pct(form.target_fase2_pct),
+    }
+    const { error } = await supabase.from('prop_challenges').insert([payload])
     setSaving(false)
     if (error) { alert('Errore: ' + error.message); return }
     setShowForm(false)
