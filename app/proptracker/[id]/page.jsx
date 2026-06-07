@@ -54,18 +54,15 @@ function getStato(op, cfg) {
   const pnlBook = op.pnl_cum_book
   const perdMax = parseFloat(cfg.saldo_iniziale) * parseFloat(cfg.perdita_max_pct)
   const targetBook = parseFloat(cfg.fee_challenge) + parseFloat(cfg.profitto_target)
-  const prelieviTotali = enrichedOps.filter(o => o.prelievo_confermato && o.prelievo_lordo).reduce((s,o) => s + parseFloat(o.prelievo_lordo)*0.75, 0)
-  const targetDinamicoAttuale = Math.max(0, targetBook - prelieviTotali)
-  const faseAttuale = lastOp?.fase ?? 'Fase 1'
   const targetF1 = parseFloat(cfg.saldo_iniziale) * parseFloat(cfg.target_fase1_pct)
-  const targetF2 = parseFloat(cfg.saldo_iniziale) * (1 + parseFloat(cfg.target_fase1_pct)) * parseFloat(cfg.target_fase2_pct)
+  const targetF2 = parseFloat(cfg.saldo_iniziale) * parseFloat(cfg.target_fase2_pct)
 
   if (saldo < parseFloat(cfg.saldo_iniziale) - perdMax) return '🔴 PROP BRUCIATA'
   if (pnlBook >= targetBook) return '✅ TARGET OK'
   if (pnlBook >= parseFloat(cfg.fee_challenge)) return '🔔 FEE COPERTA'
   if (op.fase === 'Fase 1' && saldo >= parseFloat(cfg.saldo_iniziale) + targetF1) return '✅ F1 TARGET'
   if (op.fase === 'Fase 2' && saldo >= parseFloat(cfg.saldo_iniziale) * (1 + parseFloat(cfg.target_fase2_pct))) return '✅ F2 TARGET'
-  if (op.fase === 'Finanziato' && pnlBook >= op.target_dinamico) return '🏦 FINANZIATO OK'
+  if (op.fase === 'Finanziato' && op.target_dinamico != null && pnlBook >= op.target_dinamico) return '🏦 FINANZIATO OK'
   if (op.esito_prop === 'V') return '🟢 PROP WIN'
   return '🟡 PROP LOSS'
 }
