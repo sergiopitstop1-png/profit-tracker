@@ -24,7 +24,9 @@ function calcPuntataBook(cfg, opIndex, prevPnlBook, quotaBook, puntataProp) {
   const aggressivita = Math.min(100, Math.max(10, parseFloat(cfg.aggressivita_pct || 50))) / 100
   const base = Math.max(0, residuo) / (puntateRim * (quotaBook - 1) * aggressivita)
   const scaled = base * (puntataProp / defaultPuntata)
-  return Math.max(1, Math.round(scaled))
+  // Cap: mai più di 3x la puntata prop default per evitare esplosioni con quote basse
+  const cap = parseFloat(cfg.puntata_prop_default) * 3
+  return Math.max(1, Math.min(Math.round(scaled), cap))
 }
 
 function calcIncasso(esito, puntata, quota) {
@@ -124,7 +126,9 @@ export default function PropTrackerDetail() {
     const targetBook = parseFloat(challenge.fee_challenge) + parseFloat(challenge.profitto_target)
     const profResiduo = pnlCumBook != null ? targetBook - pnlCumBook : null
     const totalOps = parseInt(challenge.puntate_fase1) + parseInt(challenge.puntate_fase2)
-    const fase = op.numero <= parseInt(challenge.puntate_fase1) ? 'Fase 1' : 'Fase 2'
+    // Fase 2 se: numero > puntate_fase1 OPPURE il target F1 era già raggiunto nell'op precedente
+    const prevTargetF1Reached = index > 0 && acc.some(o => o.stato_operazione?.includes('F1 TARGET'))
+    const fase = (op.numero > parseInt(challenge.puntate_fase1) || prevTargetF1Reached) ? 'Fase 2' : 'Fase 1'
 
     const enriched = { ...op, incasso_prop: incProp, incasso_book: incBook, pnl_operazione: pnlOp,
       saldo_prop: saldoProp, pnl_cum_book: pnlCumBook, profitto_residuo: profResiduo,
