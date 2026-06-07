@@ -112,7 +112,11 @@ export default function PropTrackerDetail() {
     const prevOp = index > 0 ? allOps[index - 1] : null
     const fase1Puntate = parseInt(challenge.puntate_fase1)
     // Se è la prima operazione di Fase 2, il saldo riparte da saldo_iniziale
-    const isFirstFase2 = op.numero === fase1Puntate + 1
+    // Reset saldo: prima op di Fase 2 (sia per numero che per target F1 anticipato)
+    const prevOpsForReset = Array.isArray(allOps) ? allOps.slice(0, index) : []
+    const prevHadF1 = prevOpsForReset.some(o => o?.stato_operazione?.includes('F1 TARGET'))
+    const prevPrevHadF1 = prevOpsForReset.slice(0, -1).some(o => o?.stato_operazione?.includes('F1 TARGET'))
+    const isFirstFase2 = (op.numero === fase1Puntate + 1) || (prevHadF1 && !prevPrevHadF1)
     const prevSaldo = isFirstFase2
       ? parseFloat(challenge.saldo_iniziale)
       : (prevOp?.saldo_prop ?? parseFloat(challenge.saldo_iniziale))
@@ -129,6 +133,7 @@ export default function PropTrackerDetail() {
     // Fase 2 se: numero > puntate_fase1 OPPURE una delle op precedenti ha già raggiunto F1 TARGET
     const prevOps = Array.isArray(allOps) ? allOps.slice(0, index) : []
     const prevTargetF1Reached = prevOps.some(o => o?.stato_operazione?.includes('F1 TARGET'))
+    const isFirstFase2 = prevTargetF1Reached && !prevOps.slice(0, index - 1).some(o => o?.stato_operazione?.includes('F1 TARGET'))
     const fase = (op.numero > parseInt(challenge.puntate_fase1) || prevTargetF1Reached) ? 'Fase 2' : 'Fase 1'
 
     const enriched = { ...op, incasso_prop: incProp, incasso_book: incBook, pnl_operazione: pnlOp,
