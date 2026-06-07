@@ -20,9 +20,11 @@ function calcPuntataBook(cfg, opIndex, prevPnlBook, quotaBook, puntataProp) {
   const residuo = targetBook - (prevPnlBook || 0)
   const puntateRim = Math.max(1, totalOps - opIndex)
   const defaultPuntata = parseFloat(cfg.puntata_prop_default)
-  const base = (2 * Math.max(0, residuo)) / (puntateRim * (quotaBook - 1))
+  // Aggressività: 50=conservativo (assume 50% vittorie book), 100=aggressivo (assume tutte vinte)
+  const aggressivita = Math.min(100, Math.max(10, parseFloat(cfg.aggressivita_pct || 50))) / 100
+  const base = Math.max(0, residuo) / (puntateRim * (quotaBook - 1) * aggressivita)
   const scaled = base * (puntataProp / defaultPuntata)
-  return Math.max(0.01, Math.round(scaled * 100) / 100)
+  return Math.max(1, Math.round(scaled))
 }
 
 function calcIncasso(esito, puntata, quota) {
@@ -265,7 +267,7 @@ export default function PropTrackerDetail() {
               ['fee_challenge','Fee challenge (€)'],['profitto_target','Profitto netto (€)'],
               ['puntata_prop_default','Puntata prop def.'],['quota_prop_default','Quota prop def.'],
               ['quota_book_default','Quota book def.'],['puntate_fase1','Puntate Fase 1'],
-              ['puntate_fase2','Puntate Fase 2'],['perdita_max_pct','Perdita max (es.0.15)'],
+              ['puntate_fase2','Puntate Fase 2'],['aggressivita_pct','Aggressività % (10-100)'],['perdita_max_pct','Perdita max (es.0.15)'],
             ].map(([k,l]) => (
               <div key={k}>
                 <label style={{ fontSize:'11px', color:C.muted, marginBottom:'4px', display:'block' }}>{l}</label>
