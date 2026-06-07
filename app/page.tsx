@@ -12,10 +12,11 @@ export default function SergioApicellaHomepage() {
           <div className="inline-flex rounded-full border border-orange-400/30 bg-orange-500/10 px-4 py-1 text-sm text-orange-200">Laboratorio digitale indipendente</div>
           <h1 className="text-4xl font-bold leading-tight md:text-6xl">Vuoi fare soldi <span className="text-orange-400">online</span> con più metodo e meno caos?</h1>
           <p className="max-w-xl text-lg leading-8 text-white/75">Niente fumo. Niente frasi da guru. Solo strategia, organizzazione, dati e strumenti pratici per costruire sistemi che lavorano davvero.</p>
-          <div className="flex flex-col gap-4 sm:flex-row">
+          <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap">
             <a href="mailto:sergio.apicella.lavoro@gmail.com" className="rounded-2xl bg-orange-500 px-6 py-4 text-center font-semibold text-white shadow-lg shadow-orange-950/40 transition hover:scale-[1.02] hover:bg-orange-400">Chiedimi come</a>
             <a href="/profit-tracker" className="rounded-2xl border border-white/15 bg-white/5 px-6 py-4 text-center font-semibold text-white transition hover:bg-white/10">Area Riservata</a>
             <a href="/oggi" className="rounded-2xl border border-lime-400/40 bg-lime-500/10 px-6 py-4 text-center font-semibold text-lime-300 transition hover:bg-lime-500/20">PronoX</a>
+            <a href="/proptracker" className="rounded-2xl border border-yellow-400/40 bg-yellow-500/10 px-6 py-4 text-center font-semibold text-yellow-300 transition hover:bg-yellow-500/20">🎯 Prop Tracker</a>
           </div>
         </div>
 
@@ -41,10 +42,16 @@ export default function SergioApicellaHomepage() {
               </div>
             </div>
             <div className="rounded-2xl border border-lime-400/20 bg-lime-500/10 p-5">
-              <p className="text-sm uppercase tracking-[0.2em] text-lime-300">Nuovo</p>
+              <p className="text-sm uppercase tracking-[0.2em] text-lime-300">Strumento</p>
               <p className="mt-2 text-lg font-semibold">PronoX · Pronosticatore Sportivo</p>
               <p className="mt-1 text-sm text-white/60">Analisi Poisson · dati reali · value bet</p>
               <a href="/oggi" className="mt-3 inline-block text-sm font-semibold text-lime-300 hover:text-lime-200">Apri PronoX →</a>
+            </div>
+            <div className="rounded-2xl border border-yellow-400/20 bg-yellow-500/10 p-5">
+              <p className="text-sm uppercase tracking-[0.2em] text-yellow-300">Strumento</p>
+              <p className="mt-2 text-lg font-semibold">Prop Tracker · Challenge Manager</p>
+              <p className="mt-1 text-sm text-white/60">Gestione challenge prop firm · coperture · P&amp;L</p>
+              <a href="/proptracker" className="mt-3 inline-block text-sm font-semibold text-yellow-300 hover:text-yellow-200">Apri Prop Tracker →</a>
             </div>
           </div>
         </div>
@@ -82,7 +89,7 @@ export default function SergioApicellaHomepage() {
         <div className="mx-auto grid max-w-6xl gap-6 px-6 py-14 md:grid-cols-3">
           <SectionCard title="Chi Sono" text="Una storia fatta di cadute, metodo, tecnologia e rinascita operativa. Non teoria da vetrina: esperienza sul campo." href="/chi-sono" />
           <SectionCard title="Servizi" text="Analisi statistiche, automazioni, strumenti digitali, consulenza operativa e sistemi personalizzati." href="/servizi" />
-          <SectionCard title="Progetti" text="PronoX, Profit Tracker, Lucy e altri strumenti costruiti per trasformare dati e idee in operatività reale." href="/progetti" accent="lime" />
+          <SectionCard title="Progetti" text="PronoX, Profit Tracker, Prop Tracker, Lucy e altri strumenti costruiti per trasformare dati e idee in operatività reale." href="/progetti" accent="lime" />
         </div>
       </section>
 
