@@ -79,6 +79,12 @@ export default function PropTrackerDetail() {
     loadData()
   }, [id])
 
+  async function deleteOperation(opId) {
+    if (!confirm('Eliminare questa operazione?')) return
+    await supabase.from('prop_operations').delete().eq('id', opId)
+    setOps(ops.filter(o => o.id !== opId))
+  }
+
   async function loadData() {
     setLoading(true)
     const { data: challenge } = await supabase.from('prop_challenges').select('*').eq('id', id).single()
@@ -390,6 +396,11 @@ export default function PropTrackerDetail() {
                             {op.stato_operazione}
                           </span>
                         ) : '—'}
+                      </td>
+                      <td style={{ padding:'4px 6px', textAlign:'center' }}>
+                        <button onClick={() => deleteOperation(op.id)}
+                          style={{ background:'none', border:`1px solid ${C.border}`, borderRadius:'4px', color:C.muted, cursor:'pointer', padding:'3px 8px', fontSize:'13px' }}
+                          title='Elimina operazione'>🗑️</button>
                       </td>
                     </tr>
                   </>
