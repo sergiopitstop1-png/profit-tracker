@@ -38,7 +38,7 @@ const DEFAULT_FORM = {
   nome: '', prop_firm: '', saldo_iniziale: 1000, fee_challenge: 39,
   profitto_target: 50, puntata_prop_default: 10, quota_prop_default: 2.00,
   quota_book_default: 2.00, perdita_max_pct: 0.15, drawdown_giornaliero_pct: 0.10,
-  target_fase1_pct: 0.25, target_fase2_pct: 0.19, puntate_fase1: 17, puntate_fase2: 13
+  target_fase1_pct: 0.25, target_fase2_pct: 0.19, puntate_fase1: 17, puntate_fase2: 13, aggressivita_pct: 50
 }
 
 export default function PropTrackerPage() {
@@ -158,7 +158,7 @@ export default function PropTrackerPage() {
             {[
               ['puntate_fase1','Puntate Fase 1'],['puntate_fase2','Puntate Fase 2'],
               ['perdita_max_pct','Perdita max %'],['drawdown_giornaliero_pct','DD giornaliero %'],
-              ['target_fase1_pct','Target Fase 1 %'],['target_fase2_pct','Target Fase 2 %'],
+              ['target_fase1_pct','Target Fase 1 %'],['target_fase2_pct','Target Fase 2 %'],['aggressivita_pct','Aggressività % (10-100)'],
             ].map(([k,l]) => (
               <div key={k}>
                 <label style={s.label}>{l}</label>
