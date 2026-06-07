@@ -133,7 +133,6 @@ export default function PropTrackerDetail() {
     // Fase 2 se: numero > puntate_fase1 OPPURE una delle op precedenti ha già raggiunto F1 TARGET
     const prevOps = Array.isArray(allOps) ? allOps.slice(0, index) : []
     const prevTargetF1Reached = prevOps.some(o => o?.stato_operazione?.includes('F1 TARGET'))
-    const isFirstFase2 = prevTargetF1Reached && !prevOps.slice(0, index - 1).some(o => o?.stato_operazione?.includes('F1 TARGET'))
     const fase = (op.numero > parseInt(challenge.puntate_fase1) || prevTargetF1Reached) ? 'Fase 2' : 'Fase 1'
 
     const enriched = { ...op, incasso_prop: incProp, incasso_book: incBook, pnl_operazione: pnlOp,
@@ -345,8 +344,8 @@ export default function PropTrackerDetail() {
                   <>
                     {isSep && (
                       <tr key={`sep-${op.id}`}>
-                        <td colSpan={15} style={{ background:C.accent, color:'#000', textAlign:'center', fontWeight:'bold', fontSize:'12px', padding:'6px' }}>
-                          ── INIZIO FASE 2 ──
+                        <td colSpan={17} style={{ background:C.green, color:'#fff', textAlign:'center', fontWeight:'bold', fontSize:'14px', padding:'12px', letterSpacing:'1px' }}>
+                          🏆 FASE 1 COMPLETATA — Nuovo conto prop da €1.000 assegnato &nbsp;|&nbsp; INIZIO FASE 2
                         </td>
                       </tr>
                     )}
