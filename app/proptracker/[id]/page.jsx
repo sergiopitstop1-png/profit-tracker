@@ -338,7 +338,7 @@ export default function PropTrackerDetail() {
           <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'13px' }}>
             <thead>
               <tr>
-                {['#','Fase','Q.Prop','Q.Book','Punt.Prop','Punt.Book [AUTO]','Esito Prop','Esito Book',
+                {['#','Fase','Partita','Esito Scelto','Q.Prop','Q.Book','Punt.Prop','Punt.Book [AUTO]','Esito Prop','Esito Book',
                   'Inc.Prop','Inc.Book','P&L Op','Saldo Prop','P&L Cum Book','Residuo','Stato','',''].map((h,i) => (
                   <th key={i} style={{
                     background: h==='Punt.Book [AUTO]' ? C.green : C.accent,
@@ -362,7 +362,7 @@ export default function PropTrackerDetail() {
                   <>
                     {isSep && (
                       <tr key={`sep-${op.id}`}>
-                        <td colSpan={17} style={{ background:sepColor, color:'#fff', textAlign:'center', fontWeight:'bold', fontSize:'13px', padding:'10px' }}>
+                        <td colSpan={19} style={{ background:sepColor, color:'#fff', textAlign:'center', fontWeight:'bold', fontSize:'13px', padding:'10px' }}>
                           {sepLabel}
                         </td>
                       </tr>
@@ -372,6 +372,18 @@ export default function PropTrackerDetail() {
                       <td style={{ padding:'6px', textAlign:'center', fontSize:'11px', fontWeight:'bold',
                         color: op.fase==='Finanziato' ? C.blue : op.fase==='Fase 2' ? C.orange : C.text }}>
                         {op.fase}
+                      </td>
+
+                      <td style={{ padding:'3px' }}>
+                        <input style={{ background:C.input, border:`1px solid ${C.border}`, borderRadius:'4px', padding:'4px 6px', color:C.text, fontWeight:'bold', width:'130px', textAlign:'center', fontSize:'11px' }}
+                          value={op.partita || ''} placeholder='Squadra A - Squadra B'
+                          onChange={e => updateField(op.id, 'partita', e.target.value)} />
+                      </td>
+
+                      <td style={{ padding:'3px' }}>
+                        <input style={{ background:C.input, border:`1px solid ${C.border}`, borderRadius:'4px', padding:'4px 6px', color:C.text, fontWeight:'bold', width:'90px', textAlign:'center', fontSize:'11px' }}
+                          value={op.esito_scelto || ''} placeholder='1, X, Over...'
+                          onChange={e => updateField(op.id, 'esito_scelto', e.target.value)} />
                       </td>
 
                       {[['quota_prop',60],['quota_book',60],['puntata_prop',70]].map(([field,w]) => (
