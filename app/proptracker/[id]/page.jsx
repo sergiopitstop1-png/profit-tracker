@@ -125,6 +125,8 @@ export default function PropTrackerDetail() {
   const [ops, setOps] = useState([])
   const [loading, setLoading] = useState(true)
   const [editCfg, setEditCfg] = useState(false)
+  const [bookOptions, setBookOptions] = useState([])
+  const [clienteOptions, setClienteOptions] = useState([])
 
   useEffect(() => {
     if (typeof window !== 'undefined' && !localStorage.getItem('site_unlocked')) {
@@ -140,6 +142,14 @@ export default function PropTrackerDetail() {
     if (challenge) setCfg(challenge)
     if (operations) setOps(operations)
     setLoading(false)
+
+    const { data: booksData } = await supabase.from('books').select('nome,intestatario')
+    if (booksData) {
+      const uniqueBooks = [...new Set(booksData.map(b => b.nome).filter(Boolean))].sort()
+      const uniqueClienti = [...new Set(booksData.map(b => b.intestatario).filter(Boolean))].sort()
+      setBookOptions(uniqueBooks)
+      setClienteOptions(uniqueClienti)
+    }
   }
 
   async function addOperation() {
@@ -338,7 +348,7 @@ export default function PropTrackerDetail() {
           <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'13px' }}>
             <thead>
               <tr>
-                {['#','Fase','Partita','Esito Scelto','Q.Prop','Q.Book','Punt.Prop','Punt.Book [AUTO]','Esito Prop','Esito Book',
+                {['#','Fase','Partita','Esito Scelto','Book Copertura','Cliente Copertura','Q.Prop','Q.Book','Punt.Prop','Punt.Book [AUTO]','Esito Prop','Esito Book',
                   'Inc.Prop','Inc.Book','P&L Op','Saldo Prop','P&L Cum Book','Residuo','Stato','',''].map((h,i) => (
                   <th key={i} style={{
                     background: h==='Punt.Book [AUTO]' ? C.green : C.accent,
@@ -362,7 +372,7 @@ export default function PropTrackerDetail() {
                   <>
                     {isSep && (
                       <tr key={`sep-${op.id}`}>
-                        <td colSpan={19} style={{ background:sepColor, color:'#fff', textAlign:'center', fontWeight:'bold', fontSize:'13px', padding:'10px' }}>
+                        <td colSpan={21} style={{ background:sepColor, color:'#fff', textAlign:'center', fontWeight:'bold', fontSize:'13px', padding:'10px' }}>
                           {sepLabel}
                         </td>
                       </tr>
@@ -384,6 +394,24 @@ export default function PropTrackerDetail() {
                         <input style={{ background:C.input, border:`1px solid ${C.border}`, borderRadius:'4px', padding:'4px 6px', color:C.text, fontWeight:'bold', width:'90px', textAlign:'center', fontSize:'11px' }}
                           value={op.esito_scelto || ''} placeholder='1, X, Over...'
                           onChange={e => updateField(op.id, 'esito_scelto', e.target.value)} />
+                      </td>
+
+                      <td style={{ padding:'3px' }}>
+                        <select style={{ background:C.input, border:`1px solid ${C.border}`, borderRadius:'4px', padding:'4px 6px', color:C.text, fontWeight:'bold', width:'130px', textAlign:'center', fontSize:'11px' }}
+                          value={op.book_copertura || ''}
+                          onChange={e => updateField(op.id, 'book_copertura', e.target.value)}>
+                          <option value=''>—</option>
+                          {bookOptions.map(b => <option key={b} value={b}>{b}</option>)}
+                        </select>
+                      </td>
+
+                      <td style={{ padding:'3px' }}>
+                        <select style={{ background:C.input, border:`1px solid ${C.border}`, borderRadius:'4px', padding:'4px 6px', color:C.text, fontWeight:'bold', width:'130px', textAlign:'center', fontSize:'11px' }}
+                          value={op.cliente_copertura || ''}
+                          onChange={e => updateField(op.id, 'cliente_copertura', e.target.value)}>
+                          <option value=''>—</option>
+                          {clienteOptions.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
                       </td>
 
                       {[['quota_prop',60],['quota_book',60],['puntata_prop',70]].map(([field,w]) => (
