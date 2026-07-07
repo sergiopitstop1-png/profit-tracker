@@ -274,6 +274,237 @@ function getAgendaAttivo(book, giorno, settimana) {
   if (giorno === giornoPreleva) return azioni.preleva
   return null
 }
+
+// ============================================================
+// NUOVI PROTOCOLLI ATTIVO — fonte: Profiliamo (aggiornamento luglio 2026)
+// Si applicano SOLO a book con profilo_livello === 'attivo'.
+// I book in mantenimento (A/B/C) restano sul sistema esistente sopra, invariato.
+// ============================================================
+
+const SLOT_CONSIGLIATE = {
+  'Betsoft': ['Sugar Pop', 'Fruit Zen'],
+  'Fazi': ['Tutte le "Hot 20, 40, 100"', 'Tutte le "Clover"', 'Tutte le "Crystal"', 'Tutte le "Turbo Hot"'],
+  'Amusnet': ['Tutte le "Hot 20, 40, 100"', 'Golden Coins', 'Tutte le Extra Crown'],
+  'Netent': ['Motorhead', 'Secret of Atlantis', 'Starburst', 'Tutte le Jack Hammer', 'Blood Suckers'],
+  'Pragmatic': ['888 Dragon', 'Dragon Kingdom', 'Shining Hot 100'],
+  'Endorphina': ['The Emirate Hit Slot'],
+  'Habanero': ['Calaveras Explosivas', '12 Zodiac', 'Hot Summer'],
+  'Thunderkick': ['1429 Uncharted Seas'],
+  'Playtech': ['Halloween Fortune', 'Mr. Cashback', 'Desert Treasure', 'A Night Out', 'Lotto Madness'],
+  'Games Global': ['9 Mask of Fire', '9 Pots of Gold', 'Diamond Inferno', 'Playboy Fortunes', '9 Mad Hats'],
+  'Gioco Online': ['Pierino Tenta la Fortuna', 'Pigalle', 'Voodoo Curse'],
+  'World Match': ['Re Mida', 'Banan King', 'Fruits Evolution', 'King Valley'],
+  'Octavian': ['Scary Clown']
+}
+
+const PROTOCOLLO_STANDARD_SPORT = { ricarica: '50-100€', bet: '2-3 bet/sett da 10 a 25€', quotaMin: 1.35 }
+const PROTOCOLLO_STANDARD_CASINO = { ricarica: '50-100€', slot: '50-100€ spin bassi' }
+const BOOK_STANDARD = [
+  'marathon', 'quigioco', 'stanleybet', 'bwin', 'zonagioco', 'perlaplay', 'sunbet', 'betpassion',
+  'giochi24', 'codere', 'vincitu', 'domusbet', 'daznbet', 'netwin', 'elabet', 'gioca7',
+  'casino di venezia', 'staryes', 'bgame', 'stake', 'e-play24', 'betitaly', 'betfair', 'betpoint',
+  'totosi'
+]
+
+const PROTOCOLLI_VIP_FASE12 = {
+  'sisal': { ricaricaSett: '100€+', giocatoSett: '200€+', sportMese: '40-50€' },
+  'pokerstars': { ricaricaSett: '100€+', giocatoSett: '200€+', sportMese: '40€' },
+  'snai': { ricaricaSett: '100€+', giocatoSett: '200€+', sportMese: '40-50€' }
+}
+const AZIONI_VIP_FASE12 = {
+  fase1: ['Ricarica almeno {ricaricaSett} ogni settimana (movimenta, lunedì mattina compresa la ricarica)', 'Fai le valide per tutti sia Sport che Casinò quando disponibili', 'Gioca almeno {giocatoSett} ogni settimana su 2/3 giorni consecutivi offline e Cas. Live (le valide per tutti entrano nel conteggio)', '1 volta al mese gioca almeno {sportMese} Sport', 'Ripeti ogni settimana — se arrivano promozioni usale per accumulare giocato', 'Se NON arrivano promo dopo 6 settimane: preleva, lascia meno di 50€ e stai fermo (nessun movimento)', 'N.B. Entra nel conto e verifica: raramente inviano mail per le promozioni'],
+  fase2: ['Ricarica almeno {ricaricaSett} ogni settimana (movimenta, lunedì mattina compresa la ricarica)', 'Fai le valide per tutti sia Sport che Casinò', 'Aumenta i volumi oltre i 300€ a settimana su 2gg consecutivi — il resto dei giorni lascia sgonfiare il conto (offline e Cas. Live)', '1/2 volte al mese copri Sport da 50€ in su', 'Se arrivano promozioni: usale e accumula giocato', 'Se NON arrivano promo dopo 6 settimane: preleva, lascia meno di 50€ e stai fermo (nessun movimento)', 'N.B. Entra nel conto e verifica: raramente inviano mail per le promozioni'],
+  alzarePromo: [
+    'Metodo 1: preleva e lascia meno di 50€, lascia conto fermo 14gg, entra nel conto e verifica se sono arrivate promo nella inbox o si sono alzati i limiti; se dopo 14gg ancora non si sono alzati, procedi a usare il conto normalmente e fai 200€ slot a spin basso ogni settimana. Fallo a rotazione con gli amici così da non lasciare troppi conti fermi',
+    'Metodo 2: utilizza ugualmente le promozioni, fai giocato 200€ slot extra tutte le settimane a spin basso'
+  ]
+}
+
+const PROTOCOLLI_VIP_LOTTO = {
+  'goldbet': { ricarica: '1000€', slot: '500€', sport: '300€' },
+  'lottomatica': { ricarica: '1000€', slot: '500€', sport: '300€' }
+}
+const AZIONI_VIP_LOTTO = {
+  lottoVipLive: ['Ricarica 500€ anche su diverse ricariche', 'GG1: 300€ casinò live + 200€ giochi offline (slot, bj, spin basso)', 'GG2: 300€ casinò live + 200€ giochi offline (slot, bj, spin basso)', 'GG3: 500€ casinò live totale su due bet + 300€ giochi offline (slot, bj, spin basso)', 'Fai tutte le valide per tutti', 'Ripeti altre 2 settimane', 'Settimana 4 preleva, lascia 100-200€', 'Fai almeno 2 conti in contemporanea', 'In fase profilativa accumula saldo (preleva prima se ne hai bisogno, ovviamente)', "Inizia la profilazione all'inizio del mese"],
+  vipSenzaPromo: ['Ricarica almeno 1000€ su + ricariche', 'Gioca a sezioni come da esempi', 'Lunedì 300€ sport quota 2.50 in su', 'Mercoledì 300-400€ casinò live', 'Giovedì 500€ slot spin bassi + cashback', 'Domenica 150-200€ virtuali atteso su tante bet da 25', 'Lascia conto fermo con poco saldo e controllo inbox']
+}
+
+const PROTOCOLLO_STARCASINO = {
+  ricarica: 500, live: 1000, slot: '200-300',
+  fase1: ['Deposita almeno 500', 'Gioca 1000 totale (due colpi da 500) al Casinò Live', 'Fai volume di 200-300 slot scelte consigliate', 'Lascia conto fermo 14gg', "Consigliato iniziare Lunedì/Martedì", 'SE VINCI: dopo aver terminato il volume preleva e lascia meno di 50 — lascia conto fermo', 'SE PERDI: lascia conto fermo', 'Nei 14gg di fermo: se il conto risponde subito con promo Free Spin/Ricarica procedi a portarlo a casa; se il conto non risponde subito procedi col passaggio successivo', 'Una volta terminato: se il conto risponde, procedi a ripetere SOLO quando non arrivano promozioni in generale per almeno 1 mese; se il conto NON risponde, dai priorità ad altri conti e più avanti riprova'],
+  gestioneConto: ['Se il conto dà parecchie promozioni settimanali (2 ricarica e free spin), salta qualche promozione ad esempio quella della domenica', 'Prima di prelevare fai un volume offline piccolo', "Quando è terminata la profilazione, evita di prelevare subito dopo il live", 'Prelievi consigliati quando ti servono i fondi, in quanto il prelievo è veloce'],
+  recuperoContiLimitati: ['Limita solo la parte bonus', 'Puoi provare il recupero stile Lottomatica facendo un volume blando e richiedendo valutazione', 'Chiudere e riaprire al momento NON è consigliato', 'Quando parli con gli operatori fai lo gnorri', 'Cerca di far capire che vuoi giocare al loro sito su slot e giochi NON copribili', 'Accetta le promozioni anche se NON ti arriveranno i bonus']
+}
+
+const PROTOCOLLO_EUROBET = {
+  tecnica: 'Multipla', livelloVip: 'Classic', utilizzo: '2-3 gg/sett',
+  intro: 'Superata la fase di benvenuto (salta e attendi almeno 14gg), Eurobet regala promozioni senza grandi movimentazioni.',
+  profilazione: ['Raggiungi il Livello VIP "Classic" facendo volume di gioco nel mese (verificabile nel conto gioco)', 'Per il volume TOTALE utilizza le promozioni valide per tutti / riservate per volumi su Sport/Casinò', 'Extra volume: 2/3 bet sportive da 20 a 60€ — con storico puoi arrivare a bet da 150€ per eventuale copertura', 'Raggiunto il VIP, usa le promozioni; se si conferma nuovamente bene, altrimenti torna allo status standard', 'Allo status standard, controlla e utilizza le promozioni riservate quando sfruttabili', "Facendo questo 'sali e scendi' diventi un ottimo cliente e il conto si auto-alimenta", 'In fase iniziale con sola Sportiva, cerca un rating al 95% medio (controlla il match) o usalo come copertura', 'Se arrivano poche promozioni, rifai nuovamente il Classic e ritorna allo status standard il mese successivo', 'N.B. Non è obbligatorio fare e mantenere il Classic ogni mese — dosalo in base al punto del percorso in cui ti trovi', "Cerca di utilizzare il conto 2/3 giorni alla settimana e concentra l'operatività"],
+  recupero: ["Pazienza, può volerci 1 tentativo o 10, dipende dall'operatore che trovi", "Se hai ricevuto limitazione con domicilio, procedi a prelevare in quanto è una verifica", 'Fai 2/3 ricariche nel mese da 20€ su varie sezioni (Sport, Slot, Virtuali, ecc.)', 'Fai un volume di gioco di 50-100€ su diversi giochi, comportati come un giocatore casuale', 'Accetta promozioni a caso, pur sapendo che non arriverà il bonus', 'Contatta tramite Chat o Mail per info sulle promozioni — dai pareri da GIOCATORE, giri intorno prima', 'Una volta ottenute le info, richiedi la rivalutazione del conto gioco per tornare a giocare', 'Se hai metodi di prelievo bloccati, chiedi anche lo sblocco nelle settimane successive per comodità', "Il conto può essere recuperato nel Tempo — se ricevi picche, ripeti da capo senza pensarci troppo"]
+}
+
+const PROTOCOLLO_BETFLAG = {
+  ricarica: 2000, giocato: 3000,
+  azioni: ['Deposita almeno 2000', 'Gioca almeno 3000 su giochi offline lo stesso giorno', 'Alla notte preleva e lascia conto fermo due mesi', 'Se dopo 2 mesi arrivano promozioni usale e mantieni il conto semplicemente sbloccando il saldo + bonus', 'Se dopo 2 mesi ancora no promo, ripeti la profilazione', 'NON usare il conto neanche per bancare', "Dato l'importo elevato di ricarica, fallo solo su conti sani e amici vicini in caso di richiesta documenti"]
+}
+
+const PROTOCOLLO_MYLOTTERYPLAY = {
+  ricaricheMese: '4+', slot: '50-100€ spin bassi',
+  azioni: ['Ricarica 50€ almeno 4 volte al mese anche se hai saldo', 'Fai tutte le valide per tutti', 'Gioca 50-100€ extra a settimana Slot spin bassi'],
+  gestione: ['Tutte le valide per tutti puoi farle', 'Usa il buon senso nei prelievi'],
+  recupero: ['Se limitato alle promozioni: vedi recupero stile Eurobet o Lottomatica e richiedi valutazione']
+}
+
+const PROTOCOLLI_EXPERT = {
+  'betsson': {
+    label: 'Betsson Expert',
+    azioni: ['3/4 promo BJ a settimana', 'Cashback 100%', 'Almeno 2 ricariche a settimana da 50€ in su', 'Appena ricevi le riservate, continua a fare le VXT + ricariche']
+  },
+  'william hill': {
+    label: 'William Hill Expert',
+    azioni: ['Volume per tutti 2/3 settimane a ruotare', 'Sblocco saldo offline', 'Extra sblocco saldo 20-40€ su BJ offline', 'Se ricevi riservate weekend riduci i giocati generali']
+  },
+  'netbet': {
+    label: 'NetBet Expert',
+    azioni: ['Fai le promozioni VXT FUN 1/2 volte a settimana', 'Fai le cashback quando disponibili, almeno 1 volta a settimana', "Sblocca saldo su diversi giochi ad alto RTP o metodi soliti — cerca di evitare di fare l'occhino e movimenta leggermente di più", 'Fallo solo sui conti che possono fornire diversi documenti nel caso peggiore', 'Preleva dopo aver fatto tutto offline qualche giorno dopo', 'Finché manda VXT ripeti']
+  },
+  'admiral': {
+    label: 'AdmiralBet Expert',
+    azioni: ['Ricarica almeno 500€', 'Gioca 400-500€ almeno con 4 amici sui numeri (se meno puoi procedere ugualmente, ma con maggior rischio book)', 'Il vincitore giocherà 200-300€ slot extra a spin bassi subito dopo', 'Fai 1 promo cashback disponibile per un importo minore nello stesso giorno', 'Alla notte preleva e lascia meno di 50€'],
+    dueScenari: ['Arrivano riservate: utilizza tutte le riservate inviate', 'NON arrivano riservate: ripeti la settimana successiva'],
+    gestione: ['Tieni conto fermo in attesa di nuove riservate per massimo 14gg', 'Ripeti appena vedi un calo nelle promo riservate, mediamente una volta ogni 2 mesi']
+  }
+}
+
+function getNomeNormalizzato(nomeBook) {
+  return (nomeBook || '').toLowerCase().replace(/\.it$/, '').trim()
+}
+
+function getTipoProtocolloAttivo(nomeBook) {
+  const nome = getNomeNormalizzato(nomeBook)
+  if (nome.includes('starcasino')) return 'starcasino'
+  if (nome.includes('eurobet')) return 'eurobet'
+  if (nome.includes('betflag')) return 'betflag'
+  if (nome.includes('mylotteryplay') || nome.includes('my lottery')) return 'mylotteryplay'
+  if (['sisal', 'pokerstars', 'snai'].some(k => nome.includes(k))) return 'vip_fase12'
+  if (['goldbet', 'lottomatica'].some(k => nome.includes(k))) return 'vip_lotto'
+  if (['betsson', 'william hill', 'netbet', 'admiral'].some(k => nome.includes(k))) return 'expert'
+  if (BOOK_STANDARD.some(k => nome.includes(k))) return 'standard'
+  return null
+}
+
+function getAgendaAttivoV2(book, giorno, settimana) {
+  const nome = getNomeNormalizzato(book.nome)
+  const tipo = getTipoProtocolloAttivo(book.nome)
+  if (!tipo) return null
+
+  if (tipo === 'standard') {
+    const giornoRicarica = [1, 2, 3][hashBook(book.id, settimana * 10 + 50) % 3]
+    const giorniSlot = [0, 1, 2, 3, 4, 5, 6].filter(g => g !== giornoRicarica)
+    const giornoSlot = giorniSlot[hashBook(book.id, settimana * 10 + 51) % giorniSlot.length]
+    const giorniSport = [0, 1, 2, 3, 4, 5, 6].filter(g => g !== giornoRicarica && g !== giornoSlot)
+    const giornoSport = giorniSport[hashBook(book.id, settimana * 10 + 52) % giorniSport.length]
+
+    if (giorno === giornoRicarica) return [`Ricarica ${PROTOCOLLO_STANDARD_SPORT.ricarica}`]
+    if (giorno === giornoSlot) return [`Gioca ${PROTOCOLLO_STANDARD_CASINO.slot}`]
+    if (giorno === giornoSport) return [`Gioca ${PROTOCOLLO_STANDARD_SPORT.bet} — quota min ${PROTOCOLLO_STANDARD_SPORT.quotaMin}, refertazione entro sera/gg dopo`]
+    return null
+  }
+
+  if (tipo === 'vip_fase12') {
+    const chiave = Object.keys(PROTOCOLLI_VIP_FASE12).find(k => nome.includes(k))
+    const p = PROTOCOLLI_VIP_FASE12[chiave]
+    if (!p) return null
+    const giornoRicarica = 1
+    const startVolume = [2, 3, 4][hashBook(book.id, settimana * 10 + 53) % 3]
+    const giorniVolume = [startVolume, startVolume + 1 > 6 ? 0 : startVolume + 1]
+    const giorniRimanenti = [0, 1, 2, 3, 4, 5, 6].filter(g => g !== giornoRicarica && !giorniVolume.includes(g))
+    const giornoSport = giorniRimanenti[hashBook(book.id, settimana * 10 + 54) % giorniRimanenti.length]
+    const mostraSportOggi = giorno === giornoSport && (hashBook(book.id, settimana + 700) % 2 === 0)
+
+    if (giorno === giornoRicarica) return [`Ricarica ${p.ricaricaSett} (movimenta, compresa la ricarica)`]
+    if (giorniVolume.includes(giorno)) return [`Gioca ${p.giocatoSett} offline e Cas. Live (2/3gg consecutivi)`]
+    if (mostraSportOggi) return [`Copri Sport da ${p.sportMese}`]
+    return null
+  }
+
+  if (tipo === 'vip_lotto') {
+    const chiave = Object.keys(PROTOCOLLI_VIP_LOTTO).find(k => nome.includes(k))
+    const p = PROTOCOLLI_VIP_LOTTO[chiave]
+    if (!p) return null
+    const giornoRicarica = 1
+    const gg1 = 2, gg2 = 3, gg3 = 4
+    const giornoSport = [5, 6, 0][hashBook(book.id, settimana * 10 + 55) % 3]
+
+    if (giorno === giornoRicarica) return [`Ricarica ${p.ricarica} (anche su diverse ricariche)`]
+    if (giorno === gg1) return ['GG1: 300€ casinò live + 200€ giochi offline (slot, bj, spin basso)']
+    if (giorno === gg2) return ['GG2: 300€ casinò live + 200€ giochi offline (slot, bj, spin basso)']
+    if (giorno === gg3) return ['GG3: 500€ casinò live totale su due bet + 300€ giochi offline']
+    if (giorno === giornoSport) return ['Sport quota 2.50+ (parte del giro VIP)']
+    return null
+  }
+
+  if (tipo === 'starcasino') {
+    const giornoRicarica = [1, 2][hashBook(book.id, settimana * 10 + 56) % 2]
+    const giornoLive = giornoRicarica + 1 <= 6 ? giornoRicarica + 1 : giornoRicarica - 1
+    const giorniSlot = [0, 1, 2, 3, 4, 5, 6].filter(g => g !== giornoRicarica && g !== giornoLive)
+    const giornoSlot = giorniSlot[hashBook(book.id, settimana * 10 + 57) % giorniSlot.length]
+
+    if (giorno === giornoRicarica) return [`Deposita almeno ${PROTOCOLLO_STARCASINO.ricarica}€ (Lun/Mar consigliato)`]
+    if (giorno === giornoLive) return [`Gioca ${PROTOCOLLO_STARCASINO.live}€ totale (due colpi da 500) al Casinò Live`]
+    if (giorno === giornoSlot) return [`Volume ${PROTOCOLLO_STARCASINO.slot}€ slot scelte consigliate`]
+    return null
+  }
+
+  if (tipo === 'eurobet') {
+    const giorniOperativi = [1, 3]
+    const giornoExtra = [2, 4][hashBook(book.id, settimana * 10 + 58) % 2]
+    if (giorno === giorniOperativi[0]) return ['Utilizza il conto (Livello VIP Classic) — controlla promo valide per tutti']
+    if (giorno === giorniOperativi[1]) return ['Utilizza il conto — controlla riservate su Sport/Casinò']
+    if (giorno === giornoExtra) return ['Extra: 2/3 bet sportive da 20 a 60€ (rating ~95%, o copertura)']
+    return null
+  }
+
+  if (tipo === 'betflag') {
+    const oggi = new Date()
+    const GIORNO_ZERO = new Date('2026-05-18')
+    const giorniDaZero = Math.floor((oggi - GIORNO_ZERO) / 86400000)
+    const offset = hashBook(book.id, 999) % 60
+    const isGiornoAttivo = (giorniDaZero - offset) % 60 === 0
+    if (isGiornoAttivo) return [`Deposita ${PROTOCOLLO_BETFLAG.ricarica}€, gioca ${PROTOCOLLO_BETFLAG.giocato}€ offline stesso giorno, poi preleva e lascia fermo 2 mesi`]
+    return null
+  }
+
+  if (tipo === 'mylotteryplay') {
+    const giorniRicarica = [1, 2, 4, 5]
+    const giornoRicaricaOggi = giorniRicarica[hashBook(book.id, settimana * 10 + 59) % giorniRicarica.length]
+    const giornoSlot = [3, 6][hashBook(book.id, settimana * 10 + 60) % 2]
+    if (giorno === giornoRicaricaOggi) return ['Ricarica 50€']
+    if (giorno === giornoSlot) return [`Gioca ${PROTOCOLLO_MYLOTTERYPLAY.slot}`]
+    return null
+  }
+
+  if (tipo === 'expert') {
+    const chiave = Object.keys(PROTOCOLLI_EXPERT).find(k => nome.includes(k))
+    const p = PROTOCOLLI_EXPERT[chiave]
+    if (!p) return null
+    const azioni = p.azioni
+    const nGiorni = Math.min(azioni.length, 7)
+    const giorniUsati = []
+    let seedOffset = 60
+    while (giorniUsati.length < nGiorni && seedOffset < 260) {
+      const g = hashBook(book.id, settimana * 10 + seedOffset) % 7
+      if (!giorniUsati.includes(g)) giorniUsati.push(g)
+      seedOffset++
+    }
+    const idx = giorniUsati.indexOf(giorno)
+    if (idx === -1) return null
+    return [azioni[idx]]
+  }
+
+  return null
+}
+
 const AGENDA_MANUTENZIONE_A = {
   1: { label: 'Lunedì', azioni: ['Sessione slot 5-10€ (spin bassi)'] },
   3: { label: 'Mercoledì', azioni: ['1 bet sportiva anche piccola'] },
@@ -350,6 +581,19 @@ function getAzioniOggi(book) {
   const classe = getClasseBook(book.nome)
 
   if (livello === 'attivo') {
+    // Nuovo sistema (Profiliamo, luglio 2026): prova prima i protocolli ri-profilati
+    const tipoNuovo = getTipoProtocolloAttivo(book.nome)
+    if (tipoNuovo) {
+      const azioniV2 = getAgendaAttivoV2(book, giorno, settimana)
+      if (!azioniV2 || azioniV2.length === 0) return null
+      return {
+        tipo: 'attivo',
+        label: ['Dom','Lun','Mar','Mer','Gio','Ven','Sab'][giorno],
+        azioni: azioniV2,
+        badge: '🟢 Attivo'
+      }
+    }
+    // Fallback: book non ancora ri-profilato -> vecchio sistema, invariato
     const azioniGiorno = getAgendaAttivo(book, giorno, settimana)
     if (!azioniGiorno || azioniGiorno.length === 0) return null
     return {
