@@ -632,6 +632,38 @@ function getAgendaAttivoV2(book, giorno, settimana) {
   return null
 }
 
+// Riassunto STATICO (non legato al giorno) del nuovo protocollo assegnato — usato nella colonna
+// "Protocollo" della tabella Profilazione, solo per book con profilo_livello === 'attivo'.
+function getRiassuntoProtocolloAttivo(nomeBook) {
+  const tipo = getTipoProtocolloAttivo(nomeBook)
+  if (!tipo) return null
+  const nome = getNomeNormalizzato(nomeBook)
+
+  if (tipo === 'expert') {
+    const chiave = Object.keys(PROTOCOLLI_EXPERT).find(k => nome.includes(k))
+    const p = PROTOCOLLI_EXPERT[chiave]
+    if (!p) return null
+    return { durata: p.label, capitale_min: null, azioni: p.azioni.slice(0, 3) }
+  }
+
+  const RIASSUNTI = {
+    standard: { durata: 'Standard (Sport + Casinò)', capitale_min: 50, azioni: ['Ricarica 50-100€', '2-3 bet/sett — quota min 1.35', 'Slot 50-100€ spin bassi'] },
+    vip_fase12: { durata: 'VIP Fase 1 & 2', capitale_min: 100, azioni: ['Ricarica 100€+/sett', 'Volume 200€+/sett offline + Cas. Live', 'Sport 40-50€, 1-2 volte/mese'] },
+    vip_lotto: { durata: 'VIP Lotto Live', capitale_min: 1000, azioni: ['Ricarica 500-1000€', 'GG1-3: casinò live + giochi offline', 'Sport 300€ (quota 2.50+)'] },
+    casino_200: { durata: 'Casinò 200€ (ciclo 4 sett.)', capitale_min: 200, azioni: PROTOCOLLO_CASINO_200.azioni.slice(0, 3) },
+    quigioco: { durata: 'QuiGioco (ciclo fermo 14gg)', capitale_min: 50, azioni: PROTOCOLLO_QUIGIOCO.azioni.slice(0, 3) },
+    stanleybet: { durata: 'Stanleybet (ciclo 1 mese)', capitale_min: 50, azioni: PROTOCOLLO_STANLEYBET.azioniSport.slice(0, 3) },
+    bwin: { durata: 'Bwin (ciclo 3 settimane)', capitale_min: 30, azioni: PROTOCOLLO_BWIN.azioni.slice(0, 3) },
+    betfair_exchange: { durata: 'Exchange (ciclo 3 settimane)', capitale_min: 20, azioni: PROTOCOLLO_BETFAIR.azioniSport.slice(0, 3) },
+    starcasino: { durata: 'StarCasinò (a Fasi)', capitale_min: 500, azioni: PROTOCOLLO_STARCASINO.fase1.slice(0, 3) },
+    eurobet: { durata: 'Eurobet (Multipla, VIP Classic)', capitale_min: null, azioni: PROTOCOLLO_EUROBET.profilazione.slice(0, 3) },
+    betflag: { durata: 'BetFlag (ciclo 2 mesi)', capitale_min: 2000, azioni: PROTOCOLLO_BETFLAG.azioni.slice(0, 3) },
+    bet365: { durata: 'Bet365 Superquote', capitale_min: null, azioni: PROTOCOLLO_BET365.aumentoSuperquote.slice(0, 3) },
+    mylotteryplay: { durata: 'MyLotteryPlay (4+ ricariche/mese)', capitale_min: null, azioni: PROTOCOLLO_MYLOTTERYPLAY.azioni.slice(0, 3) }
+  }
+  return RIASSUNTI[tipo] || null
+}
+
 const AGENDA_MANUTENZIONE_A = {
   1: { label: 'Lunedì', azioni: ['Sessione slot 5-10€ (spin bassi)'] },
   3: { label: 'Mercoledì', azioni: ['1 bet sportiva anche piccola'] },
@@ -3869,7 +3901,8 @@ onChange={(e) => {
           </thead>
           <tbody>
             {filteredProf.map(book => {
-              const proto = getProtocollo(book.nome)
+              const protoNuovo = book.profilo_livello === 'attivo' ? getRiassuntoProtocolloAttivo(book.nome) : null
+              const proto = protoNuovo || getProtocollo(book.nome)
               const badge = getLivelloBadge(book.profilo_livello)
               return (
                 <tr key={book.id} style={tr}>
