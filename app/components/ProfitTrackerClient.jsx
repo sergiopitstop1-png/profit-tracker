@@ -299,12 +299,57 @@ const SLOT_CONSIGLIATE = {
 
 const PROTOCOLLO_STANDARD_SPORT = { ricarica: '50-100€', bet: '2-3 bet/sett da 10 a 25€', quotaMin: 1.35 }
 const PROTOCOLLO_STANDARD_CASINO = { ricarica: '50-100€', slot: '50-100€ spin bassi' }
+// CORREZIONE: quigioco, stanleybet, bwin, betfair, betpoint erano stati messi qui per errore —
+// dal riscontro con gli screenshot originali hanno tutti template PROPRI, diversi dallo standard 50-100€.
 const BOOK_STANDARD = [
-  'marathon', 'quigioco', 'stanleybet', 'bwin', 'zonagioco', 'perlaplay', 'sunbet', 'betpassion',
+  'marathon', 'zonagioco', 'perlaplay', 'sunbet', 'betpassion',
   'giochi24', 'codere', 'vincitu', 'domusbet', 'daznbet', 'netwin', 'elabet', 'gioca7',
-  'casino di venezia', 'staryes', 'bgame', 'stake', 'e-play24', 'betitaly', 'betfair', 'betpoint',
+  'casino di venezia', 'staryes', 'bgame', 'stake', 'e-play24', 'betitaly',
   'totosi'
 ]
+
+// Planetwin365 — template "Casinò 200€" (diverso dallo standard 50-100€, condiviso concettualmente
+// con la card base di Lottomatica/GoldBet, ma quei due usano già la VIP come protocollo primario)
+const PROTOCOLLO_CASINO_200 = {
+  ricarica: '200€', live: '200€', slot: '100-200€', sport: '100€',
+  azioni: ['Ricarica almeno 200€ a inizio settimana', 'Un giorno gioca 200€ casinò live + 100-200€ slot spin basso', 'Un altro giorno gioca 100€ sport su 3/4 bet sport', 'Usa tutte le valide per tutti', 'Ripeti per 4 settimane', 'Usa le riservate che arrivano e ripeti ogni 2 mesi']
+}
+const BOOK_CASINO_200 = ['planetwin365']
+
+// QuiGioco — template proprio (ciclo con fermo 14gg)
+const PROTOCOLLO_QUIGIOCO = {
+  ricarica: '50-100€', bet: '2-3 piccola da 10 a 25€ max', fermo: '14gg',
+  azioni: ['Ricarica 50-100€', 'Gioca 2/3 bet piccola (da 10€ a 25€ max)', 'Sblocca il resto dei fondi su Virtuali come spiegato nella Entry, o Starburst/simili a spin basso', '2/3 giorni dopo: preleva e lascia tra 5€ e 20€ di saldo', 'Lascia il conto fermo e attendi', 'Se arrivano promo entro 14 giorni: falle e ripeti il giochino (già col saldo depositato per la promo)', 'Se NON arrivano: ripeti da capo fino a riceverle']
+}
+
+// Stanleybet — template proprio (ricarica min 50€, bet/gg, durata 1 mese)
+const PROTOCOLLO_STANLEYBET = {
+  ricaricaMin: '50€', betGg: '3-4', durata: '1 mese',
+  azioniSport: ['Ricarica almeno 50€ a inizio settimana', 'Gioca 3/4 bet in un singolo giorno dopo la ricarica', 'Importo da 10 a 30€ massimo — quota minima 1.35, che si concludano in giornata/gg dopo', 'Ripeti per 1 mese ogni settimana', 'Utilizza le valide per tutti profittevoli'],
+  azioniCasino: ['Ricarica almeno 50€ a inizio settimana', 'Gioca 50-100€ slot spin bassi (meglio 3/4 diverse) giorno dopo la ricarica', 'Ripeti per 1 mese ogni settimana', 'Utilizza le valide per tutti profittevoli'],
+  gestione: ['Se vedi un calo nelle promozioni: ripeti da capo', 'Utilizza il buon senso nei prelievi'],
+  recupero: ['Se limitato alle promozioni: vedi recupero stile Eurobet o Lottomatica e richiedi valutazione']
+}
+
+// Bwin — template proprio (ricarica min 30€, 3-4 bet/sett da 15-50€, 3 settimane)
+const PROTOCOLLO_BWIN = {
+  ricaricaMin: '30€', betSett: '3-4 da 15 a 50€', settimane: 3,
+  azioni: ['Ricarica almeno 30€ a inizio settimana', 'Gioca 3/4 bet da 15 a massimo 50€ su incontri che giochi entro sera/gg dopo', 'Ripeti per 3 settimane', 'Utilizza le valide per tutti profittevoli'],
+  gestione: ['Se non arrivano promozioni interessanti: preleva, lascia conto fermo con meno di 50€ e attendi 14gg', 'Se non arrivano promozioni interessanti: ripeti da capo', 'Utilizza il buon senso nei prelievi'],
+  recupero: ['Se limitato alle promozioni: vedi recupero stile Eurobet o Lottomatica e richiedi valutazione', 'In alternativa se limitato alle puntate Sport: fai tante bet da 2€ in modo da sbloccarlo, successivamente chiedi in chat', 'Potresti anche attendere una promozione deposito e poi richiedere lo sblocco dei limiti, in quanto vuoi giocare allo Sport']
+}
+
+// Betfair / Betpoint — template Exchange proprio (20€ min, 2-3 bet/sett 5-20€, 3 settimane).
+// NOTA: testo identico tra i due nello screenshot originale — probabile refuso Profiliamo,
+// confermato da Sergio di tenerlo così com'è.
+const PROTOCOLLO_BETFAIR = {
+  ricaricaMin: '20€', betSett: '2-3 da 5-20€', settimane: 3,
+  azioniSport: ['Ricarica almeno 20€', '2-3 scommesse a settimana da 5 a 20€ massimo', 'Ripetere per 3 settimane', 'Verificare eventuali promo in quanto non manda mail'],
+  azioniCasino: ['Ricarica almeno 20€', '10-20€ slot per 3 giorni consecutivi a spin bassi', 'Ripetere per 3 settimane', 'Verificare eventuali promo in quanto non manda mail'],
+  gestione: ['Da ripetere appena si vede un calo delle riservate, mediamente', "Tieni un Betfair che utilizzi solo per Exchange, così da non sbagliare e utilizzare match che giochi nello Sportbook e copri nell'Exchange"],
+  recupero: ['Se limita alle promozioni: utilizza solo Exchange e tra un paio di mesi chiedi rivalutazione facendo lo gnorri (vedi esempi di Eurobet o Lotto)']
+}
+const BOOK_BETFAIR_EXCHANGE = ['betfair', 'betpoint']
 
 const PROTOCOLLI_VIP_FASE12 = {
   'sisal': { ricaricaSett: '100€+', giocatoSett: '200€+', sportMese: '40-50€' },
@@ -325,7 +370,7 @@ const PROTOCOLLI_VIP_LOTTO = {
   'lottomatica': { ricarica: '1000€', slot: '500€', sport: '300€' }
 }
 const AZIONI_VIP_LOTTO = {
-  lottoVipLive: ['Ricarica 500€ anche su diverse ricariche', 'GG1: 300€ casinò live + 200€ giochi offline (slot, bj, spin basso)', 'GG2: 300€ casinò live + 200€ giochi offline (slot, bj, spin basso)', 'GG3: 500€ casinò live totale su due bet + 300€ giochi offline (slot, bj, spin basso)', 'Fai tutte le valide per tutti', 'Ripeti altre 2 settimane', 'Settimana 4 preleva, lascia 100-200€', 'Fai almeno 2 conti in contemporanea', 'In fase profilativa accumula saldo (preleva prima se ne hai bisogno, ovviamente)', "Inizia la profilazione all'inizio del mese"],
+  lottoVipLive: ['Ricarica 500€ anche su diverse ricariche', 'GG1: 300€ casinò live + 200€ giochi offline (slot, bj, spin basso)', 'GG2: 300€ casinò live + 200€ giochi offline (slot, bj, spin basso)', 'GG3: 500€ casinò live totale su due bet + 300€ giochi offline (slot, bj, spin basso)', 'Fai tutte le valide per tutti', 'Ripeti altre 2 settimane', 'Settimana 4 preleva, lascia 100-200€', 'Fai almeno 2 conti in contemporanea', 'In fase profilativa accumula saldo (preleva prima se ne hai bisogno, ovviamente)', "Inizia la profilazione all'inizio del mese", 'Se il conto passa VIP ottimo, usa il conto e dosalo in base alla ricezione promozionale (vedi VIP senza Promo)', 'Se il conto NON diventa subito VIP, utilizza il conto normalmente e ripeti il mese successivo'],
   vipSenzaPromo: ['Ricarica almeno 1000€ su + ricariche', 'Gioca a sezioni come da esempi', 'Lunedì 300€ sport quota 2.50 in su', 'Mercoledì 300-400€ casinò live', 'Giovedì 500€ slot spin bassi + cashback', 'Domenica 150-200€ virtuali atteso su tante bet da 25', 'Lascia conto fermo con poco saldo e controllo inbox']
 }
 
@@ -339,8 +384,8 @@ const PROTOCOLLO_STARCASINO = {
 const PROTOCOLLO_EUROBET = {
   tecnica: 'Multipla', livelloVip: 'Classic', utilizzo: '2-3 gg/sett',
   intro: 'Superata la fase di benvenuto (salta e attendi almeno 14gg), Eurobet regala promozioni senza grandi movimentazioni.',
-  profilazione: ['Raggiungi il Livello VIP "Classic" facendo volume di gioco nel mese (verificabile nel conto gioco)', 'Per il volume TOTALE utilizza le promozioni valide per tutti / riservate per volumi su Sport/Casinò', 'Extra volume: 2/3 bet sportive da 20 a 60€ — con storico puoi arrivare a bet da 150€ per eventuale copertura', 'Raggiunto il VIP, usa le promozioni; se si conferma nuovamente bene, altrimenti torna allo status standard', 'Allo status standard, controlla e utilizza le promozioni riservate quando sfruttabili', "Facendo questo 'sali e scendi' diventi un ottimo cliente e il conto si auto-alimenta", 'In fase iniziale con sola Sportiva, cerca un rating al 95% medio (controlla il match) o usalo come copertura', 'Se arrivano poche promozioni, rifai nuovamente il Classic e ritorna allo status standard il mese successivo', 'N.B. Non è obbligatorio fare e mantenere il Classic ogni mese — dosalo in base al punto del percorso in cui ti trovi', "Cerca di utilizzare il conto 2/3 giorni alla settimana e concentra l'operatività"],
-  recupero: ["Pazienza, può volerci 1 tentativo o 10, dipende dall'operatore che trovi", "Se hai ricevuto limitazione con domicilio, procedi a prelevare in quanto è una verifica", 'Fai 2/3 ricariche nel mese da 20€ su varie sezioni (Sport, Slot, Virtuali, ecc.)', 'Fai un volume di gioco di 50-100€ su diversi giochi, comportati come un giocatore casuale', 'Accetta promozioni a caso, pur sapendo che non arriverà il bonus', 'Contatta tramite Chat o Mail per info sulle promozioni — dai pareri da GIOCATORE, giri intorno prima', 'Una volta ottenute le info, richiedi la rivalutazione del conto gioco per tornare a giocare', 'Se hai metodi di prelievo bloccati, chiedi anche lo sblocco nelle settimane successive per comodità', "Il conto può essere recuperato nel Tempo — se ricevi picche, ripeti da capo senza pensarci troppo"]
+  profilazione: ['Raggiungi il Livello VIP "Classic" facendo volume di gioco nel mese (verificabile nel conto gioco)', 'Per il volume TOTALE utilizza le promozioni valide per tutti / riservate per volumi su Sport/Casinò', 'Extra volume: 2/3 bet sportive da 20 a 60€ — con storico puoi arrivare a bet da 150€ per eventuale copertura', 'Raggiunto il VIP, usa le promozioni; se si conferma nuovamente bene, altrimenti torna allo status standard', 'Allo status standard, controlla e utilizza le promozioni riservate quando sfruttabili', 'Se arrivano promozioni: usale e accumula giocato', "Facendo questo 'sali e scendi' diventi un ottimo cliente e il conto si auto-alimenta", 'In fase iniziale con sola Sportiva, cerca un rating al 95% medio (controlla il match) o usalo come copertura', 'Se arrivano poche promozioni, rifai nuovamente il Classic e ritorna allo status standard il mese successivo', 'N.B. Non è obbligatorio fare e mantenere il Classic ogni mese — dosalo in base al punto del percorso in cui ti trovi', "Cerca di utilizzare il conto 2/3 giorni alla settimana e concentra l'operatività"],
+  recupero: ["Pazienza, può volerci 1 tentativo o 10, dipende dall'operatore che trovi", "Se hai ricevuto limitazione con domicilio, procedi a prelevare in quanto è una verifica", 'Fai 2/3 ricariche nel mese da 20€ su varie sezioni (Sport, Slot, Virtuali, ecc.)', 'Fai un volume di gioco di 50-100€ su diversi giochi, comportati come se fossi un giocatore casuale', 'Cerca di fare bet "piccole" e volumi su diversi giochi, comportati come giocatore casuale', 'Accetta promozioni a caso, pur sapendo che non arriverà il bonus', 'Contatta tramite Chat o Mail per info sulle promozioni — dai pareri da GIOCATORE, giri intorno prima', 'Una volta ottenute le info, richiedi la rivalutazione del conto gioco per tornare a giocare', 'Se hai metodi di prelievo bloccati, chiedi anche lo sblocco nelle settimane successive per comodità', "Il conto può essere recuperato nel Tempo — se ricevi picche, ripeti da capo senza pensarci troppo"]
 }
 
 const PROTOCOLLO_BETFLAG = {
@@ -353,6 +398,15 @@ const PROTOCOLLO_MYLOTTERYPLAY = {
   azioni: ['Ricarica 50€ almeno 4 volte al mese anche se hai saldo', 'Fai tutte le valide per tutti', 'Gioca 50-100€ extra a settimana Slot spin bassi'],
   gestione: ['Tutte le valide per tutti puoi farle', 'Usa il buon senso nei prelievi'],
   recupero: ['Se limitato alle promozioni: vedi recupero stile Eurobet o Lottomatica e richiedi valutazione']
+}
+
+// Bet365 — Profilazione Sportiva "Superquote" (caso speciale, non era nello schema standard)
+const PROTOCOLLO_BET365 = {
+  tecnica: 'Superquote', betSett: '10-15', ricaricheSett: '5/sett',
+  finteRiservate: ['Tieni il conto attivo', 'Fai almeno una ricarica al mese', 'Fai almeno una bet sportiva da 20€ in su nel mese'],
+  aumentoSuperquote: ['Almeno 10-15 bet a settimana da 10 a 50€ (varia importo) — quota minima 1.35, se puoi farle live meglio ancora', 'Ricarica almeno 5 volte nella settimana (anche se hai saldo) di qualsiasi importo — le bet possono essere fatte anche in un singolo giorno', 'N.B. Usa le coperture di importo più alto come mezzo per abbattere i costi', "Una volta che sale l'importo, mantieni il conto con qualche copertura nel mese", 'Gioca 800€ a settimana in Doppia sfruttando il Bet365 Club'],
+  aumentoSuperquotaA1: ['Fai coperture randomiche nel conto gioco', 'Almeno 2 a settimana e si rialzano in automatico'],
+  recupero: ['NON DISPONIBILE se hai limitazione ai Bonus']
 }
 
 const PROTOCOLLI_EXPERT = {
@@ -372,7 +426,8 @@ const PROTOCOLLI_EXPERT = {
     label: 'AdmiralBet Expert',
     azioni: ['Ricarica almeno 500€', 'Gioca 400-500€ almeno con 4 amici sui numeri (se meno puoi procedere ugualmente, ma con maggior rischio book)', 'Il vincitore giocherà 200-300€ slot extra a spin bassi subito dopo', 'Fai 1 promo cashback disponibile per un importo minore nello stesso giorno', 'Alla notte preleva e lascia meno di 50€'],
     dueScenari: ['Arrivano riservate: utilizza tutte le riservate inviate', 'NON arrivano riservate: ripeti la settimana successiva'],
-    gestione: ['Tieni conto fermo in attesa di nuove riservate per massimo 14gg', 'Ripeti appena vedi un calo nelle promo riservate, mediamente una volta ogni 2 mesi']
+    gestione: ['Tieni conto fermo in attesa di nuove riservate per massimo 14gg', 'Ripeti appena vedi un calo nelle promo riservate, mediamente una volta ogni 2 mesi'],
+    recupero: ['Se limitato alle promozioni: vedi recupero stile Eurobet o Lottomatica e richiedi valutazione']
   }
 }
 
@@ -385,7 +440,13 @@ function getTipoProtocolloAttivo(nomeBook) {
   if (nome.includes('starcasino')) return 'starcasino'
   if (nome.includes('eurobet')) return 'eurobet'
   if (nome.includes('betflag')) return 'betflag'
+  if (nome.includes('bet365')) return 'bet365'
   if (nome.includes('mylotteryplay') || nome.includes('my lottery')) return 'mylotteryplay'
+  if (nome.includes('quigioco')) return 'quigioco'
+  if (nome.includes('stanleybet')) return 'stanleybet'
+  if (nome.includes('bwin')) return 'bwin'
+  if (BOOK_BETFAIR_EXCHANGE.some(k => nome.includes(k))) return 'betfair_exchange'
+  if (BOOK_CASINO_200.some(k => nome.includes(k))) return 'casino_200'
   if (['sisal', 'pokerstars', 'snai'].some(k => nome.includes(k))) return 'vip_fase12'
   if (['goldbet', 'lottomatica'].some(k => nome.includes(k))) return 'vip_lotto'
   if (['betsson', 'william hill', 'netbet', 'admiral'].some(k => nome.includes(k))) return 'expert'
@@ -472,6 +533,72 @@ function getAgendaAttivoV2(book, giorno, settimana) {
     const offset = hashBook(book.id, 999) % 60
     const isGiornoAttivo = (giorniDaZero - offset) % 60 === 0
     if (isGiornoAttivo) return [`Deposita ${PROTOCOLLO_BETFLAG.ricarica}€, gioca ${PROTOCOLLO_BETFLAG.giocato}€ offline stesso giorno, poi preleva e lascia fermo 2 mesi`]
+    return null
+  }
+
+  if (tipo === 'bet365') {
+    // Ricariche 5/sett + bet Superquote: copertura ampia (5 giorni operativi su 7)
+    const tuttiGiorni = [0, 1, 2, 3, 4, 5, 6]
+    const giornoDoppia = tuttiGiorni[hashBook(book.id, settimana * 10 + 70) % 7]
+    const giorniRestanti = tuttiGiorni.filter(g => g !== giornoDoppia)
+    const giornoCopertura = giorniRestanti[hashBook(book.id, settimana * 10 + 71) % giorniRestanti.length]
+    const giorniOperativi = tuttiGiorni.filter(g => g !== giornoDoppia && g !== giornoCopertura)
+
+    if (giorno === giornoDoppia) return ['Gioca 800€ a settimana in Doppia sfruttando il Bet365 Club']
+    if (giorno === giornoCopertura) return ['Copertura randomica nel conto gioco (almeno 2/sett, per aumento Superquota a 1)']
+    if (giorniOperativi.includes(giorno)) return ['Ricarica (5/sett) + 2-3 bet Superquote da 10-50€ — quota min 1.35, meglio se live']
+    return null
+  }
+
+  if (tipo === 'casino_200') {
+    const giornoRicarica = 1 // "a inizio settimana"
+    const giorniRestanti = [0, 2, 3, 4, 5, 6]
+    const giornoLive = giorniRestanti[hashBook(book.id, settimana * 10 + 80) % giorniRestanti.length]
+    const giorniSportPossibili = giorniRestanti.filter(g => g !== giornoLive)
+    const giornoSport = giorniSportPossibili[hashBook(book.id, settimana * 10 + 81) % giorniSportPossibili.length]
+
+    if (giorno === giornoRicarica) return ['Ricarica almeno 200€ a inizio settimana']
+    if (giorno === giornoLive) return ['Gioca 200€ casinò live + 100-200€ slot spin basso']
+    if (giorno === giornoSport) return ['Gioca 100€ sport su 3/4 bet sport']
+    return null
+  }
+
+  if (tipo === 'quigioco') {
+    // Ciclo con fermo 14gg: 1 giorno ricarica+bet, poi 2/3gg dopo preleva, poi resta fermo.
+    // Mostriamo solo il giorno "azione" settimanale (ricarica + bet); lo sblocco/preleva è gestione manuale.
+    const giornoAzione = [1, 2][hashBook(book.id, settimana * 10 + 82) % 2]
+    if (giorno === giornoAzione) return ['Ricarica 50-100€ + gioca 2/3 bet piccole (10-25€ max), poi sblocca resto su Virtuali/Starburst a spin basso']
+    return null
+  }
+
+  if (tipo === 'stanleybet') {
+    const giornoRicarica = 1 // "a inizio settimana"
+    const giorniRestanti = [0, 2, 3, 4, 5, 6]
+    const giornoAzione = giorniRestanti[hashBook(book.id, settimana * 10 + 83) % giorniRestanti.length] // giorno dopo ricarica, bet o slot
+    const usaSlot = hashBook(book.id, settimana + 900) % 2 === 0 // alterna bet sportiva / slot tra le settimane
+
+    if (giorno === giornoRicarica) return ['Ricarica almeno 50€ a inizio settimana']
+    if (giorno === giornoAzione) return usaSlot
+      ? ['Gioca 50-100€ slot spin bassi (meglio 3/4 diverse)']
+      : ['Gioca 3/4 bet da 10 a 30€ max — quota minima 1.35']
+    return null
+  }
+
+  if (tipo === 'bwin') {
+    const giornoRicarica = 1
+    const giorniRestanti = [0, 2, 3, 4, 5, 6]
+    const giornoBet = giorniRestanti[hashBook(book.id, settimana * 10 + 84) % giorniRestanti.length]
+    if (giorno === giornoRicarica) return ['Ricarica almeno 30€ a inizio settimana']
+    if (giorno === giornoBet) return ['Gioca 3/4 bet da 15 a 50€ max su incontri che giochi entro sera/gg dopo']
+    return null
+  }
+
+  if (tipo === 'betfair_exchange') {
+    const giornoRicarica = 1
+    const giorniRestanti = [0, 2, 3, 4, 5, 6]
+    const giornoAzione = giorniRestanti[hashBook(book.id, settimana * 10 + 85) % giorniRestanti.length]
+    if (giorno === giornoRicarica) return ['Ricarica almeno 20€ (usa solo Exchange)']
+    if (giorno === giornoAzione) return ['2-3 scommesse Exchange da 5-20€ (sport) o 10-20€ slot 3gg consecutivi (casinò) — verifica promo, non manda mail']
     return null
   }
 
