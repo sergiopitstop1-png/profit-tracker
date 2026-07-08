@@ -30,6 +30,17 @@ const [memoFutureNotes, setMemoFutureNotes] = useState([])
 const [memoFreeBoxes, setMemoFreeBoxes] = useState([])
 const [postItNotes, setPostItNotes] = useState([])
 const [nuovoPostIt, setNuovoPostIt] = useState('')
+const [postItFloatPos, setPostItFloatPos] = useState(() => {
+  try {
+    const saved = localStorage.getItem('postItFloatPos')
+    return saved ? JSON.parse(saved) : { x: null, y: null }
+  } catch { return { x: null, y: null } }
+})
+const [postItMinimized, setPostItMinimized] = useState(() => {
+  try { return localStorage.getItem('postItMinimized') === '1' } catch { return false }
+})
+const [postItDragging, setPostItDragging] = useState(false)
+const postItDragOffset = React.useRef({ x: 0, y: 0 })
   const [dashboardSettings, setDashboardSettings] = useState({ accantonamento_royalty: 0, risparmi_samu_massi: 0, target_cassa: 0 })
 
 const [stimeFilters, setStimeFilters] = useState({
@@ -1153,6 +1164,43 @@ useEffect(() => {
     setShowAgendaPopup(true)
   }
 }, [books])
+
+// Drag globale per il widget flottante Post-it
+useEffect(() => {
+  if (!postItDragging) return
+  function onMove(e) {
+    const x = e.clientX - postItDragOffset.current.x
+    const y = e.clientY - postItDragOffset.current.y
+    setPostItFloatPos({ x, y })
+  }
+  function onUp() {
+    setPostItDragging(false)
+    setPostItFloatPos(pos => {
+      try { localStorage.setItem('postItFloatPos', JSON.stringify(pos)) } catch {}
+      return pos
+    })
+  }
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+  return () => {
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+  }
+}, [postItDragging])
+
+function startPostItDrag(e) {
+  const rect = e.currentTarget.parentElement.getBoundingClientRect()
+  postItDragOffset.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+  setPostItDragging(true)
+}
+
+function togglePostItMinimized() {
+  setPostItMinimized(prev => {
+    const next = !prev
+    try { localStorage.setItem('postItMinimized', next ? '1' : '0') } catch {}
+    return next
+  })
+}
 
 // Popup SMS agli orari fissi: 9, 13, 17, 21
 useEffect(() => {
@@ -6301,6 +6349,80 @@ onChange={(e) => {
 >
   ↑
 </button>
+
+{/* WIDGET FLOTTANTE POST-IT — visibile su tutte le tab, trascinabile */}
+<div style={{
+  position: 'fixed',
+  left: postItFloatPos.x != null ? postItFloatPos.x : 'auto',
+  top: postItFloatPos.y != null ? postItFloatPos.y : 'auto',
+  right: postItFloatPos.x != null ? 'auto' : 24,
+  bottom: postItFloatPos.y != null ? 'auto' : 170,
+  zIndex: 2500,
+  width: postItMinimized ? 'auto' : 240,
+  background: 'linear-gradient(160deg, #fde68a, #fbbf24)',
+  border: '1px solid rgba(217,119,6,0.5)',
+  borderRadius: 10,
+  boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+  userSelect: postItDragging ? 'none' : 'auto'
+}}>
+  <div
+    onMouseDown={startPostItDrag}
+    style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+      padding: '8px 10px', cursor: postItDragging ? 'grabbing' : 'grab',
+      borderBottom: postItMinimized ? 'none' : '1px solid rgba(217,119,6,0.35)'
+    }}
+  >
+    <span style={{ fontSize: 13, fontWeight: 800, color: '#1c1917' }}>
+      📌 {postItMinimized ? (postItNotes.filter(n => !n.fatto).length || '') : 'Post-it'}
+    </span>
+    <div style={{ display: 'flex', gap: 4 }}>
+      <button
+        onClick={togglePostItMinimized}
+        style={{ fontSize: 11, fontWeight: 800, border: 'none', borderRadius: 5, padding: '2px 7px', cursor: 'pointer', background: 'rgba(28,25,23,0.15)', color: '#1c1917' }}
+        title={postItMinimized ? 'Espandi' : 'Riduci'}
+      >
+        {postItMinimized ? '▢' : '—'}
+      </button>
+    </div>
+  </div>
+
+  {!postItMinimized && (
+    <div style={{ padding: 10, maxHeight: 320, overflowY: 'auto' }}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+        <input
+          type='text'
+          value={nuovoPostIt}
+          onChange={(e) => setNuovoPostIt(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') addPostIt() }}
+          placeholder='Nuovo post-it...'
+          style={{ flex: 1, fontSize: 12, padding: '6px 8px', borderRadius: 6, border: '1px solid rgba(217,119,6,0.4)', background: 'rgba(255,255,255,0.5)', color: '#1c1917', outline: 'none' }}
+        />
+        <button onClick={addPostIt} style={{ fontSize: 12, fontWeight: 800, border: 'none', borderRadius: 6, padding: '6px 9px', cursor: 'pointer', background: '#1c1917', color: '#fde68a' }}>+</button>
+      </div>
+
+      {postItNotes.length === 0 ? (
+        <div style={{ fontSize: 12, color: '#78350f', textAlign: 'center', padding: '8px 0' }}>Nessun post-it</div>
+      ) : (
+        postItNotes.map(nota => (
+          <div key={nota.id} style={{
+            display: 'flex', alignItems: 'flex-start', gap: 6, padding: '6px 4px',
+            borderBottom: '1px solid rgba(217,119,6,0.2)'
+          }}>
+            <input type='checkbox' checked={!!nota.fatto} onChange={() => togglePostIt(nota.id, nota.fatto)} style={{ marginTop: 3, cursor: 'pointer' }} />
+            <span style={{
+              flex: 1, fontSize: 12, color: nota.fatto ? '#a8a29e' : '#1c1917',
+              textDecoration: nota.fatto ? 'line-through' : 'none', wordBreak: 'break-word'
+            }}>
+              {nota.testo}
+            </span>
+            <button onClick={() => deletePostIt(nota.id)} style={{ fontSize: 10, border: 'none', borderRadius: 4, padding: '1px 5px', cursor: 'pointer', background: 'rgba(239,68,68,0.2)', color: '#b91c1c', flexShrink: 0 }}>✕</button>
+          </div>
+        ))
+      )}
+    </div>
+  )}
+</div>
 
  
   </div>
