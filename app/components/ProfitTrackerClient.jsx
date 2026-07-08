@@ -27,7 +27,9 @@ const [memoSavingsRows, setMemoSavingsRows] = useState([])
 const [savingsFormMassi, setSavingsFormMassi] = useState({ periodo: '', versamento: '', causale: '' })
 const [savingsFormSamu, setSavingsFormSamu] = useState({ periodo: '', versamento: '', causale: '' })
 const [memoFutureNotes, setMemoFutureNotes] = useState([])
-const [memoFreeBoxes, setMemoFreeBoxes] = useState([]) 
+const [memoFreeBoxes, setMemoFreeBoxes] = useState([])
+const [postItNotes, setPostItNotes] = useState([])
+const [nuovoPostIt, setNuovoPostIt] = useState('')
   const [dashboardSettings, setDashboardSettings] = useState({ accantonamento_royalty: 0, risparmi_samu_massi: 0, target_cassa: 0 })
 
 const [stimeFilters, setStimeFilters] = useState({
@@ -857,6 +859,7 @@ async function updateProfiloLivello(bookId, livello) {
       memoSavingsRowsRes, memoFutureNotesRes, memoFreeBoxesRes,
       dashboardSettingsRes, clientiRes, clientiEmailRes,
       esterniRes,
+      postItRes,
     ] = await Promise.all([
       supabase.from('books').select('*').order('id', { ascending: true }),
       supabase.from('wallets').select('*').order('id', { ascending: true }),
@@ -874,6 +877,7 @@ async function updateProfiloLivello(bookId, livello) {
       supabase.from('clienti').select('*').order('nome', { ascending: true }),
       supabase.from('clienti_email').select('*').order('cliente_id', { ascending: true }),
       supabase.from('transactions').select('importo').eq('azione', 'wallet_to_external').gte('data', anno_corrente),
+      supabase.from('post_it_notes').select('*').order('fatto', { ascending: true }).order('created_at', { ascending: false }),
     ])
 
     // Applica subito i dati critici e togli il loading
@@ -894,6 +898,7 @@ async function updateProfiloLivello(bookId, livello) {
     if (memoSavingsRowsRes.error) errors.push('memo_savings_rows'); else setMemoSavingsRows(memoSavingsRowsRes.data || [])
     if (memoFutureNotesRes.error) errors.push('memo_future_notes'); else setMemoFutureNotes(memoFutureNotesRes.data || [])
     if (memoFreeBoxesRes.error) errors.push('memo_free_boxes'); else setMemoFreeBoxes(memoFreeBoxesRes.data || [])
+    if (postItRes && postItRes.error) errors.push('post_it_notes'); else if (postItRes) setPostItNotes(postItRes.data || [])
     if (dashboardSettingsRes.error) {
       errors.push('dashboard_settings')
     } else {
@@ -1660,6 +1665,26 @@ async function deleteMemoFutureNote(id) {
   async function updateMemoFutureNote(id, campo, valore) {
   const { error } = await supabase.from('memo_future_notes').update({ [campo]: valore }).eq('id', id)
   if (error) { setErrorMessage('Errore aggiornamento memo'); return }
+  await loadData({ preserveMessages: true })
+}
+
+async function addPostIt() {
+  if (!nuovoPostIt.trim()) return
+  const { error } = await supabase.from('post_it_notes').insert([{ testo: nuovoPostIt.trim() }])
+  if (error) { setErrorMessage('Errore salvataggio post-it'); return }
+  setNuovoPostIt('')
+  await loadData({ preserveMessages: true })
+}
+
+async function togglePostIt(id, fattoAttuale) {
+  const { error } = await supabase.from('post_it_notes').update({ fatto: !fattoAttuale }).eq('id', id)
+  if (error) { setErrorMessage('Errore aggiornamento post-it'); return }
+  await loadData({ preserveMessages: true })
+}
+
+async function deletePostIt(id) {
+  const { error } = await supabase.from('post_it_notes').delete().eq('id', id)
+  if (error) { setErrorMessage('Errore eliminazione post-it'); return }
   await loadData({ preserveMessages: true })
 }
   function currentMonthLabel(dateValue = new Date()) {
@@ -3151,6 +3176,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           <button style={activeTab === 'transactions' ? activeTabButton : tabButton} onClick={() => handleTabChange('transactions')}>Transactions</button>
           <button style={activeTab === 'periodi' ? activeTabButton : tabButton} onClick={() => handleTabChange('periodi')}>Periodi</button>
           <button style={activeTab === 'memo' ? activeTabButton : tabButton} onClick={() => handleTabChange('memo')}>Memo</button>
+          <button style={activeTab === 'post-it' ? activeTabButton : tabButton} onClick={() => handleTabChange('post-it')}>📌 Post-it</button>
           <button style={activeTab === 'profilazione' ? activeTabButton : tabButton} onClick={() => handleTabChange('profilazione')}>Profilazione</button>
          <button
   style={activeTab === 'clienti' ? activeTabButton : tabButton}
@@ -5602,6 +5628,78 @@ onChange={(e) => {
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {activeTab === 'post-it' && (
+          <div style={{ maxWidth: 900, margin: '0 auto' }}>
+            <h2 style={panelTitle}>📌 Post-it — Cose da fare</h2>
+            <p style={panelSubtitle}>Appunti veloci, tipo post-it attaccato allo schermo. Spunta quando fatto, elimina quando non ti serve più.</p>
+
+            <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+              <input
+                type='text'
+                value={nuovoPostIt}
+                onChange={(e) => setNuovoPostIt(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') addPostIt() }}
+                placeholder='Scrivi qualcosa da ricordare per domani...'
+                style={{ ...input, flex: 1 }}
+              />
+              <button style={primaryButtonGreen} onClick={addPostIt}>+ Aggiungi</button>
+            </div>
+
+            {postItNotes.length === 0 ? (
+              <div style={{ color: '#64748b', fontSize: 14, textAlign: 'center', padding: '40px 0' }}>Nessun post-it. Scrivine uno qui sopra.</div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
+                {postItNotes.map((nota) => (
+                  <div key={nota.id} style={{
+                    background: nota.fatto ? 'rgba(100,116,139,0.12)' : 'linear-gradient(160deg, #fde68a, #fbbf24)',
+                    border: nota.fatto ? '1px solid rgba(100,116,139,0.3)' : '1px solid rgba(217,119,6,0.4)',
+                    borderRadius: 8,
+                    padding: '16px 14px',
+                    minHeight: 110,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    boxShadow: nota.fatto ? 'none' : '0 4px 12px rgba(251,191,36,0.15)',
+                    transform: nota.fatto ? 'none' : 'rotate(-1deg)'
+                  }}>
+                    <div
+                      onClick={() => togglePostIt(nota.id, nota.fatto)}
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 600,
+                        color: nota.fatto ? '#64748b' : '#1c1917',
+                        textDecoration: nota.fatto ? 'line-through' : 'none',
+                        cursor: 'pointer',
+                        wordBreak: 'break-word'
+                      }}
+                    >
+                      {nota.testo}
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+                      <button
+                        onClick={() => togglePostIt(nota.id, nota.fatto)}
+                        style={{
+                          fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                          background: nota.fatto ? 'rgba(34,197,94,0.15)' : 'rgba(28,25,23,0.15)',
+                          color: nota.fatto ? '#22c55e' : '#1c1917'
+                        }}
+                      >
+                        {nota.fatto ? '✓ Fatto' : 'Segna come fatto'}
+                      </button>
+                      <button
+                        onClick={() => deletePostIt(nota.id)}
+                        style={{ fontSize: 11, fontWeight: 700, padding: '4px 8px', borderRadius: 6, border: 'none', cursor: 'pointer', background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
         {/* POPUP FILE MANAGER DOCUMENTI */}
