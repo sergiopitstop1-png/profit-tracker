@@ -2799,17 +2799,18 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
   const ultimeTransazioni = useMemo(() => transactions.slice(0, 8), [transactions])
   const topBooks = useMemo(() => [...books].sort((a, b) => Number(b.saldo || 0) - Number(a.saldo || 0)).slice(0, 5), [books])
   const topWallets = useMemo(() => [...wallets].sort((a, b) => Number(b.saldo || 0) - Number(a.saldo || 0)).slice(0, 5), [wallets])
+  const walletsOrdinati = useMemo(() => [...wallets].sort((a, b) => (a.intestatario || '').localeCompare(b.intestatario || '') || (a.nome || '').localeCompare(b.nome || '')), [wallets])
 
   function renderOrigineSelect() {
     if (txForm.tipo === 'versa') {
-      return <select name='da_id' value={txForm.da_id} onChange={handleTransactionChange} style={input}><option value=''>Seleziona wallet origine</option>{wallets.map((wallet) => <option key={wallet.id} value={wallet.id}>{getEntityLabel(wallet)}</option>)}</select>
+      return <select name='da_id' value={txForm.da_id} onChange={handleTransactionChange} style={input}><option value=''>Seleziona wallet origine</option>{walletsOrdinati.map((wallet) => <option key={wallet.id} value={wallet.id}>{getEntityLabel(wallet)}</option>)}</select>
     }
     if (txForm.tipo === 'preleva' && txForm.da_tipo === 'book') {
       return <select name='da_id' value={txForm.da_id} onChange={handleTransactionChange} style={input}><option value=''>Seleziona book origine</option>{books.map((book) => <option key={book.id} value={book.id}>{getEntityLabel(book)}</option>)}</select>
     }
     if (txForm.tipo === 'preleva' && txForm.da_tipo === 'wallet') {
       return <>
-        <select name='da_id' value={txForm.da_id} onChange={handleTransactionChange} style={input}><option value=''>Seleziona wallet origine</option>{wallets.map((wallet) => <option key={wallet.id} value={wallet.id}>{getEntityLabel(wallet)}</option>)}</select>
+        <select name='da_id' value={txForm.da_id} onChange={handleTransactionChange} style={input}><option value=''>Seleziona wallet origine</option>{walletsOrdinati.map((wallet) => <option key={wallet.id} value={wallet.id}>{getEntityLabel(wallet)}</option>)}</select>
         <select name='categoria_spesa' value={txForm.categoria_spesa} onChange={handleTransactionChange} style={{ ...input, borderColor: txForm.categoria_spesa ? 'rgba(56,189,248,0.6)' : 'rgba(51,65,85,0.6)', color: txForm.categoria_spesa ? '#38bdf8' : '#94a3b8' }}>
           <option value=''>📂 Categoria spesa (opzionale)</option>
           <option value='Auto'>🚗 Auto</option>
@@ -2826,7 +2827,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
       </>
     }
     if (txForm.tipo === 'trasferisci') {
-      return <select name='da_id' value={txForm.da_id} onChange={handleTransactionChange} style={input}><option value=''>Seleziona wallet origine</option>{wallets.map((wallet) => <option key={wallet.id} value={wallet.id}>{getEntityLabel(wallet)}</option>)}</select>
+      return <select name='da_id' value={txForm.da_id} onChange={handleTransactionChange} style={input}><option value=''>Seleziona wallet origine</option>{walletsOrdinati.map((wallet) => <option key={wallet.id} value={wallet.id}>{getEntityLabel(wallet)}</option>)}</select>
     }
     return null
   }
@@ -2839,11 +2840,11 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
     }
     if (txForm.tipo === 'preleva' && txForm.da_tipo === 'book') {
       const bookOrigine = books.find((b) => String(b.id) === String(txForm.da_id))
-      const walletsCompatibili = bookOrigine ? wallets.filter((wallet) => isSameOwner(wallet.intestatario, bookOrigine.intestatario)) : []
+      const walletsCompatibili = bookOrigine ? walletsOrdinati.filter((wallet) => isSameOwner(wallet.intestatario, bookOrigine.intestatario)) : []
       return <select name='a_id' value={txForm.a_id} onChange={handleTransactionChange} style={input}><option value=''>{bookOrigine ? 'Seleziona wallet destinazione' : 'Prima seleziona book origine'}</option>{walletsCompatibili.map((wallet) => <option key={wallet.id} value={wallet.id}>{getEntityLabel(wallet)}</option>)}</select>
     }
     if (txForm.tipo === 'trasferisci') {
-      const walletsDisponibili = wallets.filter((wallet) => String(wallet.id) !== String(txForm.da_id))
+      const walletsDisponibili = walletsOrdinati.filter((wallet) => String(wallet.id) !== String(txForm.da_id))
       return <select name='a_id' value={txForm.a_id} onChange={handleTransactionChange} style={input}><option value=''>{txForm.da_id ? 'Seleziona wallet destinazione' : 'Prima seleziona wallet origine'}</option>{walletsDisponibili.map((wallet) => <option key={wallet.id} value={wallet.id}>{getEntityLabel(wallet)}</option>)}</select>
     }
     return null
