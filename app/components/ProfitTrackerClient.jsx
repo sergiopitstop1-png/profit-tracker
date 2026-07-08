@@ -161,7 +161,7 @@ const CLASSI_BOOK = {
   C: ['admiral','codere','betpoint','staryes','sportium','vincitu','marathonbet','domusbet','betpassion'],
 }
 const MANUTENZIONE = {
-  A: { label: 'Serie A', frequenza: 'Bet 1/mese · Slot 1/mese', azioni: ['1 bet sportiva al mese (giorno random)', 'Sessione slot 5-10€ al mese (giorno diverso dalla bet)'] },
+  A: { label: 'Serie A', frequenza: 'Bet 1 ogni 2 mesi · Slot 1/mese', azioni: ['1 bet sportiva ogni 2 mesi (giorno random)', 'Sessione slot 5-10€ al mese (giorno diverso dalla bet)'] },
   B: { label: 'Serie B', frequenza: 'Bet 1 ogni 2 mesi · Slot 1 ogni 2 mesi', azioni: ['1 bet sportiva ogni 2 mesi (giorno random)', 'Sessione slot 5-10€ ogni 2 mesi (giorno diverso dalla bet)'] },
   C: { label: 'Serie C', frequenza: 'Bet 1 ogni 2 mesi · Slot 1 ogni 2 mesi', azioni: ['1 bet da 5-10€ ogni 2 mesi (giorno random)', 'Sessione slot 5-10€ ogni 2 mesi (giorno diverso dalla bet)'] }
 }
@@ -770,9 +770,9 @@ function getAzioniOggi(book) {
       const oggi2 = new Date()
       const GIORNO_ZERO = new Date('2026-05-18')
       const giorniDaZero = Math.floor((oggi2 - GIORNO_ZERO) / (1000 * 60 * 60 * 24))
-      const offsetBet = hashBook(book.id, 101) % 30
+      const offsetBet = hashBook(book.id, 101) % 60
       const offsetSlot = hashBook(book.id, 202) % 30
-      const isBetDay = (giorniDaZero - offsetBet) % 30 === 0
+      const isBetDay = (giorniDaZero - offsetBet) % 60 === 0
       const isSlotDay = (giorniDaZero - offsetSlot) % 30 === 0
       if (isSlotDay && !isBetDay) return { tipo: 'manutenzione-a', azioni: ['Sessione slot 5-10€ (spin bassi)'], badge: '🟡 Mant. A' }
       if (isBetDay) return { tipo: 'manutenzione-a', azioni: ['1 bet sportiva (qualsiasi importo)'], badge: '🟡 Mant. A' }
@@ -790,7 +790,6 @@ function getAzioniOggi(book) {
       const isSlotDay = (giorniDaZero - offsetSlot) % 60 === 0
       if (isSlotDay && !isBetDay) return { tipo: 'manutenzione-b', azioni: ['Sessione slot 5-10€'], badge: '🟡 Mant. B' }
       if (isBetDay && !soloCasino) return { tipo: 'manutenzione-b', azioni: ['1 bet sportiva piccola'], badge: '🟡 Mant. B' }
-      if (isBetDay && soloCasino) return { tipo: 'manutenzione-b', azioni: ['Sessione slot 5-10€'], badge: '🟡 Mant. B' }
       return null
     }
 
@@ -805,7 +804,6 @@ function getAzioniOggi(book) {
       const isSlotDay = (giorniDaZero - offsetSlot) % 60 === 0
       if (isSlotDay && !isBetDay) return { tipo: 'manutenzione-c', azioni: ['Sessione slot 5-10€'], badge: '🟡 Mant. C' }
       if (isBetDay && !soloCasino) return { tipo: 'manutenzione-c', azioni: ['1 bet da 5-10€ (solo presenza)'], badge: '🟡 Mant. C' }
-      if (isBetDay && soloCasino) return { tipo: 'manutenzione-c', azioni: ['Sessione slot 5-10€'], badge: '🟡 Mant. C' }
       return null
     }
   }
@@ -3814,7 +3812,7 @@ onChange={(e) => {
                 <span style={{ fontSize: 11, fontWeight: 800, background: 'rgba(251,191,36,0.18)', color: '#fbbf24', padding: '2px 8px', borderRadius: 6 }}>Serie A</span>
                 <span style={{ fontSize: 11, color: '#64748b' }}>bet365 · snai · sisal · lottomatica · goldbet · planetwin · eurobet · pokerstars</span>
               </div>
-              <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.5 }}>1 bet sportiva / mese · 1 sessione slot 5-10€ / mese (giorni diversi)</div>
+              <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.5 }}>1 bet sportiva ogni 2 mesi · 1 sessione slot 5-10€ / mese (giorni diversi)</div>
             </div>
 
             <div style={{ background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.22)', borderRadius: 10, padding: '10px 12px' }}>
@@ -3830,7 +3828,7 @@ onChange={(e) => {
                 <span style={{ fontSize: 11, fontWeight: 800, background: 'rgba(34,197,94,0.15)', color: '#22c55e', padding: '2px 8px', borderRadius: 6 }}>B Casino</span>
                 <span style={{ fontSize: 11, color: '#64748b' }}>gioco digitale · starcasino · betflag · tombola · zonagioco</span>
               </div>
-              <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.5 }}>2 sessioni slot 5-10€ ogni 2 mesi (no bet sportiva)</div>
+              <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.5 }}>1 sessione slot 5-10€ ogni 2 mesi (no bet sportiva)</div>
             </div>
 
             <div style={{ background: 'rgba(100,116,139,0.08)', border: '1px solid rgba(100,116,139,0.22)', borderRadius: 10, padding: '10px 12px' }}>
