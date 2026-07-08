@@ -2812,7 +2812,6 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         <select name='da_id' value={txForm.da_id} onChange={handleTransactionChange} style={input}><option value=''>Seleziona wallet origine</option>{wallets.map((wallet) => <option key={wallet.id} value={wallet.id}>{getEntityLabel(wallet)}</option>)}</select>
         <select name='categoria_spesa' value={txForm.categoria_spesa} onChange={handleTransactionChange} style={{ ...input, borderColor: txForm.categoria_spesa ? 'rgba(56,189,248,0.6)' : 'rgba(51,65,85,0.6)', color: txForm.categoria_spesa ? '#38bdf8' : '#94a3b8' }}>
           <option value=''>📂 Categoria spesa (opzionale)</option>
-          <option value='Casa'>🏠 Casa</option>
           <option value='Auto'>🚗 Auto</option>
           <option value='Alimentari'>🛒 Alimentari</option>
           <option value='Ristoranti/Svago/Viaggi'>✈️ Ristoranti/Svago/Viaggi</option>
@@ -5021,7 +5020,9 @@ onChange={(e) => {
                   }
 
                   const txMese = isMeseCorrente ? speseCategoriaMese : (speseStorico[speseMeseSelezionato] || [])
-                  const speseCategoria = txMese.filter(tx => tx.categoria_spesa).reduce((acc, tx) => { acc[tx.categoria_spesa] = (acc[tx.categoria_spesa] || 0) + Number(tx.importo || 0); return acc }, {})
+                  // "Casa" e "Famiglia" sono state unificate: le transazioni storiche salvate come "Casa" confluiscono in "Famiglia"
+                  const normalizzaCategoria = (cat) => cat === 'Casa' ? 'Famiglia' : cat
+                  const speseCategoria = txMese.filter(tx => tx.categoria_spesa).reduce((acc, tx) => { const cat = normalizzaCategoria(tx.categoria_spesa); acc[cat] = (acc[cat] || 0) + Number(tx.importo || 0); return acc }, {})
                   const totaleCategorie = Object.values(speseCategoria).reduce((a, b) => a + b, 0)
                   const voci = Object.entries(speseCategoria).sort((a, b) => b[1] - a[1])
                   const sforati = voci.filter(([cat, imp]) => soglieBudget[cat] && imp > Number(soglieBudget[cat]))
@@ -5094,7 +5095,7 @@ onChange={(e) => {
                             <button style={{ border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18 }} onClick={() => setShowSoglieEditor(false)}>×</button>
                           </div>
                           <p style={{ fontSize: 12, color: '#64748b', marginBottom: 16 }}>Imposta un budget mensile per categoria. Se superi la soglia la barra diventa rossa.</p>
-                          {['Casa','Auto','Alimentari','Ristoranti/Svago/Viaggi','Abbigliamento','Salute/Farmacia','Tecnologia/Abbonamenti','Famiglia','Attività Lavorativa','Spese Personali Sergio','Altro'].map(cat => (
+                          {['Auto','Alimentari','Ristoranti/Svago/Viaggi','Abbigliamento','Salute/Farmacia','Tecnologia/Abbonamenti','Famiglia','Attività Lavorativa','Spese Personali Sergio','Altro'].map(cat => (
                             <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                               <span style={{ fontSize: 13, flex: 1, color: '#e2e8f0' }}>{EMOJI[cat] || '📦'} {cat}</span>
                               <input
