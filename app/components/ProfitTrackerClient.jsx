@@ -773,8 +773,8 @@ function getAzioniOggi(book) {
       const soloCasino = isSoloCasino(book.nome)
       const offset = hashBook(book.id, 101) % 60
       const isAzioneDay = (giorniDaZero - offset) % 60 === 0
-      if (isAzioneDay && soloCasino) return { tipo: 'manutenzione-a', azioni: ['Sessione slot 5-10€ (spin bassi)'], badge: '🟡 Mant. A' }
-      if (isAzioneDay && !soloCasino) return { tipo: 'manutenzione-a', azioni: ['1 bet sportiva (qualsiasi importo)'], badge: '🟡 Mant. A' }
+      if (isAzioneDay && soloCasino) return { tipo: 'manutenzione-a', azioni: ['Sessione slot 5-10€'], badge: '🟡 Mant. A' }
+      if (isAzioneDay && !soloCasino) return { tipo: 'manutenzione-a', azioni: ['1 bet sportiva'], badge: '🟡 Mant. A' }
       return null
     }
 
@@ -786,7 +786,7 @@ function getAzioniOggi(book) {
       const offset = hashBook(book.id, 303) % 60
       const isAzioneDay = (giorniDaZero - offset) % 60 === 0
       if (isAzioneDay && soloCasino) return { tipo: 'manutenzione-b', azioni: ['Sessione slot 5-10€'], badge: '🟡 Mant. B' }
-      if (isAzioneDay && !soloCasino) return { tipo: 'manutenzione-b', azioni: ['1 bet sportiva piccola'], badge: '🟡 Mant. B' }
+      if (isAzioneDay && !soloCasino) return { tipo: 'manutenzione-b', azioni: ['1 bet sportiva'], badge: '🟡 Mant. B' }
       return null
     }
 
@@ -798,7 +798,7 @@ function getAzioniOggi(book) {
       const offset = hashBook(book.id, 505) % 60
       const isAzioneDay = (giorniDaZero - offset) % 60 === 0
       if (isAzioneDay && soloCasino) return { tipo: 'manutenzione-c', azioni: ['Sessione slot 5-10€'], badge: '🟡 Mant. C' }
-      if (isAzioneDay && !soloCasino) return { tipo: 'manutenzione-c', azioni: ['1 bet da 5-10€ (solo presenza)'], badge: '🟡 Mant. C' }
+      if (isAzioneDay && !soloCasino) return { tipo: 'manutenzione-c', azioni: ['1 bet sportiva'], badge: '🟡 Mant. C' }
       return null
     }
   }
