@@ -30,6 +30,8 @@ const [memoFutureNotes, setMemoFutureNotes] = useState([])
 const [memoFreeBoxes, setMemoFreeBoxes] = useState([])
 const [postItNotes, setPostItNotes] = useState([])
 const [nuovoPostIt, setNuovoPostIt] = useState('')
+const [postItEditingId, setPostItEditingId] = useState(null)
+const [postItEditText, setPostItEditText] = useState('')
 const [postItFloatPos, setPostItFloatPos] = useState(() => {
   try {
     const saved = localStorage.getItem('postItFloatPos')
@@ -1733,6 +1735,26 @@ async function togglePostIt(id, fattoAttuale) {
 async function deletePostIt(id) {
   const { error } = await supabase.from('post_it_notes').delete().eq('id', id)
   if (error) { setErrorMessage('Errore eliminazione post-it'); return }
+  await loadData({ preserveMessages: true })
+}
+
+function startEditPostIt(nota) {
+  setPostItEditingId(nota.id)
+  setPostItEditText(nota.testo)
+}
+
+function cancelEditPostIt() {
+  setPostItEditingId(null)
+  setPostItEditText('')
+}
+
+async function saveEditPostIt(id) {
+  const testoTrim = postItEditText.trim()
+  if (!testoTrim) { cancelEditPostIt(); return }
+  const { error } = await supabase.from('post_it_notes').update({ testo: testoTrim }).eq('id', id)
+  if (error) { setErrorMessage('Errore modifica post-it'); return }
+  setPostItEditingId(null)
+  setPostItEditText('')
   await loadData({ preserveMessages: true })
 }
   function currentMonthLabel(dateValue = new Date()) {
@@ -5713,37 +5735,57 @@ onChange={(e) => {
                     boxShadow: nota.fatto ? 'none' : '0 4px 12px rgba(251,191,36,0.15)',
                     transform: nota.fatto ? 'none' : 'rotate(-1deg)'
                   }}>
-                    <div
-                      onClick={() => togglePostIt(nota.id, nota.fatto)}
-                      style={{
-                        fontSize: 14,
-                        fontWeight: 600,
-                        color: nota.fatto ? '#64748b' : '#1c1917',
-                        textDecoration: nota.fatto ? 'line-through' : 'none',
-                        cursor: 'pointer',
-                        wordBreak: 'break-word'
-                      }}
-                    >
-                      {nota.testo}
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
-                      <button
-                        onClick={() => togglePostIt(nota.id, nota.fatto)}
-                        style={{
-                          fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
-                          background: nota.fatto ? 'rgba(34,197,94,0.15)' : 'rgba(28,25,23,0.15)',
-                          color: nota.fatto ? '#22c55e' : '#1c1917'
-                        }}
-                      >
-                        {nota.fatto ? '✓ Fatto' : 'Segna come fatto'}
-                      </button>
-                      <button
-                        onClick={() => deletePostIt(nota.id)}
-                        style={{ fontSize: 11, fontWeight: 700, padding: '4px 8px', borderRadius: 6, border: 'none', cursor: 'pointer', background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}
-                      >
-                        ✕
-                      </button>
-                    </div>
+                    {postItEditingId === nota.id ? (
+                      <>
+                        <textarea
+                          value={postItEditText}
+                          onChange={(e) => setPostItEditText(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEditPostIt(nota.id) } if (e.key === 'Escape') cancelEditPostIt() }}
+                          autoFocus
+                          rows={3}
+                          style={{ width: '100%', boxSizing: 'border-box', fontSize: 14, padding: '6px 8px', borderRadius: 6, border: '1px solid rgba(217,119,6,0.5)', background: 'rgba(255,255,255,0.7)', color: '#1c1917', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }}
+                        />
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 10 }}>
+                          <button onClick={cancelEditPostIt} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer', background: 'rgba(28,25,23,0.15)', color: '#1c1917' }}>Annulla</button>
+                          <button onClick={() => saveEditPostIt(nota.id)} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer', background: 'rgba(34,197,94,0.25)', color: '#15803d' }}>Salva</button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div
+                          onClick={() => startEditPostIt(nota)}
+                          title='Click per modificare'
+                          style={{
+                            fontSize: 14,
+                            fontWeight: 600,
+                            color: nota.fatto ? '#64748b' : '#1c1917',
+                            textDecoration: nota.fatto ? 'line-through' : 'none',
+                            cursor: 'text',
+                            wordBreak: 'break-word'
+                          }}
+                        >
+                          {nota.testo}
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+                          <button
+                            onClick={() => togglePostIt(nota.id, nota.fatto)}
+                            style={{
+                              fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                              background: nota.fatto ? 'rgba(34,197,94,0.15)' : 'rgba(28,25,23,0.15)',
+                              color: nota.fatto ? '#22c55e' : '#1c1917'
+                            }}
+                          >
+                            {nota.fatto ? '✓ Fatto' : 'Segna come fatto'}
+                          </button>
+                          <button
+                            onClick={() => deletePostIt(nota.id)}
+                            style={{ fontSize: 11, fontWeight: 700, padding: '4px 8px', borderRadius: 6, border: 'none', cursor: 'pointer', background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
@@ -6409,14 +6451,35 @@ onChange={(e) => {
             display: 'flex', alignItems: 'flex-start', gap: 6, padding: '6px 4px',
             borderBottom: '1px solid rgba(217,119,6,0.2)'
           }}>
-            <input type='checkbox' checked={!!nota.fatto} onChange={() => togglePostIt(nota.id, nota.fatto)} style={{ marginTop: 3, cursor: 'pointer' }} />
-            <span style={{
-              flex: 1, fontSize: 12, color: nota.fatto ? '#a8a29e' : '#1c1917',
-              textDecoration: nota.fatto ? 'line-through' : 'none', wordBreak: 'break-word'
-            }}>
-              {nota.testo}
-            </span>
-            <button onClick={() => deletePostIt(nota.id)} style={{ fontSize: 10, border: 'none', borderRadius: 4, padding: '1px 5px', cursor: 'pointer', background: 'rgba(239,68,68,0.2)', color: '#b91c1c', flexShrink: 0 }}>✕</button>
+            {postItEditingId === nota.id ? (
+              <>
+                <input
+                  type='text'
+                  value={postItEditText}
+                  onChange={(e) => setPostItEditText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') saveEditPostIt(nota.id); if (e.key === 'Escape') cancelEditPostIt() }}
+                  autoFocus
+                  style={{ flex: 1, fontSize: 12, padding: '4px 6px', borderRadius: 5, border: '1px solid rgba(217,119,6,0.5)', background: 'rgba(255,255,255,0.7)', color: '#1c1917', outline: 'none' }}
+                />
+                <button onClick={() => saveEditPostIt(nota.id)} style={{ fontSize: 10, border: 'none', borderRadius: 4, padding: '3px 6px', cursor: 'pointer', background: 'rgba(34,197,94,0.25)', color: '#15803d', flexShrink: 0 }}>✓</button>
+                <button onClick={cancelEditPostIt} style={{ fontSize: 10, border: 'none', borderRadius: 4, padding: '3px 6px', cursor: 'pointer', background: 'rgba(100,116,139,0.25)', color: '#334155', flexShrink: 0 }}>✕</button>
+              </>
+            ) : (
+              <>
+                <input type='checkbox' checked={!!nota.fatto} onChange={() => togglePostIt(nota.id, nota.fatto)} style={{ marginTop: 3, cursor: 'pointer' }} />
+                <span
+                  onClick={() => startEditPostIt(nota)}
+                  title='Click per modificare'
+                  style={{
+                    flex: 1, fontSize: 12, color: nota.fatto ? '#a8a29e' : '#1c1917',
+                    textDecoration: nota.fatto ? 'line-through' : 'none', wordBreak: 'break-word', cursor: 'text'
+                  }}
+                >
+                  {nota.testo}
+                </span>
+                <button onClick={() => deletePostIt(nota.id)} style={{ fontSize: 10, border: 'none', borderRadius: 4, padding: '1px 5px', cursor: 'pointer', background: 'rgba(239,68,68,0.2)', color: '#b91c1c', flexShrink: 0 }}>✕</button>
+              </>
+            )}
           </div>
         ))
       )}
