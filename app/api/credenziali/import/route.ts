@@ -35,6 +35,7 @@ export async function POST(request: Request) {
 
   const errori: { indice: number; riga: any; errore: string }[] = []
   let importate = 0
+  let saltate = 0
 
   await eseguiAGruppi(righe, 15, async (riga: any, indice: number) => {
     const haBook = !!riga.book_id
@@ -42,6 +43,15 @@ export async function POST(request: Request) {
 
     if (!riga.username || !riga.password || (!haBook && !haManuale)) {
       errori.push({ indice, riga, errore: 'username, password o bookmaker/intestatario mancanti' })
+      return
+    }
+
+    // Controllo duplicati: stesso username sullo stesso account (book, oppure stesso bookmaker+intestatario manuali)
+    let query = supabase.from('credenziali').select('id').eq('username', riga.username)
+    query = haBook ? query.eq('book_id', Number(riga.book_id)) : query.eq('bookmaker_manuale', riga.bookmaker_manuale).eq('intestatario_manuale', riga.intestatario_manuale)
+    const { data: esistenti } = await query.limit(1)
+    if (esistenti && esistenti.length > 0) {
+      saltate++
       return
     }
 
@@ -65,5 +75,5 @@ export async function POST(request: Request) {
     }
   })
 
-  return NextResponse.json({ ok: true, importate, totali: righe.length, errori })
+  return NextResponse.json({ ok: true, importate, saltate, totali: righe.length, errori })
 }
