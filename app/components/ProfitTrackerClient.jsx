@@ -162,10 +162,14 @@ const [credenziali, setCredenziali] = useState([])
 const [credenzialiLoading, setCredenzialiLoading] = useState(false)
 const [credenzialiFiltro, setCredenzialiFiltro] = useState('')
 const [showCredenzialeModal, setShowCredenzialeModal] = useState(false)
-const [credenzialeForm, setCredenzialeForm] = useState({ book_id: '', username: '', password: '', data_iscrizione: '', risposta_segreta: '', limite_settimanale: '', invio_documenti: false, note: '' })
+const [credenzialeForm, setCredenzialeForm] = useState({ book_id: '', bookmaker_manuale: '', intestatario_manuale: '', username: '', password: '', data_iscrizione: '', risposta_segreta: '', limite_settimanale: '', invio_documenti: false, note: '' })
 const [credenzialeRivelata, setCredenzialeRivelata] = useState(null)
 const [credenzialeRivelataLoading, setCredenzialeRivelataLoading] = useState(null)
   const [editingCredenziale, setEditingCredenziale] = useState(null)
+const [showImportModal, setShowImportModal] = useState(false)
+const [importTesto, setImportTesto] = useState('')
+const [importInCorso, setImportInCorso] = useState(false)
+const [importReport, setImportReport] = useState(null)
   useEffect(() => {
   if (typeof window !== 'undefined' && localStorage.getItem('site_unlocked') !== '1') {
     window.location.href = '/login?from=/profit-tracker'
@@ -2878,7 +2882,7 @@ async function salvaCredenziale(e) {
     if (data.ok) {
       setShowCredenzialeModal(false)
       setEditingCredenziale(null)
-      setCredenzialeForm({ book_id: '', username: '', password: '', data_iscrizione: '', risposta_segreta: '', limite_settimanale: '', invio_documenti: false, note: '' })
+      setCredenzialeForm({ book_id: '', bookmaker_manuale: '', intestatario_manuale: '', username: '', password: '', data_iscrizione: '', risposta_segreta: '', limite_settimanale: '', invio_documenti: false, note: '' })
       setCredenzialeRivelata(null)
       loadCredenziali()
     } else {
@@ -2896,7 +2900,9 @@ async function apriModificaCredenziale(c) {
     if (data.credenziale) {
       setEditingCredenziale(c.id)
       setCredenzialeForm({
-        book_id: String(c.book_id),
+        book_id: c.book_id ? String(c.book_id) : '',
+        bookmaker_manuale: c.book_id ? '' : (c.bookmaker || ''),
+        intestatario_manuale: c.book_id ? '' : (c.intestatario || ''),
         username: data.credenziale.username,
         password: data.credenziale.password,
         data_iscrizione: c.data_iscrizione || '',
@@ -2913,6 +2919,98 @@ async function apriModificaCredenziale(c) {
     setCredenzialeRivelataLoading(null)
   }
 }
+function normalizzaTesto(s) {
+  return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+function parseDataItaliana(s) {
+  const v = String(s || '').trim()
+  if (!v) return null
+  let m = v.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
+  m = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
+  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
+  return null
+}
+
+function parseNumeroItaliano(s) {
+  const v = String(s || '').trim().replace(/[€\s]/g, '').replace(',', '.')
+  if (!v) return ''
+  const n = parseFloat(v)
+  return isNaN(n) ? '' : n
+}
+
+function parseBooleanoItaliano(s) {
+  const v = normalizzaTesto(s)
+  return ['si', 'sì', 'yes', 'true', 'x', '1'].includes(v)
+}
+
+async function eseguiImportazione() {
+  setImportInCorso(true)
+  setImportReport(null)
+  try {
+    const righeTesto = importTesto.split('\n').map(r => r.replace(/\r$/, '')).filter(r => r.trim() !== '')
+
+    const righe = righeTesto
+      .filter(riga => normalizzaTesto(riga.split('\t')[0]) !== 'nome') // salta eventuale riga di intestazione
+      .map(riga => {
+        const cols = riga.split('\t')
+        const nome = (cols[0] || '').trim()
+        const cognome = (cols[1] || '').trim()
+        const dataIscrizione = cols[2] || ''
+        const bookmaker = (cols[3] || '').trim()
+        const username = (cols[4] || '').trim()
+        const password = (cols[5] || '').trim()
+        const rispostaSegreta = (cols[6] || '').trim()
+        const limiteSettimanale = cols[7] || ''
+        const invioDocumenti = cols[8] || ''
+        const note = (cols[9] || '').trim()
+
+        const nomeCompleto = `${nome} ${cognome}`.trim()
+        const bookTrovato = books.find(b =>
+          normalizzaTesto(b.intestatario) === normalizzaTesto(nomeCompleto) &&
+          normalizzaTesto(b.nome) === normalizzaTesto(bookmaker)
+        )
+
+        return {
+          username,
+          password,
+          data_iscrizione: parseDataItaliana(dataIscrizione),
+          risposta_segreta: rispostaSegreta || null,
+          limite_settimanale: parseNumeroItaliano(limiteSettimanale) || null,
+          invio_documenti: parseBooleanoItaliano(invioDocumenti),
+          note: note || null,
+          book_id: bookTrovato ? bookTrovato.id : null,
+          bookmaker_manuale: bookTrovato ? null : bookmaker,
+          intestatario_manuale: bookTrovato ? null : nomeCompleto
+        }
+      })
+      .filter(r => r.username && r.password)
+
+    if (righe.length === 0) {
+      alert('Nessuna riga valida trovata (serve almeno username e password per riga)')
+      return
+    }
+
+    const res = await fetch('/api/credenziali/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ righe })
+    })
+    const data = await res.json()
+    if (data.ok) {
+      setImportReport(data)
+      loadCredenziali()
+    } else {
+      alert('Errore: ' + (data.error || 'sconosciuto'))
+    }
+  } catch (e) {
+    alert('Errore: ' + String(e))
+  } finally {
+    setImportInCorso(false)
+  }
+}
+
 async function eliminaCredenziale(id) {
   if (!window.confirm('Eliminare questa credenziale?')) return
   try {
@@ -4300,7 +4398,10 @@ onChange={(e) => {
         <h2 style={sectionTitle}>🔑 Credenziali</h2>
         <p style={sectionDescription}>Password e dati di accesso agli account, cifrati nel database</p>
       </div>
-      <button style={primaryButtonGreen} onClick={() => { setEditingCredenziale(null); setCredenzialeForm({ book_id: '', username: '', password: '', data_iscrizione: '', risposta_segreta: '', limite_settimanale: '', invio_documenti: false, note: '' }); setShowCredenzialeModal(true) }}>+ Nuova Credenziale</button>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button style={tinyBlueButton} onClick={() => { setImportTesto(''); setImportReport(null); setShowImportModal(true) }}>📋 Importa da Excel</button>
+        <button style={primaryButtonGreen} onClick={() => { setEditingCredenziale(null); setCredenzialeForm({ book_id: '', bookmaker_manuale: '', intestatario_manuale: '', username: '', password: '', data_iscrizione: '', risposta_segreta: '', limite_settimanale: '', invio_documenti: false, note: '' }); setShowCredenzialeModal(true) }}>+ Nuova Credenziale</button>
+      </div>
     </div>
 
     <input
@@ -4341,7 +4442,7 @@ onChange={(e) => {
               })
               .map(c => (
                 <tr key={c.id} style={tr}>
-                  <td style={tdStrong}>{c.intestatario || '-'}</td>
+                  <td style={tdStrong}>{c.intestatario || '-'}{c.manuale && <span style={{ marginLeft: 6, fontSize: 10, color: '#fbbf24', fontWeight: 700 }}>✏️ manuale</span>}</td>
                   <td style={td}>{c.data_iscrizione || '-'}</td>
                   <td style={td}>{c.bookmaker || '-'}</td>
                   <td style={td}>{c.username}</td>
@@ -4386,11 +4487,16 @@ onChange={(e) => {
           value={credenzialeForm.book_id}
           onChange={(e) => setCredenzialeForm({ ...credenzialeForm, book_id: e.target.value })}
           style={input}
-          required
         >
-          <option value=''>— Seleziona account (bookmaker + intestatario) —</option>
+          <option value=''>— Nessun book collegato (inserisci a mano sotto) —</option>
           {books.map(b => <option key={b.id} value={b.id}>{b.nome} — {b.intestatario}</option>)}
         </select>
+        {!credenzialeForm.book_id && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input value={credenzialeForm.bookmaker_manuale} onChange={(e) => setCredenzialeForm({ ...credenzialeForm, bookmaker_manuale: e.target.value })} placeholder='Bookmaker (a mano) *' style={{ ...input, flex: 1 }} required={!credenzialeForm.book_id} />
+            <input value={credenzialeForm.intestatario_manuale} onChange={(e) => setCredenzialeForm({ ...credenzialeForm, intestatario_manuale: e.target.value })} placeholder='Intestatario (a mano) *' style={{ ...input, flex: 1 }} required={!credenzialeForm.book_id} />
+          </div>
+        )}
         <input value={credenzialeForm.username} onChange={(e) => setCredenzialeForm({ ...credenzialeForm, username: e.target.value })} placeholder='Username *' style={input} required />
         <input type='text' value={credenzialeForm.password} onChange={(e) => setCredenzialeForm({ ...credenzialeForm, password: e.target.value })} placeholder='Password *' style={input} required />
         <input type='date' value={credenzialeForm.data_iscrizione} onChange={(e) => setCredenzialeForm({ ...credenzialeForm, data_iscrizione: e.target.value })} style={input} />
@@ -4409,6 +4515,56 @@ onChange={(e) => {
     </div>
   </div>
 )}
+
+{showImportModal && (
+  <div style={modalOverlay} onClick={() => { if (!importInCorso) setShowImportModal(false) }}>
+    <div style={{ ...modalCard, width: 640, maxWidth: '92vw' }} onClick={(e) => e.stopPropagation()}>
+      <div style={modalHeader}>
+        <div>
+          <h3 style={modalTitle}>📋 Importa da Excel</h3>
+          <p style={modalSubtitle}>Incolla le righe copiate da Excel (colonne: Nome, Cognome, Data iscrizione, Bookmaker, Username, Password, Risposta segreta, Limite settimanale, Invio documenti, Note)</p>
+        </div>
+        <button style={modalClose} onClick={() => { if (!importInCorso) setShowImportModal(false) }}>✕</button>
+      </div>
+
+      <textarea
+        value={importTesto}
+        onChange={(e) => setImportTesto(e.target.value)}
+        placeholder='Seleziona le celle in Excel (da Nome a Note), copia con Ctrl+C, e incolla qui con Ctrl+V...'
+        style={{ ...textarea, minHeight: 220, fontFamily: 'monospace', fontSize: 12 }}
+        disabled={importInCorso}
+      />
+
+      <p style={{ color: '#94a3b8', fontSize: 12, margin: '4px 0 12px' }}>
+        Il sistema abbina automaticamente Nome+Cognome e Bookmaker ai book già presenti nel Profit Tracker. Se non trova una corrispondenza esatta, salva comunque la credenziale con bookmaker/intestatario scritti a mano (etichetta "✏️ manuale" nella tabella).
+      </p>
+
+      {importReport && (
+        <div style={{ background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.3)', borderRadius: 12, padding: 14, marginBottom: 12 }}>
+          <p style={{ margin: 0, color: '#4ade80', fontWeight: 800 }}>✅ {importReport.importate} / {importReport.totali} credenziali importate</p>
+          {importReport.errori && importReport.errori.length > 0 && (
+            <div style={{ marginTop: 8, maxHeight: 160, overflowY: 'auto' }}>
+              <p style={{ margin: '0 0 4px', color: '#f87171', fontWeight: 700, fontSize: 12 }}>⚠️ {importReport.errori.length} righe con errore:</p>
+              {importReport.errori.slice(0, 50).map((e, i) => (
+                <div key={i} style={{ fontSize: 11, color: '#fca5a5', fontFamily: 'monospace', marginBottom: 2 }}>
+                  Riga {e.indice + 1} ({e.riga?.username || '?'}): {e.errore}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={modalActions}>
+        <button type='button' style={secondaryButton} onClick={() => { if (!importInCorso) setShowImportModal(false) }}>Chiudi</button>
+        <button type='button' style={primaryButtonGreen} onClick={eseguiImportazione} disabled={importInCorso || !importTesto.trim()}>
+          {importInCorso ? '⏳ Importazione in corso...' : '📤 Importa'}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
       {activeTab === 'matrice' && (
   <div style={tabContent}>
     <div style={sectionTopBar}>
