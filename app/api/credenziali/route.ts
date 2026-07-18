@@ -84,3 +84,27 @@ export async function DELETE(request: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })
 }
+// PUT - modifica una credenziale esistente
+export async function PUT(request: Request) {
+  const body = await request.json()
+  const { id, book_id, username, password, data_iscrizione, risposta_segreta, limite_settimanale, invio_documenti, note } = body
+
+  if (!id || !book_id || !username || !password) {
+    return NextResponse.json({ error: 'id, book_id, username o password mancante' }, { status: 400 })
+  }
+
+  const { error } = await supabase.rpc('aggiorna_credenziale', {
+    p_id: Number(id),
+    p_book_id: Number(book_id),
+    p_username: username,
+    p_password: password,
+    p_data_iscrizione: data_iscrizione || null,
+    p_risposta_segreta: risposta_segreta || null,
+    p_limite_settimanale: limite_settimanale ? Number(limite_settimanale) : null,
+    p_invio_documenti: !!invio_documenti,
+    p_note: note || null
+  })
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true })
+}
