@@ -157,6 +157,14 @@ const [smsFiltroDal, setSmsFiltroDal] = useState('')
 const [smsFiltroAl, setSmsFiltroAl] = useState('')
 const [showSmsPopup, setShowSmsPopup] = useState(false)
 const [smsNuovi, setSmsNuovi] = useState([])
+  // Credenziali
+const [credenziali, setCredenziali] = useState([])
+const [credenzialiLoading, setCredenzialiLoading] = useState(false)
+const [credenzialiFiltro, setCredenzialiFiltro] = useState('')
+const [showCredenzialeModal, setShowCredenzialeModal] = useState(false)
+const [credenzialeForm, setCredenzialeForm] = useState({ book_id: '', username: '', password: '', data_iscrizione: '', risposta_segreta: '', limite_settimanale: '', invio_documenti: false, note: '' })
+const [credenzialeRivelata, setCredenzialeRivelata] = useState(null)
+const [credenzialeRivelataLoading, setCredenzialeRivelataLoading] = useState(null)
   useEffect(() => {
   if (typeof window !== 'undefined' && localStorage.getItem('site_unlocked') !== '1') {
     window.location.href = '/login?from=/profit-tracker'
@@ -2828,7 +2836,64 @@ function handleTabChange(tab) {
   }
   setActiveTab(tab)
 }
+async function loadCredenziali() {
+  setCredenzialiLoading(true)
+  try {
+    const res = await fetch('/api/credenziali')
+    const data = await res.json()
+    setCredenziali(data.credenziali || [])
+  } catch (e) {
+    console.error(e)
+  } finally {
+    setCredenzialiLoading(false)
+  }
+}
 
+async function rivelaCredenziale(id) {
+  setCredenzialeRivelataLoading(id)
+  try {
+    const res = await fetch(`/api/credenziali?reveal=${id}`)
+    const data = await res.json()
+    if (data.credenziale) {
+      setCredenzialeRivelata(data.credenziale)
+    }
+  } catch (e) {
+    console.error(e)
+  } finally {
+    setCredenzialeRivelataLoading(null)
+  }
+}
+
+async function salvaCredenziale(e) {
+  e.preventDefault()
+  try {
+    const res = await fetch('/api/credenziali', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(credenzialeForm)
+    })
+    const data = await res.json()
+    if (data.ok) {
+      setShowCredenzialeModal(false)
+      setCredenzialeForm({ book_id: '', username: '', password: '', data_iscrizione: '', risposta_segreta: '', limite_settimanale: '', invio_documenti: false, note: '' })
+      loadCredenziali()
+    } else {
+      alert('Errore: ' + (data.error || 'sconosciuto'))
+    }
+  } catch (e) {
+    alert('Errore: ' + String(e))
+  }
+}
+
+async function eliminaCredenziale(id) {
+  if (!window.confirm('Eliminare questa credenziale?')) return
+  try {
+    await fetch(`/api/credenziali?id=${id}`, { method: 'DELETE' })
+    loadCredenziali()
+  } catch (e) {
+    alert('Errore: ' + String(e))
+  }
+}
 const currentMonthRef = React.useRef(null)
 useEffect(() => {
   if (activeTab === 'contabilita' && currentMonthRef.current) {
@@ -2837,6 +2902,11 @@ useEffect(() => {
     }, 150)
   }
 }, [activeTab])
+ useEffect(() => {
+  if (activeTab === 'credenziali') {
+    loadCredenziali()
+  }
+}, [activeTab]) 
 
 const totaleSpeseMeseCorrente = useMemo(() => {
   const meseCorrente = stimeCassaByMonth.find((item) => item.key === meseCorrenteKey)
@@ -3256,6 +3326,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
   <button style={activeTab === 'matrice' ? activeTabButton : tabButton} onClick={() => handleTabChange('matrice')}>Matrice</button>
           <button style={activeTab === 'archivio-mail' ? activeTabButton : tabButton} onClick={() => handleTabChange('archivio-mail')}>📧 Archivio Mail</button>
           <button style={activeTab === 'punti-monete' ? activeTabButton : tabButton} onClick={() => handleTabChange('punti-monete')}>🏆 Punti &amp; Monete</button>
+          <button style={activeTab === 'credenziali' ? activeTabButton : tabButton} onClick={() => handleTabChange('credenziali')}>🔑 Credenziali</button>
           <button style={activeTab === 'sms' ? activeTabButton : tabButton} onClick={() => handleTabChange('sms')}>📱 SMS</button>
 <button
   style={activeTab === 'stime-cassa' ? activeTabButton : tabButton}
@@ -4194,7 +4265,121 @@ onChange={(e) => {
   </div>
 )}
 
-  
+  {activeTab === 'credenziali' && (
+  <div style={tabContent}>
+    <div style={sectionTopBar}>
+      <div>
+        <h2 style={sectionTitle}>🔑 Credenziali</h2>
+        <p style={sectionDescription}>Password e dati di accesso agli account, cifrati nel database</p>
+      </div>
+      <button style={primaryButtonGreen} onClick={() => { setCredenzialeForm({ book_id: '', username: '', password: '', data_iscrizione: '', risposta_segreta: '', limite_settimanale: '', invio_documenti: false, note: '' }); setShowCredenzialeModal(true) }}>+ Nuova Credenziale</button>
+    </div>
+
+    <input
+      value={credenzialiFiltro}
+      onChange={(e) => setCredenzialiFiltro(e.target.value)}
+      placeholder='Filtra per bookmaker, intestatario, username o note...'
+      style={filterInputWide}
+    />
+
+    {credenzialiLoading ? (
+      <p style={{ color: '#94a3b8' }}>Caricamento...</p>
+    ) : (
+      <div style={{ overflowX: 'auto' }}>
+        <table style={table}>
+          <thead>
+            <tr>
+              <th style={th}>Intestatario</th>
+              <th style={th}>Data iscrizione</th>
+              <th style={th}>Bookmaker</th>
+              <th style={th}>Username</th>
+              <th style={th}>Password</th>
+              <th style={th}>Risposta segreta</th>
+              <th style={th}>Limite sett.</th>
+              <th style={th}>Invio doc.</th>
+              <th style={th}>Note</th>
+              <th style={th}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {credenziali
+              .filter(c => {
+                if (!credenzialiFiltro) return true
+                const f = credenzialiFiltro.toLowerCase()
+                return (c.intestatario || '').toLowerCase().includes(f)
+                  || (c.bookmaker || '').toLowerCase().includes(f)
+                  || (c.username || '').toLowerCase().includes(f)
+                  || (c.note || '').toLowerCase().includes(f)
+              })
+              .map(c => (
+                <tr key={c.id} style={tr}>
+                  <td style={tdStrong}>{c.intestatario || '-'}</td>
+                  <td style={td}>{c.data_iscrizione || '-'}</td>
+                  <td style={td}>{c.bookmaker || '-'}</td>
+                  <td style={td}>{c.username}</td>
+                  <td style={td}>
+                    {credenzialeRivelata && credenzialeRivelata.id === c.id
+                      ? <span style={{ color: '#4ade80', fontFamily: 'monospace' }}>{credenzialeRivelata.password}</span>
+                      : <button style={tinyBlueButton} onClick={() => rivelaCredenziale(c.id)} disabled={credenzialeRivelataLoading === c.id}>{credenzialeRivelataLoading === c.id ? '...' : '👁️ Mostra'}</button>}
+                  </td>
+                  <td style={td}>
+                    {credenzialeRivelata && credenzialeRivelata.id === c.id
+                      ? (credenzialeRivelata.risposta_segreta || '-')
+                      : '••••'}
+                  </td>
+                  <td style={td}>{c.limite_settimanale != null ? `${c.limite_settimanale} €` : '-'}</td>
+                  <td style={td}>{c.invio_documenti ? '✅' : '❌'}</td>
+                  <td style={tdNote}>{c.note || '-'}</td>
+                  <td style={tdActions}>
+                    <button style={tinyRedButton} onClick={() => eliminaCredenziale(c.id)}>Elimina</button>
+                  </td>
+                </tr>
+              ))}
+          </tbody>
+        </table>
+      </div>
+    )}
+  </div>
+)}
+
+{showCredenzialeModal && (
+  <div style={modalOverlay} onClick={() => setShowCredenzialeModal(false)}>
+    <div style={modalCard} onClick={(e) => e.stopPropagation()}>
+      <div style={modalHeader}>
+        <div>
+          <h3 style={modalTitle}>Nuova Credenziale</h3>
+          <p style={modalSubtitle}>Dati di accesso account (verranno cifrati)</p>
+        </div>
+        <button style={modalClose} onClick={() => setShowCredenzialeModal(false)}>✕</button>
+      </div>
+      <form onSubmit={salvaCredenziale}>
+        <select
+          value={credenzialeForm.book_id}
+          onChange={(e) => setCredenzialeForm({ ...credenzialeForm, book_id: e.target.value })}
+          style={input}
+          required
+        >
+          <option value=''>— Seleziona account (bookmaker + intestatario) —</option>
+          {books.map(b => <option key={b.id} value={b.id}>{b.nome} — {b.intestatario}</option>)}
+        </select>
+        <input value={credenzialeForm.username} onChange={(e) => setCredenzialeForm({ ...credenzialeForm, username: e.target.value })} placeholder='Username *' style={input} required />
+        <input type='text' value={credenzialeForm.password} onChange={(e) => setCredenzialeForm({ ...credenzialeForm, password: e.target.value })} placeholder='Password *' style={input} required />
+        <input type='date' value={credenzialeForm.data_iscrizione} onChange={(e) => setCredenzialeForm({ ...credenzialeForm, data_iscrizione: e.target.value })} style={input} />
+        <input value={credenzialeForm.risposta_segreta} onChange={(e) => setCredenzialeForm({ ...credenzialeForm, risposta_segreta: e.target.value })} placeholder='Risposta segreta' style={input} />
+        <input type='number' value={credenzialeForm.limite_settimanale} onChange={(e) => setCredenzialeForm({ ...credenzialeForm, limite_settimanale: e.target.value })} placeholder='Limite settimanale €' style={input} />
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#e2e8f0', margin: '8px 0' }}>
+          <input type='checkbox' checked={credenzialeForm.invio_documenti} onChange={(e) => setCredenzialeForm({ ...credenzialeForm, invio_documenti: e.target.checked })} />
+          Invio documenti effettuato
+        </label>
+        <textarea value={credenzialeForm.note} onChange={(e) => setCredenzialeForm({ ...credenzialeForm, note: e.target.value })} placeholder='Note' style={textarea} />
+        <div style={modalActions}>
+          <button type='button' style={secondaryButton} onClick={() => setShowCredenzialeModal(false)}>Annulla</button>
+          <button type='submit' style={primaryButtonGreen}>Salva Credenziale</button>
+        </div>
+      </form>
+    </div>
+  </div>
+)}
       {activeTab === 'matrice' && (
   <div style={tabContent}>
     <div style={sectionTopBar}>
