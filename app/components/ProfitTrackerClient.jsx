@@ -2926,10 +2926,20 @@ function normalizzaTesto(s) {
 function parseDataItaliana(s) {
   const v = String(s || '').trim()
   if (!v) return null
-  let m = v.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
-  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
-  m = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
+  let m = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
   if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
+  m = v.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
+  if (m) {
+    const a = parseInt(m[1], 10)
+    const b = parseInt(m[2], 10)
+    const anno = m[3]
+    let giorno, mese
+    if (a > 12 && b <= 12) { giorno = a; mese = b } // formato italiano gg/mm
+    else if (b > 12 && a <= 12) { mese = a; giorno = b } // formato americano mm/gg
+    else { giorno = a; mese = b } // ambiguo: default italiano gg/mm
+    if (mese < 1 || mese > 12 || giorno < 1 || giorno > 31) return null
+    return `${anno}-${String(mese).padStart(2, '0')}-${String(giorno).padStart(2, '0')}`
+  }
   return null
 }
 
