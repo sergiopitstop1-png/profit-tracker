@@ -2868,15 +2868,18 @@ async function rivelaCredenziale(id) {
 async function salvaCredenziale(e) {
   e.preventDefault()
   try {
+    const isEdit = !!editingCredenziale
     const res = await fetch('/api/credenziali', {
-      method: 'POST',
+      method: isEdit ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(credenzialeForm)
+      body: JSON.stringify(isEdit ? { ...credenzialeForm, id: editingCredenziale } : credenzialeForm)
     })
     const data = await res.json()
     if (data.ok) {
       setShowCredenzialeModal(false)
+      setEditingCredenziale(null)
       setCredenzialeForm({ book_id: '', username: '', password: '', data_iscrizione: '', risposta_segreta: '', limite_settimanale: '', invio_documenti: false, note: '' })
+      setCredenzialeRivelata(null)
       loadCredenziali()
     } else {
       alert('Errore: ' + (data.error || 'sconosciuto'))
@@ -4297,7 +4300,7 @@ onChange={(e) => {
         <h2 style={sectionTitle}>🔑 Credenziali</h2>
         <p style={sectionDescription}>Password e dati di accesso agli account, cifrati nel database</p>
       </div>
-      <button style={primaryButtonGreen} onClick={() => { setCredenzialeForm({ book_id: '', username: '', password: '', data_iscrizione: '', risposta_segreta: '', limite_settimanale: '', invio_documenti: false, note: '' }); setShowCredenzialeModal(true) }}>+ Nuova Credenziale</button>
+      <button style={primaryButtonGreen} onClick={() => { setEditingCredenziale(null); setCredenzialeForm({ book_id: '', username: '', password: '', data_iscrizione: '', risposta_segreta: '', limite_settimanale: '', invio_documenti: false, note: '' }); setShowCredenzialeModal(true) }}>+ Nuova Credenziale</button>
     </div>
 
     <input
@@ -4356,6 +4359,7 @@ onChange={(e) => {
                   <td style={td}>{c.invio_documenti ? '✅' : '❌'}</td>
                   <td style={tdNote}>{c.note || '-'}</td>
                   <td style={tdActions}>
+                    <button style={tinyOrangeButton} onClick={() => apriModificaCredenziale(c)}>Modifica</button>
                     <button style={tinyRedButton} onClick={() => eliminaCredenziale(c.id)}>Elimina</button>
                   </td>
                 </tr>
@@ -4372,7 +4376,7 @@ onChange={(e) => {
     <div style={modalCard} onClick={(e) => e.stopPropagation()}>
       <div style={modalHeader}>
         <div>
-          <h3 style={modalTitle}>Nuova Credenziale</h3>
+          <h3 style={modalTitle}>{editingCredenziale ? 'Modifica Credenziale' : 'Nuova Credenziale'}</h3>
           <p style={modalSubtitle}>Dati di accesso account (verranno cifrati)</p>
         </div>
         <button style={modalClose} onClick={() => setShowCredenzialeModal(false)}>✕</button>
@@ -4399,7 +4403,7 @@ onChange={(e) => {
         <textarea value={credenzialeForm.note} onChange={(e) => setCredenzialeForm({ ...credenzialeForm, note: e.target.value })} placeholder='Note' style={textarea} />
         <div style={modalActions}>
           <button type='button' style={secondaryButton} onClick={() => setShowCredenzialeModal(false)}>Annulla</button>
-          <button type='submit' style={primaryButtonGreen}>Salva Credenziale</button>
+          <button type='submit' style={primaryButtonGreen}>{editingCredenziale ? 'Salva Modifiche' : 'Salva Credenziale'}</button>
         </div>
       </form>
     </div>
