@@ -4414,12 +4414,44 @@ onChange={(e) => {
       </div>
     </div>
 
-    <input
-      value={credenzialiFiltro}
-      onChange={(e) => setCredenzialiFiltro(e.target.value)}
-      placeholder='Filtra per bookmaker, intestatario, username o note...'
-      style={filterInputWide}
-    />
+    <div style={{ position: 'relative', maxWidth: 480 }}>
+      <span style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', fontSize: 15, color: '#64748b', pointerEvents: 'none' }}>🔍</span>
+      <input
+        value={credenzialiFiltro}
+        onChange={(e) => setCredenzialiFiltro(e.target.value)}
+        placeholder='Cerca per bookmaker, intestatario, username o note...'
+        style={{
+          width: '100%',
+          boxSizing: 'border-box',
+          background: '#0b1220',
+          color: '#f8fafc',
+          border: credenzialiFiltro ? '1px solid rgba(56,189,248,0.6)' : '1px solid rgba(51,65,85,0.95)',
+          borderRadius: 14,
+          padding: '12px 40px 12px 42px',
+          fontSize: 14,
+          outline: 'none',
+          transition: 'border-color 0.15s ease'
+        }}
+      />
+      {credenzialiFiltro && (
+        <button
+          onClick={() => setCredenzialiFiltro('')}
+          style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'rgba(51,65,85,0.6)', border: 'none', color: '#cbd5e1', borderRadius: '50%', width: 22, height: 22, cursor: 'pointer', fontSize: 12, lineHeight: '22px', padding: 0 }}
+        >✕</button>
+      )}
+    </div>
+
+    {!credenzialiLoading && credenzialiFiltro && (
+      <p style={{ color: '#64748b', fontSize: 12, margin: '-6px 0 0' }}>
+        {credenziali.filter(c => {
+          const f = credenzialiFiltro.toLowerCase()
+          return (c.intestatario || '').toLowerCase().includes(f)
+            || (c.bookmaker || '').toLowerCase().includes(f)
+            || (c.username || '').toLowerCase().includes(f)
+            || (c.note || '').toLowerCase().includes(f)
+        }).length} risultati trovati
+      </p>
+    )}
 
     {credenzialiLoading ? (
       <p style={{ color: '#94a3b8' }}>Caricamento...</p>
