@@ -165,6 +165,7 @@ const [showCredenzialeModal, setShowCredenzialeModal] = useState(false)
 const [credenzialeForm, setCredenzialeForm] = useState({ book_id: '', username: '', password: '', data_iscrizione: '', risposta_segreta: '', limite_settimanale: '', invio_documenti: false, note: '' })
 const [credenzialeRivelata, setCredenzialeRivelata] = useState(null)
 const [credenzialeRivelataLoading, setCredenzialeRivelataLoading] = useState(null)
+  const [editingCredenziale, setEditingCredenziale] = useState(null)
   useEffect(() => {
   if (typeof window !== 'undefined' && localStorage.getItem('site_unlocked') !== '1') {
     window.location.href = '/login?from=/profit-tracker'
@@ -2884,7 +2885,31 @@ async function salvaCredenziale(e) {
     alert('Errore: ' + String(e))
   }
 }
-
+async function apriModificaCredenziale(c) {
+  setCredenzialeRivelataLoading(c.id)
+  try {
+    const res = await fetch(`/api/credenziali?reveal=${c.id}`)
+    const data = await res.json()
+    if (data.credenziale) {
+      setEditingCredenziale(c.id)
+      setCredenzialeForm({
+        book_id: String(c.book_id),
+        username: data.credenziale.username,
+        password: data.credenziale.password,
+        data_iscrizione: c.data_iscrizione || '',
+        risposta_segreta: data.credenziale.risposta_segreta || '',
+        limite_settimanale: c.limite_settimanale ?? '',
+        invio_documenti: !!c.invio_documenti,
+        note: c.note || ''
+      })
+      setShowCredenzialeModal(true)
+    }
+  } catch (e) {
+    alert('Errore: ' + String(e))
+  } finally {
+    setCredenzialeRivelataLoading(null)
+  }
+}
 async function eliminaCredenziale(id) {
   if (!window.confirm('Eliminare questa credenziale?')) return
   try {
