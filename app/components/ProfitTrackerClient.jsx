@@ -171,8 +171,8 @@ const [importTesto, setImportTesto] = useState('')
 const [importInCorso, setImportInCorso] = useState(false)
 const [importReport, setImportReport] = useState(null)
   useEffect(() => {
-  if (typeof window !== 'undefined' && localStorage.getItem('site_unlocked') !== '1') {
-    window.location.href = '/login?from=/profit-tracker'
+  if (typeof window !== 'undefined' && localStorage.getItem('profit_tracker_unlocked') !== '1') {
+    window.location.href = '/login-profit-tracker?from=/profit-tracker'
     return
   }
   loadData()
@@ -6227,7 +6227,7 @@ onChange={(e) => {
                     onChange={e => setDocPassword(e.target.value)}
                     onKeyDown={async e => {
                       if (e.key === 'Enter') {
-                        const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: docPassword }) })
+                        const res = await fetch('/api/login-profit-tracker', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: docPassword }) })
                         if (res.ok) {
                           setDocPasswordOk(true)
                           setDocPasswordError('')
@@ -6248,7 +6248,7 @@ onChange={(e) => {
                   {docPasswordError && <span style={{ color: '#f87171', fontSize: 13 }}>{docPasswordError}</span>}
                   <button
                     onClick={async () => {
-                      const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: docPassword }) })
+                      const res = await fetch('/api/login-profit-tracker', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: docPassword }) })
                       if (res.ok) {
                         setDocPasswordOk(true)
                         setDocPasswordError('')
