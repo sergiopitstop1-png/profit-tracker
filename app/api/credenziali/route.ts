@@ -6,12 +6,12 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-// GET - lista credenziali di un book (senza password), oppure rivela una singola password
+// GET - lista tutte le credenziali con dati book (senza password), oppure rivela una singola password
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
-  const bookId = searchParams.get('book_id')
   const revealId = searchParams.get('reveal')
 
+  // Rivela una credenziale specifica (con password/risposta segreta in chiaro)
   if (revealId) {
     const { data, error } = await supabase.rpc('leggi_credenziale', { p_id: Number(revealId) })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -19,23 +19,36 @@ export async function GET(request: Request) {
     return NextResponse.json({ credenziale: data[0] })
   }
 
-  if (!bookId) {
-    return NextResponse.json({ error: 'book_id mancante' }, { status: 400 })
-  }
-
+  // Lista completa, SENZA password/risposta segreta, con dati book uniti
   const { data, error } = await supabase
     .from('credenziali')
-    .select('id, book_id, username, created_at, updated_at')
-    .eq('book_id', Number(bookId))
+    .select(`
+      id, book_id, username, data_iscrizione, limite_settimanale, invio_documenti, note, created_at,
+      books ( nome, intestatario )
+    `)
     .order('created_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ credenziali: data })
+
+  const credenziali = (data || []).map((c: any) => ({
+    id: c.id,
+    book_id: c.book_id,
+    username: c.username,
+    data_iscrizione: c.data_iscrizione,
+    limite_settimanale: c.limite_settimanale,
+    invio_documenti: c.invio_documenti,
+    note: c.note,
+    bookmaker: c.books?.nome || '',
+    intestatario: c.books?.intestatario || ''
+  }))
+
+  return NextResponse.json({ credenziali })
 }
 
 // POST - crea una nuova credenziale (cifrata)
 export async function POST(request: Request) {
-  const { book_id, username, password } = await request.json()
+  const body = await request.json()
+  const { book_id, username, password, data_iscrizione, risposta_segreta, limite_settimanale, invio_documenti, note } = body
 
   if (!book_id || !username || !password) {
     return NextResponse.json({ error: 'book_id, username o password mancante' }, { status: 400 })
@@ -44,7 +57,12 @@ export async function POST(request: Request) {
   const { data, error } = await supabase.rpc('inserisci_credenziale', {
     p_book_id: Number(book_id),
     p_username: username,
-    p_password: password
+    p_password: password,
+    p_data_iscrizione: data_iscrizione || null,
+    p_risposta_segreta: risposta_segreta || null,
+    p_limite_settimanale: limite_settimanale ? Number(limite_settimanale) : null,
+    p_invio_documenti: !!invio_documenti,
+    p_note: note || null
   })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
