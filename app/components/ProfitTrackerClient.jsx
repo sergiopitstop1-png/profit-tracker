@@ -4552,6 +4552,9 @@ onChange={(e) => {
       {importReport && (
         <div style={{ background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.3)', borderRadius: 12, padding: 14, marginBottom: 12 }}>
           <p style={{ margin: 0, color: '#4ade80', fontWeight: 800 }}>✅ {importReport.importate} / {importReport.totali} credenziali importate</p>
+          {importReport.saltate > 0 && (
+            <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 12 }}>ℹ️ {importReport.saltate} già presenti, saltate automaticamente (nessun doppione creato)</p>
+          )}
           {importReport.errori && importReport.errori.length > 0 && (
             <div style={{ marginTop: 8, maxHeight: 160, overflowY: 'auto' }}>
               <p style={{ margin: '0 0 4px', color: '#f87171', fontWeight: 700, fontSize: 12 }}>⚠️ {importReport.errori.length} righe con errore:</p>
