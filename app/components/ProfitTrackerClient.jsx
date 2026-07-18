@@ -3021,6 +3021,13 @@ async function eseguiImportazione() {
   }
 }
 
+function credenzialeCorrisponde(c, filtro) {
+  if (!filtro) return true
+  const testoRiga = [c.intestatario, c.bookmaker, c.username, c.note].filter(Boolean).join(' ').toLowerCase()
+  const parole = filtro.toLowerCase().trim().split(/\s+/)
+  return parole.every(parola => testoRiga.includes(parola))
+}
+
 async function eliminaCredenziale(id) {
   if (!window.confirm('Eliminare questa credenziale?')) return
   try {
@@ -4443,13 +4450,7 @@ onChange={(e) => {
 
     {!credenzialiLoading && credenzialiFiltro && (
       <p style={{ color: '#64748b', fontSize: 12, margin: '-6px 0 0' }}>
-        {credenziali.filter(c => {
-          const f = credenzialiFiltro.toLowerCase()
-          return (c.intestatario || '').toLowerCase().includes(f)
-            || (c.bookmaker || '').toLowerCase().includes(f)
-            || (c.username || '').toLowerCase().includes(f)
-            || (c.note || '').toLowerCase().includes(f)
-        }).length} risultati trovati
+        {credenziali.filter(c => credenzialeCorrisponde(c, credenzialiFiltro)).length} risultati trovati
       </p>
     )}
 
@@ -4474,14 +4475,7 @@ onChange={(e) => {
           </thead>
           <tbody>
             {credenziali
-              .filter(c => {
-                if (!credenzialiFiltro) return true
-                const f = credenzialiFiltro.toLowerCase()
-                return (c.intestatario || '').toLowerCase().includes(f)
-                  || (c.bookmaker || '').toLowerCase().includes(f)
-                  || (c.username || '').toLowerCase().includes(f)
-                  || (c.note || '').toLowerCase().includes(f)
-              })
+              .filter(c => credenzialeCorrisponde(c, credenzialiFiltro))
               .map(c => (
                 <tr key={c.id} style={tr}>
                   <td style={tdStrong}>{c.intestatario || '-'}{c.manuale && <span style={{ marginLeft: 6, fontSize: 10, color: '#fbbf24', fontWeight: 700 }}>✏️ manuale</span>}</td>
