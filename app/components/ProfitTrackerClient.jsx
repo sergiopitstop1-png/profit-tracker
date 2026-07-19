@@ -167,6 +167,7 @@ const [credenzialeRivelata, setCredenzialeRivelata] = useState(null)
 const [credenzialeRivelataLoading, setCredenzialeRivelataLoading] = useState(null)
   const [editingCredenziale, setEditingCredenziale] = useState(null)
 const [showImportModal, setShowImportModal] = useState(false)
+const [testoCopiatoId, setTestoCopiatoId] = useState(null)
 const [importTesto, setImportTesto] = useState('')
 const [importInCorso, setImportInCorso] = useState(false)
 const [importReport, setImportReport] = useState(null)
@@ -184,7 +185,7 @@ const [importReport, setImportReport] = useState(null)
 
 const CLASSI_BOOK = {
   A: ['bet365','snai','sisal','lottomatica','goldbet','planetwin365','eurobet','pokerstars'],
-  B: ['netbet','bwin','betsson','william hill','stanleybet','e-play24','daznbet','betfair'],
+  B: ['netbet','bwin','betsson','william hill','stanleybet','e-play24','betfair'],
   B_CASINO: ['gioco digitale','starcasino','betflag','tombola','zonagioco'],
   C: ['admiral','codere','betpoint','staryes','sportium','vincitu','marathonbet','domusbet','betpassion'],
 }
@@ -2854,6 +2855,36 @@ async function loadCredenziali() {
   }
 }
 
+async function copiaTesto(testo, chiaveId) {
+  try {
+    await navigator.clipboard.writeText(testo)
+    setTestoCopiatoId(chiaveId)
+    setTimeout(() => setTestoCopiatoId(prev => (prev === chiaveId ? null : prev)), 1500)
+  } catch (e) {
+    alert('Non sono riuscito a copiare: ' + String(e))
+  }
+}
+
+async function copiaPassword(c) {
+  const chiaveId = `pw-${c.id}`
+  if (credenzialeRivelata && credenzialeRivelata.id === c.id) {
+    copiaTesto(credenzialeRivelata.password, chiaveId)
+    return
+  }
+  setCredenzialeRivelataLoading(c.id)
+  try {
+    const res = await fetch(`/api/credenziali?reveal=${c.id}`)
+    const data = await res.json()
+    if (data.credenziale) {
+      copiaTesto(data.credenziale.password, chiaveId)
+    }
+  } catch (e) {
+    console.error(e)
+  } finally {
+    setCredenzialeRivelataLoading(null)
+  }
+}
+
 async function rivelaCredenziale(id) {
   setCredenzialeRivelataLoading(id)
   try {
@@ -4117,13 +4148,13 @@ onChange={(e) => {
                 <span style={{ fontSize: 11, fontWeight: 800, background: 'rgba(251,191,36,0.18)', color: '#fbbf24', padding: '2px 8px', borderRadius: 6 }}>Serie A</span>
                 <span style={{ fontSize: 11, color: '#64748b' }}>bet365 · snai · sisal · lottomatica · goldbet · planetwin · eurobet · pokerstars</span>
               </div>
-              <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.5 }}>1 bet sportiva ogni 2 mesi di almeno 20 euro (solo-casinò: 1 sessione slot 5-10€ ogni 2 mesi)</div>
+              <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.5 }}>1 bet sportiva ogni 2 mesi (solo-casinò: 1 sessione slot 5-10€ ogni 2 mesi)</div>
             </div>
 
             <div style={{ background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.22)', borderRadius: 10, padding: '10px 12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
                 <span style={{ fontSize: 11, fontWeight: 800, background: 'rgba(56,189,248,0.15)', color: '#38bdf8', padding: '2px 8px', borderRadius: 6 }}>Serie B</span>
-                <span style={{ fontSize: 11, color: '#64748b' }}>netbet · bwin · betsson · daznbet . william hill · stanleybet · e-play24 · betfair</span>
+                <span style={{ fontSize: 11, color: '#64748b' }}>netbet · bwin · betsson · william hill · stanleybet · e-play24 · betfair</span>
               </div>
               <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.5 }}>1 bet sportiva ogni 2 mesi (solo-casinò: 1 sessione slot 5-10€ ogni 2 mesi)</div>
             </div>
@@ -4481,11 +4512,28 @@ onChange={(e) => {
                   <td style={tdStrong}>{c.intestatario || '-'}{c.manuale && <span style={{ marginLeft: 6, fontSize: 10, color: '#fbbf24', fontWeight: 700 }}>✏️ manuale</span>}</td>
                   <td style={td}>{c.data_iscrizione || '-'}</td>
                   <td style={td}>{c.bookmaker || '-'}</td>
-                  <td style={td}>{c.username}</td>
                   <td style={td}>
-                    {credenzialeRivelata && credenzialeRivelata.id === c.id
-                      ? <span style={{ color: '#4ade80', fontFamily: 'monospace' }}>{credenzialeRivelata.password}</span>
-                      : <button style={tinyBlueButton} onClick={() => rivelaCredenziale(c.id)} disabled={credenzialeRivelataLoading === c.id}>{credenzialeRivelataLoading === c.id ? '...' : '👁️ Mostra'}</button>}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span>{c.username}</span>
+                      <button
+                        onClick={() => copiaTesto(c.username, `user-${c.id}`)}
+                        title='Copia username'
+                        style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 13, padding: 2, color: testoCopiatoId === `user-${c.id}` ? '#4ade80' : '#64748b' }}
+                      >{testoCopiatoId === `user-${c.id}` ? '✅' : '📋'}</button>
+                    </div>
+                  </td>
+                  <td style={td}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {credenzialeRivelata && credenzialeRivelata.id === c.id
+                        ? <span style={{ color: '#4ade80', fontFamily: 'monospace' }}>{credenzialeRivelata.password}</span>
+                        : <button style={tinyBlueButton} onClick={() => rivelaCredenziale(c.id)} disabled={credenzialeRivelataLoading === c.id}>{credenzialeRivelataLoading === c.id ? '...' : '👁️ Mostra'}</button>}
+                      <button
+                        onClick={() => copiaPassword(c)}
+                        disabled={credenzialeRivelataLoading === c.id}
+                        title='Copia password'
+                        style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 13, padding: 2, color: testoCopiatoId === `pw-${c.id}` ? '#4ade80' : '#64748b' }}
+                      >{testoCopiatoId === `pw-${c.id}` ? '✅' : '📋'}</button>
+                    </div>
                   </td>
                   <td style={td}>
                     {credenzialeRivelata && credenzialeRivelata.id === c.id
