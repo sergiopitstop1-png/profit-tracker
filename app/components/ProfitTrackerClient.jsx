@@ -67,17 +67,6 @@ const [stimaForm, setStimaForm] = useState({
   const [showWalletModal, setShowWalletModal] = useState(false)
   const [clienti, setClienti] = useState([])
   const [clientiEmail, setClientiEmail] = useState([])
-  const [promozioni, setPromozioni] = useState([])
-  const [showPromozioniPopup, setShowPromozioniPopup] = useState(false)
-  const [promozioniManuali, setPromozioniManuali] = useState([])
-  const [syncInCorso, setSyncInCorso] = useState(false)
-  const [syncLog, setSyncLog] = useState([])
-  const [showSyncLog, setShowSyncLog] = useState(false)
-  const [promozioneDettaglio, setPromozioneDettaglio] = useState(null)
-  const [testoLive, setTestoLive] = useState('')
-  const [testoLoading, setTestoLoading] = useState(false)
-  const [showPromozioniManualiPopup, setShowPromozioniManualiPopup] = useState(false)
-  const [promozioniManualiEmail, setPromozioniManualiEmail] = useState('')
   const [showClienteModal, setShowClienteModal] = useState(false)
   const [editingCliente, setEditingCliente] = useState(null)
   const [clienteForm, setClienteForm] = useState({ nome: '', email: '', telefono: '', sim_operatore: '', sim_importo: '', sim_giorno_scadenza: '', note: '' })
@@ -128,21 +117,15 @@ const [docFiles, setDocFiles] = useState([]) // file del cliente
 const [docLoading, setDocLoading] = useState(false)
 const [docUploading, setDocUploading] = useState(false)
 const [docPasswordError, setDocPasswordError] = useState('')
-const [archivioMailCella, setArchivioMailCella] = useState(null) // { cliente, bookmaker, promo[] }
-const [archivioMailDati, setArchivioMailDati] = useState([]) // tutte le promo
 const [puntiMoneteBooks, setPuntiMoneteBooks] = useState([])
 const [puntiMoneteSaldi, setPuntiMoneteSaldi] = useState({})
 const [puntiMoneteLoading, setPuntiMoneteLoading] = useState(false)
-const [archivioSearch, setArchivioSearch] = useState('')
-const [archivioFiltroCliente, setArchivioFiltroCliente] = useState('')
-const [archivioFiltroData, setArchivioFiltroData] = useState('')
 const [pmBooks, setPmBooks] = useState([])
 const [pmSaldi, setPmSaldi] = useState({})
 const [pmLoading, setPmLoading] = useState(true)
 const [puntiMonetaCaricata, setPuntiMonetaCaricata] = useState(false)
 const [matriceCaricata, setMatriceCaricata] = useState(false)
 const [smsCaricato, setSmsCaricato] = useState(false)
-const [promozioniArchivioCaricato, setPromozioniArchivioCaricato] = useState(false)
 const [speseCategoriaMese, setSpeseCategoriaMese] = useState([])
 const [txLoadAll, setTxLoadAll] = useState(false)
 const [speseMeseSelezionato, setSpeseMeseSelezionato] = useState(() => new Date().toISOString().slice(0, 7))
@@ -949,21 +932,11 @@ async function updateProfiloLivello(bookId, livello) {
     setLoading(false)
 
     // ── FASE 2: dati leggeri in background (non bloccano la UI) ───────────
-    // Nota: Matrice, Punti & Monete, SMS e l'archivio completo delle Promozioni
-    // NON vengono più caricati qui: partono solo quando apri la tab corrispondente
-    // (vedi loadMatrice/loadPuntiMonete/loadSms/loadPromozioniComplete più sotto).
+    // Nota: Matrice, Punti & Monete e SMS NON vengono più caricati qui:
+    // partono solo quando apri la tab corrispondente (vedi loadMatrice/loadPuntiMonete/loadSms più sotto).
     const meseCorrenteISO = new Date().toISOString().slice(0, 7)
-    Promise.all([
-      supabase.from('transactions').select('id, note, importo, categoria_spesa, data, azione').eq('azione', 'wallet_to_external').gte('data', meseCorrenteISO + '-01').lt('data', new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toISOString()),
-      supabase.from('promozioni_clienti').select('*, clienti(nome)').eq('letta', false).order('data_mail', { ascending: false }).limit(200),
-    ]).then(([speseRes, promoRes]) => {
-      if (speseRes.data) setSpeseCategoriaMese(speseRes.data)
-      if (promoRes && !promoRes.error) {
-        setPromozioni(promoRes.data || [])
-        const altaPriorita = (promoRes.data || []).filter(p => !p.letta)
-        if (altaPriorita.length > 0) setShowPromozioniPopup(true)
-      }
-    })
+    supabase.from('transactions').select('id, note, importo, categoria_spesa, data, azione').eq('azione', 'wallet_to_external').gte('data', meseCorrenteISO + '-01').lt('data', new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toISOString())
+      .then(({ data }) => { if (data) setSpeseCategoriaMese(data) })
   }
 
   async function loadMatrice() {
@@ -1004,18 +977,10 @@ async function updateProfiloLivello(bookId, livello) {
     setSmsCaricato(true)
   }
 
-  async function loadPromozioniComplete() {
-    if (promozioniArchivioCaricato) return
-    const { data, error } = await supabase.from('promozioni_clienti').select('*, clienti(nome)').order('data_mail', { ascending: false }).limit(5000)
-    if (!error) setPromozioni(data || [])
-    setPromozioniArchivioCaricato(true)
-  }
-
   useEffect(() => {
     if (activeTab === 'matrice') loadMatrice()
     else if (activeTab === 'punti-monete') loadPuntiMonete()
     else if (activeTab === 'sms') loadSms()
-    else if (activeTab === 'archivio-mail') loadPromozioniComplete()
   }, [activeTab])
   const saveWeeklySnapshot = async () => {
     try {
@@ -1287,36 +1252,6 @@ useEffect(() => {
   const interval = setInterval(controlla, 60 * 1000)
   return () => clearInterval(interval)
 }, [smsClienti])
-useEffect(() => {
-  if (clientiEmail.length === 0) return
-
-  const eseguiSync = () => {
-    setSyncInCorso(true)
-    setMessage('📧 Sincronizzazione mail in corso...')
-    fetch('/api/gmail/sync?secret=' + (process.env.NEXT_PUBLIC_CRON_SECRET || 'pt_cron_2026_sergio'))
-      .then(r => r.json())
-      .then(data => {
-        const totSalvate = (data.risultati || []).reduce((acc, r) => acc + (r.salvate || 0), 0)
-        if (totSalvate > 0) {
-          setMessage(`📧 ${totSalvate} nuove promozioni trovate!`)
-        } else {
-          setMessage('📧 Mail sincronizzate — nessuna novità')
-        }
-        setTimeout(() => setMessage(''), 4000)
-        loadData({ preserveMessages: true })
-      })
-      .catch(() => {
-        setSyncInCorso(false)
-        setMessage('')
-      })
-      .finally(() => setSyncInCorso(false))
-  }
-
-  // Solo automatico ogni 4 ore, NON al refresh
-  const interval = setInterval(eseguiSync, 4 * 60 * 60 * 1000)
-  return () => clearInterval(interval)
-}, [clientiEmail])
-
 // Auto-snapshot a fine mese: scatta al primo accesso del mese nuovo
 useEffect(() => {
   if (books.length === 0 || wallets.length === 0) return
@@ -3325,125 +3260,6 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 
         {message && <div style={successBox}>{message}</div>}
 
-        {promozioneDettaglio && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000, padding: 16 }}>
-            <div style={{ width: '100%', maxWidth: 600, background: 'linear-gradient(180deg,rgba(15,23,42,0.99),rgba(2,6,23,1))', border: '2px solid rgba(56,189,248,0.4)', borderRadius: 22, padding: 24, maxHeight: '85vh', overflowY: 'auto' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-                <div style={{ flex: 1, marginRight: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: (promozioneDettaglio.priorita||'').toLowerCase() === 'alta' ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.12)', color: (promozioneDettaglio.priorita||'').toLowerCase() === 'alta' ? '#f87171' : '#fbbf24' }}>{promozioneDettaglio.priorita}</span>
-                    <span style={{ fontWeight: 700, color: '#f8fafc', fontSize: 14 }}>{promozioneDettaglio.clienti?.nome}</span>
-                  </div>
-                  <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{promozioneDettaglio.oggetto}</div>
-                  <div style={{ color: '#94a3b8', fontSize: 12 }}>Da: {promozioneDettaglio.mittente}</div>
-                  {promozioneDettaglio.data_mail && <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>{new Date(promozioneDettaglio.data_mail).toLocaleDateString('it-IT')}</div>}
-                </div>
-                <button style={{ border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18, flexShrink: 0 }}
-                  onClick={() => { setPromozioneDettaglio(null); setTestoLive('') }}>×</button>
-              </div>
-              <div style={{ background: 'rgba(11,18,32,0.8)', border: '1px solid rgba(51,65,85,0.6)', borderRadius: 12, padding: 16, color: '#cbd5e1', fontSize: 13, lineHeight: 1.7, whiteSpace: 'pre-wrap', wordBreak: 'break-word', minHeight: 80 }}>
-                {testoLoading
-                  ? <span style={{ color: '#64748b' }}>⏳ Caricamento testo...</span>
-                  : testoLive || promozioneDettaglio.testo_completo || <span style={{ color: '#64748b' }}>Nessun testo disponibile</span>
-                }
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-                <button
-                  onClick={async () => {
-                    if (!window.confirm('Eliminare questa promozione?')) return
-                    await supabase.from('promozioni_clienti').delete().eq('id', promozioneDettaglio.id)
-                    setPromozioni(prev => prev.filter(pr => pr.id !== promozioneDettaglio.id))
-                    setPromozioneDettaglio(null)
-                  }}
-                  style={{ padding: '10px 18px', borderRadius: 12, border: 'none', background: 'rgba(239,68,68,0.15)', color: '#f87171', cursor: 'pointer', fontSize: 13, fontWeight: 800 }}>🗑️ Elimina</button>
-                <button style={{ padding: '10px 22px', borderRadius: 12, border: 'none', background: '#38bdf8', color: '#0f172a', cursor: 'pointer', fontSize: 13, fontWeight: 800 }}
-                  onClick={() => { setPromozioneDettaglio(null); setTestoLive('') }}>Chiudi</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {showPromozioniManualiPopup && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2300, padding: 16 }}>
-            <div style={{ width: '100%', maxWidth: 560, background: 'linear-gradient(180deg,rgba(15,23,42,0.99),rgba(2,6,23,1))', border: '2px solid rgba(56,189,248,0.5)', borderRadius: 22, padding: 24, maxHeight: '80vh', overflowY: 'auto' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <div>
-                  <h2 style={{ margin: 0, color: '#f8fafc', fontSize: 18 }}>📬 Lettura manuale</h2>
-                  <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 13 }}>{promozioniManualiEmail} · {promozioniManuali.length} promozioni trovate</p>
-                </div>
-                <button style={{ border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18 }}
-                  onClick={() => setShowPromozioniManualiPopup(false)}>×</button>
-              </div>
-              {promozioniManuali.length === 0
-                ? <p style={{ color: '#94a3b8', textAlign: 'center', padding: '20px 0' }}>Nessuna promozione trovata</p>
-                : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {promozioniManuali.map((p, idx) => (
-                      <div key={idx} style={{ background: 'rgba(11,18,32,0.85)', border: `1px solid ${(p.priorita||'').toLowerCase() === 'alta' ? 'rgba(239,68,68,0.35)' : (p.priorita||'').toLowerCase() === 'media' ? 'rgba(245,158,11,0.3)' : 'rgba(34,197,94,0.25)'}`, borderRadius: 12, padding: '10px 14px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                          <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 6,
-                            background: (p.priorita||'').toLowerCase() === 'alta' ? 'rgba(239,68,68,0.15)' : (p.priorita||'').toLowerCase() === 'media' ? 'rgba(245,158,11,0.12)' : 'rgba(34,197,94,0.12)',
-                            color: (p.priorita||'').toLowerCase() === 'alta' ? '#f87171' : (p.priorita||'').toLowerCase() === 'media' ? '#fbbf24' : '#22c55e'
-                          }}>{(p.priorita||'').toLowerCase() === 'alta' ? '🔥' : (p.priorita||'').toLowerCase() === 'media' ? '⚡' : '✅'} {p.priorita}</span>
-                          <span style={{ fontSize: 11, color: '#64748b' }}>{p.tipo}</span>
-                        </div>
-                        <div style={{ color: '#f8fafc', fontWeight: 700, fontSize: 13, marginBottom: 3 }}>{p.subject}</div>
-                        <div style={{ color: '#94a3b8', fontSize: 12 }}>Da: {p.from}</div>
-                        {p.date && <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>{new Date(p.date).toLocaleDateString('it-IT')}</div>}
-                      </div>
-                    ))}
-                  </div>
-                )
-              }
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-                <button style={{ padding: '10px 22px', borderRadius: 12, border: 'none', background: '#38bdf8', color: '#0f172a', cursor: 'pointer', fontSize: 13, fontWeight: 800 }}
-                  onClick={() => setShowPromozioniManualiPopup(false)}>Chiudi</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {showPromozioniPopup && (() => {
-          const altePriorita = promozioni.filter(p => (p.priorita||'').toLowerCase() === 'alta' && !p.letta)
-          const tutteNonLette = promozioni.filter(p => !p.letta).sort((a,b) => { const ord={alta:0,media:1,bassa:2}; return (ord[(a.priorita||'').toLowerCase()]||1)-(ord[(b.priorita||'').toLowerCase()]||1) })
-          if (tutteNonLette.length === 0) return null
-          return (
-            <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2200, padding: 16 }}>
-              <div style={{ width: '100%', maxWidth: 540, background: 'linear-gradient(180deg,rgba(15,23,42,0.99),rgba(2,6,23,1))', border: '2px solid rgba(239,68,68,0.6)', borderRadius: 22, padding: 24, maxHeight: '80vh', overflowY: 'auto' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                  <div>
-                    <h2 style={{ margin: 0, color: '#f8fafc', fontSize: 18 }}>🔥 PROMOZIONI</h2>
-                    <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 13 }}>{tutteNonLette.length} totali · {altePriorita.length} alta priorità</p>
-                  </div>
-                  <button style={{ border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18 }}
-                    onClick={() => setShowPromozioniPopup(false)}>×</button>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {tutteNonLette.map((p, idx) => (
-                    <div key={idx} style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 12, padding: '10px 14px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: 'rgba(239,68,68,0.15)', color: '#f87171' }}>🔥 ALTA</span>
-                        <span style={{ fontWeight: 700, color: '#f8fafc', fontSize: 13 }}>{p.clienti?.nome || ''}</span>
-                      </div>
-                      <div style={{ color: '#fca5a5', fontWeight: 700, fontSize: 13 }}>{p.oggetto}</div>
-                      <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 2 }}>Da: {p.mittente}</div>
-                      <div style={{ color: '#64748b', fontSize: 11 }}>{p.tipo} · {p.data_mail ? new Date(p.data_mail).toLocaleDateString('it-IT') : new Date(p.created_at).toLocaleDateString('it-IT')}</div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-                  <button style={{ padding: '10px 22px', borderRadius: 12, border: 'none', background: '#ef4444', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 800 }}
-                    onClick={() => {
-                      setPromozioni(prev => prev.map(p => tutteNonLette.find(a => a.id === p.id) ? { ...p, letta: true } : p))
-                      setShowPromozioniPopup(false)
-                      Promise.all(tutteNonLette.map(p => supabase.from('promozioni_clienti').update({ letta: true }).eq('id', p.id)))
-                    }}>Visto, chiudi</button>
-                </div>
-              </div>
-            </div>
-          )
-        })()}
-
         {showAgendaPopup && (() => {
           const giorno = new Date().getDay()
           const giornoLabel = ['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'][giorno]
@@ -3537,7 +3353,6 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 >Clienti</button>
 
   <button style={activeTab === 'matrice' ? activeTabButton : tabButton} onClick={() => handleTabChange('matrice')}>Matrice</button>
-          <button style={activeTab === 'archivio-mail' ? activeTabButton : tabButton} onClick={() => handleTabChange('archivio-mail')}>📧 Archivio Mail</button>
           <button style={activeTab === 'punti-monete' ? activeTabButton : tabButton} onClick={() => handleTabChange('punti-monete')}>🏆 Punti &amp; Monete</button>
           <button style={activeTab === 'credenziali' ? activeTabButton : tabButton} onClick={() => handleTabChange('credenziali')}>🔑 Credenziali</button>
           <button style={activeTab === 'sms' ? activeTabButton : tabButton} onClick={() => handleTabChange('sms')}>📱 SMS</button>
@@ -4329,63 +4144,6 @@ onChange={(e) => {
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button style={primaryButtonGreen} onClick={() => { setEditingCliente(null); setClienteForm({ nome: '', email: '', telefono: '', sim_operatore: '', sim_importo: '', sim_giorno_scadenza: '', note: '' }); setShowClienteModal(true) }}>+ Nuovo Cliente</button>
-        <button
-          onClick={async () => {
-            setSyncInCorso(true)
-            setSyncLog([])
-            setShowSyncLog(true)
-            let totSalvate = 0
-            try {
-              const emailsConToken = clientiEmail.filter(e => e.gmail_refresh_token)
-              for (const emailRow of emailsConToken) {
-                try {
-                  setSyncLog(prev => [...prev, { email: emailRow.email, stato: '⏳ in corso...' }])
-                  const res = await fetch(`/api/gmail/sync?secret=pt_cron_2026_sergio&email_id=${emailRow.id}`)
-                  const data = await res.json()
-                  const r = (data.risultati || [])[0] || {}
-                  const riga = r.errore
-                    ? { email: emailRow.email, stato: `❌ ${r.errore}` }
-                    : { email: emailRow.email, stato: `✅ ${r.mailTrovate||0} mail · ${r.promozioniTrovate||0} promo · ${r.salvate||0} salvate · ${r.duplicate||0} duplicate` }
-                  setSyncLog(prev => prev.map(l => l.email === emailRow.email ? riga : l))
-                  totSalvate += r.salvate || 0
-                } catch(e) {
-                  setSyncLog(prev => prev.map(l => l.email === emailRow.email ? { email: emailRow.email, stato: `❌ ${String(e)}` } : l))
-                }
-              }
-              await loadData({ preserveMessages: true })
-              setMessage(totSalvate > 0 ? `📧 ${totSalvate} nuove promozioni trovate!` : '📧 Nessuna novità')
-              setTimeout(() => setMessage(''), 4000)
-            } finally {
-              setSyncInCorso(false)
-            }
-          }}
-          disabled={syncInCorso}
-          style={{ padding: '10px 16px', borderRadius: 12, border: '1px solid rgba(56,189,248,0.5)', background: syncInCorso ? 'rgba(51,65,85,0.3)' : 'rgba(56,189,248,0.1)', color: syncInCorso ? '#64748b' : '#38bdf8', fontWeight: 800, fontSize: 13, cursor: syncInCorso ? 'not-allowed' : 'pointer' }}
-        >{syncInCorso ? '⏳ Sincronizzazione...' : '🔄 Sincronizza tutto'}</button>
-        {showSyncLog && syncLog.length > 0 && (
-          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ background: '#0f172a', border: '1px solid rgba(56,189,248,0.3)', borderRadius: 16, padding: 24, width: 600, maxHeight: '80vh', overflowY: 'auto' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <h3 style={{ color: '#38bdf8', margin: 0 }}>📧 Log Sincronizzazione</h3>
-                {!syncInCorso && <button onClick={() => setShowSyncLog(false)} style={{ background: 'rgba(239,68,68,0.2)', color: '#f87171', border: 'none', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontWeight: 700 }}>Chiudi</button>}
-              </div>
-              {syncLog.map((l, i) => (
-                <div key={i} style={{ padding: '8px 12px', marginBottom: 6, background: 'rgba(255,255,255,0.04)', borderRadius: 8, fontSize: 12, fontFamily: 'monospace' }}>
-                  <span style={{ color: '#94a3b8' }}>{l.email}</span>
-                  <br/>
-                  <span style={{ color: '#e2e8f0' }}>{l.stato}</span>
-                </div>
-              ))}
-              {syncInCorso && <div style={{ color: '#38bdf8', textAlign: 'center', marginTop: 12, fontSize: 13 }}>⏳ Sincronizzazione in corso...</div>}
-            </div>
-          </div>
-        )}
-        {promozioni.length > 0 && (
-          <button
-            onClick={() => setShowPromozioniPopup(true)}
-            style={{ padding: '10px 16px', borderRadius: 12, border: '1px solid rgba(239,68,68,0.5)', background: 'rgba(239,68,68,0.1)', color: '#f87171', fontWeight: 800, fontSize: 13, cursor: 'pointer', animation: 'blinkPrevisto 2s ease-in-out infinite' }}
-          >🔥 {promozioni.filter(p => !p.letta).length} e-mail nuove</button>
-        )}
       </div>
     </div>
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 16 }}>
@@ -4419,23 +4177,6 @@ onChange={(e) => {
                     <div key={em.id} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 12, color: '#94a3b8' }}>✉️ {em.email}</span>
                       {em.label && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(51,65,85,0.6)', color: '#64748b' }}>{em.label}</span>}
-                      <button
-                        onClick={() => window.open(`/api/gmail/auth?email=${encodeURIComponent(em.email)}&email_id=${em.id}`, '_blank')}
-                        style={{ padding: '3px 8px', borderRadius: 8, border: `1px solid ${em.gmail_access_token ? 'rgba(34,197,94,0.4)' : 'rgba(168,85,247,0.4)'}`, background: em.gmail_access_token ? 'rgba(34,197,94,0.08)' : 'rgba(168,85,247,0.08)', color: em.gmail_access_token ? '#22c55e' : '#a855f7', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}
-                      >{em.gmail_access_token ? '✅ Auth' : '🔗 Autorizza'}</button>
-                      {em.gmail_access_token && (
-                        <button
-                          onClick={async () => {
-                            const res = await fetch(`/api/gmail/read?email_id=${em.id}`)
-                            const data = await res.json()
-                            setPromozioniManuali(data.promozioni || [])
-                            setPromozioniManualiEmail(`${em.email} · ${data.totale_mail || 0} mail lette · ${data.salvate || 0} salvate`)
-                            setShowPromozioniManualiPopup(true)
-                            if (data.salvate > 0) await loadData({ preserveMessages: true })
-                          }}
-                          style={{ padding: '3px 8px', borderRadius: 8, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}
-                        >📬 Leggi</button>
-                      )}
                     </div>
                   ))}
                 </div>
@@ -4448,25 +4189,6 @@ onChange={(e) => {
                   >{rinnovato ? '✅ Rinnovato' : '🔄 Segna rinnovato'}</button>
                 )}
                 <button onClick={() => { setEditingCliente(c); setClienteForm({ nome: c.nome, email: c.email || '', telefono: c.telefono || '', sim_operatore: c.sim_operatore || '', sim_importo: c.sim_importo || '', sim_giorno_scadenza: c.sim_giorno_scadenza || '', note: c.note || '' }); setShowClienteModal(true) }} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>✏️ Modifica</button>
-                {c.email && (
-                  <button
-                    onClick={() => window.open(`/api/gmail/auth?email=${encodeURIComponent(c.email)}`, '_blank')}
-                    style={{ padding: '6px 12px', borderRadius: 10, border: `1px solid ${c.gmail_access_token ? 'rgba(34,197,94,0.4)' : 'rgba(168,85,247,0.4)'}`, background: c.gmail_access_token ? 'rgba(34,197,94,0.08)' : 'rgba(168,85,247,0.08)', color: c.gmail_access_token ? '#22c55e' : '#a855f7', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
-                  >{c.gmail_access_token ? '✅ Gmail OK' : '🔗 Autorizza Gmail'}</button>
-                )}
-                {c.gmail_access_token && (
-                  <button
-                    onClick={async () => {
-                      const res = await fetch(`/api/gmail/read?cliente_id=${c.id}`)
-                      const data = await res.json()
-                      setPromozioniManuali(data.promozioni || [])
-                      setPromozioniManualiEmail(`${c.nome} · ${data.totale_mail || 0} mail lette · ${data.salvate || 0} salvate`)
-                      setShowPromozioniManualiPopup(true)
-                      if (data.salvate > 0) await loadData({ preserveMessages: true })
-                    }}
-                    style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
-                  >📬 Leggi mail</button>
-                )}
                 <button onClick={() => { setDocCliente(c); setDocPassword(''); setDocPasswordOk(false); setDocPasswordError(''); setDocFiles([]); setDocLoading(false); setDocUploading(false) }} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(251,191,36,0.4)', background: 'rgba(251,191,36,0.08)', color: '#fbbf24', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>📁 Documenti</button>
                 <button onClick={() => deleteCliente(c.id)} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.08)', color: '#f87171', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>🗑️</button>
               </div>
@@ -4827,250 +4549,6 @@ onChange={(e) => {
     </div>
   </div>
 )}     
-       {activeTab === 'archivio-mail' && (() => {
-  const BOOK_PRINCIPALI = ['sisal','bet365','pokerstars','snai','lottomatica','eurobet','betfair','planetwin','goldbet']
-
-  // Estrai tutti i mittenti unici dalle promozioni e costruisci lista colonne
-  const tutteLePromo = promozioni
-  const mittenteNormalizzato = (m) => {
-    if (!m) return ''
-    const s = m.toLowerCase()
-    // estrai dominio o nome principale
-    const match = s.match(/@([\w.-]+)/) || s.match(/([\w-]+)\.(it|com|eu|net)/)
-    if (match) {
-      const parts = match[1].split('.')
-      return parts[parts.length - 1] || parts[0]
-    }
-    return s.split(' ')[0].replace(/[^a-z0-9]/g, '')
-  }
-
-  const bookmakerDaPromo = [...new Set(tutteLePromo.map(p => {
-    const norm = mittenteNormalizzato(p.mittente)
-    // Trova se corrisponde a un principale
-    const principale = BOOK_PRINCIPALI.find(bp => norm.includes(bp) || p.mittente?.toLowerCase().includes(bp))
-    return principale ? principale : (p.mittente || '').toLowerCase().trim()
-  }))].filter(Boolean)
-
-  const principaliPresenti = BOOK_PRINCIPALI.filter(bp => bookmakerDaPromo.includes(bp))
-  const altriPresenti = bookmakerDaPromo
-    .filter(b => !BOOK_PRINCIPALI.includes(b))
-    .sort((a, b) => a.localeCompare(b))
-  const colonneBook = [...principaliPresenti, ...altriPresenti]
-
-  // Raggruppa promozioni per cliente + bookmaker
-  const getBookKey = (mittente) => {
-    if (!mittente) return ''
-    const norm = mittenteNormalizzato(mittente)
-    const principale = BOOK_PRINCIPALI.find(bp => norm.includes(bp) || mittente.toLowerCase().includes(bp))
-    return principale ? principale : mittente.toLowerCase().trim()
-  }
-
-  // Clienti ordinati alfabeticamente
-  const clientiOrdinati = [...clienti].sort((a, b) => a.nome.localeCompare(b.nome))
-
-  // Filtro mittente (ricerca rapida)
-  const colonneFiltered = archivioSearch
-    ? colonneBook.filter(b => b.toLowerCase().includes(archivioSearch.toLowerCase()))
-    : colonneBook
-
-  return (
-    <div style={tabContent}>
-      <div style={{ marginBottom: 16 }}>
-        <div style={sectionTopBar}>
-          <div>
-            <h2 style={sectionTitle}>📧 Archivio Mail</h2>
-            <p style={sectionDescription}>Promozioni ricevute per cliente × bookmaker · clicca il numero per leggere le mail{!promozioniArchivioCaricato ? ' · ⏳ caricamento archivio completo...' : ''}</p>
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10 }}>
-          <input
-            placeholder="🔍 Filtra bookmaker/mittente..."
-            value={archivioSearch}
-            onChange={e => setArchivioSearch(e.target.value)}
-            style={{ ...filterInput, maxWidth: 200 }}
-          />
-          <input
-            placeholder="👤 Filtra cliente..."
-            value={archivioFiltroCliente}
-            onChange={e => setArchivioFiltroCliente(e.target.value)}
-            style={{ ...filterInput, maxWidth: 180 }}
-          />
-          <input
-            type="date"
-            value={archivioFiltroData}
-            onChange={e => setArchivioFiltroData(e.target.value)}
-            style={{ ...filterInput, maxWidth: 160 }}
-          />
-          {(archivioSearch || archivioFiltroCliente || archivioFiltroData) && (
-            <button
-              onClick={() => { setArchivioSearch(''); setArchivioFiltroCliente(''); setArchivioFiltroData('') }}
-              style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.1)', color: '#f87171', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
-            >✕ Azzera filtri</button>
-          )}
-        </div>
-      </div>
-
-      {colonneBook.length === 0 ? (
-        <div style={{ marginTop: 32, color: '#94a3b8', textAlign: 'center', fontSize: 15 }}>
-          Nessuna promozione in archivio. Sincronizza le mail dalla tab Clienti.
-        </div>
-      ) : (
-        <div style={{ overflowX: 'auto', marginTop: 16, borderRadius: 16, border: '1px solid rgba(51,65,85,0.7)' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: Math.max(600, 160 + colonneFiltered.length * 100) }}>
-            <thead>
-              <tr>
-                <th style={{ ...th, position: 'sticky', left: 0, zIndex: 4, background: '#0b1220', minWidth: 140, borderRight: '1px solid rgba(51,65,85,0.7)' }}>
-                  Cliente
-                </th>
-                {colonneFiltered.map(book => (
-                  <th key={book} style={{ ...th, textAlign: 'center', minWidth: 90, padding: '12px 8px' }}>
-                    <span style={{
-                      display: 'inline-block',
-                      padding: '2px 7px',
-                      borderRadius: 6,
-                      fontSize: 11,
-                      fontWeight: 800,
-                      background: BOOK_PRINCIPALI.includes(book) ? 'rgba(56,189,248,0.12)' : 'rgba(51,65,85,0.4)',
-                      color: BOOK_PRINCIPALI.includes(book) ? '#38bdf8' : '#94a3b8',
-                      textTransform: 'capitalize'
-                    }}>{book}</span>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {clientiOrdinati
-                .filter(c => !archivioFiltroCliente || c.nome.toLowerCase().includes(archivioFiltroCliente.toLowerCase()))
-                .map(c => {
-                const promoCliente = tutteLePromo.filter(p => {
-                  if (p.cliente_id !== c.id && p.clienti?.nome !== c.nome) return false
-                  if (archivioFiltroData) {
-                    const dataMail = p.data_mail ? new Date(p.data_mail) : new Date(p.created_at)
-                    const filtroDate = new Date(archivioFiltroData)
-                    if (dataMail.toDateString() !== filtroDate.toDateString()) return false
-                  }
-                  return true
-                })
-                const haAlcunaPromo = colonneFiltered.some(book => promoCliente.filter(p => getBookKey(p.mittente) === book).length > 0)
-                if (!haAlcunaPromo) return null
-                return (
-                  <tr key={c.id} style={{ ...tr }}>
-                    <td style={{ ...tdStrong, position: 'sticky', left: 0, background: '#0b1220', zIndex: 2, borderRight: '1px solid rgba(51,65,85,0.7)', fontSize: 13 }}>
-                      {c.nome}
-                    </td>
-                    {colonneFiltered.map(book => {
-                      const mailCella = promoCliente.filter(p => getBookKey(p.mittente) === book)
-                      const nonLette = mailCella.filter(p => !p.letta).length
-                      return (
-                        <td key={book} style={{ ...td, textAlign: 'center', padding: '10px 8px', verticalAlign: 'middle' }}>
-                          {mailCella.length > 0 ? (
-                            <button
-                              onClick={() => setArchivioMailCella({ cliente: c, bookmaker: book, promo: mailCella })}
-                              style={{
-                                border: 'none',
-                                borderRadius: 8,
-                                padding: '4px 12px',
-                                fontWeight: 900,
-                                fontSize: 14,
-                                cursor: 'pointer',
-                                background: nonLette > 0 ? 'rgba(239,68,68,0.18)' : 'rgba(34,197,94,0.12)',
-                                color: nonLette > 0 ? '#f87171' : '#4ade80',
-                                minWidth: 36,
-                                position: 'relative'
-                              }}
-                            >
-                              {nonLette > 0 ? nonLette : mailCella.length}
-                            </button>
-                          ) : (
-                            <span style={{ color: '#334155', fontSize: 13 }}>·</span>
-                          )}
-                        </td>
-                      )
-                    })}
-                  </tr>
-                )
-              })}
-              {/* Riga footer con nomi bookmaker ripetuti */}
-              <tr style={{ ...tr, background: 'rgba(15,23,42,0.9)', borderTop: '2px solid rgba(51,65,85,0.7)' }}>
-                <th style={{ ...tdStrong, position: 'sticky', left: 0, background: '#0b1220', zIndex: 3, textAlign: 'left', padding: '10px 14px', fontSize: 11, color: '#94a3b8', fontWeight: 700, borderRight: '1px solid rgba(51,65,85,0.7)', minWidth: 120 }}>MITTENTE</th>
-                {colonneFiltered.map(book => (
-                  <th key={book} style={{ ...tdStrong, textAlign: 'center', padding: '10px 8px', fontSize: 11, fontWeight: 700, minWidth: 90 }}>
-                    <span style={{ background: 'rgba(56,189,248,0.12)', color: '#38bdf8', padding: '3px 8px', borderRadius: 6 }}>{book}</span>
-                  </th>
-                ))}
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Popup dettaglio cella */}
-      {archivioMailCella && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2500, padding: 16 }}>
-          <div style={{ width: '100%', maxWidth: 620, background: 'linear-gradient(180deg,rgba(15,23,42,0.99),rgba(2,6,23,1))', border: '2px solid rgba(56,189,248,0.4)', borderRadius: 22, padding: 24, maxHeight: '85vh', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-              <div>
-                <h3 style={{ margin: 0, color: '#f8fafc', fontSize: 17 }}>
-                  📧 {archivioMailCella.cliente.nome} · <span style={{ color: '#38bdf8', textTransform: 'capitalize' }}>{archivioMailCella.bookmaker}</span>
-                </h3>
-                <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 13 }}>{archivioMailCella.promo.length} mail in archivio</p>
-              </div>
-              <button
-                style={{ border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18 }}
-                onClick={() => setArchivioMailCella(null)}>×</button>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {archivioMailCella.promo.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).map((p, idx) => (
-                <div key={idx} style={{ background: 'rgba(11,18,32,0.85)', border: `1px solid ${!p.letta ? 'rgba(239,68,68,0.35)' : 'rgba(51,65,85,0.6)'}`, borderRadius: 12, padding: '12px 14px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: (p.priorita||'').toLowerCase() === 'alta' ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.12)', color: (p.priorita||'').toLowerCase() === 'alta' ? '#f87171' : '#fbbf24' }}>
-                        {(p.priorita||'media').toUpperCase()}
-                      </span>
-                      {!p.letta && <span style={{ fontSize: 10, fontWeight: 800, color: '#ef4444' }}>● NUOVA</span>}
-                    </div>
-                    <span style={{ fontSize: 11, color: '#64748b' }}>
-                      {p.data_mail ? new Date(p.data_mail).toLocaleDateString('it-IT') : new Date(p.created_at).toLocaleDateString('it-IT')}
-                    </span>
-                  </div>
-                  <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{p.oggetto}</div>
-                  <div style={{ color: '#64748b', fontSize: 11, marginBottom: 8 }}>Da: {p.mittente}</div>
-                  <button
-                    onClick={async () => {
-                      setTestoLive('')
-                      setPromozioneDettaglio(p)
-                      if (!p.letta) {
-                        setPromozioni(prev => prev.map(x => x.id === p.id ? { ...x, letta: true } : x))
-                        setArchivioMailCella(prev => prev ? { ...prev, promo: prev.promo.map(x => x.id === p.id ? { ...x, letta: true } : x) } : null)
-                        supabase.from('promozioni_clienti').update({ letta: true }).eq('id', p.id)
-                      }
-                      if (!p.testo_completo && p.gmail_message_id && p.email_id) {
-                        setTestoLoading(true)
-                        try {
-                          const res = await fetch(`/api/gmail/read-single?email_id=${p.email_id}&message_id=${p.gmail_message_id}`)
-                          const data = await res.json()
-                          if (data.testo) setTestoLive(data.testo)
-                        } catch {}
-                        setTestoLoading(false)
-                      }
-                    }}
-                    style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
-                  >📖 Leggi testo completo</button>
-                </div>
-              ))}
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-              <button
-                style={{ padding: '10px 22px', borderRadius: 12, border: 'none', background: '#38bdf8', color: '#0f172a', cursor: 'pointer', fontSize: 13, fontWeight: 800 }}
-                onClick={() => setArchivioMailCella(null)}>Chiudi</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-})()}
-
       {activeTab === 'punti-monete' && (() => {
   const ORDINE_CLIENTI = ['Ivan','Evaristo','Jonathan','Elia','Gabriela','Tatiana','Laura','Annarosa','Letizia','Nicola','Renato','Libero','Luisa','Samuele','Antonello','Paolo','Sergio','Italo','Ugo','Massi','Federico','Alfonso','Michela']
 
