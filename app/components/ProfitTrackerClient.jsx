@@ -139,6 +139,10 @@ const [archivioFiltroData, setArchivioFiltroData] = useState('')
 const [pmBooks, setPmBooks] = useState([])
 const [pmSaldi, setPmSaldi] = useState({})
 const [pmLoading, setPmLoading] = useState(true)
+const [puntiMonetaCaricata, setPuntiMonetaCaricata] = useState(false)
+const [matriceCaricata, setMatriceCaricata] = useState(false)
+const [smsCaricato, setSmsCaricato] = useState(false)
+const [promozioniArchivioCaricato, setPromozioniArchivioCaricato] = useState(false)
 const [speseCategoriaMese, setSpeseCategoriaMese] = useState([])
 const [txLoadAll, setTxLoadAll] = useState(false)
 const [speseMeseSelezionato, setSpeseMeseSelezionato] = useState(() => new Date().toISOString().slice(0, 7))
@@ -944,40 +948,75 @@ async function updateProfiloLivello(bookId, livello) {
     // ── UI visibile subito ─────────────────────────────────────────────────
     setLoading(false)
 
-    // ── FASE 2: dati pesanti in background (non bloccano la UI) ───────────
+    // ── FASE 2: dati leggeri in background (non bloccano la UI) ───────────
+    // Nota: Matrice, Punti & Monete, SMS e l'archivio completo delle Promozioni
+    // NON vengono più caricati qui: partono solo quando apri la tab corrispondente
+    // (vedi loadMatrice/loadPuntiMonete/loadSms/loadPromozioniComplete più sotto).
     const meseCorrenteISO = new Date().toISOString().slice(0, 7)
     Promise.all([
-      supabase.from('sms_clienti').select('*').order('data_ricezione', { ascending: false }).limit(500),
-      supabase.from('punti_monete').select('*').order('book_nome').order('cliente_nome'),
       supabase.from('transactions').select('id, note, importo, categoria_spesa, data, azione').eq('azione', 'wallet_to_external').gte('data', meseCorrenteISO + '-01').lt('data', new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toISOString()),
-      supabase.from('promozioni_clienti').select('*, clienti(nome)').order('data_mail', { ascending: false }).limit(5000),
-      supabase.from('matrice_bookmakers').select('*').order('bookmaker', { ascending: true }).range(0, 999),
-      supabase.from('matrice_bookmakers').select('*').order('bookmaker', { ascending: true }).range(1000, 1999),
-      supabase.from('matrice_bookmakers').select('*').order('bookmaker', { ascending: true }).range(2000, 2999),
-    ]).then(([smsRes, pmRes, speseRes, promoRes, m1, m2, m3]) => {
-      if (smsRes.data) setSmsClienti(smsRes.data)
-      if (!pmRes.error && pmRes.data && pmRes.data.length > 0) {
-        const bookMap = {}
-        const saldiMap = {}
-        pmRes.data.forEach(r => {
-          if (!bookMap[r.book_nome]) bookMap[r.book_nome] = { id: r.book_nome.toLowerCase(), nome: r.book_nome, valorePunto: Number(r.valore_punto), bookId: r.book_id ? String(r.book_id) : '' }
-          saldiMap[`${r.book_nome.toLowerCase()}__${r.cliente_nome}`] = r.punti
-        })
-        const booksArr = Object.values(bookMap)
-        setPuntiMoneteBooks(booksArr)
-        setPmBooks(booksArr)
-        setPmSaldi(saldiMap)
-      }
-      setPmLoading(false)
+      supabase.from('promozioni_clienti').select('*, clienti(nome)').eq('letta', false).order('data_mail', { ascending: false }).limit(200),
+    ]).then(([speseRes, promoRes]) => {
       if (speseRes.data) setSpeseCategoriaMese(speseRes.data)
       if (promoRes && !promoRes.error) {
         setPromozioni(promoRes.data || [])
         const altaPriorita = (promoRes.data || []).filter(p => !p.letta)
         if (altaPriorita.length > 0) setShowPromozioniPopup(true)
       }
-      setMatrice([...(m1.data || []), ...(m2.data || []), ...(m3.data || [])])
     })
   }
+
+  async function loadMatrice() {
+    if (matriceCaricata) return
+    const [m1, m2, m3] = await Promise.all([
+      supabase.from('matrice_bookmakers').select('*').order('bookmaker', { ascending: true }).range(0, 999),
+      supabase.from('matrice_bookmakers').select('*').order('bookmaker', { ascending: true }).range(1000, 1999),
+      supabase.from('matrice_bookmakers').select('*').order('bookmaker', { ascending: true }).range(2000, 2999),
+    ])
+    setMatrice([...(m1.data || []), ...(m2.data || []), ...(m3.data || [])])
+    setMatriceCaricata(true)
+  }
+
+  async function loadPuntiMonete() {
+    if (puntiMonetaCaricata) return
+    setPmLoading(true)
+    const { data, error } = await supabase.from('punti_monete').select('*').order('book_nome').order('cliente_nome')
+    if (!error && data && data.length > 0) {
+      const bookMap = {}
+      const saldiMap = {}
+      data.forEach(r => {
+        if (!bookMap[r.book_nome]) bookMap[r.book_nome] = { id: r.book_nome.toLowerCase(), nome: r.book_nome, valorePunto: Number(r.valore_punto), bookId: r.book_id ? String(r.book_id) : '' }
+        saldiMap[`${r.book_nome.toLowerCase()}__${r.cliente_nome}`] = r.punti
+      })
+      const booksArr = Object.values(bookMap)
+      setPuntiMoneteBooks(booksArr)
+      setPmBooks(booksArr)
+      setPmSaldi(saldiMap)
+    }
+    setPmLoading(false)
+    setPuntiMonetaCaricata(true)
+  }
+
+  async function loadSms() {
+    if (smsCaricato) return
+    const { data, error } = await supabase.from('sms_clienti').select('*').order('data_ricezione', { ascending: false }).limit(500)
+    if (!error && data) setSmsClienti(data)
+    setSmsCaricato(true)
+  }
+
+  async function loadPromozioniComplete() {
+    if (promozioniArchivioCaricato) return
+    const { data, error } = await supabase.from('promozioni_clienti').select('*, clienti(nome)').order('data_mail', { ascending: false }).limit(5000)
+    if (!error) setPromozioni(data || [])
+    setPromozioniArchivioCaricato(true)
+  }
+
+  useEffect(() => {
+    if (activeTab === 'matrice') loadMatrice()
+    else if (activeTab === 'punti-monete') loadPuntiMonete()
+    else if (activeTab === 'sms') loadSms()
+    else if (activeTab === 'archivio-mail') loadPromozioniComplete()
+  }, [activeTab])
   const saveWeeklySnapshot = async () => {
     try {
       const snapshotDate = new Date().toISOString().split('T')[0]
@@ -4661,6 +4700,10 @@ onChange={(e) => {
       </div>
     </div>
 
+    {!matriceCaricata && (
+      <p style={{ color: '#94a3b8', marginBottom: 12 }}>⏳ Caricamento matrice in corso...</p>
+    )}
+
     {/* Statistiche */}
     <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
       {[
@@ -4836,7 +4879,7 @@ onChange={(e) => {
         <div style={sectionTopBar}>
           <div>
             <h2 style={sectionTitle}>📧 Archivio Mail</h2>
-            <p style={sectionDescription}>Promozioni ricevute per cliente × bookmaker · clicca il numero per leggere le mail</p>
+            <p style={sectionDescription}>Promozioni ricevute per cliente × bookmaker · clicca il numero per leggere le mail{!promozioniArchivioCaricato ? ' · ⏳ caricamento archivio completo...' : ''}</p>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10 }}>
@@ -6671,7 +6714,7 @@ onChange={(e) => {
               <div style={panelHeader}>
                 <div>
                   <h2 style={panelTitle}>📱 Archivio SMS</h2>
-                  <p style={panelSubtitle}>{smsClienti.length} messaggi totali</p>
+                  <p style={panelSubtitle}>{!smsCaricato ? '⏳ Caricamento...' : `${smsClienti.length} messaggi totali`}</p>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button style={secondaryButton} onClick={async () => {
