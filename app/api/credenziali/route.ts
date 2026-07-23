@@ -20,18 +20,32 @@ export async function GET(request: Request) {
   }
 
   // Lista completa, SENZA password/risposta segreta, con dati book uniti (se presente)
-  const { data, error } = await supabase
-    .from('credenziali')
-    .select(`
-      id, book_id, username, data_iscrizione, limite_settimanale, invio_documenti, note, created_at,
-      bookmaker_manuale, intestatario_manuale,
-      books ( nome, intestatario )
-    `)
-    .order('created_at', { ascending: false })
+  // Caricamento a blocchi da 1000 righe: PostgREST limita di default le righe restituite
+  // per singola chiamata, quindi con più di 1000 credenziali servono più richieste in sequenza.
+  const BLOCCO = 1000
+  let tutte: any[] = []
+  let offset = 0
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  while (true) {
+    const { data, error } = await supabase
+      .from('credenziali')
+      .select(`
+        id, book_id, username, data_iscrizione, limite_settimanale, invio_documenti, note, created_at,
+        bookmaker_manuale, intestatario_manuale,
+        books ( nome, intestatario )
+      `)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + BLOCCO - 1)
 
-  const credenziali = (data || []).map((c: any) => ({
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    tutte = tutte.concat(data || [])
+
+    if (!data || data.length < BLOCCO) break
+    offset += BLOCCO
+  }
+
+  const credenziali = tutte.map((c: any) => ({
     id: c.id,
     book_id: c.book_id,
     username: c.username,
