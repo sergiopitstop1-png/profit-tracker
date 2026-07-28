@@ -1586,6 +1586,7 @@ if (!walletFrom || !walletTo || !cmd.importo) {
     applyLocalWalletSaldo(wallet.id, nuovoSaldoWallet3)
     applyLocalNuovaTransazione(rPrelEst.data)
     applyLocalNuovaContabilita(rSpesa.data)
+    setTotaleEsterni(prev => prev + cmd.importo) // FIX: allinea subito il totale prelievi esterni (stesso bug del form manuale)
     setVoiceStatus(`✅ Prelevati ${cmd.importo}€ da ${wallet.nome} verso esterno`)
     speak(`Fatto. Prelevati ${cmd.importo} euro da ${wallet.nome}`)
     return
@@ -2758,6 +2759,7 @@ if (nota === null) return
         applyLocalWalletSaldo(wallet.id, nuovoSaldoWallet)
         applyLocalNuovaTransazione(txRow)
         applyLocalNuovaContabilita(r.data)
+        setTotaleEsterni(prev => prev + importo) // FIX: allinea subito il totale prelievi esterni, altrimenti il profitto scende finché non si ricarica la pagina
       }
     }
 
