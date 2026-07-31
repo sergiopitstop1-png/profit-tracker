@@ -290,10 +290,27 @@ function calcEV(prob, bookOdds) {
   return prob * (bookOdds - 1) - (1 - prob);
 }
 
+function currentSeasonFor(code) {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1; // 1-12
+
+  // Leghe che seguono l'anno solare (non agosto-maggio)
+  const CALENDAR_YEAR_LEAGUES = ["CLI", "BSA", "ALL", "TIP", "VEI", "MLS", "JJL"];
+
+  if (CALENDAR_YEAR_LEAGUES.includes(code)) {
+    return String(year);
+  }
+
+  // Leghe agosto-maggio (SA, PL, BL1, PD, FL1, CL, ELC, DED, PPL, DSU, ...):
+  // season = anno di inizio stagione. Es: gen-giu 2026 -> stagione 2025 (2025/26).
+  // lug-dic 2026 -> stagione 2026 (2026/27, anche in preseason/prime giornate).
+  return String(month >= 7 ? year : year - 1);
+}
+
 async function getSeasonData(code, supabaseClient) {
   const today = new Date().toISOString().split("T")[0];
-  const SOUTH_AM = ["CLI", "BSA"];
-  const season = SOUTH_AM.includes(code) ? "2024" : "2025";
+  const season = currentSeasonFor(code);
   try {
     const { data: cached } = await supabaseClient
       .from("pronox_cache")
