@@ -9,6 +9,10 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
+// Solo le 12 competizioni coperte dal piano FREE di football-data.org.
+// Le altre (Nordiche, MLS, J-League, Copa Libertadores) richiederebbero
+// il piano Pro (144 competizioni, 249€/mese) o una fonte dati alternativa
+// (es. API-Football su RapidAPI, ~19$/mese) — da valutare in futuro.
 const LEAGUES = [
   { code: "SA", name: "Serie A", flag: "🇮🇹", oddsKey: "soccer_italy_serie_a" },
   { code: "PL", name: "Premier League", flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿", oddsKey: "soccer_epl" },
@@ -20,19 +24,12 @@ const LEAGUES = [
   { code: "DED", name: "Eredivisie", flag: "🇳🇱", oddsKey: "soccer_netherlands_eredivisie" },
   { code: "PPL", name: "Primeira Liga", flag: "🇵🇹", oddsKey: null },
   { code: "BSA", name: "Serie B Brasile", flag: "🇧🇷", oddsKey: "soccer_brazil_campeonato" },
-  { code: "CLI", name: "Copa Libertadores", flag: "🌎", oddsKey: "soccer_conmebol_copa_libertadores" },
   { code: "EC", name: "European Championship", flag: "🇪🇺", oddsKey: null },
   { code: "WC", name: "FIFA World Cup", flag: "🌍", oddsKey: "soccer_fifa_world_cup" },
-  { code: "ALL", name: "Allsvenskan", flag: "🇸🇪", oddsKey: "soccer_sweden_allsvenskan" },
-  { code: "TIP", name: "Eliteserien", flag: "🇳🇴", oddsKey: "soccer_norway_eliteserien" },
-  { code: "VEI", name: "Veikkausliiga", flag: "🇫🇮", oddsKey: "soccer_finland_veikkausliiga" },
-  { code: "DSU", name: "Superliga", flag: "🇩🇰", oddsKey: "soccer_denmark_superliga" },
-  { code: "MLS", name: "MLS", flag: "🇺🇸", oddsKey: "soccer_usa_mls" },
-  { code: "JJL", name: "J-League", flag: "🇯🇵", oddsKey: "soccer_japan_j_league" },
 ];
 
 const DOMESTIC_LEAGUES = ["SA", "PL", "BL1", "PD", "FL1", "ELC", "DED", "PPL"];
-const CUP_LEAGUES = ["CL", "EC", "WC", "CLI"];
+const CUP_LEAGUES = ["CL", "EC", "WC"];
 
 // ─── MODELLO ───────────────────────────────────────────────────
 
@@ -296,13 +293,13 @@ function currentSeasonFor(code) {
   const month = now.getMonth() + 1; // 1-12
 
   // Leghe che seguono l'anno solare (non agosto-maggio)
-  const CALENDAR_YEAR_LEAGUES = ["CLI", "BSA", "ALL", "TIP", "VEI", "MLS", "JJL"];
+  const CALENDAR_YEAR_LEAGUES = ["BSA"];
 
   if (CALENDAR_YEAR_LEAGUES.includes(code)) {
     return String(year);
   }
 
-  // Leghe agosto-maggio (SA, PL, BL1, PD, FL1, CL, ELC, DED, PPL, DSU, ...):
+  // Leghe agosto-maggio (SA, PL, BL1, PD, FL1, CL, ELC, DED, PPL):
   // season = anno di inizio stagione. Es: gen-giu 2026 -> stagione 2025 (2025/26).
   // lug-dic 2026 -> stagione 2026 (2026/27, anche in preseason/prime giornate).
   return String(month >= 7 ? year : year - 1);
