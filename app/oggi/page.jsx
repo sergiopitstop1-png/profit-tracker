@@ -535,11 +535,15 @@ export default function Oggi() {
           time: m.commenceTime ? new Date(m.commenceTime).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }) : "--:--",
           home: { name: m.playerA.name, crest: null },
           away: { name: m.playerB.name, crest: null },
+          playerA: m.playerA,
+          playerB: m.playerB,
           probs: { h: m.probA, a: m.probB },
           oddsData: m.oddsA && m.oddsB ? { o1: m.oddsA, o2: m.oddsB } : null,
           signals: [
             m.isValueA && { label: `${m.playerA.name} vince`, prob: m.probA, isValue: true, ev: m.evA, fairOdds: 1 / m.probA, bookOdds: m.oddsA, color: "#c8f135", strong: m.probA > 0.65 },
             m.isValueB && { label: `${m.playerB.name} vince`, prob: m.probB, isValue: true, ev: m.evB, fairOdds: 1 / m.probB, bookOdds: m.oddsB, color: "#4af0c4", strong: m.probB > 0.65 },
+            m.suspiciousA && { label: `${m.playerA.name} vince`, prob: m.probA, isSuspicious: true, ev: m.evA, fairOdds: 1 / m.probA, bookOdds: m.oddsA, color: "#f0794a" },
+            m.suspiciousB && { label: `${m.playerB.name} vince`, prob: m.probB, isSuspicious: true, ev: m.evB, fairOdds: 1 / m.probB, bookOdds: m.oddsB, color: "#f0794a" },
           ].filter(Boolean),
           hasValue: m.isValueA || m.isValueB,
           statsWarning: !m.playerA.statsFound || !m.playerB.statsFound,
@@ -705,11 +709,6 @@ export default function Oggi() {
               </div>
             </div>
           )}
-          {sports.includes("tennis") && (
-            <div style={{ marginTop: sports.includes("calcio") ? 14 : 0, fontSize: 12, color: "#6b7490", background: "#0d0f14", border: "1px solid #2a2f3f", borderRadius: 8, padding: "10px 14px" }}>
-              🎾 Modulo tennis in sviluppo — al momento non produce ancora segnali reali.
-            </div>
-          )}
         </div>
 
         <button onClick={load} disabled={loading || (sports.includes("calcio") && selectedLeagues.length === 0) || sports.length === 0}
@@ -775,15 +774,15 @@ export default function Oggi() {
                     const key = `${m.id}_${s.label}`;
                     const savedStatus = savedMap[key];
                     return (
-                      <div key={i} style={{ borderRadius: 8, border: `1px solid ${s.isValue ? "rgba(255,159,67,0.6)" : "#2a2f3f"}`, background: s.isValue ? "rgba(255,159,67,0.08)" : "rgba(255,255,255,0.03)", padding: "10px 14px" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: s.isValue ? 8 : 0 }}>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: s.isValue ? "#ff9f43" : "#e8ecf5" }}>
-                            {s.isValue ? "🎆 " : "→ "}{s.label}
+                      <div key={i} style={{ borderRadius: 8, border: `1px solid ${s.isValue ? "rgba(255,159,67,0.6)" : s.isSuspicious ? "rgba(240,121,74,0.5)" : "#2a2f3f"}`, background: s.isValue ? "rgba(255,159,67,0.08)" : s.isSuspicious ? "rgba(240,121,74,0.08)" : "rgba(255,255,255,0.03)", padding: "10px 14px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: (s.isValue || s.isSuspicious) ? 8 : 0 }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: s.isValue ? "#ff9f43" : s.isSuspicious ? "#f0794a" : "#e8ecf5" }}>
+                            {s.isValue ? "🎆 " : s.isSuspicious ? "⚠️ " : "→ "}{s.label}
                           </span>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                             <span style={{ fontSize: 13, fontFamily: "monospace", color: s.color, fontWeight: 600 }}>{(s.prob * 100).toFixed(1)}%</span>
                             {s.bookOdds && <span style={{ fontSize: 12, fontFamily: "monospace", color: "#6b7490" }}>@{s.bookOdds.toFixed(2)}</span>}
-                            {!savedStatus && (
+                            {!s.isSuspicious && !savedStatus && (
                               <button onClick={() => saveSignal(m, s)} disabled={savingId === key}
                                 style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, border: `1px solid ${s.color}60`, background: `${s.color}15`, color: s.color, cursor: "pointer", fontWeight: 700 }}>
                                 {savingId === key ? "..." : "☑ Salva"}
@@ -795,6 +794,11 @@ export default function Oggi() {
                         {s.isValue && s.ev !== null && (
                           <div style={{ fontSize: 11, color: "#ff9f43", background: "rgba(255,159,67,0.1)", borderRadius: 6, padding: "4px 10px", display: "inline-block" }}>
                             Quota equa: {s.fairOdds.toFixed(2)} · Book: {s.bookOdds.toFixed(2)} · EV: +{(s.ev * 100).toFixed(1)}%
+                          </div>
+                        )}
+                        {s.isSuspicious && s.ev !== null && (
+                          <div style={{ fontSize: 11, color: "#f0794a", background: "rgba(240,121,74,0.1)", borderRadius: 6, padding: "4px 10px", display: "inline-block" }}>
+                            EV +{(s.ev * 100).toFixed(1)}% — fuori scala, probabile stima inaffidabile: non salvabile
                           </div>
                         )}
                       </div>
