@@ -523,10 +523,31 @@ export default function Oggi() {
     } // fine blocco calcio
 
     if (sports.includes("tennis")) {
-      // Modulo tennis: in sviluppo (dataset Sackmann + modello Klaassen-Magnus).
-      // Per ora non aggiunge partite reali, solo un segnaposto.
-      setProgress("🎾 Modulo tennis non ancora attivo...");
-      await new Promise(r => setTimeout(r, 400));
+      setProgress("🎾 Cerco partite di tennis...");
+      try {
+        const r = await fetch(`/api/tennis/matches?date=${date}`);
+        const d = await r.json();
+        const tennisMatches = (d.matches || []).map((m, i) => ({
+          isTennis: true,
+          id: `tennis_${date}_${i}`,
+          tour: m.tour,
+          league: { name: `🎾 Tennis ${m.tour}` },
+          time: m.commenceTime ? new Date(m.commenceTime).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }) : "--:--",
+          home: { name: m.playerA.name, crest: null },
+          away: { name: m.playerB.name, crest: null },
+          probs: { h: m.probA, a: m.probB },
+          oddsData: m.oddsA && m.oddsB ? { o1: m.oddsA, o2: m.oddsB } : null,
+          signals: [
+            m.isValueA && { label: `${m.playerA.name} vince`, prob: m.probA, isValue: true, ev: m.evA, fairOdds: 1 / m.probA, bookOdds: m.oddsA, color: "#c8f135", strong: m.probA > 0.65 },
+            m.isValueB && { label: `${m.playerB.name} vince`, prob: m.probB, isValue: true, ev: m.evB, fairOdds: 1 / m.probB, bookOdds: m.oddsB, color: "#4af0c4", strong: m.probB > 0.65 },
+          ].filter(Boolean),
+          hasValue: m.isValueA || m.isValueB,
+          statsWarning: !m.playerA.statsFound || !m.playerB.statsFound,
+        }));
+        all.push(...tennisMatches);
+      } catch (e) {
+        console.error("Errore caricamento tennis:", e);
+      }
     }
 
     setMatches(all);
@@ -544,8 +565,8 @@ export default function Oggi() {
         league: match.league.name, home_team: match.home.name, away_team: match.away.name,
         prediction_type: signal.type, prediction_label: signal.label,
         probability: parseFloat((signal.prob * 100).toFixed(1)),
-        lambda_home: parseFloat(match.lH.toFixed(3)),
-        lambda_away: parseFloat(match.lA.toFixed(3)),
+        lambda_home: match.isTennis ? null : parseFloat(match.lH.toFixed(3)),
+        lambda_away: match.isTennis ? null : parseFloat(match.lA.toFixed(3)),
         status: "PENDING",
         user_id: user?.id || null,
       });
@@ -556,6 +577,11 @@ export default function Oggi() {
 
   const verifyResult = async (match, signal) => {
     const key = `${match.id}_${signal.label}`;
+    if (match.isTennis) {
+      // Verifica risultati tennis non ancora implementata (serve una fonte
+      // punteggi live per il tennis) — per ora si può solo salvare il segnale.
+      return;
+    }
     setCheckingId(key);
     try {
       const r = await fetch(`${API_FD}?endpoint=matches/${match.fdId}`);
@@ -594,8 +620,8 @@ export default function Oggi() {
         league: match.league.name, home_team: match.home.name, away_team: match.away.name,
         prediction_label: signal.label, prediction_type: signal.type,
         probability: parseFloat((signal.prob * 100).toFixed(1)),
-        lambda_home: parseFloat(match.lH.toFixed(3)),
-        lambda_away: parseFloat(match.lA.toFixed(3)),
+        lambda_home: match.isTennis ? null : parseFloat(match.lH.toFixed(3)),
+        lambda_away: match.isTennis ? null : parseFloat(match.lA.toFixed(3)),
         status: "PENDING",
       });
       setPianoMap(prev => ({ ...prev, [key]: "saved" }));
@@ -708,6 +734,78 @@ export default function Oggi() {
         )}
 
         {filtered.map(m => (
+          m.isTennis ? (
+            <div key={m.id} style={{ background: "#161920", border: `1px solid ${m.hasValue ? "rgba(255,159,67,0.5)" : "#2a2f3f"}`, borderRadius: 14, padding: 18, marginBottom: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: "#6b7490", fontWeight: 700, letterSpacing: "0.08em" }}>
+                  {m.league.name} · {m.time}
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  {m.hasValue && <span style={{ fontSize: 11, fontWeight: 800, color: "#ff9f43", background: "rgba(255,159,67,0.15)", padding: "2px 8px", borderRadius: 6 }}>🎆 VALUE</span>}
+                  {m.statsWarning && <span style={{ fontSize: 11, color: "#f0794a" }}>⚠ stats stimate</span>}
+                </div>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700, fontSize: 15 }}>{m.home.name}</div>
+                  <div style={{ fontSize: 12, color: "#6b7490", marginTop: 2 }}>{(m.probs.h * 100).toFixed(0)}% · servizio {m.playerA?.servePct ? (m.playerA.servePct * 100).toFixed(0) + "%" : "—"}</div>
+                </div>
+                <div style={{ color: "#6b7490", fontSize: 13, fontWeight: 600 }}>vs</div>
+                <div style={{ flex: 1, textAlign: "right" }}>
+                  <div style={{ fontWeight: 700, fontSize: 15 }}>{m.away.name}</div>
+                  <div style={{ fontSize: 12, color: "#6b7490", marginTop: 2 }}>{(m.probs.a * 100).toFixed(0)}% · servizio {m.playerB?.servePct ? (m.playerB.servePct * 100).toFixed(0) + "%" : "—"}</div>
+                </div>
+              </div>
+
+              {m.oddsData && (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 6, marginBottom: 12 }}>
+                  {[["1", m.oddsData.o1], ["2", m.oddsData.o2]].map(([l, v]) => (
+                    <div key={l} style={{ background: "#0d0f14", border: "1px solid rgba(255,159,67,0.2)", borderRadius: 8, padding: "8px 4px", textAlign: "center" }}>
+                      <div style={{ fontSize: 9, color: "#ff9f43", fontWeight: 700, letterSpacing: "0.06em", marginBottom: 3 }}>{l} 📖</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: "#e8ecf5", fontFamily: "monospace" }}>{v ? v.toFixed(2) : "—"}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {m.signals.length > 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {m.signals.map((s, i) => {
+                    const key = `${m.id}_${s.label}`;
+                    const savedStatus = savedMap[key];
+                    return (
+                      <div key={i} style={{ borderRadius: 8, border: `1px solid ${s.isValue ? "rgba(255,159,67,0.6)" : "#2a2f3f"}`, background: s.isValue ? "rgba(255,159,67,0.08)" : "rgba(255,255,255,0.03)", padding: "10px 14px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: s.isValue ? 8 : 0 }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: s.isValue ? "#ff9f43" : "#e8ecf5" }}>
+                            {s.isValue ? "🎆 " : "→ "}{s.label}
+                          </span>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 13, fontFamily: "monospace", color: s.color, fontWeight: 600 }}>{(s.prob * 100).toFixed(1)}%</span>
+                            {s.bookOdds && <span style={{ fontSize: 12, fontFamily: "monospace", color: "#6b7490" }}>@{s.bookOdds.toFixed(2)}</span>}
+                            {!savedStatus && (
+                              <button onClick={() => saveSignal(m, s)} disabled={savingId === key}
+                                style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, border: `1px solid ${s.color}60`, background: `${s.color}15`, color: s.color, cursor: "pointer", fontWeight: 700 }}>
+                                {savingId === key ? "..." : "☑ Salva"}
+                              </button>
+                            )}
+                            {savedStatus === "PENDING" && <span style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, background: "rgba(255,208,96,0.1)", color: "#ffd060", fontWeight: 700 }}>⏳ salvato</span>}
+                          </div>
+                        </div>
+                        {s.isValue && s.ev !== null && (
+                          <div style={{ fontSize: 11, color: "#ff9f43", background: "rgba(255,159,67,0.1)", borderRadius: 6, padding: "4px 10px", display: "inline-block" }}>
+                            Quota equa: {s.fairOdds.toFixed(2)} · Book: {s.bookOdds.toFixed(2)} · EV: +{(s.ev * 100).toFixed(1)}%
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: "#6b7490", padding: "8px 0" }}>— Nessun value bet · skip</div>
+              )}
+            </div>
+          ) : (
           <div key={m.id} style={{ background: "#161920", border: `1px solid ${m.hasValue ? "rgba(255,159,67,0.5)" : m.signals.some(s => s.strong) ? "rgba(200,241,53,0.4)" : m.signals.length > 0 ? "rgba(74,240,196,0.25)" : "#2a2f3f"}`, borderRadius: 14, padding: 18, marginBottom: 10 }}>
 
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
@@ -879,6 +977,7 @@ export default function Oggi() {
               <div style={{ fontSize: 12, color: "#6b7490", padding: "8px 0" }}>— Nessun segnale chiaro · skip</div>
             )}
           </div>
+          )
         ))}
 
         {matches.length === 0 && !loading && (
