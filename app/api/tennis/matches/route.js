@@ -15,6 +15,7 @@ const supabase = createClient(
 
 const ODDS_API_KEY = process.env.ODDS_API_KEY;
 const DEFAULT_SURFACE_SERVE_PCT = { Hard: 0.62, Clay: 0.60, Grass: 0.64, Carpet: 0.62 };
+const DEFAULT_SURFACE_RETURN_PCT = { Hard: 0.38, Clay: 0.40, Grass: 0.36, Carpet: 0.38 };
 
 // ── Odds API: scopre i tornei di tennis attivi in questo momento ──
 // (a differenza del calcio, il tennis su The Odds API non ha una chiave
@@ -62,16 +63,26 @@ async function findPlayerByName(name) {
   return exact || data[0];
 }
 
-async function getSurfaceServePct(playerId, surface) {
-  if (!playerId) return null;
+async function getSurfaceStats(playerId, surface) {
+  if (!playerId) return { servePct: null, returnPct: null };
   const { data } = await supabase
     .from("tennis_player_surface_stats")
-    .select("serve_pt_win_pct, matches_sample")
+    .select("serve_pt_win_pct, return_pt_win_pct, matches_sample")
     .eq("player_id", playerId)
     .eq("surface", surface)
     .maybeSingle();
-  if (data && data.matches_sample >= 5) return data.serve_pt_win_pct;
-  return null; // campione troppo piccolo, verrà usato il default di superficie
+  if (data && data.matches_sample >= 15) {
+    return { servePct: data.serve_pt_win_pct, returnPct: data.return_pt_win_pct };
+  }
+  return { servePct: null, returnPct: null }; // campione troppo piccolo, si userà il default di superficie
+}
+
+// Combina la % di servizio del server con la % di risposta dell'avversario:
+// un servizio "forte sulla carta" contro un ottimo rispositore va ammortizzato,
+// non preso alla lettera. Media semplice tra le due letture del punto.
+function effectivePointWinProb(serverServePct, returnerReturnPct) {
+  const returnerAllows = 1 - returnerReturnPct; // quanto il rispositore "concede" in media
+  return (serverServePct + returnerAllows) / 2;
 }
 
 function calcEV(prob, bookOdds) {
@@ -136,13 +147,20 @@ export async function GET(request) {
         findPlayerByName(playerBName),
       ]);
 
-      const [pctA, pctB] = await Promise.all([
-        getSurfaceServePct(playerA?.player_id, surface),
-        getSurfaceServePct(playerB?.player_id, surface),
+      const [statsA, statsB] = await Promise.all([
+        getSurfaceStats(playerA?.player_id, surface),
+        getSurfaceStats(playerB?.player_id, surface),
       ]);
 
-      const pA = pctA ?? DEFAULT_SURFACE_SERVE_PCT[surface];
-      const pB = pctB ?? DEFAULT_SURFACE_SERVE_PCT[surface];
+      const serveA = statsA.servePct ?? DEFAULT_SURFACE_SERVE_PCT[surface];
+      const serveB = statsB.servePct ?? DEFAULT_SURFACE_SERVE_PCT[surface];
+      const returnA = statsA.returnPct ?? DEFAULT_SURFACE_RETURN_PCT[surface];
+      const returnB = statsB.returnPct ?? DEFAULT_SURFACE_RETURN_PCT[surface];
+
+      // pA/pB = probabilità di vincere un punto al PROPRIO servizio, aggiustata
+      // per quanto bene risponde l'avversario (non solo la propria % di servizio grezza)
+      const pA = effectivePointWinProb(serveA, returnB);
+      const pB = effectivePointWinProb(serveB, returnA);
 
       const probA = matchProb(pA, pB, 3);
       const probB = 1 - probA;
@@ -161,19 +179,29 @@ export async function GET(request) {
       const evA = calcEV(probA, oddsA);
       const evB = calcEV(probB, oddsB);
 
+      // Un EV fuori scala (oltre il 20%) nel tennis pro è quasi sempre un
+      // segnale di stima poco affidabile (campione piccolo, dato anomalo),
+      // non un vero value bet — lo marchiamo come sospetto invece di
+      // nasconderlo, così si vede ma non si scambia per oro.
+      const EV_SANITY_CAP = 0.20;
+      const suspiciousA = evA !== null && evA > EV_SANITY_CAP;
+      const suspiciousB = evB !== null && evB > EV_SANITY_CAP;
+
       results.push({
         tour,
         commenceTime: ev.commence_time,
-        playerA: { name: playerAName, matchedId: playerA?.player_id || null, servePct: pA, statsFound: !!pctA },
-        playerB: { name: playerBName, matchedId: playerB?.player_id || null, servePct: pB, statsFound: !!pctB },
+        playerA: { name: playerAName, matchedId: playerA?.player_id || null, servePct: serveA, returnPct: returnA, statsFound: !!statsA.servePct },
+        playerB: { name: playerBName, matchedId: playerB?.player_id || null, servePct: serveB, returnPct: returnB, statsFound: !!statsB.servePct },
         surface,
         probA: Number(probA.toFixed(4)),
         probB: Number(probB.toFixed(4)),
         oddsA, oddsB,
         evA: evA !== null ? Number(evA.toFixed(4)) : null,
         evB: evB !== null ? Number(evB.toFixed(4)) : null,
-        isValueA: evA !== null && evA > 0.03,
-        isValueB: evB !== null && evB > 0.03,
+        isValueA: evA !== null && evA > 0.03 && !suspiciousA,
+        isValueB: evB !== null && evB > 0.03 && !suspiciousB,
+        suspiciousA,
+        suspiciousB,
       });
     }
   }
