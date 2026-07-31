@@ -364,11 +364,16 @@ export default function Oggi() {
   const [savedMap, setSavedMap] = useState({});
   const [checkingId, setCheckingId] = useState(null);
   const [pianoMap, setPianoMap] = useState({});
+  const [sports, setSports] = useState(["calcio"]);
 
   if (!authorized) return null
 
   const toggleLeague = (code) => {
     setSelectedLeagues(prev => prev.includes(code) ? prev.filter(x => x !== code) : [...prev, code]);
+  };
+
+  const toggleSport = (s) => {
+    setSports(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
   };
 
   const load = async () => {
@@ -378,6 +383,8 @@ export default function Oggi() {
     setPianoMap({});
     const all = [];
     const today = date;
+
+    if (sports.includes("calcio") && selectedLeagues.length > 0) {
 
     const needsDomestic = selectedLeagues.some(c => CUP_LEAGUES.includes(c));
     const leaguesToLoad = needsDomestic
@@ -512,6 +519,16 @@ export default function Oggi() {
       if (b.hasValue !== a.hasValue) return b.hasValue ? 1 : -1;
       return (b.signals[0]?.prob || 0) - (a.signals[0]?.prob || 0);
     });
+
+    } // fine blocco calcio
+
+    if (sports.includes("tennis")) {
+      // Modulo tennis: in sviluppo (dataset Sackmann + modello Klaassen-Magnus).
+      // Per ora non aggiunge partite reali, solo un segnaposto.
+      setProgress("🎾 Modulo tennis non ancora attivo...");
+      await new Promise(r => setTimeout(r, 400));
+    }
+
     setMatches(all);
     setLoading(false);
     setProgress("");
@@ -634,23 +651,44 @@ export default function Oggi() {
                 <option value="trading">Trading O0.5 HT + U2.5</option>
               </select>
             </div>
-          </div>
-          <div>
-            <label style={lbl}>Leghe (seleziona 1-3 per risultati stabili)</label>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {LEAGUES.map(l => (
-                <button key={l.code} onClick={() => toggleLeague(l.code)}
-                  style={{ padding: "6px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer", border: "1px solid", background: selectedLeagues.includes(l.code) ? "#c8f135" : "transparent", color: selectedLeagues.includes(l.code) ? "#0d0f14" : "#6b7490", borderColor: selectedLeagues.includes(l.code) ? "#c8f135" : "#2a2f3f" }}>
-                  {l.flag} {l.name}
-                </button>
-              ))}
+            <div>
+              <label style={lbl}>Sport</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                {[
+                  { key: "calcio", label: "⚽ Calcio" },
+                  { key: "tennis", label: "🎾 Tennis" },
+                ].map(s => (
+                  <button key={s.key} onClick={() => toggleSport(s.key)}
+                    style={{ padding: "9px 16px", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", border: "1px solid", background: sports.includes(s.key) ? "#c8f135" : "transparent", color: sports.includes(s.key) ? "#0d0f14" : "#6b7490", borderColor: sports.includes(s.key) ? "#c8f135" : "#2a2f3f" }}>
+                    {s.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
+          {sports.includes("calcio") && (
+            <div>
+              <label style={lbl}>Leghe (seleziona 1-3 per risultati stabili)</label>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {LEAGUES.map(l => (
+                  <button key={l.code} onClick={() => toggleLeague(l.code)}
+                    style={{ padding: "6px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer", border: "1px solid", background: selectedLeagues.includes(l.code) ? "#c8f135" : "transparent", color: selectedLeagues.includes(l.code) ? "#0d0f14" : "#6b7490", borderColor: selectedLeagues.includes(l.code) ? "#c8f135" : "#2a2f3f" }}>
+                    {l.flag} {l.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {sports.includes("tennis") && (
+            <div style={{ marginTop: sports.includes("calcio") ? 14 : 0, fontSize: 12, color: "#6b7490", background: "#0d0f14", border: "1px solid #2a2f3f", borderRadius: 8, padding: "10px 14px" }}>
+              🎾 Modulo tennis in sviluppo — al momento non produce ancora segnali reali.
+            </div>
+          )}
         </div>
 
-        <button onClick={load} disabled={loading || selectedLeagues.length === 0}
-          style={{ width: "100%", padding: 14, fontSize: 15, fontWeight: 800, borderRadius: 10, border: "none", cursor: loading || selectedLeagues.length === 0 ? "not-allowed" : "pointer", background: loading || selectedLeagues.length === 0 ? "#2a2f3f" : "#c8f135", color: loading || selectedLeagues.length === 0 ? "#6b7490" : "#0d0f14", marginBottom: 20 }}>
-          {loading ? `⏳ ${progress}` : selectedLeagues.length === 0 ? "Seleziona almeno una lega" : "ANALIZZA PARTITE DEL GIORNO ↗"}
+        <button onClick={load} disabled={loading || (sports.includes("calcio") && selectedLeagues.length === 0) || sports.length === 0}
+          style={{ width: "100%", padding: 14, fontSize: 15, fontWeight: 800, borderRadius: 10, border: "none", cursor: loading || (sports.includes("calcio") && selectedLeagues.length === 0) || sports.length === 0 ? "not-allowed" : "pointer", background: loading || (sports.includes("calcio") && selectedLeagues.length === 0) || sports.length === 0 ? "#2a2f3f" : "#c8f135", color: loading || (sports.includes("calcio") && selectedLeagues.length === 0) || sports.length === 0 ? "#6b7490" : "#0d0f14", marginBottom: 20 }}>
+          {loading ? `⏳ ${progress}` : sports.length === 0 ? "Seleziona uno sport" : (sports.includes("calcio") && selectedLeagues.length === 0) ? "Seleziona almeno una lega" : "ANALIZZA PARTITE DEL GIORNO ↗"}
         </button>
 
         {matches.length > 0 && (
@@ -845,7 +883,7 @@ export default function Oggi() {
 
         {matches.length === 0 && !loading && (
           <div style={{ textAlign: "center", color: "#6b7490", padding: "40px 0", fontSize: 14 }}>
-            {selectedLeagues.length === 0 ? "Seleziona una o due leghe e clicca Analizza" : "Seleziona le leghe e clicca Analizza"}
+            {sports.includes("calcio") && selectedLeagues.length === 0 ? "Seleziona una o due leghe e clicca Analizza" : "Seleziona sport/leghe e clicca Analizza"}
           </div>
         )}
       </div>
