@@ -16,7 +16,21 @@ const supabase = createClient(
 const ODDS_API_KEY = process.env.ODDS_API_KEY;
 const DEFAULT_SURFACE_SERVE_PCT = { Hard: 0.62, Clay: 0.60, Grass: 0.64, Carpet: 0.62 };
 
-// ── Odds API: eventi tennis del giorno ──────────────────────────
+// ── Odds API: scopre i tornei di tennis attivi in questo momento ──
+// (a differenza del calcio, il tennis su The Odds API non ha una chiave
+// fissa per l'intero circuito: ogni torneo ha la sua sport_key, che compare
+// nel catalogo solo mentre quel torneo è "in season". Va quindi scoperta
+// dinamicamente ad ogni chiamata.)
+async function fetchActiveTennisSportKeys() {
+  const url = `https://api.the-odds-api.com/v4/sports?apiKey=${ODDS_API_KEY}`;
+  const r = await fetch(url);
+  if (!r.ok) return [];
+  const sports = await r.json();
+  return sports
+    .filter((s) => s.key && s.key.startsWith("tennis_") && s.active)
+    .map((s) => ({ key: s.key, title: s.title }));
+}
+
 async function fetchTennisOdds(sportKey) {
   const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/odds/?apiKey=${ODDS_API_KEY}&regions=eu&markets=h2h&oddsFormat=decimal`;
   const r = await fetch(url);
@@ -65,6 +79,13 @@ function calcEV(prob, bookOdds) {
   return prob * (bookOdds - 1) - (1 - prob);
 }
 
+function guessSurface(tournamentTitle) {
+  const t = (tournamentTitle || "").toLowerCase();
+  if (t.includes("french open") || t.includes("roland garros") || t.includes("madrid") || t.includes("rome") || t.includes("monte carlo") || t.includes("clay")) return "Clay";
+  if (t.includes("wimbledon") || t.includes("grass") || t.includes("halle") || t.includes("queen")) return "Grass";
+  return "Hard"; // default plausibile: la maggioranza del calendario è su cemento
+}
+
 export async function GET(request) {
   if (!ODDS_API_KEY) {
     return Response.json({ error: "ODDS_API_KEY non configurata", matches: [] }, { status: 200 });
@@ -74,13 +95,25 @@ export async function GET(request) {
   const date = searchParams.get("date") || new Date().toISOString().split("T")[0];
   const tourFilter = searchParams.get("tour"); // 'atp' | 'wta' | null (entrambi)
 
-  const sportKeys = [];
-  if (!tourFilter || tourFilter === "atp") sportKeys.push({ key: "tennis_atp", tour: "ATP" });
-  if (!tourFilter || tourFilter === "wta") sportKeys.push({ key: "tennis_wta", tour: "WTA" });
+  let activeSports = [];
+  try {
+    activeSports = await fetchActiveTennisSportKeys();
+  } catch (e) {
+    return Response.json({ error: "Impossibile contattare The Odds API", matches: [] }, { status: 200 });
+  }
+
+  const sportKeys = activeSports
+    .filter((s) => {
+      if (!tourFilter) return true;
+      if (tourFilter === "atp") return s.key.includes("_atp_");
+      if (tourFilter === "wta") return s.key.includes("_wta_");
+      return true;
+    })
+    .map((s) => ({ key: s.key, tour: s.key.includes("_wta_") ? "WTA" : "ATP", title: s.title }));
 
   const results = [];
 
-  for (const { key, tour } of sportKeys) {
+  for (const { key, tour, title } of sportKeys) {
     let events = [];
     try {
       events = await fetchTennisOdds(key);
@@ -96,8 +129,7 @@ export async function GET(request) {
       const playerBName = ev.away_team;
       if (!playerAName || !playerBName) continue;
 
-      const surface = "Hard"; // The Odds API non fornisce la superficie: da affinare in futuro
-      // (es. incrociando col nome torneo, o con una tabella tornei->superficie mantenuta a mano)
+      const surface = guessSurface(title); // stima da titolo torneo (default Hard se non riconosciuto)
 
       const [playerA, playerB] = await Promise.all([
         findPlayerByName(playerAName),
