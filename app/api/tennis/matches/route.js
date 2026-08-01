@@ -50,17 +50,37 @@ function normalizeName(name) {
 
 async function findPlayerByName(name) {
   const norm = normalizeName(name);
-  const lastName = norm.split(" ").pop();
+  const parts = norm.split(" ").filter(Boolean);
+  const lastName = parts[parts.length - 1];
+  const firstInitial = parts[0]?.[0];
   if (!lastName) return null;
+
   const { data } = await supabase
     .from("tennis_players")
     .select("player_id, name")
     .ilike("name", `%${lastName}%`)
-    .limit(5);
+    .order("name")
+    .limit(50); // rete ampia: con cognomi comuni (es. "Fritz") possono esserci molti omonimi
   if (!data || data.length === 0) return null;
-  // match più stringente: il cognome deve comparire per intero
-  const exact = data.find((p) => normalizeName(p.name).includes(lastName));
-  return exact || data[0];
+
+  const candidates = data.filter((p) => {
+    const pNorm = normalizeName(p.name);
+    return pNorm.split(" ").pop() === lastName; // cognome esatto, non solo "contiene"
+  });
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0];
+
+  // Più giocatori con lo stesso cognome (es. omonimie familiari): serve anche
+  // l'iniziale del nome per scegliere quello giusto. Se non basta a
+  // disambiguare, meglio nessun match che uno sbagliato (si userà il
+  // default di superficie invece di statistiche di un altro giocatore).
+  const byInitial = candidates.filter((p) => normalizeName(p.name)[0] === firstInitial);
+  if (byInitial.length === 1) return byInitial[0];
+
+  const exactFull = candidates.find((p) => normalizeName(p.name) === norm);
+  if (exactFull) return exactFull;
+
+  return null; // ambiguo, meglio astenersi
 }
 
 async function getSurfaceStats(playerId, surface) {
