@@ -564,8 +564,19 @@ export default function Oggi() {
     setSavingId(key);
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      // pronox_archive.match_id è un bigint: gli id calcio (numerici, da
+      // football-data.org) vanno bene così, ma quelli tennis sono stringhe
+      // tipo "tennis_2026-08-01_0" — li convertiamo in un numero sintetico
+      // ma comunque univoco (data + indice della partita in quel giorno).
+      let numericMatchId;
+      if (match.isTennis) {
+        const idxPart = match.id.split("_").pop();
+        numericMatchId = parseInt(date.replace(/-/g, ""), 10) * 1000 + parseInt(idxPart, 10);
+      } else {
+        numericMatchId = match.id;
+      }
       const { error } = await supabase.from("pronox_archive").insert({
-        match_id: match.id, match_date: date, match_time: match.time,
+        match_id: numericMatchId, match_date: date, match_time: match.time,
         league: match.league.name, home_team: match.home.name, away_team: match.away.name,
         prediction_type: signal.type, prediction_label: signal.label,
         probability: parseFloat((signal.prob * 100).toFixed(1)),
