@@ -531,7 +531,7 @@ export default function Oggi() {
           isTennis: true,
           id: `tennis_${date}_${i}`,
           tour: m.tour,
-          league: { name: `🎾 Tennis ${m.tour}` },
+          league: { name: m.tournament ? `🎾 ${m.tournament} · ${m.tour}` : `🎾 Tennis ${m.tour}` },
           time: m.commenceTime ? new Date(m.commenceTime).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }) : "--:--",
           home: { name: m.playerA.name, crest: null },
           away: { name: m.playerB.name, crest: null },
