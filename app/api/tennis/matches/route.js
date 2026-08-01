@@ -82,7 +82,7 @@ async function fetchOddsPapiRawMatches(date) {
   // Manteniamo solo le fixture dei tornei per cui chiediamo davvero le quote
   const todaysFixturesFiltered = mainTourFixtures.filter((f) => tournamentIds.includes(f.tournamentId));
 
-  const oddsUrl = `${ODDSPAPI_BASE}/odds-by-tournaments?apiKey=${ODDSPAPI_KEY}&tournamentIds=${tournamentIds.join(",")}&bookmaker=pinnacle`;
+  const oddsUrl = `${ODDSPAPI_BASE}/odds-by-tournaments?apiKey=${ODDSPAPI_KEY}&tournamentIds=${tournamentIds.join(",")}&bookmaker=bet365`;
   const oddsRes = await fetch(oddsUrl);
   const oddsDebug = { status: oddsRes.status, ok: oddsRes.ok, tournamentIdsCount: tournamentIds.length, url: oddsUrl.replace(ODDSPAPI_KEY, "***") };
   let oddsData = [];
