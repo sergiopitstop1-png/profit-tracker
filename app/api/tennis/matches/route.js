@@ -59,25 +59,34 @@ async function fetchOddsPapiRawMatches(date) {
   // 1. Fixture del giorno (nomi giocatori, orario, torneo)
   const fixturesUrl = `${ODDSPAPI_BASE}/fixtures?apiKey=${ODDSPAPI_KEY}&sportId=${TENNIS_SPORT_ID}&from=${date}&to=${to}&hasOdds=true`;
   const fixturesRes = await fetch(fixturesUrl);
-  if (!fixturesRes.ok) return [];
+  if (!fixturesRes.ok) return { matches: [], oddsDebug: { reason: "fixtures request failed", status: fixturesRes.status } };
   const fixtures = await fixturesRes.json();
-  if (!Array.isArray(fixtures) || fixtures.length === 0) return [];
+  if (!Array.isArray(fixtures) || fixtures.length === 0) return { matches: [], oddsDebug: { reason: "nessuna fixture restituita" } };
 
   // Filtra solo le fixture che iniziano davvero nella data richiesta
   const todaysFixtures = fixtures.filter((f) => f.startTime?.split("T")[0] === date);
-  if (todaysFixtures.length === 0) return [];
+  if (todaysFixtures.length === 0) return { matches: [], oddsDebug: { reason: "nessuna fixture per questa data esatta" } };
 
   // 2. Quote per tutti i tornei coinvolti, in un'unica chiamata (risparmia richieste)
   const tournamentIds = [...new Set(todaysFixtures.map((f) => f.tournamentId).filter(Boolean))];
-  if (tournamentIds.length === 0) return [];
+  if (tournamentIds.length === 0) return { matches: [], oddsDebug: { reason: "nessun tournamentId nelle fixture" } };
 
   const oddsUrl = `${ODDSPAPI_BASE}/odds-by-tournaments?apiKey=${ODDSPAPI_KEY}&tournamentIds=${tournamentIds.join(",")}`;
   const oddsRes = await fetch(oddsUrl);
-  const oddsData = oddsRes.ok ? await oddsRes.json() : [];
+  const oddsDebug = { status: oddsRes.status, ok: oddsRes.ok, tournamentIdsCount: tournamentIds.length, url: oddsUrl.replace(ODDSPAPI_KEY, "***") };
+  let oddsData = [];
+  if (oddsRes.ok) {
+    oddsData = await oddsRes.json();
+    oddsDebug.isArray = Array.isArray(oddsData);
+    oddsDebug.length = Array.isArray(oddsData) ? oddsData.length : null;
+    oddsDebug.sample = Array.isArray(oddsData) ? oddsData[0] : oddsData;
+  } else {
+    oddsDebug.errorBody = (await oddsRes.text()).slice(0, 500);
+  }
   const oddsByFixtureId = new Map((Array.isArray(oddsData) ? oddsData : []).map((o) => [o.fixtureId, o]));
 
   // Uniamo fixture (nomi/orari) e quote (prezzi) in un'unica lista pulita
-  return todaysFixtures.map((f) => {
+  const matches = todaysFixtures.map((f) => {
     const odds = oddsByFixtureId.get(f.fixtureId);
     let bestP1 = null, bestP2 = null;
     if (odds?.bookmakerOdds) {
@@ -100,6 +109,8 @@ async function fetchOddsPapiRawMatches(date) {
       oddsB: bestP2,
     };
   }).filter((m) => m.playerAName && m.playerBName);
+
+  return { matches, oddsDebug };
 }
 
 // ── Normalizza nome giocatore per il matching odds <-> anagrafica ──
@@ -252,19 +263,22 @@ export async function GET(request) {
   // passare dal nostro modello — utile per verificare la copertura tornei.
   const isDebug = searchParams.get("debug") === "raw";
 
-  let rawMatches = await getCachedMatches(date);
+  let rawMatches = isDebug ? null : await getCachedMatches(date);
   let fromCache = !!rawMatches;
+  let oddsDebug = null;
   if (!rawMatches) {
     try {
-      rawMatches = await fetchOddsPapiRawMatches(date);
+      const result = await fetchOddsPapiRawMatches(date);
+      rawMatches = result.matches;
+      oddsDebug = result.oddsDebug;
       await setCachedMatches(date, rawMatches);
     } catch (e) {
-      return Response.json({ error: "Impossibile contattare OddsPapi", matches: [] }, { status: 200 });
+      return Response.json({ error: "Impossibile contattare OddsPapi", details: String(e), matches: [] }, { status: 200 });
     }
   }
 
   if (isDebug) {
-    return Response.json({ fromCache, count: rawMatches.length, rawMatches });
+    return Response.json({ fromCache, count: rawMatches.length, oddsDebug, rawMatches });
   }
 
   const results = [];
