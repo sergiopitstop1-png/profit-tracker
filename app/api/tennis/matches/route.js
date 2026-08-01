@@ -67,9 +67,20 @@ async function fetchOddsPapiRawMatches(date) {
   const todaysFixtures = fixtures.filter((f) => f.startTime?.split("T")[0] === date);
   if (todaysFixtures.length === 0) return { matches: [], oddsDebug: { reason: "nessuna fixture per questa data esatta" } };
 
-  // 2. Quote per tutti i tornei coinvolti, in un'unica chiamata (risparmia richieste)
-  const tournamentIds = [...new Set(todaysFixtures.map((f) => f.tournamentId).filter(Boolean))];
-  if (tournamentIds.length === 0) return { matches: [], oddsDebug: { reason: "nessun tournamentId nelle fixture" } };
+  // 2. Quote solo per i tornei del circuito principale ATP/WTA — l'endpoint
+  // quote accetta al massimo 5 tornei per chiamata, e i Challenger/ITF/UTR
+  // (che sono la maggioranza delle fixture di un giorno tipico) sono
+  // comunque quelli dove abbiamo meno dati affidabili (Elo, statistiche),
+  // quindi escluderli qui non perde segnali di qualità.
+  const LOWER_TIER_PATTERNS = /challenger|itf|utr|ptt|125k|futures|\bsrl\b|qualifying|qualification/i;
+  const mainTourFixtures = todaysFixtures.filter((f) => !LOWER_TIER_PATTERNS.test(f.tournamentName || ""));
+
+  const tournamentIds = [...new Set(mainTourFixtures.map((f) => f.tournamentId).filter(Boolean))].slice(0, 5);
+  if (tournamentIds.length === 0) {
+    return { matches: [], oddsDebug: { reason: "nessun torneo di circuito principale trovato oggi" } };
+  }
+  // Manteniamo solo le fixture dei tornei per cui chiediamo davvero le quote
+  const todaysFixturesFiltered = mainTourFixtures.filter((f) => tournamentIds.includes(f.tournamentId));
 
   const oddsUrl = `${ODDSPAPI_BASE}/odds-by-tournaments?apiKey=${ODDSPAPI_KEY}&tournamentIds=${tournamentIds.join(",")}&bookmaker=pinnacle`;
   const oddsRes = await fetch(oddsUrl);
@@ -86,7 +97,7 @@ async function fetchOddsPapiRawMatches(date) {
   const oddsByFixtureId = new Map((Array.isArray(oddsData) ? oddsData : []).map((o) => [o.fixtureId, o]));
 
   // Uniamo fixture (nomi/orari) e quote (prezzi) in un'unica lista pulita
-  const matches = todaysFixtures.map((f) => {
+  const matches = todaysFixturesFiltered.map((f) => {
     const odds = oddsByFixtureId.get(f.fixtureId);
     let bestP1 = null, bestP2 = null;
     if (odds?.bookmakerOdds) {
