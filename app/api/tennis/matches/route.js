@@ -211,11 +211,12 @@ export async function GET(request) {
       let probA, usedElo;
       if (eloA !== null && eloB !== null) {
         const probEloModel = eloWinProb(eloA, eloB);
-        // Media semplice tra le due stime: il modello a punti (meccanicistico,
-        // ma cieco a ranking/forma/H2H) e l'Elo (cattura la forza generale,
-        // ma è più "scatola nera"). Nessuna delle due da sola è affidabile
-        // al 100%, ma insieme si correggono a vicenda.
-        probA = (probPointModel + probEloModel) / 2;
+        // L'Elo si è dimostrato (confronto diretto fatto a mano su un caso
+        // reale, Fritz-Nakashima) molto più vicino al mercato del modello a
+        // punti da solo — che vede solo servizio/risposta e non "sente" la
+        // forza complessiva di un giocatore. Gli diamo quindi più peso
+        // (70%) invece di una media semplice 50-50.
+        probA = probPointModel * 0.30 + probEloModel * 0.70;
         usedElo = true;
       } else {
         probA = probPointModel;
