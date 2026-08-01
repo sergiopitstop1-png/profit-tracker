@@ -129,6 +129,53 @@ function eloWinProb(eloA, eloB) {
   return 1 / (1 + Math.pow(10, (eloB - eloA) / 400));
 }
 
+// Testa a testa diretto tra i due giocatori, dallo storico che abbiamo già.
+async function getHeadToHead(playerAId, playerBId) {
+  if (!playerAId || !playerBId) return null;
+  const { data } = await supabase
+    .from("tennis_matches")
+    .select("winner_id")
+    .or(
+      `and(winner_id.eq.${playerAId},loser_id.eq.${playerBId}),and(winner_id.eq.${playerBId},loser_id.eq.${playerAId})`
+    );
+  if (!data || data.length === 0) return null;
+  const winsA = data.filter((m) => m.winner_id === playerAId).length;
+  const winsB = data.length - winsA;
+  return { winsA, winsB, total: data.length };
+}
+
+// Forma recente: win rate sulle ultime N partite. Ibrido: prova prima solo
+// sulla superficie del match di oggi (più specifico); se il campione è
+// troppo piccolo (giocatore che gioca poco su quella superficie), torna a
+// guardare tutte le superfici (più dati, meno specifico ma più aggiornato).
+async function getRecentForm(playerId, surface, n = 10, minSameSurface = 5) {
+  if (!playerId) return null;
+
+  const { data: sameSurface } = await supabase
+    .from("tennis_matches")
+    .select("winner_id, loser_id, tourney_date")
+    .or(`winner_id.eq.${playerId},loser_id.eq.${playerId}`)
+    .eq("surface", surface)
+    .order("tourney_date", { ascending: false })
+    .limit(n);
+
+  if (sameSurface && sameSurface.length >= minSameSurface) {
+    const wins = sameSurface.filter((m) => m.winner_id === playerId).length;
+    return wins / sameSurface.length;
+  }
+
+  // Fallback: campione troppo piccolo su questa superficie, guardo tutte
+  const { data: allSurfaces } = await supabase
+    .from("tennis_matches")
+    .select("winner_id, loser_id, tourney_date")
+    .or(`winner_id.eq.${playerId},loser_id.eq.${playerId}`)
+    .order("tourney_date", { ascending: false })
+    .limit(n);
+  if (!allSurfaces || allSurfaces.length < 5) return null; // campione troppo piccolo comunque
+  const wins = allSurfaces.filter((m) => m.winner_id === playerId).length;
+  return wins / allSurfaces.length;
+}
+
 function guessSurface(tournamentTitle) {
   const t = (tournamentTitle || "").toLowerCase();
   if (t.includes("french open") || t.includes("roland garros") || t.includes("madrid") || t.includes("rome") || t.includes("monte carlo") || t.includes("clay")) return "Clay";
@@ -211,17 +258,36 @@ export async function GET(request) {
       let probA, usedElo;
       if (eloA !== null && eloB !== null) {
         const probEloModel = eloWinProb(eloA, eloB);
-        // L'Elo si è dimostrato (confronto diretto fatto a mano su un caso
-        // reale, Fritz-Nakashima) molto più vicino al mercato del modello a
-        // punti da solo — che vede solo servizio/risposta e non "sente" la
-        // forza complessiva di un giocatore. Gli diamo quindi più peso
-        // (70%) invece di una media semplice 50-50.
         probA = probPointModel * 0.30 + probEloModel * 0.70;
         usedElo = true;
       } else {
         probA = probPointModel;
         usedElo = false;
       }
+
+      // Piccoli aggiustamenti aggiuntivi da dati che già avevamo ma non
+      // usavamo: testa a testa diretto e forma recente. Pesati poco (max
+      // ±7,5% il primo, ±10% il secondo) perché spesso si basano su campioni
+      // piccoli — servono a correggere ai margini, non a ribaltare il verdetto
+      // di Elo+modello a punti.
+      const [h2h, formA, formB] = await Promise.all([
+        getHeadToHead(playerA?.player_id, playerB?.player_id),
+        getRecentForm(playerA?.player_id, surface),
+        getRecentForm(playerB?.player_id, surface),
+      ]);
+
+      let usedH2h = false, usedForm = false;
+      if (h2h && h2h.total >= 3) {
+        const h2hWinRateA = h2h.winsA / h2h.total;
+        probA += (h2hWinRateA - 0.5) * 0.15;
+        usedH2h = true;
+      }
+      if (formA !== null && formB !== null) {
+        probA += (formA - formB) * 0.10;
+        usedForm = true;
+      }
+      probA = Math.min(0.98, Math.max(0.02, probA)); // mai certezza assoluta
+
       const probB = 1 - probA;
 
       // Migliore quota disponibile tra i bookmaker restituiti
@@ -253,6 +319,9 @@ export async function GET(request) {
         playerB: { name: playerBName, matchedId: playerB?.player_id || null, servePct: serveB, returnPct: returnB, statsFound: !!statsB.servePct },
         surface,
         usedElo,
+        usedH2h,
+        usedForm,
+        h2h: h2h ? { winsA: h2h.winsA, winsB: h2h.winsB } : null,
         probA: Number(probA.toFixed(4)),
         probB: Number(probB.toFixed(4)),
         oddsA, oddsB,
