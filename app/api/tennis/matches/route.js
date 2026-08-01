@@ -96,20 +96,37 @@ async function fetchOddsPapiRawMatches(date) {
   }
   const oddsByFixtureId = new Map((Array.isArray(oddsData) ? oddsData : []).map((o) => [o.fixtureId, o]));
 
-  // Uniamo fixture (nomi/orari) e quote (prezzi) in un'unica lista pulita
-  const matches = todaysFixturesFiltered.map((f) => {
-    const odds = oddsByFixtureId.get(f.fixtureId);
+  function extractBestPrices(oddsEntry) {
     let bestP1 = null, bestP2 = null;
-    if (odds?.bookmakerOdds) {
-      for (const bm of Object.values(odds.bookmakerOdds)) {
+    const debugMarkets = [];
+    if (oddsEntry?.bookmakerOdds) {
+      for (const bm of Object.values(oddsEntry.bookmakerOdds)) {
         const market = bm.markets?.[MATCH_WINNER_MARKET_ID];
         if (!market) continue;
         const p1 = market.outcomes?.["121"]?.players?.["0"];
         const p2 = market.outcomes?.["122"]?.players?.["0"];
+        debugMarkets.push({ hasMarket: !!market, p1, p2 });
         if (p1?.active && p1.price && (!bestP1 || p1.price > bestP1)) bestP1 = p1.price;
         if (p2?.active && p2.price && (!bestP2 || p2.price > bestP2)) bestP2 = p2.price;
       }
     }
+    return { bestP1, bestP2, debugMarkets };
+  }
+
+  // Diagnostico mirato: testiamo l'estrazione sulla stessa fixture campione
+  // che vediamo in oddsDebug.sample, per capire se il problema è
+  // nell'estrazione del prezzo o nell'abbinamento fixture<->quote.
+  if (Array.isArray(oddsData) && oddsData[0]) {
+    oddsDebug.sampleExtraction = extractBestPrices(oddsData[0]);
+    oddsDebug.sampleFixtureIdInOdds = oddsData[0].fixtureId;
+    oddsDebug.sampleFixtureIdInFixtures = todaysFixturesFiltered[0]?.fixtureId;
+    oddsDebug.fixtureIdsMatch = oddsData[0].fixtureId === todaysFixturesFiltered[0]?.fixtureId;
+  }
+
+  // Uniamo fixture (nomi/orari) e quote (prezzi) in un'unica lista pulita
+  const matches = todaysFixturesFiltered.map((f) => {
+    const odds = oddsByFixtureId.get(f.fixtureId);
+    const { bestP1, bestP2 } = extractBestPrices(odds);
     return {
       fixtureId: f.fixtureId,
       tournamentName: f.tournamentName || odds?.tournamentName || null,
