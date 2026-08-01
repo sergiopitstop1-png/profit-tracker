@@ -125,6 +125,16 @@ async function getEloRating(playerId, surface) {
   return (surfaceElo ?? data.elo_overall) * 0.67 + data.elo_overall * 0.33;
 }
 
+async function getPlayerMatchCount(playerId) {
+  if (!playerId) return 0;
+  const { data } = await supabase
+    .from("tennis_player_elo")
+    .select("matches_count")
+    .eq("player_id", playerId)
+    .maybeSingle();
+  return data?.matches_count ?? 0;
+}
+
 function eloWinProb(eloA, eloB) {
   return 1 / (1 + Math.pow(10, (eloB - eloA) / 400));
 }
@@ -304,13 +314,23 @@ export async function GET(request) {
       const evA = calcEV(probA, oddsA);
       const evB = calcEV(probB, oddsB);
 
+      // Sicurezza extra per giocatori "minori": pochi match nello storico
+      // significano meno partite per Elo, statistiche, H2H e forma — anche
+      // un EV che sembra pulito va trattato con più cautela in questi casi.
+      const MIN_TOTAL_MATCHES = 30;
+      const [matchesCountA, matchesCountB] = await Promise.all([
+        getPlayerMatchCount(playerA?.player_id),
+        getPlayerMatchCount(playerB?.player_id),
+      ]);
+      const lowDataPlayer = matchesCountA < MIN_TOTAL_MATCHES || matchesCountB < MIN_TOTAL_MATCHES;
+
       // Un EV fuori scala (oltre il 20%) nel tennis pro è quasi sempre un
       // segnale di stima poco affidabile (campione piccolo, dato anomalo),
       // non un vero value bet — lo marchiamo come sospetto invece di
       // nasconderlo, così si vede ma non si scambia per oro.
       const EV_SANITY_CAP = 0.20;
-      const suspiciousA = evA !== null && evA > EV_SANITY_CAP;
-      const suspiciousB = evB !== null && evB > EV_SANITY_CAP;
+      const suspiciousA = (evA !== null && evA > EV_SANITY_CAP) || (evA !== null && evA > 0.03 && lowDataPlayer);
+      const suspiciousB = (evB !== null && evB > EV_SANITY_CAP) || (evB !== null && evB > 0.03 && lowDataPlayer);
 
       results.push({
         tour,
@@ -321,6 +341,7 @@ export async function GET(request) {
         usedElo,
         usedH2h,
         usedForm,
+        lowDataPlayer,
         h2h: h2h ? { winsA: h2h.winsA, winsB: h2h.winsB } : null,
         probA: Number(probA.toFixed(4)),
         probB: Number(probB.toFixed(4)),
