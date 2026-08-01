@@ -548,7 +548,12 @@ export default function Oggi() {
           hasValue: m.isValueA || m.isValueB,
           statsWarning: !m.playerA.statsFound || !m.playerB.statsFound,
         }));
-        all.push(...tennisMatches);
+        // Nascondiamo le partite che mostrerebbero SOLO il triangolo di
+        // sospetto (nessun segnale VALUE vero) — non vengono mai usate,
+        // quindi solo rumore visivo. Restano visibili sia le partite con
+        // un vero value bet, sia quelle "nessun value bet" (mute, non confondono).
+        const tennisMatchesFiltered = tennisMatches.filter(m => m.hasValue || m.signals.length === 0);
+        all.push(...tennisMatchesFiltered);
       } catch (e) {
         console.error("Errore caricamento tennis:", e);
       }
