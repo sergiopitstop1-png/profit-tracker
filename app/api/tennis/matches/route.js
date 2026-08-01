@@ -75,18 +75,36 @@ async function fetchOddsPapiRawMatches(date) {
   const LOWER_TIER_PATTERNS = /challenger|itf|utr|ptt|125k|futures|\bsrl\b|qualifying|qualification/i;
   const mainTourFixtures = todaysFixtures.filter((f) => !LOWER_TIER_PATTERNS.test(f.tournamentName || ""));
 
-  // Tra i tornei del circuito principale, priorità a quelli con più partite
-  // in tabellone (di solito i tornei più importanti — Masters/500 hanno
-  // tabelloni grandi, i 250 minori pochi) invece che il primo ordine
-  // cronologico, altrimenti tornei minori con partite nelle prime ore del
-  // mattino (fuso orario italiano) occupano tutti gli slot disponibili
-  // prima che un torneo importante come Washington compaia in lista.
+  // Tra i tornei del circuito principale, priorità per livello reale del
+  // torneo (Slam > Masters 1000/WTA 1000 > ATP/WTA 500 > resto), non per
+  // numero di partite oggi — il numero di partite è un proxy fuorviante:
+  // le qualificazioni ne hanno tantissime (giocatori sconosciuti), un
+  // torneo alle fasi finali ne ha pochissime (ma sono le più importanti).
+  const TOURNAMENT_TIERS = [
+    { score: 100, pattern: /australian open|roland garros|french open|wimbledon|us open/i },
+    { score: 80, pattern: /indian wells|miami open|monte.?carlo|madrid open|italian open|rome|canadian open|montreal|toronto|cincinnati|shanghai|paris masters|wta finals|atp finals/i },
+    { score: 60, pattern: /rotterdam|dubai|acapulco|indian wells|barcelona|madrid|halle|queen'?s|washington|beijing|tokyo|wta 500|atp 500|vienna|basel|doha|dubai|stuttgart|eastbourne|berlin/i },
+  ];
+  function tournamentScore(name) {
+    const n = name || "";
+    for (const tier of TOURNAMENT_TIERS) {
+      if (tier.pattern.test(n)) return tier.score;
+    }
+    return 0; // livello 250 o non riconosciuto — priorità più bassa
+  }
+
   const fixtureCountByTournament = {};
+  const tournamentNameById = {};
   for (const f of mainTourFixtures) {
     fixtureCountByTournament[f.tournamentId] = (fixtureCountByTournament[f.tournamentId] || 0) + 1;
+    tournamentNameById[f.tournamentId] = f.tournamentName;
   }
   const tournamentIds = [...new Set(mainTourFixtures.map((f) => f.tournamentId).filter(Boolean))]
-    .sort((a, b) => fixtureCountByTournament[b] - fixtureCountByTournament[a])
+    .sort((a, b) => {
+      const scoreDiff = tournamentScore(tournamentNameById[b]) - tournamentScore(tournamentNameById[a]);
+      if (scoreDiff !== 0) return scoreDiff;
+      return fixtureCountByTournament[b] - fixtureCountByTournament[a]; // tiebreaker
+    })
     .slice(0, 5);
   if (tournamentIds.length === 0) {
     return { matches: [], oddsDebug: { reason: "nessun torneo di circuito principale trovato oggi" } };
