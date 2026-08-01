@@ -334,6 +334,7 @@ export async function GET(request) {
 
       results.push({
         tour,
+        tournament: title || null,
         commenceTime: ev.commence_time,
         playerA: { name: playerAName, matchedId: playerA?.player_id || null, servePct: serveA, returnPct: returnA, statsFound: !!statsA.servePct },
         playerB: { name: playerBName, matchedId: playerB?.player_id || null, servePct: serveB, returnPct: returnB, statsFound: !!statsB.servePct },
