@@ -71,7 +71,7 @@ async function fetchOddsPapiRawMatches(date) {
   const tournamentIds = [...new Set(todaysFixtures.map((f) => f.tournamentId).filter(Boolean))];
   if (tournamentIds.length === 0) return { matches: [], oddsDebug: { reason: "nessun tournamentId nelle fixture" } };
 
-  const oddsUrl = `${ODDSPAPI_BASE}/odds-by-tournaments?apiKey=${ODDSPAPI_KEY}&tournamentIds=${tournamentIds.join(",")}`;
+  const oddsUrl = `${ODDSPAPI_BASE}/odds-by-tournaments?apiKey=${ODDSPAPI_KEY}&tournamentIds=${tournamentIds.join(",")}&bookmaker=pinnacle`;
   const oddsRes = await fetch(oddsUrl);
   const oddsDebug = { status: oddsRes.status, ok: oddsRes.ok, tournamentIdsCount: tournamentIds.length, url: oddsUrl.replace(ODDSPAPI_KEY, "***") };
   let oddsData = [];
