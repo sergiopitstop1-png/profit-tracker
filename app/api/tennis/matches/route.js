@@ -161,8 +161,8 @@ async function fetchOddsPapiRawMatches(date) {
       fixtureId: f.fixtureId,
       tournamentName: f.tournamentName || odds?.tournamentName || null,
       startTime: f.startTime,
-      playerAName: f.participant1Name,
-      playerBName: f.participant2Name,
+      playerAName: toFirstLastFormat(f.participant1Name),
+      playerBName: toFirstLastFormat(f.participant2Name),
       oddsA: bestP1,
       oddsB: bestP2,
     };
@@ -172,8 +172,18 @@ async function fetchOddsPapiRawMatches(date) {
 }
 
 // ── Normalizza nome giocatore per il matching odds <-> anagrafica ──
+// OddsPapi restituisce i nomi come "Cognome, Nome" (es. "Fritz, Taylor"),
+// diverso dal formato "Nome Cognome" che usa la nostra anagrafica — lo
+// convertiamo prima di normalizzare, altrimenti il matching cerca sempre
+// la persona sbagliata.
+function toFirstLastFormat(name) {
+  if (!name || !name.includes(",")) return name;
+  const [last, first] = name.split(",").map((s) => s.trim());
+  return first ? `${first} ${last}` : name;
+}
+
 function normalizeName(name) {
-  return (name || "")
+  return (toFirstLastFormat(name) || "")
     .toLowerCase()
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // rimuove accenti
     .replace(/[^a-z\s]/g, "")
