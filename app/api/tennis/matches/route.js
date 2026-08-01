@@ -110,6 +110,25 @@ function calcEV(prob, bookOdds) {
   return prob * (bookOdds - 1) - (1 - prob);
 }
 
+async function getEloRating(playerId, surface) {
+  if (!playerId) return null;
+  const { data } = await supabase
+    .from("tennis_player_elo")
+    .select("elo_overall, elo_hard, elo_clay, elo_grass, matches_count")
+    .eq("player_id", playerId)
+    .maybeSingle();
+  if (!data || data.matches_count < 10) return null;
+  const surfaceElo = { Hard: data.elo_hard, Clay: data.elo_clay, Grass: data.elo_grass }[surface];
+  // Blend 2/3 Elo di superficie + 1/3 Elo generale (approccio ispirato al
+  // modello Elo tennis di FiveThirtyEight): la superficie conta di più,
+  // ma l'Elo generale stabilizza la stima quando il campione di superficie è scarso.
+  return (surfaceElo ?? data.elo_overall) * 0.67 + data.elo_overall * 0.33;
+}
+
+function eloWinProb(eloA, eloB) {
+  return 1 / (1 + Math.pow(10, (eloB - eloA) / 400));
+}
+
 function guessSurface(tournamentTitle) {
   const t = (tournamentTitle || "").toLowerCase();
   if (t.includes("french open") || t.includes("roland garros") || t.includes("madrid") || t.includes("rome") || t.includes("monte carlo") || t.includes("clay")) return "Clay";
@@ -182,7 +201,26 @@ export async function GET(request) {
       const pA = effectivePointWinProb(serveA, returnB);
       const pB = effectivePointWinProb(serveB, returnA);
 
-      const probA = matchProb(pA, pB, 3);
+      const probPointModel = matchProb(pA, pB, 3);
+
+      const [eloA, eloB] = await Promise.all([
+        getEloRating(playerA?.player_id, surface),
+        getEloRating(playerB?.player_id, surface),
+      ]);
+
+      let probA, usedElo;
+      if (eloA !== null && eloB !== null) {
+        const probEloModel = eloWinProb(eloA, eloB);
+        // Media semplice tra le due stime: il modello a punti (meccanicistico,
+        // ma cieco a ranking/forma/H2H) e l'Elo (cattura la forza generale,
+        // ma è più "scatola nera"). Nessuna delle due da sola è affidabile
+        // al 100%, ma insieme si correggono a vicenda.
+        probA = (probPointModel + probEloModel) / 2;
+        usedElo = true;
+      } else {
+        probA = probPointModel;
+        usedElo = false;
+      }
       const probB = 1 - probA;
 
       // Migliore quota disponibile tra i bookmaker restituiti
@@ -213,6 +251,7 @@ export async function GET(request) {
         playerA: { name: playerAName, matchedId: playerA?.player_id || null, servePct: serveA, returnPct: returnA, statsFound: !!statsA.servePct },
         playerB: { name: playerBName, matchedId: playerB?.player_id || null, servePct: serveB, returnPct: returnB, statsFound: !!statsB.servePct },
         surface,
+        usedElo,
         probA: Number(probA.toFixed(4)),
         probB: Number(probB.toFixed(4)),
         oddsA, oddsB,
