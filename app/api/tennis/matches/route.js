@@ -199,6 +199,19 @@ export async function GET(request) {
   }
 
   const { searchParams } = new URL(request.url);
+
+  // Modalità debug: ?debug=sports mostra il catalogo grezzo di tornei tennis
+  // attivi secondo The Odds API, senza fare altro — utile per capire se un
+  // torneo manca perché non coperto dal provider, non per un nostro bug.
+  if (searchParams.get("debug") === "sports") {
+    try {
+      const activeSports = await fetchActiveTennisSportKeys();
+      return Response.json({ activeTennisTournaments: activeSports });
+    } catch (e) {
+      return Response.json({ error: "Impossibile contattare The Odds API" }, { status: 200 });
+    }
+  }
+
   const date = searchParams.get("date") || new Date().toISOString().split("T")[0];
   const tourFilter = searchParams.get("tour"); // 'atp' | 'wta' | null (entrambi)
 
