@@ -305,9 +305,9 @@ function currentSeasonFor(code) {
   return String(month >= 7 ? year : year - 1);
 }
 
-async function getSeasonData(code, supabaseClient) {
+async function getSeasonData(code, supabaseClient, seasonOverride) {
   const today = new Date().toISOString().split("T")[0];
-  const season = currentSeasonFor(code);
+  const season = seasonOverride || currentSeasonFor(code);
   try {
     const { data: cached } = await supabaseClient
       .from("pronox_cache")
@@ -399,9 +399,29 @@ export default function Oggi() {
       const league = LEAGUES.find(l => l.code === code);
       if (!league) continue;
       setProgress(`Carico ${league.flag} ${league.name}...`);
-      const seasonMatches = await getSeasonData(code, supabase);
-      allMatches[code] = seasonMatches;
-      const { teams, lgAvgHome, lgAvgAway } = calcRatings(seasonMatches, today);
+      let seasonMatches = await getSeasonData(code, supabase);
+      const finishedCount = seasonMatches.filter(m => m.status === "FINISHED").length;
+
+      // Stagione nuova appena iniziata: poche partite finite non bastano per
+      // ratings affidabili. Invece di uno switch netto "vecchia stagione SI/NO",
+      // mescoliamo lo storico della stagione precedente con quello nuovo — il
+      // peso per recenza (timeWeight, già esistente) sfuma da solo l'importanza
+      // delle partite vecchie mano a mano che si accumulano quelle nuove, senza
+      // salti bruschi nelle previsioni quando si supera una soglia fissa.
+      const MIN_FINISHED_FOR_FRESH_DATA = 15; // sopra questa soglia non serve più lo storico vecchio
+      let ratingsSource = seasonMatches;
+      if (finishedCount < MIN_FINISHED_FOR_FRESH_DATA) {
+        const currentSeasonYear = parseInt(currentSeasonFor(code), 10);
+        const priorSeason = String(currentSeasonYear - 1);
+        const priorMatches = await getSeasonData(code, supabase, priorSeason);
+        if (priorMatches.length > 0) {
+          ratingsSource = [...priorMatches, ...seasonMatches]; // timeWeight sfuma da sé le più vecchie
+          setProgress(`${league.flag} ${league.name}: stagione nuova, integro storico ${priorSeason}...`);
+        }
+      }
+
+      allMatches[code] = seasonMatches; // per H2H e fixture del giorno resta la stagione corrente
+      const { teams, lgAvgHome, lgAvgAway } = calcRatings(ratingsSource, today);
       allRatings[code] = teams;
       allAvgs[code] = { lgAvgHome, lgAvgAway };
     }
