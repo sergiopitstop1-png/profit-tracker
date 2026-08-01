@@ -564,18 +564,23 @@ export default function Oggi() {
     setSavingId(key);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      await supabase.from("pronox_archive").insert({
+      const { error } = await supabase.from("pronox_archive").insert({
         match_id: match.id, match_date: date, match_time: match.time,
         league: match.league.name, home_team: match.home.name, away_team: match.away.name,
         prediction_type: signal.type, prediction_label: signal.label,
         probability: parseFloat((signal.prob * 100).toFixed(1)),
-        lambda_home: match.isTennis ? null : parseFloat(match.lH.toFixed(3)),
-        lambda_away: match.isTennis ? null : parseFloat(match.lA.toFixed(3)),
+        lambda_home: match.isTennis ? 0 : parseFloat(match.lH.toFixed(3)),
+        lambda_away: match.isTennis ? 0 : parseFloat(match.lA.toFixed(3)),
         status: "PENDING",
         user_id: user?.id || null,
       });
-      setSavedMap(prev => ({ ...prev, [key]: "PENDING" }));
-    } catch (e) { console.error(e); }
+      if (error) {
+        console.error("Errore salvataggio pronox_archive:", error);
+        alert(`Salvataggio fallito: ${error.message}`);
+      } else {
+        setSavedMap(prev => ({ ...prev, [key]: "PENDING" }));
+      }
+    } catch (e) { console.error(e); alert(`Salvataggio fallito: ${e.message || e}`); }
     setSavingId(null);
   };
 
@@ -619,17 +624,23 @@ export default function Oggi() {
     try {
       const { data: plan } = await supabase.from("pronox_plans").select("id").eq("status", "ACTIVE").single();
       if (!plan) { alert("Nessun piano attivo!"); setPianoMap(prev => ({ ...prev, [key]: null })); return; }
-      await supabase.from("pronox_bets").insert({
+      const { error } = await supabase.from("pronox_bets").insert({
         plan_id: plan.id, match_date: date, match_time: match.time,
         league: match.league.name, home_team: match.home.name, away_team: match.away.name,
         prediction_label: signal.label, prediction_type: signal.type,
         probability: parseFloat((signal.prob * 100).toFixed(1)),
-        lambda_home: match.isTennis ? null : parseFloat(match.lH.toFixed(3)),
-        lambda_away: match.isTennis ? null : parseFloat(match.lA.toFixed(3)),
+        lambda_home: match.isTennis ? 0 : parseFloat(match.lH.toFixed(3)),
+        lambda_away: match.isTennis ? 0 : parseFloat(match.lA.toFixed(3)),
         status: "PENDING",
       });
-      setPianoMap(prev => ({ ...prev, [key]: "saved" }));
-    } catch (e) { console.error(e); setPianoMap(prev => ({ ...prev, [key]: null })); }
+      if (error) {
+        console.error("Errore salvataggio pronox_bets:", error);
+        alert(`Salvataggio nel piano fallito: ${error.message}`);
+        setPianoMap(prev => ({ ...prev, [key]: null }));
+      } else {
+        setPianoMap(prev => ({ ...prev, [key]: "saved" }));
+      }
+    } catch (e) { console.error(e); alert(`Salvataggio nel piano fallito: ${e.message || e}`); setPianoMap(prev => ({ ...prev, [key]: null })); }
   };
 
   const filtered = matches.filter(m => {
