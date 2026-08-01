@@ -527,7 +527,33 @@ export default function Oggi() {
       try {
         const r = await fetch(`/api/tennis/matches?date=${date}`);
         const d = await r.json();
-        const tennisMatches = (d.matches || []).map((m, i) => ({
+        const tennisMatches = (d.matches || []).map((m, i) => {
+          const valueSuspiciousSignals = [
+            m.isValueA && { label: `${m.playerA.name} vince`, prob: m.probA, isValue: true, ev: m.evA, fairOdds: 1 / m.probA, bookOdds: m.oddsA, color: "#c8f135", strong: m.probA > 0.65 },
+            m.isValueB && { label: `${m.playerB.name} vince`, prob: m.probB, isValue: true, ev: m.evB, fairOdds: 1 / m.probB, bookOdds: m.oddsB, color: "#4af0c4", strong: m.probB > 0.65 },
+            m.suspiciousA && { label: `${m.playerA.name} vince`, prob: m.probA, isSuspicious: true, ev: m.evA, fairOdds: 1 / m.probA, bookOdds: m.oddsA, color: "#f0794a" },
+            m.suspiciousB && { label: `${m.playerB.name} vince`, prob: m.probB, isSuspicious: true, ev: m.evB, fairOdds: 1 / m.probB, bookOdds: m.oddsB, color: "#f0794a" },
+          ].filter(Boolean);
+
+          // Nessun value bet e nessun sospetto: se i dati sono affidabili
+          // (non lowDataPlayer), mostriamo comunque il pronostico secco del
+          // modello — utile per tracciare l'accuratezza nel tempo, anche
+          // quando il mercato non lascia margine da sfruttare.
+          let signals = valueSuspiciousSignals;
+          if (signals.length === 0 && !m.lowDataPlayer) {
+            const favorsA = m.probA >= m.probB;
+            signals = [{
+              label: `${favorsA ? m.playerA.name : m.playerB.name} vince`,
+              prob: favorsA ? m.probA : m.probB,
+              isPlain: true,
+              ev: null,
+              fairOdds: 1 / (favorsA ? m.probA : m.probB),
+              bookOdds: favorsA ? m.oddsA : m.oddsB,
+              color: "#7dd3fc",
+            }];
+          }
+
+          return {
           isTennis: true,
           id: `tennis_${date}_${i}`,
           tour: m.tour,
@@ -539,20 +565,17 @@ export default function Oggi() {
           playerB: m.playerB,
           probs: { h: m.probA, a: m.probB },
           oddsData: m.oddsA && m.oddsB ? { o1: m.oddsA, o2: m.oddsB } : null,
-          signals: [
-            m.isValueA && { label: `${m.playerA.name} vince`, prob: m.probA, isValue: true, ev: m.evA, fairOdds: 1 / m.probA, bookOdds: m.oddsA, color: "#c8f135", strong: m.probA > 0.65 },
-            m.isValueB && { label: `${m.playerB.name} vince`, prob: m.probB, isValue: true, ev: m.evB, fairOdds: 1 / m.probB, bookOdds: m.oddsB, color: "#4af0c4", strong: m.probB > 0.65 },
-            m.suspiciousA && { label: `${m.playerA.name} vince`, prob: m.probA, isSuspicious: true, ev: m.evA, fairOdds: 1 / m.probA, bookOdds: m.oddsA, color: "#f0794a" },
-            m.suspiciousB && { label: `${m.playerB.name} vince`, prob: m.probB, isSuspicious: true, ev: m.evB, fairOdds: 1 / m.probB, bookOdds: m.oddsB, color: "#f0794a" },
-          ].filter(Boolean),
+          signals,
           hasValue: m.isValueA || m.isValueB,
           statsWarning: !m.playerA.statsFound || !m.playerB.statsFound,
-        }));
+          };
+        });
         // Nascondiamo le partite che mostrerebbero SOLO il triangolo di
-        // sospetto (nessun segnale VALUE vero) — non vengono mai usate,
-        // quindi solo rumore visivo. Restano visibili sia le partite con
-        // un vero value bet, sia quelle "nessun value bet" (mute, non confondono).
-        const tennisMatchesFiltered = tennisMatches.filter(m => m.hasValue || m.signals.length === 0);
+        // sospetto (nessun segnale VALUE vero, nessun pronostico neutro) —
+        // non vengono mai usate, quindi solo rumore visivo. Restano visibili
+        // sia le partite con un vero value bet, sia quelle col pronostico
+        // neutro (utile per tracciare l'accuratezza), sia quelle mute.
+        const tennisMatchesFiltered = tennisMatches.filter(m => m.hasValue || !m.signals.some(s => s.isSuspicious));
         all.push(...tennisMatchesFiltered);
       } catch (e) {
         console.error("Errore caricamento tennis:", e);
