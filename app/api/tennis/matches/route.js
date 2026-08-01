@@ -75,7 +75,19 @@ async function fetchOddsPapiRawMatches(date) {
   const LOWER_TIER_PATTERNS = /challenger|itf|utr|ptt|125k|futures|\bsrl\b|qualifying|qualification/i;
   const mainTourFixtures = todaysFixtures.filter((f) => !LOWER_TIER_PATTERNS.test(f.tournamentName || ""));
 
-  const tournamentIds = [...new Set(mainTourFixtures.map((f) => f.tournamentId).filter(Boolean))].slice(0, 5);
+  // Tra i tornei del circuito principale, priorità a quelli con più partite
+  // in tabellone (di solito i tornei più importanti — Masters/500 hanno
+  // tabelloni grandi, i 250 minori pochi) invece che il primo ordine
+  // cronologico, altrimenti tornei minori con partite nelle prime ore del
+  // mattino (fuso orario italiano) occupano tutti gli slot disponibili
+  // prima che un torneo importante come Washington compaia in lista.
+  const fixtureCountByTournament = {};
+  for (const f of mainTourFixtures) {
+    fixtureCountByTournament[f.tournamentId] = (fixtureCountByTournament[f.tournamentId] || 0) + 1;
+  }
+  const tournamentIds = [...new Set(mainTourFixtures.map((f) => f.tournamentId).filter(Boolean))]
+    .sort((a, b) => fixtureCountByTournament[b] - fixtureCountByTournament[a])
+    .slice(0, 5);
   if (tournamentIds.length === 0) {
     return { matches: [], oddsDebug: { reason: "nessun torneo di circuito principale trovato oggi" } };
   }
