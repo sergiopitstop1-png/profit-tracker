@@ -86,7 +86,7 @@ const [stimaForm, setStimaForm] = useState({
   const [quickBookTxForm, setQuickBookTxForm] = useState({ tipo: 'versa', wallet_id: '', importo: '', note: '' })
   const [txForm, setTxForm] = useState({ tipo: '', da_tipo: '', importo: '', da_id: '', a_id: '', note: '', categoria_spesa: '' })
 
-  const [bookFilters, setBookFilters] = useState({ nome: '', intestatario: '', saldoMin: '', saldoMax: '' })
+  const [bookFilters, setBookFilters] = useState({ nome: '', intestatario: '', saldoMin: '', saldoMax: '', nota: '' })
   const [walletFilters, setWalletFilters] = useState({ nome: '', intestatario: '', saldoMin: '', saldoMax: '' })
   const [txFilters, setTxFilters] = useState({ tipo: '', azione: '', testo: '', importoMin: '', importoMax: '', dataFrom: '', dataTo: '' })
 const [memoForm, setMemoForm] = useState({ data_reale: '', data_testo: '', importo: '', descrizione: '', colore: 'normal' })
@@ -1807,7 +1807,7 @@ async function saveEditPostIt(id) {
   }
 
   function clearBookFilters() {
-    setBookFilters({ nome: '', intestatario: '', saldoMin: '', saldoMax: '' })
+    setBookFilters({ nome: '', intestatario: '', saldoMin: '', saldoMax: '', nota: '' })
   }
 
   function clearWalletFilters() {
@@ -2858,7 +2858,8 @@ const cashFlowAnnuo = useMemo(() => {
       const intestatarioMatch = (book.intestatario || '').toLowerCase().includes(bookFilters.intestatario.toLowerCase())
       const saldoMinMatch = bookFilters.saldoMin === '' ? true : Number(book.saldo || 0) >= Number(bookFilters.saldoMin)
       const saldoMaxMatch = bookFilters.saldoMax === '' ? true : Number(book.saldo || 0) <= Number(bookFilters.saldoMax)
-      return nomeMatch && intestatarioMatch && saldoMinMatch && saldoMaxMatch
+      const notaMatch = (book.note || '').toLowerCase().includes(bookFilters.nota.toLowerCase())
+      return nomeMatch && intestatarioMatch && saldoMinMatch && saldoMaxMatch && notaMatch
     })
     .sort((a, b) => Number(b.saldo || 0) - Number(a.saldo || 0))
 , [books, bookFilters])
@@ -5120,7 +5121,7 @@ onChange={(e) => {
                 <input value={bookFilters.intestatario} onChange={(e) => setBookFilters({ ...bookFilters, intestatario: e.target.value })} placeholder='Filtra per intestatario...' style={filterInput} />
                 <input value={bookFilters.saldoMin} onChange={(e) => setBookFilters({ ...bookFilters, saldoMin: e.target.value })} placeholder='Saldo min' style={filterInput} />
                 <input value={bookFilters.saldoMax} onChange={(e) => setBookFilters({ ...bookFilters, saldoMax: e.target.value })} placeholder='Saldo max' style={filterInput} />
-                
+                <input value={bookFilters.nota} onChange={(e) => setBookFilters({ ...bookFilters, nota: e.target.value })} placeholder='Filtra per nota...' style={filterInput} />
                 <button type='button' style={secondaryButton} onClick={clearBookFilters}>Pulisci</button>
               </div>
               <div style={tableWrap}>
