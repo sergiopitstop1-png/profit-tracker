@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { useCollaboratoreAttivo, CollaboratoreSelector } from "./CollaboratoreSelector";
 
@@ -7,10 +7,21 @@ function daysBetween(a, b) {
   return Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000);
 }
 
+const selectStyle = {
+  background: "#14161A", border: "1px solid #2A2F38", borderRadius: 6,
+  color: "#EDEEF0", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, sans-serif",
+};
+
 export default function ClientiMovimentazionePanel() {
   const [giorno, setGiorno] = useState(new Date().toISOString().slice(0, 10));
   const [conti, setConti] = useState([]);
   const { collaboratori, attivoId, setAttivo } = useCollaboratoreAttivo();
+
+  // Filtri
+  const [ricerca, setRicerca] = useState("");
+  const [filtroBook, setFiltroBook] = useState("");
+  const [filtroCliente, setFiltroCliente] = useState("");
+  const [filtroStato, setFiltroStato] = useState("");
 
   const load = () => fetch(`/api/movimentazioni?giorno=${giorno}`).then((r) => r.json()).then((d) => setConti(d.clienti || []));
   useEffect(() => { load(); }, [giorno]);
@@ -31,6 +42,16 @@ export default function ClientiMovimentazionePanel() {
     load();
   };
 
+  const bookOptions = useMemo(() => {
+    const set = new Set(conti.map((c) => c.nome));
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [conti]);
+
+  const clienteOptions = useMemo(() => {
+    const set = new Set(conti.map((c) => c.intestatario));
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [conti]);
+
   const sorted = [...conti].sort((a, b) => {
     if (!a.ultimoUtilizzo && !b.ultimoUtilizzo) return 0;
     if (!a.ultimoUtilizzo) return -1;
@@ -38,21 +59,77 @@ export default function ClientiMovimentazionePanel() {
     return a.ultimoUtilizzo < b.ultimoUtilizzo ? -1 : 1;
   });
 
+  const filtered = sorted.filter((c) => {
+    const usatoOggi = c.usatoOggiDa.length > 0;
+    const overused = avg > 0 && c.utilizziTotali > avg * 1.4;
+    const underused = avg > 0 && c.utilizziTotali < avg * 0.6;
+
+    if (ricerca.trim()) {
+      const q = ricerca.trim().toLowerCase();
+      const match = c.nome.toLowerCase().includes(q) || c.intestatario.toLowerCase().includes(q);
+      if (!match) return false;
+    }
+    if (filtroBook && c.nome !== filtroBook) return false;
+    if (filtroCliente && c.intestatario !== filtroCliente) return false;
+    if (filtroStato === "usati-oggi" && !usatoOggi) return false;
+    if (filtroStato === "mai-usati" && c.ultimoUtilizzo !== null) return false;
+    if (filtroStato === "sovra-usati" && !overused) return false;
+    if (filtroStato === "sotto-usati" && !underused) return false;
+
+    return true;
+  });
+
+  const filtriAttivi = ricerca || filtroBook || filtroCliente || filtroStato;
+  const resetFiltri = () => { setRicerca(""); setFiltroBook(""); setFiltroCliente(""); setFiltroStato(""); };
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 10 }}>
         <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 18, fontWeight: 600, margin: 0 }}>Conti da movimentare</h2>
         <div style={{ display: "flex", gap: 10 }}>
-          <input type="date" value={giorno} onChange={(e) => setGiorno(e.target.value)} style={{ background: "#14161A", border: "1px solid #2A2F38", borderRadius: 6, color: "#EDEEF0", padding: "7px 10px", fontSize: 13 }} />
+          <input type="date" value={giorno} onChange={(e) => setGiorno(e.target.value)} style={selectStyle} />
           <CollaboratoreSelector collaboratori={collaboratori} attivoId={attivoId} onChange={setAttivo} />
         </div>
       </div>
-      <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 16 }}>
+      <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 14 }}>
         Lista sincronizzata live dalla tabella "books" · un rigo per ogni conto (book + intestatario) · ordinata per chi va movimentato prima
       </div>
 
+      {/* Barra filtri */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 16, background: "#1A1D22", border: "1px solid #2A2F38", borderRadius: 10, padding: 12 }}>
+        <input
+          placeholder="Cerca book o cliente..."
+          value={ricerca}
+          onChange={(e) => setRicerca(e.target.value)}
+          style={{ ...selectStyle, flex: 1, minWidth: 160 }}
+        />
+        <select value={filtroBook} onChange={(e) => setFiltroBook(e.target.value)} style={selectStyle}>
+          <option value="">Tutti i book</option>
+          {bookOptions.map((b) => <option key={b} value={b}>{b}</option>)}
+        </select>
+        <select value={filtroCliente} onChange={(e) => setFiltroCliente(e.target.value)} style={selectStyle}>
+          <option value="">Tutti i clienti</option>
+          {clienteOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <select value={filtroStato} onChange={(e) => setFiltroStato(e.target.value)} style={selectStyle}>
+          <option value="">Tutti gli stati</option>
+          <option value="usati-oggi">Usati oggi</option>
+          <option value="mai-usati">Mai usati</option>
+          <option value="sovra-usati">Sovra-usati</option>
+          <option value="sotto-usati">Sotto-usati</option>
+        </select>
+        {filtriAttivi && (
+          <button onClick={resetFiltri} style={{ background: "transparent", border: "1px solid #2A2F38", borderRadius: 6, color: "#8A8F98", padding: "7px 12px", fontSize: 12, cursor: "pointer" }}>
+            Azzera filtri
+          </button>
+        )}
+        <span style={{ fontSize: 11, color: "#6B7280", marginLeft: "auto", fontFamily: "'IBM Plex Mono', monospace" }}>
+          {filtered.length} / {conti.length}
+        </span>
+      </div>
+
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {sorted.map((c) => {
+        {filtered.map((c) => {
           const usatoOggi = c.usatoOggiDa.length > 0;
           const sinceLast = c.ultimoUtilizzo ? daysBetween(c.ultimoUtilizzo, giorno) : null;
           const overused = avg > 0 && c.utilizziTotali > avg * 1.4;
@@ -83,7 +160,12 @@ export default function ClientiMovimentazionePanel() {
             </div>
           );
         })}
-        {sorted.length === 0 && <div style={{ fontSize: 13, color: "#6B7280", fontStyle: "italic" }}>Nessun conto trovato nella tabella "books".</div>}
+        {filtered.length === 0 && conti.length > 0 && (
+          <div style={{ fontSize: 13, color: "#6B7280", fontStyle: "italic" }}>Nessun conto corrisponde ai filtri selezionati.</div>
+        )}
+        {conti.length === 0 && (
+          <div style={{ fontSize: 13, color: "#6B7280", fontStyle: "italic" }}>Nessun conto trovato nella tabella "books".</div>
+        )}
       </div>
     </div>
   );
