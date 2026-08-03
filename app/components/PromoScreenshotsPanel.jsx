@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Upload, Trash2, X } from "lucide-react";
 import { useCollaboratoreAttivo, CollaboratoreSelector } from "./CollaboratoreSelector";
 
@@ -12,6 +12,7 @@ export default function PromoScreenshotsPanel() {
   const [screens, setScreens] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [zoomed, setZoomed] = useState(null); // screenshot selezionato per la vista ingrandita
+  const [mostraTutti, setMostraTutti] = useState(false); // vedi anche le promo degli altri collaboratori
   const fileInput = useRef(null);
   const { collaboratori, attivoId, setAttivo } = useCollaboratoreAttivo();
 
@@ -44,6 +45,11 @@ export default function PromoScreenshotsPanel() {
     load();
   };
 
+  const screensVisibili = useMemo(() => {
+    if (mostraTutti || !attivoId) return screens;
+    return screens.filter((s) => s.collaboratore_id === attivoId);
+  }, [screens, attivoId, mostraTutti]);
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
@@ -53,6 +59,10 @@ export default function PromoScreenshotsPanel() {
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <input type="date" value={giorno} onChange={(e) => setGiorno(e.target.value)} style={{ background: "#14161A", border: "1px solid #2A2F38", borderRadius: 6, color: "#EDEEF0", padding: "7px 10px", fontSize: 13 }} />
           <CollaboratoreSelector collaboratori={collaboratori} attivoId={attivoId} onChange={setAttivo} />
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#8A8F98", cursor: "pointer" }}>
+            <input type="checkbox" checked={mostraTutti} onChange={(e) => setMostraTutti(e.target.checked)} />
+            Mostra anche gli altri collaboratori
+          </label>
           <label style={{ display: "flex", alignItems: "center", gap: 6, background: "#E8A23D", color: "#14161A", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
             <Upload size={14} /> {uploading ? "Caricamento..." : "Carica"}
             <input ref={fileInput} type="file" accept="image/*" multiple style={{ display: "none" }}
@@ -61,13 +71,19 @@ export default function PromoScreenshotsPanel() {
         </div>
       </div>
 
-      {screens.length === 0 ? (
+      {attivoId && !mostraTutti && (
+        <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 12 }}>
+          Stai vedendo solo le promo assegnate a te. Spunta "Mostra anche gli altri collaboratori" per vedere tutto.
+        </div>
+      )}
+
+      {screensVisibili.length === 0 ? (
         <div style={{ fontSize: 13, color: "#6B7280", fontStyle: "italic", padding: 20, textAlign: "center", background: "#1A1D22", border: "1px dashed #2A2F38", borderRadius: 10 }}>
-          Nessuno screenshot per questo giorno.
+          Nessuno screenshot per questo giorno{attivoId && !mostraTutti ? " assegnato a te" : ""}.
         </div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 14 }}>
-          {screens.map((s) => (
+          {screensVisibili.map((s) => (
             <div key={s.id} style={{ background: "#1A1D22", border: "1px solid #2A2F38", borderRadius: 10, overflow: "hidden" }}>
               <div style={{ position: "relative", cursor: "zoom-in" }} onClick={() => s.url && setZoomed(s)}>
                 {s.url && <img src={s.url} alt={s.label || "promo"} style={{ width: "100%", display: "block", maxHeight: 220, objectFit: "cover" }} />}
