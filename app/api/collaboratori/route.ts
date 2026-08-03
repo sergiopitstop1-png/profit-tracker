@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { supabase as supabaseAdmin } from "../../profit-tracker/supabaseClient";
 
 // GET /api/collaboratori -> lista collaboratori attivi
 export async function GET() {
