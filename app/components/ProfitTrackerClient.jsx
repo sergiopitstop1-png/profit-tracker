@@ -2,6 +2,10 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { supabase } from '../profit-tracker/supabaseClient'
+import PromoScreenshotsPanel from './PromoScreenshotsPanel'
+import ClientiMovimentazionePanel from './ClientiMovimentazionePanel'
+import RisultatiPanel from './RisultatiPanel'
+import CollaboratoriManager from './CollaboratoriManager'
 const BASE_CASSA_MESE = 57229.62
 
 export default function ProfitTrackerClient() {
@@ -3492,6 +3496,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           <button style={activeTab === 'punti-monete' ? activeTabButton : tabButton} onClick={() => handleTabChange('punti-monete')}>🏆 Punti &amp; Monete</button>
           <button style={activeTab === 'credenziali' ? activeTabButton : tabButton} onClick={() => handleTabChange('credenziali')}>🔑 Credenziali</button>
           <button style={activeTab === 'sms' ? activeTabButton : tabButton} onClick={() => handleTabChange('sms')}>📱 SMS</button>
+          <button style={activeTab === 'promo' ? activeTabButton : tabButton} onClick={() => handleTabChange('promo')}>🖼️ Promo</button>
+          <button style={activeTab === 'conti-movimentazione' ? activeTabButton : tabButton} onClick={() => handleTabChange('conti-movimentazione')}>🔄 Conti</button>
+          <button style={activeTab === 'risultati-promo' ? activeTabButton : tabButton} onClick={() => handleTabChange('risultati-promo')}>📊 Risultati</button>
+          <button style={activeTab === 'collaboratori' ? activeTabButton : tabButton} onClick={() => handleTabChange('collaboratori')}>👥 Collaboratori</button>
 <button
   style={activeTab === 'stime-cassa' ? activeTabButton : tabButton}
   onClick={() => {
@@ -6600,6 +6608,35 @@ onChange={(e) => {
     </div>
   )}
 </div>
+
+        {activeTab === 'promo' && (
+          <div style={tabContent}>
+            <div style={panel}>
+              <PromoScreenshotsPanel />
+            </div>
+          </div>
+        )}
+        {activeTab === 'conti-movimentazione' && (
+          <div style={tabContent}>
+            <div style={panel}>
+              <ClientiMovimentazionePanel />
+            </div>
+          </div>
+        )}
+        {activeTab === 'risultati-promo' && (
+          <div style={tabContent}>
+            <div style={panel}>
+              <RisultatiPanel />
+            </div>
+          </div>
+        )}
+        {activeTab === 'collaboratori' && (
+          <div style={tabContent}>
+            <div style={panel}>
+              <CollaboratoriManager />
+            </div>
+          </div>
+        )}
 
  
   </div>
