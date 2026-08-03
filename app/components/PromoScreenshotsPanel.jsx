@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { Upload, Trash2 } from "lucide-react";
+import { Upload, Trash2, X } from "lucide-react";
 import { useCollaboratoreAttivo, CollaboratoreSelector } from "./CollaboratoreSelector";
 
 function fmtDate(iso) {
@@ -11,11 +11,19 @@ export default function PromoScreenshotsPanel() {
   const [giorno, setGiorno] = useState(new Date().toISOString().slice(0, 10));
   const [screens, setScreens] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const [zoomed, setZoomed] = useState(null); // screenshot selezionato per la vista ingrandita
   const fileInput = useRef(null);
   const { collaboratori, attivoId, setAttivo } = useCollaboratoreAttivo();
 
   const load = () => fetch(`/api/screenshots?giorno=${giorno}`).then((r) => r.json()).then((d) => setScreens(d.screenshots || []));
   useEffect(() => { load(); }, [giorno]);
+
+  // Chiudi la vista ingrandita con il tasto Esc
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") setZoomed(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const upload = async (files) => {
     setUploading(true);
@@ -32,6 +40,7 @@ export default function PromoScreenshotsPanel() {
 
   const remove = async (id) => {
     await fetch(`/api/screenshots?id=${id}`, { method: "DELETE" });
+    if (zoomed?.id === id) setZoomed(null);
     load();
   };
 
@@ -60,9 +69,9 @@ export default function PromoScreenshotsPanel() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 14 }}>
           {screens.map((s) => (
             <div key={s.id} style={{ background: "#1A1D22", border: "1px solid #2A2F38", borderRadius: 10, overflow: "hidden" }}>
-              <div style={{ position: "relative" }}>
+              <div style={{ position: "relative", cursor: "zoom-in" }} onClick={() => s.url && setZoomed(s)}>
                 {s.url && <img src={s.url} alt={s.label || "promo"} style={{ width: "100%", display: "block", maxHeight: 220, objectFit: "cover" }} />}
-                <button onClick={() => remove(s.id)} style={{ position: "absolute", top: 6, right: 6, background: "rgba(20,22,26,0.85)", border: "none", borderRadius: 5, color: "#EDEEF0", cursor: "pointer", padding: 4 }}>
+                <button onClick={(e) => { e.stopPropagation(); remove(s.id); }} style={{ position: "absolute", top: 6, right: 6, background: "rgba(20,22,26,0.85)", border: "none", borderRadius: 5, color: "#EDEEF0", cursor: "pointer", padding: 4 }}>
                   <Trash2 size={12} />
                 </button>
               </div>
@@ -71,6 +80,38 @@ export default function PromoScreenshotsPanel() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Vista ingrandita a schermo intero */}
+      {zoomed && (
+        <div
+          onClick={() => setZoomed(null)}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(10,11,13,0.92)", zIndex: 1000,
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 24, cursor: "zoom-out",
+          }}
+        >
+          <button
+            onClick={(e) => { e.stopPropagation(); setZoomed(null); }}
+            style={{
+              position: "absolute", top: 20, right: 24, background: "rgba(255,255,255,0.1)", border: "none",
+              borderRadius: 8, color: "#EDEEF0", cursor: "pointer", padding: 8, display: "flex",
+            }}
+          >
+            <X size={20} />
+          </button>
+          <img
+            src={zoomed.url}
+            alt={zoomed.label || "promo"}
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "92vw", maxHeight: "88vh", objectFit: "contain", borderRadius: 8, cursor: "default" }}
+          />
+          {zoomed.label && (
+            <div style={{ position: "absolute", bottom: 24, left: "50%", transform: "translateX(-50%)", background: "rgba(20,22,26,0.85)", color: "#EDEEF0", padding: "8px 16px", borderRadius: 8, fontSize: 13 }}>
+              {zoomed.label}
+            </div>
+          )}
         </div>
       )}
     </div>
