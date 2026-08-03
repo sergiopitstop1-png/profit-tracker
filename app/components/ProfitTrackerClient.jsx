@@ -15,6 +15,7 @@ export default function ProfitTrackerClient() {
     return `${y}-${m}`
   }
   const [activeTab, setActiveTab] = useState('dashboard')
+  const [teamSubTab, setTeamSubTab] = useState('promo')
   const [books, setBooks] = useState([])
   const [wallets, setWallets] = useState([])
   const [transactions, setTransactions] = useState([])
@@ -3496,10 +3497,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           <button style={activeTab === 'punti-monete' ? activeTabButton : tabButton} onClick={() => handleTabChange('punti-monete')}>🏆 Punti &amp; Monete</button>
           <button style={activeTab === 'credenziali' ? activeTabButton : tabButton} onClick={() => handleTabChange('credenziali')}>🔑 Credenziali</button>
           <button style={activeTab === 'sms' ? activeTabButton : tabButton} onClick={() => handleTabChange('sms')}>📱 SMS</button>
-          <button style={activeTab === 'promo' ? activeTabButton : tabButton} onClick={() => handleTabChange('promo')}>🖼️ Promo</button>
-          <button style={activeTab === 'conti-movimentazione' ? activeTabButton : tabButton} onClick={() => handleTabChange('conti-movimentazione')}>🔄 Conti</button>
-          <button style={activeTab === 'risultati-promo' ? activeTabButton : tabButton} onClick={() => handleTabChange('risultati-promo')}>📊 Risultati</button>
-          <button style={activeTab === 'collaboratori' ? activeTabButton : tabButton} onClick={() => handleTabChange('collaboratori')}>👥 Collaboratori</button>
+          <button style={activeTab === 'team' ? activeTabButton : tabButton} onClick={() => handleTabChange('team')}>👥 Team</button>
 <button
   style={activeTab === 'stime-cassa' ? activeTabButton : tabButton}
   onClick={() => {
@@ -6609,31 +6607,34 @@ onChange={(e) => {
   )}
 </div>
 
-        {activeTab === 'promo' && (
+        {activeTab === 'team' && (
           <div style={tabContent}>
-            <div style={panel}>
-              <PromoScreenshotsPanel />
+            <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+              {[
+                { key: 'promo', label: '🖼️ Promo' },
+                { key: 'conti', label: '🔄 Conti' },
+                { key: 'risultati', label: '📊 Risultati' },
+                { key: 'gestione', label: '👤 Gestione collaboratori' },
+              ].map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setTeamSubTab(key)}
+                  style={{
+                    background: teamSubTab === key ? 'rgba(232,162,61,0.15)' : 'transparent',
+                    border: teamSubTab === key ? '1px solid #E8A23D' : '1px solid rgba(51,65,85,0.6)',
+                    color: teamSubTab === key ? '#E8A23D' : '#B0B4BA',
+                    borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
-          </div>
-        )}
-        {activeTab === 'conti-movimentazione' && (
-          <div style={tabContent}>
             <div style={panel}>
-              <ClientiMovimentazionePanel />
-            </div>
-          </div>
-        )}
-        {activeTab === 'risultati-promo' && (
-          <div style={tabContent}>
-            <div style={panel}>
-              <RisultatiPanel />
-            </div>
-          </div>
-        )}
-        {activeTab === 'collaboratori' && (
-          <div style={tabContent}>
-            <div style={panel}>
-              <CollaboratoriManager />
+              {teamSubTab === 'promo' && <PromoScreenshotsPanel />}
+              {teamSubTab === 'conti' && <ClientiMovimentazionePanel />}
+              {teamSubTab === 'risultati' && <RisultatiPanel />}
+              {teamSubTab === 'gestione' && <CollaboratoriManager />}
             </div>
           </div>
         )}
