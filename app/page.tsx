@@ -1,6 +1,7 @@
 import SiteHeader from "./components/SiteHeader";
 import SiteFooter from "./components/SiteFooter";
 import SectionCard from "./components/SectionCard";
+import { posts } from "../lib/blogPosts";
 
 export default function SergioApicellaHomepage() {
   return (
@@ -61,24 +62,18 @@ export default function SergioApicellaHomepage() {
         <p className="text-sm uppercase tracking-[0.3em] text-orange-300">Dal Blog</p>
         <h2 className="mt-3 text-3xl font-bold mb-8">Ultimi articoli</h2>
         <div className="grid gap-6 md:grid-cols-3">
-          <a href="/blog/salernitana-playoff-serie-c-2026" className="block rounded-3xl border border-white/10 bg-white/5 p-6 transition hover:-translate-y-1 hover:border-orange-400/40 hover:bg-white/10">
-            <p className="text-xs uppercase tracking-[0.2em] text-orange-300 mb-3">Analisi Calcio</p>
-            <h3 className="text-lg font-bold leading-snug mb-3">Salernitana in semifinale: al Benelli una vittoria di sostanza</h3>
-            <p className="text-sm text-white/60 leading-7">Ravenna-Salernitana 0-2. Villa e Inglese trascinano i granata alle semifinali playoff di Serie C.</p>
-            <p className="mt-4 text-sm font-semibold text-orange-300">Leggi articolo →</p>
-          </a>
-          <a href="/blog/juventus-napoli-stagione-2026" className="block rounded-3xl border border-white/10 bg-white/5 p-6 transition hover:-translate-y-1 hover:border-orange-400/40 hover:bg-white/10">
-            <p className="text-xs uppercase tracking-[0.2em] text-orange-300 mb-3">Analisi Calcio</p>
-            <h3 className="text-lg font-bold leading-snug mb-3">Juventus, un occasione sprecata. Napoli, lezione di solidità</h3>
-            <p className="text-sm text-white/60 leading-7">Champions persa in casa contro la Fiorentina. Napoli secondo nonostante infortuni e assenze.</p>
-            <p className="mt-4 text-sm font-semibold text-orange-300">Leggi articolo →</p>
-          </a>
-          <a href="/blog/europa-league-finale-2026" className="block rounded-3xl border border-white/10 bg-white/5 p-6 transition hover:-translate-y-1 hover:border-orange-400/40 hover:bg-white/10">
-            <p className="text-xs uppercase tracking-[0.2em] text-orange-300 mb-3">Analisi Calcio</p>
-            <h3 className="text-lg font-bold leading-snug mb-3">Aston Villa campione d'Europa: 3-0 al Friburgo a Istanbul</h3>
-            <p className="text-sm text-white/60 leading-7">Tielemans, Buendía e Rogers. Emery conquista la sua quinta Europa League.</p>
-            <p className="mt-4 text-sm font-semibold text-orange-300">Leggi articolo →</p>
-          </a>
+          {posts.slice(0, 3).map((post) => (
+            <a
+              key={post.href}
+              href={post.href}
+              className="block rounded-3xl border border-white/10 bg-white/5 p-6 transition hover:-translate-y-1 hover:border-orange-400/40 hover:bg-white/10"
+            >
+              <p className="text-xs uppercase tracking-[0.2em] text-orange-300 mb-3">{post.category}</p>
+              <h3 className="text-lg font-bold leading-snug mb-3">{post.title}</h3>
+              <p className="text-sm text-white/60 leading-7">{post.excerpt}</p>
+              <p className="mt-4 text-sm font-semibold text-orange-300">Leggi articolo →</p>
+            </a>
+          ))}
         </div>
         <div className="mt-8 text-right">
           <a href="/blog" className="text-sm font-semibold text-orange-300 hover:text-orange-200">Tutti gli articoli →</a>
