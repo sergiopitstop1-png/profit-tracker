@@ -669,7 +669,9 @@ export default function Oggi() {
     const key = `${match.id}_${signal.label}_piano`;
     setPianoMap(prev => ({ ...prev, [key]: "saving" }));
     try {
-      const { data: plan } = await supabase.from("pronox_plans").select("id").eq("status", "ACTIVE").single();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setPianoMap(prev => ({ ...prev, [key]: null })); return; }
+      const { data: plan } = await supabase.from("pronox_plans").select("id").eq("status", "ACTIVE").eq("user_id", user.id).single();
       if (!plan) { alert("Nessun piano attivo!"); setPianoMap(prev => ({ ...prev, [key]: null })); return; }
       const { error } = await supabase.from("pronox_bets").insert({
         plan_id: plan.id, match_date: date, match_time: match.time,
@@ -679,6 +681,7 @@ export default function Oggi() {
         lambda_home: match.isTennis ? 0 : parseFloat(match.lH.toFixed(3)),
         lambda_away: match.isTennis ? 0 : parseFloat(match.lA.toFixed(3)),
         status: "PENDING",
+        user_id: user.id,
       });
       if (error) {
         console.error("Errore salvataggio pronox_bets:", error);
