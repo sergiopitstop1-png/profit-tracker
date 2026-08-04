@@ -24,9 +24,10 @@ export default function RisultatiPanel() {
     const va = parseFloat(form.valoreAtteso);
     const np = parseInt(form.numeroPromo, 10);
     if (!form.book.trim() || isNaN(va) || isNaN(np) || np <= 0) return;
+    const totaleRiga = va * np; // "valore atteso" inserito è per singola promo: il totale della riga è va × numero promo
     await fetch("/api/risultati", {
       method: "POST",
-      body: JSON.stringify({ giorno: form.giorno, book: form.book.trim(), valoreAtteso: va, numeroPromo: np, collaboratoreId: attivoId || null }),
+      body: JSON.stringify({ giorno: form.giorno, book: form.book.trim(), valoreAtteso: totaleRiga, numeroPromo: np, collaboratoreId: attivoId || null }),
     });
     setForm({ ...form, book: "", valoreAtteso: "", numeroPromo: "" });
     load();
