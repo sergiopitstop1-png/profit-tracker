@@ -22,13 +22,13 @@ const LEAGUES = [
 
 // ─── MODELLO (stesse funzioni pure di /oggi) ────────────────────
 
-function poisson(k, lambda) {
+function poisson(k: number, lambda: number) {
   let p = Math.exp(-lambda);
   for (let i = 1; i <= k; i++) p *= lambda / i;
   return p;
 }
 
-function dixonColesCorr(i, j, lH, lA, rho = -0.13) {
+function dixonColesCorr(i: number, j: number, lH: number, lA: number, rho = -0.13) {
   if (i === 0 && j === 0) return 1 - lH * lA * rho;
   if (i === 0 && j === 1) return 1 + lH * rho;
   if (i === 1 && j === 0) return 1 + lA * rho;
@@ -36,7 +36,7 @@ function dixonColesCorr(i, j, lH, lA, rho = -0.13) {
   return 1;
 }
 
-function calcProbs(lH, lA, max = 8) {
+function calcProbs(lH: number, lA: number, max = 8) {
   let h = 0, d = 0, a = 0, o25 = 0, btts = 0;
   for (let i = 0; i <= max; i++) {
     for (let j = 0; j <= max; j++) {
@@ -53,12 +53,12 @@ function calcProbs(lH, lA, max = 8) {
   return { h: h / tot, d: d / tot, a: a / tot, o25, u25: 1 - o25, btts };
 }
 
-function timeWeight(matchDate, refDate) {
+function timeWeight(matchDate: any, refDate: any) {
   const days = (new Date(refDate) - new Date(matchDate)) / (1000 * 60 * 60 * 24);
   return Math.exp(-days / 90);
 }
 
-function calcRatings(matches, refDate) {
+function calcRatings(matches: any[], refDate: any) {
   const teams = {};
   const today = refDate || new Date().toISOString().split("T")[0];
   const finished = matches.filter(m =>
@@ -103,7 +103,7 @@ function calcRatings(matches, refDate) {
   return { teams, lgAvgHome, lgAvgAway };
 }
 
-function calcH2H(allMatches, teamHId, teamAId) {
+function calcH2H(allMatches: any[], teamHId: any, teamAId: any) {
   const h2h = allMatches.filter(m =>
     m.status === "FINISHED" && (
       (m.homeTeam.id === teamHId && m.awayTeam.id === teamAId) ||
@@ -121,7 +121,7 @@ function calcH2H(allMatches, teamHId, teamAId) {
   return { bias: (hWins - aWins) / h2h.length * 0.08 };
 }
 
-function getLambdas(teamH, teamA, lgAvgHome, lgAvgAway, h2hBias) {
+function getLambdas(teamH: any, teamA: any, lgAvgHome: number, lgAvgAway: number, h2hBias: number) {
   let lH = teamH.attH * teamA.defA * lgAvgHome;
   let lA = teamA.attA * teamH.defH * lgAvgAway;
   const homeAdv = Math.min(Math.max(teamH.homeAdvantage, 0.8), 1.4);
@@ -133,7 +133,7 @@ function getLambdas(teamH, teamA, lgAvgHome, lgAvgAway, h2hBias) {
   return { lH: Math.max(0.3, Math.min(3.0, lH)), lA: Math.max(0.3, Math.min(3.0, lA)) };
 }
 
-function getSignals(probs) {
+function getSignals(probs: any) {
   const signals = [];
   if (probs.h > 0.62) signals.push({ label: "CASA VINCE", prob: probs.h });
   if (probs.a > 0.55) signals.push({ label: "OSPITE VINCE", prob: probs.a });
@@ -144,7 +144,7 @@ function getSignals(probs) {
   return signals;
 }
 
-function currentSeasonFor(code) {
+function currentSeasonFor(code: string) {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
@@ -152,7 +152,7 @@ function currentSeasonFor(code) {
   return String(month >= 7 ? year : year - 1);
 }
 
-async function fetchSeasonMatches(code) {
+async function fetchSeasonMatches(code: string) {
   const season = currentSeasonFor(code);
   // Cache-first: riusa i dati già scaricati oggi da /oggi, se presenti
   const { data: cached } = await supabase
@@ -185,7 +185,7 @@ async function fetchSeasonMatches(code) {
 
 // ─── STEP 1: verifica i pronostici di ieri ──────────────────────
 
-async function verifyYesterdayPicks(yesterday) {
+async function verifyYesterdayPicks(yesterday: string) {
   const { data: picks } = await supabase
     .from("pronox_daily_picks")
     .select("*")
@@ -232,7 +232,7 @@ async function verifyYesterdayPicks(yesterday) {
 // Il pronostico tennis è sempre "PlayerX vince" — cerchiamo la partita già
 // giocata tra i due giocatori intorno alla data del pronostico e vediamo
 // se chi era stato indicato come favorito ha vinto davvero.
-async function verifyTennisPick(pick, pickDate) {
+async function verifyTennisPick(pick: any, pickDate: string) {
   if (!pick.player_a_id || !pick.player_b_id) return null;
 
   const dateFrom = pickDate;
@@ -260,7 +260,7 @@ async function verifyTennisPick(pick, pickDate) {
 
 // ─── STEP 2: calcola i pronostici di domani ─────────────────────
 
-async function computeTomorrowPicks(tomorrow) {
+async function computeTomorrowPicks(tomorrow: string) {
   const allPicks = [];
 
   for (const league of LEAGUES) {
@@ -313,7 +313,7 @@ async function computeTomorrowPicks(tomorrow) {
   return best;
 }
 
-async function computeTomorrowTennisPicks(tomorrow) {
+async function computeTomorrowTennisPicks(tomorrow: string) {
   try {
     const r = await fetch(`https://sergioapicella.it/api/tennis/matches?date=${tomorrow}`);
     const d = await r.json();
@@ -356,7 +356,7 @@ async function computeTomorrowTennisPicks(tomorrow) {
 
 // ─── STEP 3: costruisci e invia la mail ─────────────────────────
 
-function buildEmailHtml(yesterdayResults, tomorrowPicks, yesterday, tomorrow) {
+function buildEmailHtml(yesterdayResults: any[], tomorrowPicks: any[], yesterday: string, tomorrow: string) {
   const wins = yesterdayResults.filter(r => r.status === "WIN").length;
   const losses = yesterdayResults.filter(r => r.status === "LOSS").length;
   const totalDone = wins + losses;
@@ -422,7 +422,7 @@ function buildEmailHtml(yesterdayResults, tomorrowPicks, yesterday, tomorrow) {
   </div>`;
 }
 
-async function sendDigestEmail(html, recipients) {
+async function sendDigestEmail(html: string, recipients: string[]) {
   if (recipients.length === 0) return;
   await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -442,7 +442,7 @@ async function sendDigestEmail(html, recipients) {
 
 // ─── ROUTE ───────────────────────────────────────────────────────
 
-export async function GET(request) {
+export async function GET(request: Request) {
   // Protezione: solo Vercel Cron (o chi conosce il secret) può triggerare questa route
   const authHeader = request.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
