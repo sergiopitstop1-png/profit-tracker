@@ -24,9 +24,12 @@ export default function Archivio() {
 
   const loadArchive = async () => {
     setLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setRecords([]); setLoading(false); return; }
     const { data, error } = await supabase
       .from("pronox_archive")
       .select("*")
+      .eq("user_id", user.id)
       .order("created_at", { ascending: false });
     if (!error) setRecords(data || []);
     setLoading(false);
@@ -113,15 +116,18 @@ export default function Archivio() {
 
   const deleteRecord = async (id) => {
     if (!confirm("Eliminare questo pronostico?")) return;
-    await supabase.from("pronox_archive").delete().eq("id", id);
+    const { data: { user } } = await supabase.auth.getUser();
+    await supabase.from("pronox_archive").delete().eq("id", id).eq("user_id", user?.id);
     setRecords(prev => prev.filter(r => r.id !== id));
   };
 
   const clearArchive = async () => {
-    if (!confirm("⚠️ Sei sicuro di voler cancellare TUTTO l'archivio?\nQuesta operazione è irreversibile!")) return;
+    if (!confirm("⚠️ Sei sicuro di voler cancellare TUTTO il TUO archivio?\nQuesta operazione è irreversibile!")) return;
     setClearingAll(true);
     try {
-      const { error } = await supabase.from("pronox_archive").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setClearingAll(false); return; }
+      const { error } = await supabase.from("pronox_archive").delete().eq("user_id", user.id);
       if (error) {
         alert("Errore durante la cancellazione: " + error.message);
         console.error("clearArchive error:", error);
