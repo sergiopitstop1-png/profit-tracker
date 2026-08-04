@@ -26,10 +26,10 @@ export async function middleware(req: NextRequest) {
   const { data: { session } } = await supabase.auth.getSession();
   const path = req.nextUrl.pathname;
 
-  // Pagine che richiedono solo login
+  // Pagine che richiedono solo login (iscrizione libera per i nuovi)
   const needsAuth = PROTECTED_ROUTES.some(r => path.startsWith(r));
   if (needsAuth && !session) {
-    const redirectUrl = new URL("/login", req.url);
+    const redirectUrl = new URL("/register", req.url);
     redirectUrl.searchParams.set("from", path);
     return NextResponse.redirect(redirectUrl);
   }
