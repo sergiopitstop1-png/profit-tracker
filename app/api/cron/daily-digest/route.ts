@@ -3,8 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 const API_FOOTBALL = "https://api.football-data.org/v4";
 
 const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY // service role: bypassa RLS, serve per scrivere pronox_daily_picks e leggere tutte le email
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY! // service role: bypassa RLS, serve per scrivere pronox_daily_picks e leggere tutte le email
 );
 
 const LEAGUES = [
@@ -167,7 +167,7 @@ async function fetchSeasonMatches(code) {
   }
   try {
     const r = await fetch(`${API_FOOTBALL}/competitions/${code}/matches?season=${season}`, {
-      headers: { "X-Auth-Token": process.env.FOOTBALL_DATA_KEY },
+      headers: { "X-Auth-Token": process.env.FOOTBALL_DATA_KEY! },
     });
     const d = await r.json();
     const matches = d.matches || [];
@@ -206,7 +206,7 @@ async function verifyYesterdayPicks(yesterday) {
       }
 
       const r = await fetch(`${API_FOOTBALL}/matches/${pick.match_id_fd}`, {
-        headers: { "X-Auth-Token": process.env.FOOTBALL_DATA_KEY },
+        headers: { "X-Auth-Token": process.env.FOOTBALL_DATA_KEY! },
       });
       const d = await r.json();
       const m = d.match || d;
