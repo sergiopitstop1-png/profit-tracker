@@ -59,7 +59,7 @@ function timeWeight(matchDate: any, refDate: any) {
 }
 
 function calcRatings(matches: any[], refDate: any) {
-  const teams = {};
+  const teams: Record<string, any> = {};
   const today = refDate || new Date().toISOString().split("T")[0];
   const finished = matches.filter(m =>
     m.status === "FINISHED" &&
