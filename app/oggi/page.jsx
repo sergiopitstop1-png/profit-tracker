@@ -639,6 +639,7 @@ export default function Oggi() {
     }
     setCheckingId(key);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
       const r = await fetch(`${API_FD}?endpoint=matches/${match.fdId}`);
       const d = await r.json();
       const m = d.match || d;
@@ -658,7 +659,7 @@ export default function Oggi() {
       else if (signal.label === "TRADING O0.5 HT → U2.5 LIVE") outcome = (htHome + htAway) >= 1 && total <= 2 ? "WIN" : "LOSS";
       await supabase.from("pronox_archive")
         .update({ status: outcome, ft_home_goals: ftHome, ft_away_goals: ftAway, ht_home_goals: htHome, ht_away_goals: htAway, result_checked_at: new Date().toISOString() })
-        .eq("match_id", match.id).eq("prediction_label", signal.label);
+        .eq("match_id", match.id).eq("prediction_label", signal.label).eq("user_id", user?.id);
       setSavedMap(prev => ({ ...prev, [key]: outcome }));
     } catch (e) { console.error(e); }
     setCheckingId(null);
