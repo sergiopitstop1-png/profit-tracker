@@ -1,35 +1,36 @@
 "use client";
 import { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import { createClient } from "../../lib/supabase-browser";
+
+const supabase = createClient();
 
 function LoginForm() {
   const searchParams = useSearchParams();
   const from = searchParams.get("from") || "/";
 
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async () => {
-    if (!password) return;
+    if (!email || !password) return;
     setLoading(true);
     setError("");
-    try {
-      const res = await fetch("/api/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      });
-      if (res.ok) {
-        localStorage.setItem("site_unlocked", "1");
-        window.location.href = from;
-      } else {
-        setError("Password errata. Riprova.");
-      }
-    } catch {
-      setError("Errore di rete. Riprova.");
+
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+
+    if (signInError) {
+      setError("Email o password errati.");
+      setLoading(false);
+      return;
     }
-    setLoading(false);
+
+    // Aspetta che la sessione sia propagata prima di redirigere,
+    // altrimenti il middleware sulla pagina successiva non la vede ancora
+    await supabase.auth.getSession();
+    window.location.href = from;
   };
 
   return (
@@ -46,8 +47,29 @@ function LoginForm() {
         SERGIO<span style={{ color: "#c8f135" }}>APICELLA</span>
       </div>
       <div style={{ fontSize: 13, color: "#6b7490", marginBottom: 32 }}>
-        Inserisci la password per accedere
+        Accedi con il tuo account
       </div>
+
+      <input
+        type="email"
+        value={email}
+        onChange={e => setEmail(e.target.value)}
+        onKeyDown={e => e.key === "Enter" && handleSubmit()}
+        placeholder="Email..."
+        autoFocus
+        style={{
+          width: "100%",
+          padding: "12px 14px",
+          borderRadius: 10,
+          border: "1px solid #2a2f3f",
+          background: "#0d0f14",
+          color: "#e8ecf5",
+          fontSize: 15,
+          outline: "none",
+          boxSizing: "border-box" as const,
+          marginBottom: 10,
+        }}
+      />
 
       <input
         type="password"
@@ -55,7 +77,6 @@ function LoginForm() {
         onChange={e => setPassword(e.target.value)}
         onKeyDown={e => e.key === "Enter" && handleSubmit()}
         placeholder="Password..."
-        autoFocus
         style={{
           width: "100%",
           padding: "12px 14px",
@@ -78,17 +99,17 @@ function LoginForm() {
 
       <button
         onClick={handleSubmit}
-        disabled={loading || !password}
+        disabled={loading || !email || !password}
         style={{
           width: "100%",
           padding: "13px",
           borderRadius: 10,
           border: "none",
-          background: loading || !password ? "#2a2f3f" : "#c8f135",
-          color: loading || !password ? "#6b7490" : "#0d0f14",
+          background: loading || !email || !password ? "#2a2f3f" : "#c8f135",
+          color: loading || !email || !password ? "#6b7490" : "#0d0f14",
           fontWeight: 800,
           fontSize: 15,
-          cursor: loading || !password ? "not-allowed" : "pointer",
+          cursor: loading || !email || !password ? "not-allowed" : "pointer",
           transition: "all 0.2s",
         }}
       >
