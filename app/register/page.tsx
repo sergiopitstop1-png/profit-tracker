@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "../../lib/supabase-browser";
 
 const supabase = createClient();
 
-export default function Register() {
+function RegisterForm() {
   const searchParams = useSearchParams();
   const from = searchParams.get("from") || "/oggi";
 
@@ -180,6 +180,14 @@ export default function Register() {
 
       </div>
     </main>
+  );
+}
+
+export default function Register() {
+  return (
+    <Suspense fallback={<div style={{ background: "#0d0f14", minHeight: "100vh", color: "#6b7490", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "system-ui, sans-serif" }}>Carico...</div>}>
+      <RegisterForm />
+    </Suspense>
   );
 }
 
