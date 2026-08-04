@@ -60,9 +60,13 @@ export default function Piano() {
 
   const loadData = async () => {
     setLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoading(false); return; }
+
     const { data: plansData } = await supabase
       .from("pronox_plans")
       .select("*")
+      .eq("user_id", user.id)
       .order("created_at", { ascending: false });
     
     const allPlans = plansData || [];
@@ -75,6 +79,7 @@ export default function Piano() {
         .from("pronox_bets")
         .select("*")
         .eq("plan_id", active.id)
+        .eq("user_id", user.id)
         .order("created_at", { ascending: true });
       setBets(betsData || []);
     }
@@ -84,10 +89,13 @@ export default function Piano() {
   const createPlan = async () => {
     if (!formCassa || !formObiettivo || !formPartite || !formVittorie) return;
     setSaving(true);
-    
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setSaving(false); return; }
+
     // Chiudi piano attivo se esiste
     if (activePlan) {
-      await supabase.from("pronox_plans").update({ status: "CLOSED" }).eq("id", activePlan.id);
+      await supabase.from("pronox_plans").update({ status: "CLOSED" }).eq("id", activePlan.id).eq("user_id", user.id);
     }
 
     const { data } = await supabase.from("pronox_plans").insert({
@@ -98,6 +106,7 @@ export default function Piano() {
       cassa_attuale: parseFloat(formCassa),
       status: "ACTIVE",
       note: formNote,
+      user_id: user.id,
     }).select().single();
 
     setSaving(false);
@@ -187,7 +196,8 @@ export default function Piano() {
 
   const closePlan = async () => {
     if (!confirm("Chiudere il piano attivo?")) return;
-    await supabase.from("pronox_plans").update({ status: "CLOSED" }).eq("id", activePlan.id);
+    const { data: { user } } = await supabase.auth.getUser();
+    await supabase.from("pronox_plans").update({ status: "CLOSED" }).eq("id", activePlan.id).eq("user_id", user?.id);
     setActivePlan(null);
     setBets([]);
     loadData();
