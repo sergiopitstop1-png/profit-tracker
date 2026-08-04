@@ -94,7 +94,7 @@ function calcRatings(matches: any[], refDate: any) {
     t.defA = t.aW > 0 ? (t.aGA / t.aW) / lgAvgHome : 1;
     t.form.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
     const last5 = t.form.slice(0, 5);
-    const formScore = last5.reduce((s, f) => s + (f.res === "W" ? 3 : f.res === "D" ? 1 : 0), 0);
+    const formScore = last5.reduce((s: number, f: any) => s + (f.res === "W" ? 3 : f.res === "D" ? 1 : 0), 0);
     t.formRating = last5.length > 0 ? formScore / (last5.length * 3) : 0.5;
     const hAvg = t.hW > 0 ? t.hGF / t.hW : lgAvgHome;
     const aAvg = t.aW > 0 ? t.aGF / t.aW : lgAvgAway;
@@ -140,7 +140,7 @@ function getSignals(probs: any) {
   if (probs.o25 > 0.65) signals.push({ label: "OVER 2.5", prob: probs.o25 });
   if (probs.btts > 0.60) signals.push({ label: "BTTS SÌ", prob: probs.btts });
   if (probs.u25 > 0.65) signals.push({ label: "UNDER 2.5", prob: probs.u25 });
-  signals.sort((a, b) => b.prob - a.prob);
+  signals.sort((a: any, b: any) => b.prob - a.prob);
   return signals;
 }
 
@@ -269,7 +269,7 @@ async function computeTomorrowPicks(tomorrow: string) {
 
     const { teams, lgAvgHome, lgAvgAway } = calcRatings(matches, tomorrow);
 
-    const tomorrowMatches = matches.filter(m =>
+    const tomorrowMatches = matches.filter((m: any) =>
       m.utcDate?.split("T")[0] === tomorrow && (m.status === "SCHEDULED" || m.status === "TIMED")
     );
 
@@ -301,7 +301,7 @@ async function computeTomorrowPicks(tomorrow: string) {
   }
 
   // Prendi i 5 migliori per probabilità, su tutte le leghe di calcio
-  allPicks.sort((a, b) => b.probability - a.probability);
+  allPicks.sort((a: any, b: any) => b.probability - a.probability);
   const bestFootball = allPicks.slice(0, 5);
 
   const bestTennis = await computeTomorrowTennisPicks(tomorrow);
@@ -319,7 +319,7 @@ async function computeTomorrowTennisPicks(tomorrow: string) {
     const d = await r.json();
     const rawMatches = d.matches || [];
 
-    const picks = rawMatches.map(m => {
+    const picks = rawMatches.map((m: any) => {
       let label, prob, playerAWins;
       if (m.isValueA) { label = `${m.playerA.name} vince`; prob = m.probA; playerAWins = true; }
       else if (m.isValueB) { label = `${m.playerB.name} vince`; prob = m.probB; playerAWins = false; }
@@ -347,7 +347,7 @@ async function computeTomorrowTennisPicks(tomorrow: string) {
       };
     }).filter(Boolean);
 
-    picks.sort((a, b) => b.probability - a.probability);
+    picks.sort((a: any, b: any) => b.probability - a.probability);
     return picks.slice(0, 3);
   } catch (e) {
     return [];
@@ -357,12 +357,12 @@ async function computeTomorrowTennisPicks(tomorrow: string) {
 // ─── STEP 3: costruisci e invia la mail ─────────────────────────
 
 function buildEmailHtml(yesterdayResults: any[], tomorrowPicks: any[], yesterday: string, tomorrow: string) {
-  const wins = yesterdayResults.filter(r => r.status === "WIN").length;
-  const losses = yesterdayResults.filter(r => r.status === "LOSS").length;
+  const wins = yesterdayResults.filter((r: any) => r.status === "WIN").length;
+  const losses = yesterdayResults.filter((r: any) => r.status === "LOSS").length;
   const totalDone = wins + losses;
   const winRate = totalDone > 0 ? Math.round((wins / totalDone) * 100) : null;
 
-  const renderRow = (r, showPercent) => `
+  const renderRow = (r: any, showPercent: boolean) => `
         <div style="padding:10px 0;border-bottom:1px solid #2a2f3f;">
           <span style="font-size:12px;color:#6b7490;">${r.league}</span><br/>
           <strong style="color:#e8ecf5;">${r.home_team} vs ${r.away_team}</strong><br/>
@@ -374,23 +374,23 @@ function buildEmailHtml(yesterdayResults: any[], tomorrowPicks: any[], yesterday
           </span>
         </div>`;
 
-  const yesterdayFootball = yesterdayResults.filter(r => r.sport !== "tennis");
-  const yesterdayTennis = yesterdayResults.filter(r => r.sport === "tennis");
-  const tomorrowFootball = tomorrowPicks.filter(r => r.sport !== "tennis");
-  const tomorrowTennis = tomorrowPicks.filter(r => r.sport === "tennis");
+  const yesterdayFootball = yesterdayResults.filter((r: any) => r.sport !== "tennis");
+  const yesterdayTennis = yesterdayResults.filter((r: any) => r.sport === "tennis");
+  const tomorrowFootball = tomorrowPicks.filter((r: any) => r.sport !== "tennis");
+  const tomorrowTennis = tomorrowPicks.filter((r: any) => r.sport === "tennis");
 
   const resultsHtml = yesterdayResults.length === 0
     ? `<p style="color:#6b7490;font-size:13px;">Nessun pronostico da verificare ieri.</p>`
     : `
-      ${yesterdayFootball.length > 0 ? `<div style="font-size:11px;color:#4af0c4;font-weight:700;margin:10px 0 4px;">⚽ CALCIO</div>${yesterdayFootball.map(r => renderRow(r, false)).join("")}` : ""}
-      ${yesterdayTennis.length > 0 ? `<div style="font-size:11px;color:#4af0c4;font-weight:700;margin:14px 0 4px;">🎾 TENNIS</div>${yesterdayTennis.map(r => renderRow(r, false)).join("")}` : ""}
+      ${yesterdayFootball.length > 0 ? `<div style="font-size:11px;color:#4af0c4;font-weight:700;margin:10px 0 4px;">⚽ CALCIO</div>${yesterdayFootball.map((r: any) => renderRow(r, false)).join("")}` : ""}
+      ${yesterdayTennis.length > 0 ? `<div style="font-size:11px;color:#4af0c4;font-weight:700;margin:14px 0 4px;">🎾 TENNIS</div>${yesterdayTennis.map((r: any) => renderRow(r, false)).join("")}` : ""}
     `;
 
   const picksHtml = tomorrowPicks.length === 0
     ? `<p style="color:#6b7490;font-size:13px;">Nessun pronostico forte per domani.</p>`
     : `
-      ${tomorrowFootball.length > 0 ? `<div style="font-size:11px;color:#4af0c4;font-weight:700;margin:10px 0 4px;">⚽ CALCIO</div>${tomorrowFootball.map(r => renderRow(r, true)).join("")}` : ""}
-      ${tomorrowTennis.length > 0 ? `<div style="font-size:11px;color:#4af0c4;font-weight:700;margin:14px 0 4px;">🎾 TENNIS</div>${tomorrowTennis.map(r => renderRow(r, true)).join("")}` : ""}
+      ${tomorrowFootball.length > 0 ? `<div style="font-size:11px;color:#4af0c4;font-weight:700;margin:10px 0 4px;">⚽ CALCIO</div>${tomorrowFootball.map((r: any) => renderRow(r, true)).join("")}` : ""}
+      ${tomorrowTennis.length > 0 ? `<div style="font-size:11px;color:#4af0c4;font-weight:700;margin:14px 0 4px;">🎾 TENNIS</div>${tomorrowTennis.map((r: any) => renderRow(r, true)).join("")}` : ""}
     `;
 
   return `
@@ -462,7 +462,7 @@ export async function GET(request: Request) {
   const tomorrowPicks = await computeTomorrowPicks(tomorrowStr);
 
   const { data: profiles } = await supabase.from("user_profiles").select("email");
-  const recipients = (profiles || []).map(p => p.email).filter(Boolean);
+  const recipients = (profiles || []).map((p: any) => p.email).filter(Boolean);
 
   const html = buildEmailHtml(yesterdayResults, tomorrowPicks, yesterdayStr, tomorrowStr);
   await sendDigestEmail(html, recipients);
