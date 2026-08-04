@@ -3,6 +3,13 @@ import SiteFooter from "../components/SiteFooter";
 
 const posts = [
   {
+    title: "Mondiale 2026: il torneo che ha cambiato il calcio",
+    category: "Analisi Calcio",
+    excerpt:
+      "La Spagna sul tetto del mondo, il tramonto di Messi, l'ennesima consacrazione di Mbappé e il futuro già iniziato. Il racconto completo del torneo della transizione.",
+    href: "/blog/mondiale-2026-spagna-campione",
+  },
+  {
     title: "Salernitana in semifinale: al Benelli una vittoria di sostanza",
     category: "Analisi Calcio",
     excerpt:
