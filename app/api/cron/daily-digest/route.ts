@@ -54,7 +54,7 @@ function calcProbs(lH: number, lA: number, max = 8) {
 }
 
 function timeWeight(matchDate: any, refDate: any) {
-  const days = (new Date(refDate) - new Date(matchDate)) / (1000 * 60 * 60 * 24);
+  const days = (new Date(refDate).getTime() - new Date(matchDate).getTime()) / (1000 * 60 * 60 * 24);
   return Math.exp(-days / 90);
 }
 
@@ -92,7 +92,7 @@ function calcRatings(matches: any[], refDate: any) {
     t.defH = t.hW > 0 ? (t.hGA / t.hW) / lgAvgAway : 1;
     t.attA = t.aW > 0 ? (t.aGF / t.aW) / lgAvgAway : 1;
     t.defA = t.aW > 0 ? (t.aGA / t.aW) / lgAvgHome : 1;
-    t.form.sort((a, b) => new Date(b.date) - new Date(a.date));
+    t.form.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
     const last5 = t.form.slice(0, 5);
     const formScore = last5.reduce((s, f) => s + (f.res === "W" ? 3 : f.res === "D" ? 1 : 0), 0);
     t.formRating = last5.length > 0 ? formScore / (last5.length * 3) : 0.5;
