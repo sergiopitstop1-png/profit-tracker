@@ -75,7 +75,7 @@ function RegisterForm() {
           </p>
           {mode === "register" && (
             <div style={{ marginTop: 12, display: "inline-block", background: "rgba(200,241,53,0.1)", border: "1px solid rgba(200,241,53,0.3)", borderRadius: 20, padding: "4px 14px", fontSize: 12, color: "#c8f135", fontWeight: 700 }}>
-              🎁 Gratuito fino a fine 2025
+              🎁 Gratuito fino a fine 2026
             </div>
           )}
         </div>
