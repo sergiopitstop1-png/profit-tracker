@@ -1,20 +1,9 @@
 "use client";
-import { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
 
+// NOTA: il controllo di accesso ora avviene nel middleware.ts (sessione Supabase reale).
+// Questo componente resta solo per non rompere gli import nelle pagine esistenti,
+// ma non fa più nessun controllo proprio (usava il vecchio sistema con password unica
+// in localStorage, ormai sostituito).
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
-  const [checked, setChecked] = useState(false);
-  const pathname = usePathname();
-
-  useEffect(() => {
-    const unlocked = localStorage.getItem("site_unlocked");
-    if (unlocked !== "1") {
-      window.location.href = `/login?from=${encodeURIComponent(pathname)}`;
-    } else {
-      setChecked(true);
-    }
-  }, [pathname]);
-
-  if (!checked) return null;
   return <>{children}</>;
 }
