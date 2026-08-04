@@ -183,5 +183,5 @@ export default function Register() {
   );
 }
 
-const lbl = { fontSize: 11, fontWeight: 700, color: "#6b7490", letterSpacing: "0.06em", textTransform: "uppercase", display: "block", marginBottom: 6 };
-const inp = { background: "#0d0f14", border: "1px solid #2a2f3f", borderRadius: 8, padding: "12px 14px", color: "#e8ecf5", fontSize: 14, outline: "none", width: "100%", boxSizing: "border-box" };
+const lbl = { fontSize: 11, fontWeight: 700, color: "#6b7490", letterSpacing: "0.06em", textTransform: "uppercase" as const, display: "block", marginBottom: 6 };
+const inp = { background: "#0d0f14", border: "1px solid #2a2f3f", borderRadius: 8, padding: "12px 14px", color: "#e8ecf5", fontSize: 14, outline: "none", width: "100%", boxSizing: "border-box" as const };
