@@ -9,8 +9,9 @@ const supabase = createClient();
 function RegisterForm() {
   const searchParams = useSearchParams();
   const from = searchParams.get("from") || "/oggi";
+  const modeParam = searchParams.get("mode");
 
-  const [mode, setMode] = useState("register"); // "register" | "login"
+  const [mode, setMode] = useState(modeParam === "login" ? "login" : "register"); // "register" | "login"
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
