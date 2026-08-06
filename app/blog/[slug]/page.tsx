@@ -63,7 +63,7 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
         </h1>
 
         <p className="mt-5 text-white/50">
-          di {post.author || "Sergio Apicella"}
+          di {post.author || "Sergio Apicella"} · {new Date(post.created_at).toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" })}
         </p>
 
         {renderArticleContent(post.content || "")}
