@@ -46,8 +46,22 @@ export default function PronosticiManualePage() {
 
   const setStatus = async (id: string, status: "WIN" | "LOSS") => {
     setSavingId(id);
-    await supabase.from("pronox_daily_picks").update({ status }).eq("id", id);
-    setPicks((prev) => prev.filter((p) => p.id !== id));
+    try {
+      const res = await fetch("/api/pronostici/segna-esito", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Errore nel salvataggio, riprova.");
+        setSavingId(null);
+        return;
+      }
+      setPicks((prev) => prev.filter((p) => p.id !== id));
+    } catch (e) {
+      alert("Errore di rete, riprova.");
+    }
     setSavingId(null);
   };
 
