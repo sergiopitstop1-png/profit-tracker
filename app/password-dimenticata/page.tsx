@@ -60,7 +60,7 @@ export default function PasswordDimenticataPage() {
             <div style={{ fontSize: 13, color: "#6b7490", marginBottom: 20, lineHeight: 1.5 }}>
               Se l'indirizzo {email} è registrato, ti abbiamo mandato un link per reimpostare la password. Controlla anche lo spam.
             </div>
-            <a href="/login" style={{ fontSize: 13, color: "#c8f135", textDecoration: "none" }}>
+            <a href="/register?mode=login" style={{ fontSize: 13, color: "#c8f135", textDecoration: "none" }}>
               ← torna al login
             </a>
           </>
@@ -117,7 +117,7 @@ export default function PasswordDimenticataPage() {
             </button>
 
             <a
-              href="/login"
+              href="/register?mode=login"
               style={{ display: "block", marginTop: 16, fontSize: 13, color: "#6b7490", textDecoration: "none" }}
             >
               ← torna al login
