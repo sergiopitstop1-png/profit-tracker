@@ -135,9 +135,23 @@ export default function StoricoPronosticiPage() {
         <h1 style={{ color: textMain, fontSize: 30, fontWeight: 900, marginBottom: 4 }}>
           Storico <span style={{ color: accent }}>Pronostici</span>
         </h1>
-        <p style={{ color: textDim, fontSize: 14, marginBottom: 28 }}>
+        <p style={{ color: textDim, fontSize: 14, marginBottom: 20 }}>
           Ogni pronostico che mandiamo, verificato in modo trasparente col risultato reale. Nessuna selezione a posteriori.
         </p>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 32, flexWrap: "wrap" }}>
+          <a href="/oggi" style={{
+            display: "inline-flex", alignItems: "center", gap: 8,
+            padding: "12px 24px", background: accent, color: "#0d0f14",
+            fontWeight: 800, borderRadius: 10, textDecoration: "none",
+            fontSize: 14,
+          }}>
+            🎯 Vai ai pronostici di oggi →
+          </a>
+          <a href="/" style={{ color: textDim, fontSize: 13, textDecoration: "none" }}>
+            ← torna alla home del sito
+          </a>
+        </div>
 
         {loading ? (
           <p style={{ color: textDim }}>Caricamento...</p>
