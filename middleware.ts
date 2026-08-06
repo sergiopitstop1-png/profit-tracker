@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 // Richiedono solo di essere loggati (qualsiasi ruolo)
-const PROTECTED_ROUTES = ["/oggi", "/oggi-tennis", "/archivio", "/piano"];
+const PROTECTED_ROUTES = ["/oggi", "/oggi-tennis", "/archivio", "/piano", "/proptracker"];
 
 // Richiedono ruolo vip o admin
 const VIP_ROUTES = ["/profit-tracker", "/admin"];
@@ -64,6 +64,7 @@ export const config = {
     "/oggi-tennis/:path*",
     "/archivio/:path*",
     "/piano/:path*",
+    "/proptracker/:path*",
     "/profit-tracker/:path*",
     "/admin/:path*",
   ],
