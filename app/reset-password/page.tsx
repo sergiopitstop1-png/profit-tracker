@@ -22,12 +22,18 @@ export default function ResetPasswordPage() {
       const params = new URLSearchParams(window.location.search);
       const token_hash = params.get("token_hash");
       const type = params.get("type");
+      const code = params.get("code");
 
       if (token_hash && type) {
         const { error } = await supabase.auth.verifyOtp({
           token_hash,
           type: type as "recovery",
         });
+        if (!error) { setPronto(true); return; }
+      }
+
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
         if (!error) { setPronto(true); return; }
       }
 
