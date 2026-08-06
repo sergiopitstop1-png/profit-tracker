@@ -51,11 +51,6 @@ export default function PropTrackerPage() {
   const [filter, setFilter] = useState('attiva')
 
   useEffect(() => {
-    // AuthGuard
-    if (typeof window !== 'undefined' && !localStorage.getItem('site_unlocked')) {
-      router.push('/login')
-      return
-    }
     loadChallenges()
   }, [filter])
 
