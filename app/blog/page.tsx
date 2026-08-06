@@ -1,8 +1,21 @@
 import SiteHeader from "../components/SiteHeader";
 import SiteFooter from "../components/SiteFooter";
-import { posts } from "../../lib/blogPosts";
+import { createClient } from "@supabase/supabase-js";
 
-export default function BlogPage() {
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+export const revalidate = 60; // ricontrolla Supabase al massimo ogni minuto
+
+export default async function BlogPage() {
+  const { data: posts } = await supabase
+    .from("blog_posts")
+    .select("title, category, excerpt, slug")
+    .eq("published", true)
+    .order("created_at", { ascending: false });
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-neutral-950 via-neutral-900 to-orange-950 text-white">
       <SiteHeader />
@@ -23,10 +36,10 @@ export default function BlogPage() {
         </p>
 
         <div className="mt-14 space-y-6">
-          {posts.map((post) => (
+          {(posts || []).map((post) => (
             <a
-              key={post.title}
-              href={post.href}
+              key={post.slug}
+              href={`/blog/${post.slug}`}
               className="block rounded-3xl border border-white/10 bg-white/5 p-8 transition hover:-translate-y-1 hover:border-orange-400/40 hover:bg-white/10"
             >
               <p className="text-sm uppercase tracking-[0.2em] text-orange-300">
@@ -43,8 +56,10 @@ export default function BlogPage() {
               </p>
             </a>
           ))}
+          {(!posts || posts.length === 0) && (
+            <p className="text-white/50">Nessun articolo pubblicato ancora.</p>
+          )}
         </div>
-        
 
       </section>
 
