@@ -15,6 +15,7 @@ type Pick = {
   away_team: string;
   prediction_label: string;
   probability: number;
+  quota: number | null;
   status: "PENDING" | "WIN" | "LOSS";
 };
 
@@ -68,7 +69,9 @@ function PickRow({ p }: { p: Pick }) {
         <div style={{ fontSize: 14, fontWeight: 700, color: textMain }}>
           {p.home_team} vs {p.away_team}
         </div>
-        <div style={{ fontSize: 13, color: win }}>{p.prediction_label} · {p.probability}%</div>
+        <div style={{ fontSize: 13, color: win }}>
+          {p.prediction_label} · {p.probability}%{p.quota ? ` · @${Number(p.quota).toFixed(2)}` : ""}
+        </div>
       </div>
       <div style={{ fontWeight: 800, fontSize: 13, color: badge.color, whiteSpace: "nowrap" }}>
         {badge.text}
