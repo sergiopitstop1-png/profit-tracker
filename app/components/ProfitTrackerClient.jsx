@@ -2044,6 +2044,13 @@ async function toggleSimRinnovato(cliente) {
   }).eq('id', cliente.id)
   setClienti(prev => prev.map(c => c.id === cliente.id ? { ...c, sim_rinnovato: nuovoRinnovato, sim_rinnovato_mese: nuovoRinnovato ? meseKey : null } : c))
 }
+
+async function toggleClienteTerminato(cliente) {
+  const nuovoTerminato = !cliente.terminato
+  if (nuovoTerminato && !window.confirm(`Segnare "${cliente.nome}" come cliente terminato?`)) return
+  await supabase.from('clienti').update({ terminato: nuovoTerminato }).eq('id', cliente.id)
+  setClienti(prev => prev.map(c => c.id === cliente.id ? { ...c, terminato: nuovoTerminato } : c))
+}
 // ──────────────────────────────────────────────────────────
 
 async function updateStatoStima(row, nuovoStato) {
@@ -3905,6 +3912,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 16 }}>
       {clienti.length === 0 && <p style={{ color: '#94a3b8' }}>Nessun cliente ancora. Clicca "+ Nuovo Cliente" per iniziare.</p>}
       {[...clienti].sort((a, b) => {
+        if (!!a.terminato !== !!b.terminato) return a.terminato ? 1 : -1
         const ga = a.sim_giorno_scadenza ? Number(a.sim_giorno_scadenza) : 9999
         const gb = b.sim_giorno_scadenza ? Number(b.sim_giorno_scadenza) : 9999
         return ga - gb
@@ -3912,12 +3920,24 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         const oggi = new Date()
         const meseKey = `${oggi.getFullYear()}-${String(oggi.getMonth() + 1).padStart(2, '0')}`
         const rinnovato = c.sim_rinnovato && c.sim_rinnovato_mese === meseKey
+        const terminato = !!c.terminato
         return (
-          <div key={c.id} style={{ background: 'rgba(11,18,32,0.85)', border: '1px solid rgba(51,65,85,0.8)', borderRadius: 14, padding: '14px 18px' }}>
+          <div key={c.id} style={{
+            background: terminato ? 'rgba(11,18,32,0.5)' : 'rgba(11,18,32,0.85)',
+            border: terminato ? '1px solid rgba(239,68,68,0.35)' : '1px solid rgba(51,65,85,0.8)',
+            borderLeft: terminato ? '4px solid #ef4444' : '1px solid rgba(51,65,85,0.8)',
+            borderRadius: 14, padding: '14px 18px',
+            opacity: terminato ? 0.6 : 1,
+          }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
               <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                  <span style={{ fontWeight: 900, fontSize: 15, color: '#f8fafc' }}>{c.nome}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
+                  <span style={{ fontWeight: 900, fontSize: 15, color: terminato ? '#94a3b8' : '#f8fafc' }}>{c.nome}</span>
+                  {terminato && (
+                    <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: '#ef4444', color: '#fff', fontWeight: 800, letterSpacing: 0.3 }}>
+                      ❌ TERMINATO
+                    </span>
+                  )}
                   {c.sim_operatore && (
                     <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: rinnovato ? 'rgba(34,197,94,0.15)' : 'rgba(251,191,36,0.12)', color: rinnovato ? '#22c55e' : '#fbbf24', fontWeight: 700 }}>
                       📱 {c.sim_operatore} {c.sim_importo ? `· ${Number(c.sim_importo).toFixed(2)}€` : ''} {c.sim_giorno_scadenza ? `· scad. g.${c.sim_giorno_scadenza}` : ''}
@@ -3937,16 +3957,26 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                   ))}
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                {c.sim_operatore && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                {terminato ? (
                   <button
-                    onClick={() => toggleSimRinnovato(c)}
-                    style={{ padding: '6px 12px', borderRadius: 10, border: `1px solid ${rinnovato ? 'rgba(34,197,94,0.5)' : 'rgba(251,191,36,0.4)'}`, background: rinnovato ? 'rgba(34,197,94,0.1)' : 'rgba(251,191,36,0.08)', color: rinnovato ? '#22c55e' : '#fbbf24', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
-                  >{rinnovato ? '✅ Rinnovato' : '🔄 Segna rinnovato'}</button>
+                    onClick={() => toggleClienteTerminato(c)}
+                    style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(34,197,94,0.5)', background: 'rgba(34,197,94,0.1)', color: '#22c55e', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
+                  >♻️ Riattiva cliente</button>
+                ) : (
+                  <>
+                    {c.sim_operatore && (
+                      <button
+                        onClick={() => toggleSimRinnovato(c)}
+                        style={{ padding: '6px 12px', borderRadius: 10, border: `1px solid ${rinnovato ? 'rgba(34,197,94,0.5)' : 'rgba(251,191,36,0.4)'}`, background: rinnovato ? 'rgba(34,197,94,0.1)' : 'rgba(251,191,36,0.08)', color: rinnovato ? '#22c55e' : '#fbbf24', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
+                      >{rinnovato ? '✅ Rinnovato' : '🔄 Segna rinnovato'}</button>
+                    )}
+                    <button onClick={() => { setEditingCliente(c); setClienteForm({ nome: c.nome, email: c.email || '', telefono: c.telefono || '', sim_operatore: c.sim_operatore || '', sim_importo: c.sim_importo || '', sim_giorno_scadenza: c.sim_giorno_scadenza || '', note: c.note || '' }); setShowClienteModal(true) }} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>✏️ Modifica</button>
+                    <button onClick={async () => { setDocCliente(c); setDocFiles([]); setDocLoading(true); setDocUploading(false); const r = await fetch(`/api/documenti?cliente=${encodeURIComponent(c.nome)}`); const d = await r.json(); setDocFiles(d.files || []); setDocLoading(false) }} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(251,191,36,0.4)', background: 'rgba(251,191,36,0.08)', color: '#fbbf24', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>📁 Documenti</button>
+                    <button onClick={() => toggleClienteTerminato(c)} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(239,68,68,0.4)', background: 'transparent', color: '#f87171', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>🚫 Termina</button>
+                    <button onClick={() => deleteCliente(c.id)} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.08)', color: '#f87171', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>🗑️</button>
+                  </>
                 )}
-                <button onClick={() => { setEditingCliente(c); setClienteForm({ nome: c.nome, email: c.email || '', telefono: c.telefono || '', sim_operatore: c.sim_operatore || '', sim_importo: c.sim_importo || '', sim_giorno_scadenza: c.sim_giorno_scadenza || '', note: c.note || '' }); setShowClienteModal(true) }} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>✏️ Modifica</button>
-                <button onClick={async () => { setDocCliente(c); setDocFiles([]); setDocLoading(true); setDocUploading(false); const r = await fetch(`/api/documenti?cliente=${encodeURIComponent(c.nome)}`); const d = await r.json(); setDocFiles(d.files || []); setDocLoading(false) }} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(251,191,36,0.4)', background: 'rgba(251,191,36,0.08)', color: '#fbbf24', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>📁 Documenti</button>
-                <button onClick={() => deleteCliente(c.id)} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.08)', color: '#f87171', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>🗑️</button>
               </div>
             </div>
           </div>
