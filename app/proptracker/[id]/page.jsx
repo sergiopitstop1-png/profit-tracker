@@ -129,9 +129,6 @@ export default function PropTrackerDetail() {
   const [clienteOptions, setClienteOptions] = useState([])
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && !localStorage.getItem('site_unlocked')) {
-      router.push('/login'); return
-    }
     loadData()
   }, [id])
 
