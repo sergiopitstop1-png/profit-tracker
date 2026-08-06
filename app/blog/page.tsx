@@ -12,7 +12,7 @@ export const revalidate = 60; // ricontrolla Supabase al massimo ogni minuto
 export default async function BlogPage() {
   const { data: posts } = await supabase
     .from("blog_posts")
-    .select("title, category, excerpt, slug")
+    .select("title, category, excerpt, slug, created_at")
     .eq("published", true)
     .order("created_at", { ascending: false });
 
@@ -43,7 +43,7 @@ export default async function BlogPage() {
               className="block rounded-3xl border border-white/10 bg-white/5 p-8 transition hover:-translate-y-1 hover:border-orange-400/40 hover:bg-white/10"
             >
               <p className="text-sm uppercase tracking-[0.2em] text-orange-300">
-                {post.category}
+                {post.category} · {new Date(post.created_at).toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" })}
               </p>
               <h2 className="mt-3 text-2xl font-bold">
                 {post.title}
