@@ -14,8 +14,9 @@ export default function SiteHeader() {
           <a href="/chi-sono" className="transition hover:text-orange-300">Chi Sono</a>
           <a href="/servizi" className="transition hover:text-orange-300">Servizi</a>
           <a href="/progetti" className="transition hover:text-orange-300">Progetti</a>
-    <a href="/blog" className="transition hover:text-orange-300">Blog</a>
+          <a href="/blog" className="transition hover:text-orange-300">Blog</a>
           <a href="/oggi" className="transition hover:text-lime-300">PronoX</a>
+          <a href="/storico-pronostici" className="transition hover:text-lime-300">Storico Pronostici</a>
           <a href="/profit-tracker" className="transition hover:text-orange-300">Area Riservata</a>
         </nav>
       </div>
