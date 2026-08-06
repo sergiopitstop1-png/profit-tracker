@@ -8,17 +8,19 @@ const supabase = createClient(
 );
 
 const LEAGUES = [
-  { code: "SA", name: "Serie A" },
-  { code: "PL", name: "Premier League" },
-  { code: "BL1", name: "Bundesliga" },
-  { code: "PD", name: "La Liga" },
-  { code: "FL1", name: "Ligue 1" },
-  { code: "CL", name: "Champions League" },
-  { code: "ELC", name: "Championship" },
-  { code: "DED", name: "Eredivisie" },
-  { code: "PPL", name: "Primeira Liga" },
-  { code: "BSA", name: "Serie B Brasile" },
+  { code: "SA", name: "Serie A", oddsKey: "soccer_italy_serie_a" },
+  { code: "PL", name: "Premier League", oddsKey: "soccer_epl" },
+  { code: "BL1", name: "Bundesliga", oddsKey: "soccer_germany_bundesliga" },
+  { code: "PD", name: "La Liga", oddsKey: "soccer_spain_la_liga" },
+  { code: "FL1", name: "Ligue 1", oddsKey: "soccer_france_ligue_one" },
+  { code: "CL", name: "Champions League", oddsKey: "soccer_uefa_champs_league" },
+  { code: "ELC", name: "Championship", oddsKey: "soccer_efl_champ" },
+  { code: "DED", name: "Eredivisie", oddsKey: "soccer_netherlands_eredivisie" },
+  { code: "PPL", name: "Primeira Liga", oddsKey: null },
+  { code: "BSA", name: "Serie B Brasile", oddsKey: "soccer_brazil_campeonato" },
 ];
+
+const QUOTA_MINIMA = 1.40;
 
 // ─── MODELLO (stesse funzioni pure di /oggi) ────────────────────
 
@@ -142,6 +144,108 @@ function getSignals(probs: any) {
   if (probs.u25 > 0.65) signals.push({ label: "UNDER 2.5", prob: probs.u25 });
   signals.sort((a: any, b: any) => b.prob - a.prob);
   return signals;
+}
+
+// ─── QUOTE: stessa logica di recupero/matching già usata in /oggi ──
+
+async function fetchOddsForLeague(oddsKey: string | null, date: string) {
+  if (!oddsKey) return {};
+  try {
+    const r = await fetch(`https://sergioapicella.it/api/odds?endpoint=sports/${oddsKey}/odds&regions=eu&markets=h2h,totals&dateFormat=iso&oddsFormat=decimal`);
+    const data = await r.json();
+    if (!Array.isArray(data)) return {};
+    const dayStart = new Date(date + "T00:00:00Z").getTime();
+    const dayEnd = new Date(date + "T23:59:59Z").getTime();
+    const oddsMap: Record<string, any> = {};
+    data.forEach((game: any) => {
+      const gameTime = new Date(game.commence_time).getTime();
+      if (gameTime < dayStart || gameTime > dayEnd) return;
+      const key = `${game.home_team}__${game.away_team}`;
+      let o1 = null, oX = null, o2 = null, oOver25 = null, oUnder25 = null;
+      game.bookmakers?.forEach((bk: any) => {
+        bk.markets?.forEach((mkt: any) => {
+          if (mkt.key === "h2h") {
+            mkt.outcomes?.forEach((o: any) => {
+              if (o.name === game.home_team) o1 = o1 ? (o1 + o.price) / 2 : o.price;
+              else if (o.name === game.away_team) o2 = o2 ? (o2 + o.price) / 2 : o.price;
+              else oX = oX ? (oX + o.price) / 2 : o.price;
+            });
+          }
+          if (mkt.key === "totals") {
+            mkt.outcomes?.forEach((o: any) => {
+              if (o.name === "Over" && Math.abs(o.point - 2.5) < 0.01) oOver25 = oOver25 ? (oOver25 + o.price) / 2 : o.price;
+              if (o.name === "Under" && Math.abs(o.point - 2.5) < 0.01) oUnder25 = oUnder25 ? (oUnder25 + o.price) / 2 : o.price;
+            });
+          }
+        });
+      });
+      oddsMap[key] = { o1, oX, o2, oOver25, oUnder25, homeTeam: game.home_team, awayTeam: game.away_team };
+    });
+    return oddsMap;
+  } catch (e) { return {}; }
+}
+
+const STOP_WORDS = ["fc", "cf", "sc", "ac", "bc", "bk", "fk", "sk", "if", "ik",
+  "club", "united", "city", "town", "athletic", "athletics", "sport", "sports",
+  "deportivo", "deportiva", "atletico", "atletica", "real", "racing", "river",
+  "plate", "union", "the", "de", "do", "da", "del", "di", "los", "las", "le",
+  "la", "el", "al", "1", "2", "afc", "rsc", "vfb", "vfl", "tsg", "rb", "rd"];
+
+function normalizeName(name: string) {
+  return name.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 1 && !STOP_WORDS.includes(w))
+    .join(" ")
+    .trim();
+}
+
+function nameSimilarity(a: string, b: string) {
+  const wa = new Set(normalizeName(a).split(" ").filter((w) => w.length > 2));
+  const wb = new Set(normalizeName(b).split(" ").filter((w) => w.length > 2));
+  if (wa.size === 0 || wb.size === 0) return 0;
+  let common = 0;
+  wa.forEach((w) => { if (wb.has(w)) common++; });
+  wa.forEach((w) => { wb.forEach((wb2) => { if (w.length > 4 && (w.includes(wb2) || wb2.includes(w))) common += 0.5; }); });
+  return common / Math.max(wa.size, wb.size);
+}
+
+function matchOdds(oddsMap: Record<string, any>, homeName: string, awayName: string) {
+  const exactKey = `${homeName}__${awayName}`;
+  if (oddsMap[exactKey]) return oddsMap[exactKey];
+
+  let bestScore = 0;
+  let bestMatch: any = null;
+  for (const [, v] of Object.entries(oddsMap)) {
+    const simH = nameSimilarity(homeName, v.homeTeam || "");
+    const simA = nameSimilarity(awayName, v.awayTeam || "");
+    const score = simH + simA;
+    if (simH > 0.3 && simA > 0.3 && score > bestScore) {
+      bestScore = score;
+      bestMatch = v;
+    }
+  }
+  if (!bestMatch) {
+    for (const [, v] of Object.entries(oddsMap)) {
+      const simH = nameSimilarity(homeName, v.awayTeam || "");
+      const simA = nameSimilarity(awayName, v.homeTeam || "");
+      const score = simH + simA;
+      if (simH > 0.3 && simA > 0.3 && score > bestScore) {
+        bestScore = score;
+        bestMatch = { ...v, o1: v.o2, o2: v.o1, homeTeam: v.awayTeam, awayTeam: v.homeTeam };
+      }
+    }
+  }
+  return bestMatch;
+}
+
+function quotaPerSegnale(oddsData: any, label: string): number | null {
+  if (!oddsData) return null;
+  if (label === "CASA VINCE") return oddsData.o1 ?? null;
+  if (label === "OSPITE VINCE") return oddsData.o2 ?? null;
+  if (label === "OVER 2.5") return oddsData.oOver25 ?? null;
+  if (label === "UNDER 2.5") return oddsData.oUnder25 ?? null;
+  return null; // BTTS non ha una quota mappata in questa fonte
 }
 
 function currentSeasonFor(code: string) {
@@ -289,6 +393,10 @@ async function computeTomorrowPicks(tomorrow: string) {
     const tomorrowMatches = matches.filter((m: any) =>
       m.utcDate?.split("T")[0] === tomorrow && (m.status === "SCHEDULED" || m.status === "TIMED")
     );
+    if (tomorrowMatches.length === 0) continue;
+
+    // Una chiamata sola per lega (usa la cache lato /api/odds, come già in /oggi)
+    const oddsMap = await fetchOddsForLeague(league.oddsKey, tomorrow);
 
     for (const m of tomorrowMatches) {
       const teamH = teams[m.homeTeam.id];
@@ -301,7 +409,25 @@ async function computeTomorrowPicks(tomorrow: string) {
       const signals = getSignals(probs);
       if (signals.length === 0) continue;
 
-      const top = signals[0];
+      const oddsData = matchOdds(oddsMap, m.homeTeam.name, m.awayTeam.name);
+
+      // Prende il segnale più forte che rispetta la quota minima. Se il
+      // migliore ha quota troppo bassa (o inesistente sul mercato), prova
+      // il successivo per probabilità sulla stessa partita prima di
+      // scartarla del tutto. Un segnale senza quota nota (es. BTTS, che
+      // questa fonte non copre) non viene escluso solo per quello.
+      let chosen = null;
+      let chosenQuota: number | null = null;
+      for (const s of signals) {
+        const q = quotaPerSegnale(oddsData, s.label);
+        if (q === null || q >= QUOTA_MINIMA) {
+          chosen = s;
+          chosenQuota = q;
+          break;
+        }
+      }
+      if (!chosen) continue; // tutti i segnali di questa partita sotto quota minima
+
       allPicks.push({
         pick_date: tomorrow,
         sport: "calcio",
@@ -310,8 +436,9 @@ async function computeTomorrowPicks(tomorrow: string) {
         home_team: m.homeTeam.name,
         away_team: m.awayTeam.name,
         match_time: m.utcDate,
-        prediction_label: top.label,
-        probability: parseFloat((top.prob * 100).toFixed(1)),
+        prediction_label: chosen.label,
+        probability: parseFloat((chosen.prob * 100).toFixed(1)),
+        quota: chosenQuota,
         status: "PENDING",
       });
     }
@@ -359,6 +486,11 @@ async function computeTomorrowTennisPicks(tomorrow: string) {
       }
       if (!m.playerA.matchedId || !m.playerB.matchedId) return null; // serve l'id per poter verificare dopo
 
+      // La quota del giocatore su cui puntiamo — già presente nella risposta
+      // di /api/tennis/matches (oddsA/oddsB), usata lì per calcolare il value.
+      const quota = playerAWins ? (m.oddsA ?? null) : (m.oddsB ?? null);
+      if (quota !== null && quota < QUOTA_MINIMA) return null; // sotto quota minima, scartato
+
       return {
         pick_date: tomorrow,
         sport: "tennis",
@@ -370,6 +502,7 @@ async function computeTomorrowTennisPicks(tomorrow: string) {
         match_time: m.commenceTime,
         prediction_label: label,
         probability: parseFloat((prob * 100).toFixed(1)),
+        quota,
         status: "PENDING",
       };
     }).filter(Boolean);
@@ -394,6 +527,7 @@ function buildEmailHtml(yesterdayResults: any[], tomorrowPicks: any[], yesterday
           <span style="font-size:12px;color:#6b7490;">${r.league}</span><br/>
           <strong style="color:#e8ecf5;">${r.home_team} vs ${r.away_team}</strong><br/>
           <span style="font-size:13px;color:#4af0c4;">${r.prediction_label}</span>
+          ${showPercent && r.quota ? `<span style="font-size:12px;color:#6b7490;"> · quota @${Number(r.quota).toFixed(2)}</span>` : ""}
           <span style="float:right;font-weight:800;color:${
             showPercent ? "#c8f135" : r.status === "WIN" ? "#c8f135" : "#ff5c5c"
           };">
