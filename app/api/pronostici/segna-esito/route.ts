@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
 
   // Client "utente" — serve solo per leggere chi è loggato e con che ruolo,
   // usando i cookie della sessione (stessa logica del middleware).
