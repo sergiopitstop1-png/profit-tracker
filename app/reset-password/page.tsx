@@ -81,7 +81,7 @@ export default function ResetPasswordPage() {
             <div style={{ fontSize: 15, color: "#4af0c4", fontWeight: 700, marginTop: 20, marginBottom: 10 }}>
               ✓ Password aggiornata
             </div>
-            <a href="/login" style={{ fontSize: 13, color: "#c8f135", textDecoration: "none" }}>
+            <a href="/register?mode=login" style={{ fontSize: 13, color: "#c8f135", textDecoration: "none" }}>
               Vai al login →
             </a>
           </>
