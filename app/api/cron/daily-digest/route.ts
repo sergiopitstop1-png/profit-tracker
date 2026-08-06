@@ -261,6 +261,18 @@ async function verifyTennisPick(pick: any, pickDate: string) {
 // ─── STEP 2: calcola i pronostici di domani ─────────────────────
 
 async function computeTomorrowPicks(tomorrow: string) {
+  // Anti-doppione: se la route viene chiamata più volte lo stesso giorno
+  // (es. un test manuale + il cron automatico), i pronostici di "domani"
+  // sono già stati calcolati e salvati — li riusiamo invece di rifarli
+  // da capo e reinserirli, cosa che creava le righe duplicate.
+  const { data: existing } = await supabase
+    .from("pronox_daily_picks")
+    .select("*")
+    .eq("pick_date", tomorrow);
+  if (existing && existing.length > 0) {
+    return existing;
+  }
+
   const allPicks = [];
 
   for (const league of LEAGUES) {
@@ -308,7 +320,17 @@ async function computeTomorrowPicks(tomorrow: string) {
 
   const best = [...bestFootball, ...bestTennis];
   if (best.length > 0) {
-    await supabase.from("pronox_daily_picks").insert(best);
+    const { error } = await supabase.from("pronox_daily_picks").insert(best);
+    if (error) {
+      // Caso raro: due chiamate quasi simultanee sono arrivate qui insieme.
+      // Il vincolo unico sul database ha bloccato il doppione: rileggiamo
+      // quello che è già stato salvato dall'altra chiamata.
+      const { data: existingAfterRace } = await supabase
+        .from("pronox_daily_picks")
+        .select("*")
+        .eq("pick_date", tomorrow);
+      return existingAfterRace || [];
+    }
   }
   return best;
 }
