@@ -3379,7 +3379,15 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               <p style={subtitle}>books · wallets · transactions</p>
             </div>
           </div>
-          <div style={copyrightBox}>© Sergio Apicella — Tutti i diritti riservati</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <a href="/admin/pronostici-manuale" style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
+              borderRadius: 10, border: '1px solid rgba(200,241,53,0.4)',
+              background: 'rgba(200,241,53,0.08)', color: '#c8f135',
+              fontWeight: 700, fontSize: 12, textDecoration: 'none',
+            }}>🎾 Esito manuale pronostici</a>
+            <div style={copyrightBox}>© Sergio Apicella — Tutti i diritti riservati</div>
+          </div>
         </header>
 
         <div style={{ display: 'flex', alignItems: 'stretch', gap: 10, marginBottom: 12 }}>
