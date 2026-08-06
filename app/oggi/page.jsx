@@ -722,6 +722,7 @@ export default function Oggi() {
           <a href="/" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>← home</a>
           <a href="/pronosticatore" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>⚽ analisi manuale</a>
           <a href="/archivio" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>📊 archivio</a>
+          <a href="/storico-pronostici" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>📈 storico</a>
           <a href="/piano" style={{ fontSize: 12, color: "#c8f135", textDecoration: "none", fontWeight: 700 }}>🎯 piano</a>
         </div>
 
