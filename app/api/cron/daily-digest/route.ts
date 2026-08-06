@@ -444,6 +444,11 @@ function buildEmailHtml(yesterdayResults: any[], tomorrowPicks: any[], yesterday
         <a href="https://sergioapicella.it/oggi" style="display:inline-block;padding:12px 28px;background:#c8f135;color:#0d0f14;font-weight:800;border-radius:10px;text-decoration:none;font-size:14px;">
           Vedi tutti i pronostici →
         </a>
+        <div style="margin-top:12px;">
+          <a href="https://sergioapicella.it/storico-pronostici" style="display:inline-block;padding:10px 24px;background:transparent;border:1px solid #2a2f3f;color:#e8ecf5;font-weight:700;border-radius:10px;text-decoration:none;font-size:13px;">
+            📊 Guarda lo storico completo
+          </a>
+        </div>
       </div>
     </div>
   </div>`;
