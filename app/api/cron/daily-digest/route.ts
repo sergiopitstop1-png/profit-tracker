@@ -161,7 +161,7 @@ async function fetchOddsForLeague(oddsKey: string | null, date: string) {
       const gameTime = new Date(game.commence_time).getTime();
       if (gameTime < dayStart || gameTime > dayEnd) return;
       const key = `${game.home_team}__${game.away_team}`;
-      let o1 = null, oX = null, o2 = null, oOver25 = null, oUnder25 = null;
+      let o1: number | null = null, oX: number | null = null, o2: number | null = null, oOver25: number | null = null, oUnder25: number | null = null;
       game.bookmakers?.forEach((bk: any) => {
         bk.markets?.forEach((mkt: any) => {
           if (mkt.key === "h2h") {
@@ -416,7 +416,7 @@ async function computeTomorrowPicks(tomorrow: string) {
       // il successivo per probabilità sulla stessa partita prima di
       // scartarla del tutto. Un segnale senza quota nota (es. BTTS, che
       // questa fonte non copre) non viene escluso solo per quello.
-      let chosen = null;
+      let chosen: any = null;
       let chosenQuota: number | null = null;
       for (const s of signals) {
         const q = quotaPerSegnale(oddsData, s.label);
