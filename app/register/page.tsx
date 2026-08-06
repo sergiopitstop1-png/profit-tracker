@@ -159,6 +159,12 @@ function RegisterForm() {
               {loading ? "Attendi..." : mode === "register" ? "REGISTRATI GRATIS ↗" : "ACCEDI →"}
             </button>
 
+            {mode === "login" && (
+              <a href="/password-dimenticata" style={{ textAlign: "center", fontSize: 13, color: "#6b7490", textDecoration: "none" }}>
+                Password dimenticata?
+              </a>
+            )}
+
           </form>
         </div>
 
