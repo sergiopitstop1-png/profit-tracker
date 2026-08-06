@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import SiteHeader from "../../components/SiteHeader";
 import SiteFooter from "../../components/SiteFooter";
 import { renderArticleContent } from "../../../lib/renderArticle";
@@ -11,14 +12,39 @@ const supabase = createClient(
 
 export const revalidate = 60;
 
-export default async function BlogPostPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params;
-  const { data: post } = await supabase
+async function getPost(slug: string) {
+  const { data } = await supabase
     .from("blog_posts")
     .select("*")
     .eq("slug", slug)
     .eq("published", true)
     .single();
+  return data;
+}
+
+// Titolo e descrizione che Google mostra nei risultati di ricerca, e che
+// vengono usati anche per l'anteprima quando l'articolo viene condiviso
+// su WhatsApp/Facebook/Telegram ecc.
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const { slug } = await params;
+  const post = await getPost(slug);
+  if (!post) return {};
+
+  return {
+    title: `${post.title} | Sergio Apicella`,
+    description: post.excerpt,
+    openGraph: {
+      title: post.title,
+      description: post.excerpt,
+      type: "article",
+      url: `https://sergioapicella.it/blog/${post.slug}`,
+    },
+  };
+}
+
+export default async function BlogPostPage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const post = await getPost(slug);
 
   if (!post) return notFound();
 
