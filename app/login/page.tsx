@@ -115,6 +115,13 @@ function LoginForm() {
       >
         {loading ? "Accesso..." : "Entra →"}
       </button>
+
+      <a
+        href="/password-dimenticata"
+        style={{ display: "block", marginTop: 16, fontSize: 13, color: "#6b7490", textDecoration: "none" }}
+      >
+        Password dimenticata?
+      </a>
     </div>
   );
 }
