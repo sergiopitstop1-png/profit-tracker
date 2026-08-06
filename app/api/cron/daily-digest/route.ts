@@ -183,14 +183,19 @@ async function fetchSeasonMatches(code: string) {
   }
 }
 
-// ─── STEP 1: verifica i pronostici di ieri ──────────────────────
+// ─── STEP 1: verifica i pronostici ancora in sospeso ────────────
+// Controlla TUTTI i pronostici PENDING con data uguale o precedente a ieri,
+// non solo quelli di esattamente ieri. Così, se una verifica fallisce un
+// giorno (es. il cron gira prima che l'import tennis delle 12:00 abbia
+// scritto i risultati), il pronostico non resta bloccato per sempre: viene
+// ritentato automaticamente ai run successivi finché non trova l'esito.
 
 async function verifyYesterdayPicks(yesterday: string) {
   const { data: picks } = await supabase
     .from("pronox_daily_picks")
     .select("*")
-    .eq("pick_date", yesterday)
-    .eq("status", "PENDING");
+    .eq("status", "PENDING")
+    .lte("pick_date", yesterday);
 
   if (!picks || picks.length === 0) return [];
 
@@ -423,7 +428,7 @@ function buildEmailHtml(yesterdayResults: any[], tomorrowPicks: any[], yesterday
 
       <div style="background:#161920;border:1px solid #2a2f3f;border-radius:14px;padding:20px;margin-bottom:16px;">
         <div style="font-size:11px;font-weight:700;color:#6b7490;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:10px;">
-          Risultati di ieri ${winRate !== null ? `· ${wins}/${totalDone} vinte (${winRate}%)` : ""}
+          Risultati aggiornati ${winRate !== null ? `· ${wins}/${totalDone} vinte (${winRate}%)` : ""}
         </div>
         ${resultsHtml}
       </div>
