@@ -13,20 +13,35 @@ export default function ResetPasswordPage() {
   const [fatto, setFatto] = useState(false);
 
   useEffect(() => {
-    // Il link della mail, una volta aperto, fa sì che Supabase generi una
-    // sessione temporanea di tipo "recovery" e scateni questo evento —
-    // è il modo corretto (e ufficiale) per sapere che il link è valido,
-    // invece di provare a leggere token dall'URL a mano.
+    const verificaLink = async () => {
+      // Nuovo flusso: il link nella mail punta al nostro sito con un
+      // token_hash nella query string, non più al redirect automatico di
+      // Supabase. Lo verifichiamo qui esplicitamente via JS — così, se uno
+      // scanner email "visita" il link da solo senza eseguire JavaScript,
+      // non consuma il codice prima che l'utente vero clicchi davvero.
+      const params = new URLSearchParams(window.location.search);
+      const token_hash = params.get("token_hash");
+      const type = params.get("type");
+
+      if (token_hash && type) {
+        const { error } = await supabase.auth.verifyOtp({
+          token_hash,
+          type: type as "recovery",
+        });
+        if (!error) { setPronto(true); return; }
+      }
+
+      // Fallback: se per qualche motivo arriva ancora nel vecchio formato
+      // (token nell'URL, gestito automaticamente dalla libreria)
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) setPronto(true);
+    };
+    verificaLink();
+
     const { data: listener } = supabase.auth.onAuthStateChange((event) => {
       if (event === "PASSWORD_RECOVERY") {
         setPronto(true);
       }
-    });
-
-    // Se la sessione di recovery è già presente al caricamento (capita
-    // se la pagina viene ricaricata), controlliamo anche così.
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) setPronto(true);
     });
 
     return () => { listener.subscription.unsubscribe(); };
