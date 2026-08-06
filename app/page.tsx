@@ -1,9 +1,23 @@
 import SiteHeader from "./components/SiteHeader";
 import SiteFooter from "./components/SiteFooter";
 import SectionCard from "./components/SectionCard";
-import { posts } from "../lib/blogPosts";
+import { createClient } from "@supabase/supabase-js";
 
-export default function SergioApicellaHomepage() {
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+export const revalidate = 60;
+
+export default async function SergioApicellaHomepage() {
+  const { data: posts } = await supabase
+    .from("blog_posts")
+    .select("title, category, excerpt, slug")
+    .eq("published", true)
+    .order("created_at", { ascending: false })
+    .limit(3);
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-neutral-950 via-neutral-900 to-orange-950 text-white">
       <SiteHeader />
@@ -62,10 +76,10 @@ export default function SergioApicellaHomepage() {
         <p className="text-sm uppercase tracking-[0.3em] text-orange-300">Dal Blog</p>
         <h2 className="mt-3 text-3xl font-bold mb-8">Ultimi articoli</h2>
         <div className="grid gap-6 md:grid-cols-3">
-          {posts.slice(0, 3).map((post) => (
+          {(posts || []).map((post) => (
             <a
-              key={post.href}
-              href={post.href}
+              key={post.slug}
+              href={`/blog/${post.slug}`}
               className="block rounded-3xl border border-white/10 bg-white/5 p-6 transition hover:-translate-y-1 hover:border-orange-400/40 hover:bg-white/10"
             >
               <p className="text-xs uppercase tracking-[0.2em] text-orange-300 mb-3">{post.category}</p>
