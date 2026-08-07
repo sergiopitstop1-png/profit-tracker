@@ -589,21 +589,48 @@ function buildEmailHtml(yesterdayResults: any[], tomorrowPicks: any[], yesterday
 }
 
 async function sendDigestEmail(html: string, recipients: string[]) {
-  if (recipients.length === 0) return;
-  await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${process.env.RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: "PronoX · Sergio Apicella <noreply@sergioapicella.it>",
-      to: "noreply@sergioapicella.it", // destinatario "to" fittizio, i veri destinatari sono in bcc per privacy
-      bcc: recipients,
-      subject: "🎾⚽ PronoX — risultati di ieri e pronostici di domani",
-      html,
-    }),
-  });
+  if (recipients.length === 0) return { sent: 0, failed: 0 };
+
+  // Prima mandavamo un'unica mail con tutti in BCC e un indirizzo fittizio
+  // come "to" (noreply@sergioapicella.it). Quell'indirizzo è rimbalzato una
+  // volta ed è finito nella lista di soppressione di Resend: da quel momento
+  // OGNI mail con quell'indirizzo come "to" veniva scartata in silenzio,
+  // anche se i veri destinatari erano nel BCC — risultato: nessuno riceveva
+  // più nulla, senza nessun errore visibile.
+  //
+  // Ora mandiamo una mail separata per ciascun iscritto, ognuno come "to"
+  // reale. Stessa privacy di prima (nessuno vede gli altri destinatari),
+  // ma un indirizzo problematico blocca solo se stesso, non tutti gli altri.
+  let sent = 0;
+  let failed = 0;
+
+  for (const email of recipients) {
+    try {
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.RESEND_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: "PronoX · Sergio Apicella <noreply@sergioapicella.it>",
+          to: email,
+          subject: "🎾⚽ PronoX — risultati di ieri e pronostici di domani",
+          html,
+        }),
+      });
+      if (res.ok) sent++;
+      else {
+        failed++;
+        console.error(`Invio fallito a ${email}:`, await res.text());
+      }
+    } catch (e) {
+      failed++;
+      console.error(`Errore invio a ${email}:`, e);
+    }
+  }
+
+  return { sent, failed };
 }
 
 // ─── ROUTE ───────────────────────────────────────────────────────
@@ -631,12 +658,13 @@ export async function GET(request: Request) {
   const recipients = (profiles || []).map((p: any) => p.email).filter(Boolean);
 
   const html = buildEmailHtml(yesterdayResults, tomorrowPicks, yesterdayStr, tomorrowStr);
-  await sendDigestEmail(html, recipients);
+  const emailResult = await sendDigestEmail(html, recipients);
 
   return Response.json({
     ok: true,
     yesterdayVerified: yesterdayResults.length,
     tomorrowPicks: tomorrowPicks.length,
-    emailsSent: recipients.length,
+    emailsSent: emailResult.sent,
+    emailsFailed: emailResult.failed,
   });
 }
