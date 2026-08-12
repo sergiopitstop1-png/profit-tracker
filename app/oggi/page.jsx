@@ -848,6 +848,16 @@ export default function Oggi() {
                               </button>
                             )}
                             {savedStatus === "PENDING" && <span style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, background: "rgba(255,208,96,0.1)", color: "#ffd060", fontWeight: 700 }}>⏳ salvato</span>}
+                            {savedStatus === "PENDING" && (
+  pianoMap[`${m.id}_${s.label}_piano`] === "saved" ? (
+    <span style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, background: "rgba(200,241,53,0.15)", color: "#c8f135", fontWeight: 700 }}>🎯</span>
+  ) : (
+    <button onClick={() => addToPlan(m, s)} disabled={pianoMap[`${m.id}_${s.label}_piano`] === "saving"}
+      style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, border: "1px solid rgba(200,241,53,0.4)", background: "rgba(200,241,53,0.08)", color: "#c8f135", cursor: "pointer", fontWeight: 700 }}>
+      {pianoMap[`${m.id}_${s.label}_piano`] === "saving" ? "..." : "+ Piano"}
+    </button>
+  )
+)}
                           </div>
                         </div>
                         {s.isValue && s.ev !== null && (
