@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase as supabaseAdmin } from "../../profit-tracker/supabaseClient";
+import { supabaseAdmin } from "../../../lib/supabase-admin";
 
 // GET /api/movimentazioni?giorno=YYYY-MM-DD
 // Ritorna: ogni CONTO di public.books (book + intestatario) + se è stato
