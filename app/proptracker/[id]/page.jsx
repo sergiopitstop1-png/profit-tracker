@@ -1,12 +1,9 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '../../../lib/supabase-browser'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
+const supabase = createClient()
 
 const C = {
   dark:'#0D1117', panel:'#161B22', accent:'#F0B429', green:'#2EA043',
