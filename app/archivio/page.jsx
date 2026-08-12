@@ -1,7 +1,7 @@
 "use client";
 import AuthGuard from "../components/AuthGuard";
 import { useState, useEffect } from "react";
-import { createClient } from "../lib/supabase-browser";
+import { createClient } from "../../lib/supabase-browser";
 
 const supabase = createClient();
 
