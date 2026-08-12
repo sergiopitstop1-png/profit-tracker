@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase as supabaseAdmin } from "../../profit-tracker/supabaseClient";
-
+import { supabaseAdmin } from "../../../lib/supabase-admin";
 // GET /api/risultati?mese=YYYY-MM  (facoltativo: filtra per mese, altrimenti ultimi 200)
 export async function GET(req: NextRequest) {
   const mese = req.nextUrl.searchParams.get("mese");
