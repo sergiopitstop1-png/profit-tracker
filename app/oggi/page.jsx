@@ -848,7 +848,7 @@ export default function Oggi() {
                               </button>
                             )}
                             {savedStatus === "PENDING" && <span style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, background: "rgba(255,208,96,0.1)", color: "#ffd060", fontWeight: 700 }}>⏳ salvato</span>}
-                            {savedStatus === "PENDING" && (
+                           
   pianoMap[`${m.id}_${s.label}_piano`] === "saved" ? (
     <span style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, background: "rgba(200,241,53,0.15)", color: "#c8f135", fontWeight: 700 }}>🎯</span>
   ) : (
@@ -857,7 +857,7 @@ export default function Oggi() {
       {pianoMap[`${m.id}_${s.label}_piano`] === "saving" ? "..." : "+ Piano"}
     </button>
   )
-)}
+
                           </div>
                         </div>
                         {s.isValue && s.ev !== null && (
