@@ -115,7 +115,7 @@ const [stimaForm, setStimaForm] = useState({
 
   const [bookFilters, setBookFilters] = useState({ nome: '', intestatario: '', saldoMin: '', saldoMax: '', nota: '' })
   const [walletFilters, setWalletFilters] = useState({ nome: '', intestatario: '', saldoMin: '', saldoMax: '' })
-  const [txFilters, setTxFilters] = useState({ tipo: '', azione: '', testo: '', importoMin: '', importoMax: '', dataFrom: '', dataTo: '' })
+  const [txFilters, setTxFilters] = useState({ tipo: '', azione: '', categoria: '', testo: '', importoMin: '', importoMax: '', dataFrom: '', dataTo: '' })
 const [memoForm, setMemoForm] = useState({ data_reale: '', data_testo: '', importo: '', descrizione: '', colore: 'normal' })
 const [isListening, setIsListening] = useState(false)
 const [voiceTranscript, setVoiceTranscript] = useState('')
@@ -1835,7 +1835,7 @@ async function saveEditPostIt(id) {
   }
 
   function clearTxFilters() {
-  setTxFilters({ tipo: '', azione: '', testo: '', importoMin: '', importoMax: '', dataFrom: '', dataTo: '' })
+  setTxFilters({ tipo: '', azione: '', categoria: '', testo: '', importoMin: '', importoMax: '', dataFrom: '', dataTo: '' })
 }
   async function updateNote(table, id, newNote) {
     const { error } = await supabase.from(table).update({ note: newNote }).eq('id', id)
@@ -2906,6 +2906,7 @@ const cashFlowAnnuo = useMemo(() => {
   const filteredTransactions = useMemo(() => transactions.filter((tx) => {
   const tipoMatch = txFilters.tipo ? tx.tipo === txFilters.tipo : true
   const azioneMatch = txFilters.azione ? (tx.azione || '') === txFilters.azione : true
+  const categoriaMatch = txFilters.categoria ? (tx.categoria_spesa || '') === txFilters.categoria : true
   const text = `${tx.riferimento || ''} ${tx.note || ''} ${tx.azione || ''}`.toLowerCase()
   const testoMatch = text.includes(txFilters.testo.toLowerCase())
   const importoMinMatch = txFilters.importoMin === '' ? true : Number(tx.importo || 0) >= Number(txFilters.importoMin)
@@ -2913,7 +2914,7 @@ const cashFlowAnnuo = useMemo(() => {
   const txDate = tx.data ? new Date(tx.data) : null
   const dataFromMatch = txFilters.dataFrom === '' ? true : txDate && txDate >= new Date(txFilters.dataFrom + 'T00:00:00')
   const dataToMatch = txFilters.dataTo === '' ? true : txDate && txDate <= new Date(txFilters.dataTo + 'T23:59:59')
-  return tipoMatch && azioneMatch && testoMatch && importoMinMatch && importoMaxMatch && dataFromMatch && dataToMatch
+  return tipoMatch && azioneMatch && categoriaMatch && testoMatch && importoMinMatch && importoMaxMatch && dataFromMatch && dataToMatch
 }), [transactions, txFilters])
 const stimeCassaByMonth = useMemo(() => {
   const grouped = stimeCassa.reduce((acc, row) => {
@@ -5013,6 +5014,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 <div style={filterRow}>
                   <select value={txFilters.tipo} onChange={(e) => setTxFilters({ ...txFilters, tipo: e.target.value })} style={filterInput}><option value=''>Tutti i tipi</option><option value='versa'>Versa</option><option value='preleva'>Preleva</option><option value='trasferisci'>Trasferisci</option><option value='correzione'>Correzione</option></select>
                   <select value={txFilters.azione} onChange={(e) => setTxFilters({ ...txFilters, azione: e.target.value })} style={filterInput}><option value=''>Tutte le azioni</option><option value='wallet_to_book'>wallet_to_book</option><option value='book_to_wallet'>book_to_wallet</option><option value='wallet_to_wallet'>wallet_to_wallet</option><option value='wallet_to_external'>wallet_to_external</option><option value='manual_balance_adjustment'>manual_balance_adjustment</option></select>
+                  <select value={txFilters.categoria} onChange={(e) => setTxFilters({ ...txFilters, categoria: e.target.value })} style={filterInput}><option value=''>Tutte le categorie</option>{['Auto','Alimentari','Ristoranti/Svago/Viaggi','Abbigliamento','Salute/Farmacia','Tecnologia/Abbonamenti','Famiglia','Attività Lavorativa','Spese Personali Sergio','Altro'].map(cat => <option key={cat} value={cat}>{cat}</option>)}</select>
                   <input value={txFilters.importoMin} onChange={(e) => setTxFilters({ ...txFilters, importoMin: e.target.value })} placeholder='Importo min' style={filterInput} />
                   <input value={txFilters.importoMax} onChange={(e) => setTxFilters({ ...txFilters, importoMax: e.target.value })} placeholder='Importo max' style={filterInput} />
                   <input value={txFilters.testo} onChange={(e) => setTxFilters({ ...txFilters, testo: e.target.value })} placeholder='Cerca in riferimento, note, azione...' style={filterInputWide} />
