@@ -258,7 +258,6 @@ const NEWS_PENALTY_TABLE = {
 const NEWS_MATCH_THRESHOLD = 0.5;
 
 function getTeamNewsImpact(teamName, newsSignals) {
-  let worstMultiplier = 1.0;
   const matchedEvents = [];
 
   for (const ev of newsSignals) {
@@ -268,12 +267,21 @@ function getTeamNewsImpact(teamName, newsSignals) {
     const sim = nameSimilarity(teamName, ev.squadra_o_torneo);
     if (sim < NEWS_MATCH_THRESHOLD) continue;
 
-    const mult = NEWS_PENALTY_TABLE[ev.gravita]?.[ev.affidabilita] ?? 1.0;
-    matchedEvents.push({ ...ev, multiplier: mult });
-    if (mult < worstMultiplier) worstMultiplier = mult;
+    matchedEvents.push(ev);
   }
 
-  return { multiplier: worstMultiplier, events: matchedEvents };
+  if (matchedEvents.length === 0) return { multiplier: 1.0, events: [] };
+
+  // Usiamo SOLO l'evento più recente, non il "peggiore" - una formazione
+  // ufficiale di oggi che conferma il rientro di un giocatore deve prevalere
+  // su un vecchio articolo di infortunio di 2 giorni fa, non sommarsi o
+  // essere ignorata a favore del peggiore dei due.
+  const mostRecent = [...matchedEvents].sort(
+    (a, b) => new Date(b.processato_at) - new Date(a.processato_at)
+  )[0];
+  const multiplier = NEWS_PENALTY_TABLE[mostRecent.gravita]?.[mostRecent.affidabilita] ?? 1.0;
+
+  return { multiplier, events: matchedEvents, appliedEvent: mostRecent };
 }
 
 function matchOdds(oddsMap, homeName, awayName) {
