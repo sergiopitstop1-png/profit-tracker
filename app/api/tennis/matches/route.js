@@ -204,17 +204,25 @@ function playerNameMatches(matchPlayerName, newsPlayerName) {
 }
 
 function getPlayerNewsImpact(playerName, newsSignals) {
-  let withdrawn = false; // forfait/ritiro confermato: match a rischio walkover
   const events = [];
   for (const ev of newsSignals) {
     if (ev.sport !== "tennis" || !ev.giocatore) continue;
     if (!playerNameMatches(playerName, ev.giocatore)) continue;
     events.push(ev);
-    if ((ev.tipo === "forfait" || ev.tipo === "ritiro") && ev.affidabilita === "confermato") {
-      withdrawn = true;
-    }
   }
-  return { withdrawn, events };
+
+  if (events.length === 0) return { withdrawn: false, events: [] };
+
+  // Come per il calcio: l'evento più recente prevale su quelli più vecchi -
+  // se un forfait di 2 giorni fa è stato smentito oggi ("recupera, gioca
+  // regolarmente"), non vogliamo continuare a marcare il match a rischio.
+  const mostRecent = [...events].sort(
+    (a, b) => new Date(b.processato_at) - new Date(a.processato_at)
+  )[0];
+  const withdrawn = (mostRecent.tipo === "forfait" || mostRecent.tipo === "ritiro")
+    && mostRecent.affidabilita === "confermato";
+
+  return { withdrawn, events, appliedEvent: mostRecent };
 }
 
 async function findPlayerByName(name) {
