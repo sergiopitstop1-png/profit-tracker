@@ -242,6 +242,40 @@ function nameSimilarity(a, b) {
   return common / Math.max(wa.size, wb.size);
 }
 
+// ─── LETTORE NEWS: penalità sul lambda in base a infortuni/squalifiche ──
+// Quanto riduciamo il lambda (gol attesi) di una squadra in base alla
+// gravità e affidabilità dell'evento trovato dal lettore news (Haiku).
+// 1.0 = nessuna penalità, 0.82 = -18% sui gol attesi, ecc.
+const NEWS_PENALTY_TABLE = {
+  titolare_chiave: { confermato: 0.82, rumor: 0.94 },
+  rotazione: { confermato: 0.95, rumor: 0.98 },
+  riserva: { confermato: 1.0, rumor: 1.0 },
+};
+
+// Soglia minima di similarità nome per considerare un evento news
+// riferito davvero a quella squadra (evita falsi positivi tipo
+// "Real Madrid" che matcha "Real Sociedad").
+const NEWS_MATCH_THRESHOLD = 0.5;
+
+function getTeamNewsImpact(teamName, newsSignals) {
+  let worstMultiplier = 1.0;
+  const matchedEvents = [];
+
+  for (const ev of newsSignals) {
+    if (ev.sport !== "calcio" || !ev.squadra_o_torneo) continue;
+    if (ev.tipo === "ritiro" || ev.tipo === "forfait") continue; // eventi tennis
+
+    const sim = nameSimilarity(teamName, ev.squadra_o_torneo);
+    if (sim < NEWS_MATCH_THRESHOLD) continue;
+
+    const mult = NEWS_PENALTY_TABLE[ev.gravita]?.[ev.affidabilita] ?? 1.0;
+    matchedEvents.push({ ...ev, multiplier: mult });
+    if (mult < worstMultiplier) worstMultiplier = mult;
+  }
+
+  return { multiplier: worstMultiplier, events: matchedEvents };
+}
+
 function matchOdds(oddsMap, homeName, awayName) {
   // 1. Match esatto
   const exactKey = `${homeName}__${awayName}`;
@@ -419,6 +453,28 @@ export default function Oggi() {
       allOdds[code] = await fetchOddsForLeague(league.oddsKey, date);
     }
 
+    // Carica eventi news recenti (infortuni, squalifiche, formazioni) delle
+    // ultime 72 ore - alimentati dal lettore news automatico (pronox_news_signals).
+    // Se la query fallisce per qualsiasi motivo, proseguiamo comunque senza
+    // penalità piuttosto che bloccare il calcolo dei pronostici.
+    let recentNews = [];
+    try {
+      setProgress("📰 Controllo ultime notizie infortuni/formazioni...");
+      const seventyTwoHoursAgo = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString();
+      const { data: newsData, error: newsError } = await supabase
+        .from("pronox_news_signals")
+        .select("squadra_o_torneo, giocatore, tipo, gravita, affidabilita, sport, note, processato_at")
+        .eq("sport", "calcio")
+        .gte("processato_at", seventyTwoHoursAgo);
+      if (newsError) {
+        console.error("Errore caricamento pronox_news_signals:", newsError);
+      } else {
+        recentNews = newsData || [];
+      }
+    } catch (e) {
+      console.error("Errore caricamento news:", e);
+    }
+
     const findTeamRating = (teamId, teamName, primaryCode) => {
       if (allRatings[primaryCode]?.[teamId]) return { rating: allRatings[primaryCode][teamId], leagueCode: primaryCode };
       for (const code of DOMESTIC_LEAGUES) {
@@ -479,6 +535,15 @@ export default function Oggi() {
           hasRatings = true;
         }
 
+        // Applica eventuale penalità da infortuni/squalifiche/formazioni
+        // rilevate dal lettore news nelle ultime 72h
+        const newsImpactH = getTeamNewsImpact(fix.homeTeam.name, recentNews);
+        const newsImpactA = getTeamNewsImpact(fix.awayTeam.name, recentNews);
+        lH *= newsImpactH.multiplier;
+        lA *= newsImpactA.multiplier;
+        lH = Math.max(0.3, Math.min(3.0, lH));
+        lA = Math.max(0.3, Math.min(3.0, lA));
+
         const probs = calcProbs(lH, lA);
         const signals = getSignals(probs);
         const time = fix.utcDate ? new Date(fix.utcDate).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }) : "--:--";
@@ -515,6 +580,8 @@ export default function Oggi() {
           formA: resA?.rating.formStr || "",
           h2h,
           oddsData,
+          newsEventsHome: newsImpactH.events,
+          newsEventsAway: newsImpactA.events,
         });
       }
     }
