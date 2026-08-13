@@ -190,6 +190,33 @@ function normalizeName(name) {
     .trim();
 }
 
+// ─── LETTORE NEWS: forfait/ritiri rilevati dal lettore automatico ──
+// A differenza del calcio (dove un'assenza abbassa gradualmente il lambda),
+// nel tennis un forfait confermato significa che il match rischia di non
+// giocarsi come previsto (walkover) - meglio segnalarlo chiaramente che
+// continuare a proporre value bet su una partita inaffidabile.
+
+function playerNameMatches(matchPlayerName, newsPlayerName) {
+  const a = normalizeName(matchPlayerName).split(" ").filter(Boolean);
+  const b = normalizeName(newsPlayerName).split(" ").filter(Boolean);
+  if (a.length === 0 || b.length === 0) return false;
+  return a[a.length - 1] === b[b.length - 1]; // stesso cognome, come findPlayerByName
+}
+
+function getPlayerNewsImpact(playerName, newsSignals) {
+  let withdrawn = false; // forfait/ritiro confermato: match a rischio walkover
+  const events = [];
+  for (const ev of newsSignals) {
+    if (ev.sport !== "tennis" || !ev.giocatore) continue;
+    if (!playerNameMatches(playerName, ev.giocatore)) continue;
+    events.push(ev);
+    if ((ev.tipo === "forfait" || ev.tipo === "ritiro") && ev.affidabilita === "confermato") {
+      withdrawn = true;
+    }
+  }
+  return { withdrawn, events };
+}
+
 async function findPlayerByName(name) {
   const norm = normalizeName(name);
   const parts = norm.split(" ").filter(Boolean);
@@ -349,6 +376,27 @@ export async function GET(request) {
     return Response.json({ fromCache, count: rawMatches.length, oddsDebug, rawMatches });
   }
 
+  // Eventi tennis (forfait/ritiri) rilevati dal lettore news nelle ultime 5
+  // giornate - un forfait può essere annunciato con qualche giorno di
+  // anticipo rispetto all'inizio del torneo. Se la query fallisce,
+  // proseguiamo comunque senza flag piuttosto che bloccare i pronostici.
+  let recentNews = [];
+  try {
+    const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: newsData, error: newsError } = await supabase
+      .from("pronox_news_signals")
+      .select("giocatore, tipo, gravita, affidabilita, sport, note, processato_at")
+      .eq("sport", "tennis")
+      .gte("processato_at", fiveDaysAgo);
+    if (newsError) {
+      console.error("Errore caricamento pronox_news_signals (tennis):", newsError);
+    } else {
+      recentNews = newsData || [];
+    }
+  } catch (e) {
+    console.error("Errore caricamento news tennis:", e);
+  }
+
   const results = [];
 
   for (const m of rawMatches) {
@@ -421,6 +469,13 @@ export async function GET(request) {
     const suspiciousA = (evA !== null && evA > EV_SANITY_CAP) || (evA !== null && evA > 0.03 && lowDataPlayer);
     const suspiciousB = (evB !== null && evB > EV_SANITY_CAP) || (evB !== null && evB > 0.03 && lowDataPlayer);
 
+    // Controlla se il lettore news ha rilevato un forfait/ritiro per uno dei
+    // due giocatori - se confermato, il match è a rischio walkover: niente
+    // value bet suggeriti finché non si conferma che si gioca regolarmente.
+    const newsImpactA = getPlayerNewsImpact(m.playerAName, recentNews);
+    const newsImpactB = getPlayerNewsImpact(m.playerBName, recentNews);
+    const matchAtRisk = newsImpactA.withdrawn || newsImpactB.withdrawn;
+
     // Determina il tour (ATP/WTA) dal nome torneo, visto che OddsPapi non lo
     // separa esplicitamente come faceva The Odds API con le sport_key.
     const tour = /\bwta\b/i.test(m.tournamentName || "") ? "WTA" : "ATP";
@@ -442,10 +497,13 @@ export async function GET(request) {
       oddsA: m.oddsA, oddsB: m.oddsB,
       evA: evA !== null ? Number(evA.toFixed(4)) : null,
       evB: evB !== null ? Number(evB.toFixed(4)) : null,
-      isValueA: evA !== null && evA > 0.03 && !suspiciousA,
-      isValueB: evB !== null && evB > 0.03 && !suspiciousB,
+      isValueA: evA !== null && evA > 0.03 && !suspiciousA && !matchAtRisk,
+      isValueB: evB !== null && evB > 0.03 && !suspiciousB && !matchAtRisk,
       suspiciousA,
       suspiciousB,
+      matchAtRisk,
+      newsEventsA: newsImpactA.events.length ? newsImpactA.events : null,
+      newsEventsB: newsImpactB.events.length ? newsImpactB.events : null,
     });
   }
 
