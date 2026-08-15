@@ -73,7 +73,7 @@ export default function PropHedgeTab() {
       const data = await r.json();
       if (!r.ok || !Number.isFinite(Number(data.price))) throw new Error(data.error || "Prezzo non disponibile");
       const p = Number(data.price);
-      setPrice(String(p));
+      setPrice(p.toFixed(a.decimals));
       setLive({ status: "live", bid: data.bid ?? null, ask: data.ask ?? null, price: p, time: data.time ?? null, source: data.source ?? "" });
     } catch (e) {
       setLive(s => ({ ...s, status: "error" }));
