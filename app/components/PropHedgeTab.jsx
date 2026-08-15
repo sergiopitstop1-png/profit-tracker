@@ -206,11 +206,19 @@ export default function PropHedgeTab() {
       <label style={fieldLabel}>{label}</label>
       <input
         style={{ ...input, opacity: disabled ? 0.65 : 1 }}
-        type="number"
-        step={step}
+        type="text"
+        inputMode="decimal"
+        autoComplete="off"
         value={value}
         disabled={disabled}
-        onChange={e => setValue(e.target.value)}
+        onFocus={e => e.currentTarget.select()}
+        onChange={e => {
+          const raw = e.target.value;
+          // Consente tastiera italiana: numeri, virgola, punto e segno meno.
+          if (/^-?[0-9]*[.,]?[0-9]*$/.test(raw) || raw === "") {
+            setValue(raw);
+          }
+        }}
       />
     </div>
   );
