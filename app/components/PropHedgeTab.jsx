@@ -69,6 +69,8 @@ export default function PropHedgeTab() {
   const [brokerBalance, setBrokerBalance] = useState("3000");
   const [live, setLive] = useState({ status: "loading", bid: null, ask: null, price: null, time: null, source: "", quoteToUsd: 1 });
   const [placed, setPlaced] = useState(null);
+  const [closePropPL, setClosePropPL] = useState("");
+  const [closeBrokerPL, setCloseBrokerPL] = useState("");
 
   const a = ASSETS[asset];
 
@@ -178,6 +180,8 @@ export default function PropHedgeTab() {
 
   const placeTrade = () => {
     if (!c.px || !c.propLots || !c.brokerLots) return;
+    setClosePropPL("");
+    setCloseBrokerPL("");
     setPlaced({
       asset,
       label: a.label,
@@ -199,7 +203,27 @@ export default function PropHedgeTab() {
     });
   };
 
-  const resetTrade = () => setPlaced(null);
+  const resetTrade = () => {
+    setPlaced(null);
+    setClosePropPL("");
+    setCloseBrokerPL("");
+  };
+
+  const closeAndUpdateBalances = () => {
+    if (!placed || !tracking) return;
+
+    const propPLFinal = closePropPL === "" ? tracking.propPL : num(closePropPL);
+    const brokerPLFinal = closeBrokerPL === "" ? tracking.brokerPL : num(closeBrokerPL);
+
+    const newPropBalance = placed.propBalanceStart + propPLFinal;
+    const newBrokerBalance = placed.brokerBalanceStart + brokerPLFinal;
+
+    setAccountBalance(String(Number(newPropBalance.toFixed(2))));
+    setBrokerBalance(String(Number(newBrokerBalance.toFixed(2))));
+    setPlaced(null);
+    setClosePropPL("");
+    setCloseBrokerPL("");
+  };
 
   const Field = ({ label, value, setValue, step = "any", disabled = false }) => (
     <div>
@@ -402,16 +426,28 @@ export default function PropHedgeTab() {
               ✅ PIAZZATA — AVVIA MONITOR
             </button>
           ) : (
-            <button
-              onClick={resetTrade}
-              style={{
-                border:"1px solid rgba(248,113,113,.55)", borderRadius:14, padding:"13px 22px",
-                cursor:"pointer", fontWeight:900, fontSize:15, color:"#fecaca",
-                background:"rgba(127,29,29,.35)"
-              }}
-            >
-              ⛔ CHIUDI / RESET OPERAZIONE
-            </button>
+            <>
+              <button
+                onClick={closeAndUpdateBalances}
+                style={{
+                  border:"none", borderRadius:14, padding:"13px 22px",
+                  cursor:"pointer", fontWeight:900, fontSize:15, color:"#052e16",
+                  background:"linear-gradient(135deg,#4ade80,#22c55e)"
+                }}
+              >
+                ✅ CHIUDI E AGGIORNA SALDI
+              </button>
+              <button
+                onClick={resetTrade}
+                style={{
+                  border:"1px solid rgba(248,113,113,.55)", borderRadius:14, padding:"13px 22px",
+                  cursor:"pointer", fontWeight:900, fontSize:15, color:"#fecaca",
+                  background:"rgba(127,29,29,.35)"
+                }}
+              >
+                ↩️ ANNULLA / RESET
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -457,6 +493,60 @@ export default function PropHedgeTab() {
               <div style={statLabel}>P/L combinato</div>
               <div style={{...statValue,color:tracking.combinedPL>=0?"#5eead4":"#fca5a5"}}>{signedMoney(tracking.combinedPL)}</div>
               <div style={statSub}>Somma teorica delle due gambe.</div>
+            </div>
+          </div>
+
+          <div style={{...panel, marginTop:16, background:"rgba(2,6,23,.42)"}}>
+            <div style={panelHeader}>
+              <div>
+                <h4 style={{...panelTitle,fontSize:18}}>Chiusura reale</h4>
+                <p style={panelSubtitle}>Opzionale: inserisci il P/L reale se differisce da quello teorico del feed. Lascia vuoto per usare il P/L live.</p>
+              </div>
+            </div>
+            <div style={grid2}>
+              <div>
+                <label style={fieldLabel}>P/L reale Prop ($)</label>
+                <input
+                  style={input}
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  placeholder={signedMoney(tracking.propPL)}
+                  value={closePropPL}
+                  onChange={e => {
+                    const raw = e.target.value;
+                    if (/^-?[0-9]*[.,]?[0-9]*$/.test(raw) || raw === "") setClosePropPL(raw);
+                  }}
+                />
+              </div>
+              <div>
+                <label style={fieldLabel}>P/L reale Broker ($)</label>
+                <input
+                  style={input}
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  placeholder={signedMoney(tracking.brokerPL)}
+                  value={closeBrokerPL}
+                  onChange={e => {
+                    const raw = e.target.value;
+                    if (/^-?[0-9]*[.,]?[0-9]*$/.test(raw) || raw === "") setCloseBrokerPL(raw);
+                  }}
+                />
+              </div>
+            </div>
+            <div style={{
+              marginTop:10, padding:"10px 12px", borderRadius:12,
+              background:"rgba(15,23,42,.8)", border:"1px solid rgba(51,65,85,.75)",
+              color:"#cbd5e1", fontSize:13
+            }}>
+              Se chiudi ora:
+              <b style={{marginLeft:8}}>Prop → $ {fmt(
+                placed.propBalanceStart + (closePropPL === "" ? tracking.propPL : num(closePropPL)), 2
+              )}</b>
+              <b style={{marginLeft:16}}>Broker → $ {fmt(
+                placed.brokerBalanceStart + (closeBrokerPL === "" ? tracking.brokerPL : num(closeBrokerPL)), 2
+              )}</b>
             </div>
           </div>
 
