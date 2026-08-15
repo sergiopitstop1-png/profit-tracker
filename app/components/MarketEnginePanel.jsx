@@ -479,7 +479,8 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
             borderRadius:16,
             border:"1px solid rgba(56,189,248,.26)",
             background:"rgba(2,6,23,.55)",
-            overflow:"hidden"
+            minHeight:"825px",
+            overflow:"visible"
           }}>
             <div style={{
               display:"flex",
