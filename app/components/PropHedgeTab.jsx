@@ -300,6 +300,17 @@ export default function PropHedgeTab() {
   const [historyRows, setHistoryRows] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
+
+  // Stato challenge correnti su Supabase
+  const [activeSyncLoading, setActiveSyncLoading] = useState(false);
+  const [activeSyncLoaded, setActiveSyncLoaded] = useState(false);
+  const [activeSyncStatus, setActiveSyncStatus] = useState("");
+  const [activeSyncLastAt, setActiveSyncLastAt] = useState(null);
+  const [showExistingInit, setShowExistingInit] = useState(false);
+  const [existingInitChallengeId, setExistingInitChallengeId] = useState("");
+  const [existingInitPropBalance, setExistingInitPropBalance] = useState("");
+  const [existingInitBrokerBalance, setExistingInitBrokerBalance] = useState("");
+  const [existingInitExposure, setExistingInitExposure] = useState("");
   const [historyFilters, setHistoryFilters] = useState({
     prop: "TUTTE",
     asset: "TUTTI",
@@ -342,6 +353,160 @@ export default function PropHedgeTab() {
     () => [...new Set(challenges.map(c => c.asset))].sort().join("|"),
     [challenges]
   );
+
+  const initializeExistingChallenge = async () => {
+    const ch = challenges.find(x => x.id === existingInitChallengeId);
+    if (!ch) return alert("Seleziona la challenge.");
+
+    const propBalance = Number(existingInitPropBalance);
+    const brokerBalanceNow = Number(existingInitBrokerBalance);
+    const exposure = Number(existingInitExposure);
+
+    if (!Number.isFinite(propBalance) || propBalance < 0) return alert("Saldo Prop non valido.");
+    if (!Number.isFinite(brokerBalanceNow) || brokerBalanceNow < 0) return alert("Saldo Broker non valido.");
+    if (!Number.isFinite(exposure) || exposure < 0) return alert("Esposizione Broker non valida.");
+
+    const initializedAt = new Date().toISOString();
+
+    try {
+      await saveBrokerBalance(brokerBalanceNow);
+      setBrokerBalance(String(Number(brokerBalanceNow.toFixed(2))));
+      setBrokerBalanceUpdated(true);
+
+      setChallenges(prev => prev.map(x => x.id === ch.id ? {
+        ...x,
+        accountBalance: String(propBalance),
+        importedExisting: {
+          initializedAt,
+          brokerBalanceAtImport: brokerBalanceNow,
+          brokerExposureBaseline: exposure
+        }
+      } : x));
+
+      setActiveSyncStatus("✅ Prop esistente inizializzata");
+      setShowExistingInit(false);
+    } catch (e) {
+      console.error(e);
+      alert("Errore inizializzazione:\\n\\n" + (e?.message || String(e)));
+    }
+  };
+
+  const sanitizeChallengeForCloud = (ch) => {
+    // Salviamo tutto lo stato utile della challenge, evitando valori non serializzabili.
+    return {
+      ...ch,
+      operationalChecks: ch.operationalChecks || {},
+      active: ch.active || null
+    };
+  };
+
+  const syncActiveChallengesToSupabase = async ({ silent = false } = {}) => {
+    if (activeSyncLoading) return false;
+
+    setActiveSyncLoading(true);
+    if (!silent) setActiveSyncStatus("Sincronizzazione in corso…");
+
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData?.user?.id;
+      if (!uid) throw new Error("Utente Supabase non autenticato");
+
+      const rows = challenges.map(ch => ({
+        user_id: uid,
+        challenge_id: ch.id,
+        prop_name: ch.name || "Prop",
+        state: sanitizeChallengeForCloud(ch),
+        updated_at: new Date().toISOString()
+      }));
+
+      if (rows.length) {
+        const { error: upsertError } = await supabase
+          .from("prop_hedge_active_challenges")
+          .upsert(rows, { onConflict: "user_id,challenge_id" });
+
+        if (upsertError) throw upsertError;
+      }
+
+      // Rimuove dal cloud eventuali challenge eliminate localmente.
+      const { data: cloudRows, error: cloudReadError } = await supabase
+        .from("prop_hedge_active_challenges")
+        .select("challenge_id");
+
+      if (cloudReadError) throw cloudReadError;
+
+      const localIds = new Set(challenges.map(ch => ch.id));
+      const staleIds = (cloudRows || [])
+        .map(r => r.challenge_id)
+        .filter(id => !localIds.has(id));
+
+      if (staleIds.length) {
+        const { error: deleteError } = await supabase
+          .from("prop_hedge_active_challenges")
+          .delete()
+          .in("challenge_id", staleIds);
+
+        if (deleteError) throw deleteError;
+      }
+
+      const now = new Date();
+      setActiveSyncLastAt(now);
+      setActiveSyncStatus("✅ Challenge sincronizzate su Supabase");
+      return true;
+    } catch (e) {
+      console.error("Errore sync challenge correnti:", e);
+      setActiveSyncStatus("❌ " + (e?.message || "Errore sincronizzazione challenge"));
+      if (!silent) {
+        alert("Errore sincronizzazione challenge su Supabase:\n\n" + (e?.message || String(e)));
+      }
+      return false;
+    } finally {
+      setActiveSyncLoading(false);
+    }
+  };
+
+  const loadActiveChallengesFromSupabase = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("prop_hedge_active_challenges")
+        .select("challenge_id, prop_name, state, updated_at")
+        .order("updated_at", { ascending: true });
+
+      if (error) throw error;
+
+      if (Array.isArray(data) && data.length) {
+        const restored = data
+          .map(row => row?.state)
+          .filter(Boolean)
+          .map(ch => ({
+            ...ch,
+            operationalChecks: ch.operationalChecks || {
+              accountBalance: false,
+              finalProfitTarget: false,
+              risk: false,
+              slPoints: false,
+              tpProp: false,
+              entryPrice: false
+            }
+          }));
+
+        if (restored.length) {
+          setChallenges(restored);
+          const latest = data.reduce((max, row) => {
+            const d = new Date(row.updated_at || 0);
+            return d > max ? d : max;
+          }, new Date(0));
+          setActiveSyncLastAt(latest.getTime() ? latest : null);
+          setActiveSyncStatus("☁️ Challenge ripristinate da Supabase");
+        }
+      }
+
+      setActiveSyncLoaded(true);
+    } catch (e) {
+      console.error("Errore caricamento challenge correnti:", e);
+      setActiveSyncStatus("⚠️ Stato cloud non disponibile: uso dati locali");
+      setActiveSyncLoaded(true);
+    }
+  };
 
   const loadBrokerState = async () => {
     try {
@@ -501,7 +666,18 @@ export default function PropHedgeTab() {
     loadHistory();
     loadBrokerState();
     loadBrokerAdjustments();
+    loadActiveChallengesFromSupabase();
   }, []);
+
+  useEffect(() => {
+    if (!hydrated || !activeSyncLoaded) return;
+
+    const id = setTimeout(() => {
+      syncActiveChallengesToSupabase({ silent: true });
+    }, 1800);
+
+    return () => clearTimeout(id);
+  }, [hydrated, activeSyncLoaded, challenges]);
 
   const refreshSymbol = async (symbol) => {
     try {
@@ -616,7 +792,8 @@ export default function PropHedgeTab() {
         0
       );
 
-      result[ch.id] = Math.max(0, -brokerNet);
+      const importedBaseline = num(ch?.importedExisting?.brokerExposureBaseline);
+      result[ch.id] = Math.max(0, importedBaseline + Math.max(0, -brokerNet));
     }
 
     return result;
@@ -929,7 +1106,55 @@ export default function PropHedgeTab() {
             Più Prop contemporaneamente, un unico Broker condiviso e controllo dell'esposizione aggregata.
           </p>
         </div>
-        <button style={primaryButtonBlue} onClick={addChallenge}>+ Aggiungi Challenge</button>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+          <button
+            style={secondaryButton}
+            onClick={()=>{
+              const ch = challenges[0];
+              setExistingInitChallengeId(ch?.id || "");
+              setExistingInitPropBalance(ch?.accountBalance ?? "");
+              setExistingInitBrokerBalance(brokerBalance ?? "");
+              setExistingInitExposure(ch?.importedExisting?.brokerExposureBaseline ?? "");
+              setShowExistingInit(true);
+            }}
+          >
+            ⚙️ Inizializza Prop esistente
+          </button>
+
+          <button
+            style={secondaryButton}
+            disabled={activeSyncLoading}
+            onClick={()=>syncActiveChallengesToSupabase({ silent:false })}
+          >
+            {activeSyncLoading ? "☁️ Sincronizzo…" : "☁️ Sincronizza ora"}
+          </button>
+
+          <button style={primaryButtonBlue} onClick={addChallenge}>+ Aggiungi Challenge</button>
+        </div>
+      </div>
+
+      <div style={{
+        display:"flex",
+        justifyContent:"space-between",
+        gap:10,
+        flexWrap:"wrap",
+        alignItems:"center",
+        padding:"9px 12px",
+        borderRadius:13,
+        border:"1px solid rgba(99,102,241,.25)",
+        background:"rgba(49,46,129,.06)",
+        color:"#a5b4fc",
+        fontSize:11
+      }}>
+        <span>
+          <b>☁️ Stato challenge:</b>{" "}
+          {activeSyncStatus || (activeSyncLoaded ? "Pronto" : "Caricamento da Supabase…")}
+        </span>
+        <span style={{color:"#94a3b8"}}>
+          {activeSyncLastAt
+            ? `Ultima sync: ${new Date(activeSyncLastAt).toLocaleString("it-IT")}`
+            : "Nessuna sincronizzazione registrata"}
+        </span>
       </div>
 
       <div style={{
@@ -944,7 +1169,57 @@ export default function PropHedgeTab() {
         {" "}Gli altri parametri sono normalmente strutturali della challenge.
       </div>
 
-      <MarketEnginePanel defaultAsset="XAUUSD" />
+      {showExistingInit && (
+        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(2,6,23,.84)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{width:"min(560px,96vw)",padding:18,borderRadius:18,background:"#07111f",border:"1px solid rgba(56,189,248,.4)",boxShadow:"0 24px 80px rgba(0,0,0,.6)"}}>
+            <div style={{fontSize:19,fontWeight:950,color:"#e2e8f0"}}>⚙️ Inizializza Prop già in corso</div>
+            <div style={{fontSize:11,color:"#94a3b8",margin:"5px 0 15px"}}>
+              Fotografa la situazione reale di partenza. L'esposizione inserita diventa solo la baseline iniziale; da qui in avanti il sistema continua a calcolarla automaticamente.
+            </div>
+
+            <label style={{fontSize:11,color:"#94a3b8"}}>Challenge</label>
+            <select style={input} value={existingInitChallengeId} onChange={e=>{
+              const id=e.target.value, c=challenges.find(x=>x.id===id);
+              setExistingInitChallengeId(id);
+              setExistingInitPropBalance(c?.accountBalance ?? "");
+              setExistingInitExposure(c?.importedExisting?.brokerExposureBaseline ?? "");
+            }}>
+              {challenges.map(ch=><option key={ch.id} value={ch.id}>{ch.name || "Prop"}</option>)}
+            </select>
+
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <div>
+                <label style={{fontSize:11,color:"#94a3b8"}}>Saldo Prop attuale €</label>
+                <input type="number" step="0.01" style={input} value={existingInitPropBalance} onChange={e=>setExistingInitPropBalance(e.target.value)} />
+              </div>
+              <div>
+                <label style={{fontSize:11,color:"#94a3b8"}}>Saldo Broker reale €</label>
+                <input type="number" step="0.01" style={input} value={existingInitBrokerBalance} onChange={e=>setExistingInitBrokerBalance(e.target.value)} />
+              </div>
+            </div>
+
+            <label style={{fontSize:11,color:"#94a3b8"}}>Esposizione Broker attuale €</label>
+            <input type="number" min="0" step="0.01" style={input} value={existingInitExposure} onChange={e=>setExistingInitExposure(e.target.value)} />
+
+            <div style={{padding:"10px 11px",borderRadius:11,border:"1px solid rgba(245,158,11,.3)",background:"rgba(180,83,9,.08)",color:"#fde68a",fontSize:11}}>
+              Baseline iniziale + perdite Broker già registrate nello storico = esposizione automatica corrente. Non dovrai reinserire questo valore a ogni trade.
+            </div>
+
+            <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:16}}>
+              <button style={secondaryButton} onClick={()=>setShowExistingInit(false)}>Annulla</button>
+              <button style={primaryButtonBlue} onClick={initializeExistingChallenge}>💾 Imposta stato iniziale</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <MarketEnginePanel
+        defaultAsset="XAUUSD"
+        challenges={challenges}
+        onApplyDirection={(challengeId, suggestedDirection) => {
+          setChallenge(challengeId, { direction: suggestedDirection });
+        }}
+      />
 
       <div style={{
         ...panel,
