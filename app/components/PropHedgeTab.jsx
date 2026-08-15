@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
+import MarketEnginePanel from "./MarketEnginePanel";
 import {
   panel, panelHeader, panelTitle, panelSubtitle, input,
   primaryButtonBlue, secondaryButton, statCard, statLabel,
@@ -942,6 +943,8 @@ export default function PropHedgeTab() {
         <b style={{color:"#67e8f9"}}>Campi evidenziati = da controllare/aggiornare a ogni operazione.</b>
         {" "}Gli altri parametri sono normalmente strutturali della challenge.
       </div>
+
+      <MarketEnginePanel defaultAsset="XAUUSD" />
 
       <div style={{
         ...panel,
