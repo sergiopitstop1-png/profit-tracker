@@ -62,7 +62,7 @@ function makeChallenge(name, id) {
     direction: "BUY",
     accountSize: "100000",
     propCost: "350",
-    expectedGain: "400",
+    finalProfitTarget: "400",
     risk: "1000",
     slPoints: "700",
     tpProp: "10000",
@@ -110,9 +110,14 @@ function calcChallenge(ch, live) {
     ? ((propLots * a.contract * px) / lev / account) * 100
     : 0;
 
-  const brokerTpDollars = shots > 0
-    ? ((num(ch.expectedGain) + num(ch.propCost) + exposure) * 1.10) / shots
+  // Formula Broker:
+  // quota base per tentativo = (Costo Prop + Guadagno finale desiderato + Esposizione Broker accumulata) / Tiri disponibili
+  // TP Broker = quota base × 1,10 per buffer spread/slippage.
+  const brokerBasePerShot = shots > 0
+    ? (num(ch.propCost) + num(ch.finalProfitTarget) + exposure) / shots
     : 0;
+
+  const brokerTpDollars = brokerBasePerShot * 1.10;
 
   const slMove = sl * a.point;
   const tpMove = propLots > 0
@@ -136,7 +141,7 @@ function calcChallenge(ch, live) {
 
   return {
     a, px, quoteToUsd, burnBalance, ddResidual, riskPct, shots,
-    propLots, marginPct, brokerTpDollars, slMove, tpMove,
+    propLots, marginPct, brokerBasePerShot, brokerTpDollars, slMove, tpMove,
     brokerLotsRaw, brokerLots, propSL, propTPPrice, brokerDirection,
     brokerTP, brokerSL, maxBrokerLoss, brokerProfitAtPropSL
   };
@@ -205,7 +210,12 @@ export default function PropHedgeTab() {
       const savedBrokerBalance = localStorage.getItem("propHedgeV7BrokerBalance");
       if (savedChallenges) {
         const parsed = JSON.parse(savedChallenges);
-        if (Array.isArray(parsed) && parsed.length) setChallenges(parsed);
+        if (Array.isArray(parsed) && parsed.length) {
+          setChallenges(parsed.map(ch => ({
+            ...ch,
+            finalProfitTarget: ch.finalProfitTarget ?? ch.brokerProfitTarget ?? ch.expectedGain ?? "400"
+          })));
+        }
       }
       if (savedBrokerBalance !== null) setBrokerBalance(savedBrokerBalance);
     } catch {}
@@ -585,7 +595,7 @@ export default function PropHedgeTab() {
                   <TextNumberField label="Saldo Account Prop ($)" value={ch.accountBalance} onChange={v=>setChallenge(ch.id,{accountBalance:v})} />
                   <TextNumberField label="DD Max Prop (%)" value={ch.ddMax} onChange={v=>setChallenge(ch.id,{ddMax:v})} />
                   <TextNumberField label="Costo Prop ($)" value={ch.propCost} onChange={v=>setChallenge(ch.id,{propCost:v})} />
-                  <TextNumberField label="Guadagno atteso ($)" value={ch.expectedGain} onChange={v=>setChallenge(ch.id,{expectedGain:v})} />
+                  <TextNumberField label="Guadagno finale desiderato ($)" value={ch.finalProfitTarget} onChange={v=>setChallenge(ch.id,{finalProfitTarget:v})} />
                   <TextNumberField label="Rischio ($)" value={ch.risk} onChange={v=>setChallenge(ch.id,{risk:v})} />
                   <TextNumberField label="SL Distance (punti)" value={ch.slPoints} onChange={v=>setChallenge(ch.id,{slPoints:v})} />
                   <TextNumberField label="TP Prop ($)" value={ch.tpProp} onChange={v=>setChallenge(ch.id,{tpProp:v})} />
@@ -631,7 +641,9 @@ export default function PropHedgeTab() {
                   <div style={statCard}><div style={statLabel}>DD residuo</div><div style={statValue}>$ {fmt(c.ddResidual,2)}</div><div style={statSub}>Rottura a $ {fmt(c.burnBalance,2)}</div></div>
                   <div style={statCard}><div style={statLabel}>Tiri disponibili</div><div style={statValue}>{fmt(c.shots,2)}</div><div style={statSub}>DD residuo / rischio per trade</div></div>
                   <div style={statCard}><div style={statLabel}>Margine utilizzato</div><div style={statValue}>{fmt(c.marginPct,2)}%</div><div style={statSub}>Stima sul saldo Prop</div></div>
+                  <div style={statCard}><div style={statLabel}>TP Broker target ($)</div><div style={statValue}>$ {fmt(c.brokerTpDollars,2)}</div><div style={statSub}>[(Costo Prop + Guadagno finale + Esposizione) / Tiri] × 1,10</div></div>
                   <div style={statCard}><div style={statLabel}>Lotti Broker</div><div style={{...statValue,color:"#5eead4"}}>{fmt(c.brokerLots,2)}</div><div style={statSub}>Teorici {fmt(c.brokerLotsRaw,3)}</div></div>
+                  <div style={statCard}><div style={statLabel}>Profitto Broker se Prop va in SL</div><div style={{...statValue,color:"#5eead4"}}>+$ {fmt(c.brokerProfitAtPropSL,2)}</div><div style={statSub}>Risultato teorico della copertura</div></div>
                   <div style={statCard}><div style={statLabel}>Perdita max Broker</div><div style={{...statValue,color:"#fca5a5"}}>−$ {fmt(c.maxBrokerLoss,2)}</div><div style={statSub}>Se questa Prop raggiunge il TP</div></div>
                 </div>
 
