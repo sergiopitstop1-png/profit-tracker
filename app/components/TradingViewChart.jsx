@@ -68,7 +68,7 @@ export default function TradingViewChart({ symbol = "XAUUSD" }) {
     <div
       ref={container}
       className="tradingview-widget-container"
-      style={{ height: "520px", width: "100%" }}
+      style={{ height: "680px", width: "100%" }}
     />
   );
 }
