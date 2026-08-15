@@ -10,6 +10,7 @@ import { PostItTab, PostItFloatingWidget } from './PostItWidget'
 import MemoTab from './MemoTab'
 import DashboardTab from './DashboardTab'
 import SmsTab from './SmsTab'
+import PropHedgeTab from './PropHedgeTab'
 import {
   container, pageWrap, header, title, subtitle, copyrightBox, tabsBar, tabButton,
   activeTabButton, successBox, errorBox, tabContent, statsGrid, statsGridCompact,
@@ -3529,6 +3530,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           <button style={activeTab === 'credenziali' ? activeTabButton : tabButton} onClick={() => handleTabChange('credenziali')}>🔑 Credenziali</button>
           <button style={activeTab === 'sms' ? activeTabButton : tabButton} onClick={() => handleTabChange('sms')}>📱 SMS</button>
           <button style={activeTab === 'team' ? activeTabButton : tabButton} onClick={() => handleTabChange('team')}>👥 Team</button>
+          <button style={activeTab === 'prop-hedge' ? activeTabButton : tabButton} onClick={() => handleTabChange('prop-hedge')}>📈 Prop Hedge</button>
 <button
   style={activeTab === 'stime-cassa' ? activeTabButton : tabButton}
   onClick={() => {
@@ -3579,6 +3581,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             saveWeeklySnapshot={saveWeeklySnapshot}
           />
         )}
+        {activeTab === 'prop-hedge' && <PropHedgeTab />}
         {activeTab === 'periodi' && (() => {
           const annoCorrente = new Date().getFullYear()
           const cashFlowAnno = cashFlowAnnuo
