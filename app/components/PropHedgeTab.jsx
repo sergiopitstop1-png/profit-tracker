@@ -76,6 +76,15 @@ function makeChallenge(name, id) {
     active: null,
     closePropPL: "",
     closeBrokerPL: "",
+    operationalChecks: {
+      accountBalance: false,
+      finalProfitTarget: false,
+      risk: false,
+      slPoints: false,
+      tpProp: false,
+      brokerExposure: false,
+      entryPrice: false
+    },
   };
 }
 
@@ -180,14 +189,53 @@ function trackOperation(active, live) {
   };
 }
 
-function TextNumberField({ label, value, onChange, disabled = false, placeholder = "", operational = false }) {
+function TextNumberField({
+  label,
+  value,
+  onChange,
+  disabled = false,
+  placeholder = "",
+  operational = false,
+  updated = false,
+  onOperationalChange = null
+}) {
+  const accent = updated ? {
+    border: "1px solid rgba(34,197,94,.58)",
+    background: "rgba(22,163,74,.08)",
+    boxShadow: "0 0 0 1px rgba(34,197,94,.05) inset"
+  } : {
+    border: "1px solid rgba(34,211,238,.38)",
+    background: "rgba(8,145,178,.07)",
+    boxShadow: "0 0 0 1px rgba(34,211,238,.05) inset"
+  };
+
+  const inputAccent = updated ? {
+    border:"1px solid rgba(34,197,94,.78)",
+    boxShadow:"0 0 12px rgba(34,197,94,.10)",
+    background:"#07150d"
+  } : {
+    border:"1px solid rgba(34,211,238,.72)",
+    boxShadow:"0 0 12px rgba(34,211,238,.08)",
+    background:"#071525"
+  };
+
+  const badge = updated ? {
+    text: "AGGIORNATA",
+    color:"#86efac",
+    border:"1px solid rgba(34,197,94,.42)",
+    background:"rgba(22,163,74,.14)"
+  } : {
+    text: "DA AGGIORNARE",
+    color:"#67e8f9",
+    border:"1px solid rgba(34,211,238,.35)",
+    background:"rgba(8,145,178,.12)"
+  };
+
   return (
     <div style={operational ? {
       padding: "8px 8px 0",
       borderRadius: 14,
-      border: "1px solid rgba(34,211,238,.38)",
-      background: "rgba(8,145,178,.07)",
-      boxShadow: "0 0 0 1px rgba(34,211,238,.05) inset"
+      ...accent
     } : undefined}>
       <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"center",marginBottom:6}}>
         <label style={{...fieldLabel,marginBottom:0}}>{label}</label>
@@ -196,14 +244,14 @@ function TextNumberField({ label, value, onChange, disabled = false, placeholder
             fontSize:9,
             fontWeight:900,
             letterSpacing:.55,
-            color:"#67e8f9",
-            border:"1px solid rgba(34,211,238,.35)",
-            background:"rgba(8,145,178,.12)",
+            color:badge.color,
+            border:badge.border,
+            background:badge.background,
             borderRadius:999,
             padding:"3px 6px",
             whiteSpace:"nowrap"
           }}>
-            DA AGGIORNARE
+            {badge.text}
           </span>
         )}
       </div>
@@ -211,11 +259,7 @@ function TextNumberField({ label, value, onChange, disabled = false, placeholder
         style={{
           ...input,
           opacity: disabled ? 0.62 : 1,
-          ...(operational ? {
-            border:"1px solid rgba(34,211,238,.72)",
-            boxShadow:"0 0 12px rgba(34,211,238,.08)",
-            background:"#071525"
-          } : {})
+          ...(operational ? inputAccent : {})
         }}
         type="text"
         inputMode="decimal"
@@ -226,7 +270,10 @@ function TextNumberField({ label, value, onChange, disabled = false, placeholder
         onFocus={e => e.currentTarget.select()}
         onChange={e => {
           const raw = e.target.value;
-          if (/^-?[0-9]*[.,]?[0-9]*$/.test(raw) || raw === "") onChange(raw);
+          if (/^-?[0-9]*[.,]?[0-9]*$/.test(raw) || raw === "") {
+            onChange(raw);
+            if (operational && onOperationalChange) onOperationalChange();
+          }
         }}
       />
     </div>
@@ -236,6 +283,7 @@ function TextNumberField({ label, value, onChange, disabled = false, placeholder
 export default function PropHedgeTab() {
   const [challenges, setChallenges] = useState(DEFAULT_CHALLENGES);
   const [brokerBalance, setBrokerBalance] = useState("5000");
+  const [brokerBalanceUpdated, setBrokerBalanceUpdated] = useState(false);
   const [liveMap, setLiveMap] = useState({});
   const [hydrated, setHydrated] = useState(false);
 
@@ -249,7 +297,16 @@ export default function PropHedgeTab() {
           setChallenges(parsed.map(ch => ({
             ...ch,
             finalProfitTarget: ch.finalProfitTarget ?? ch.brokerProfitTarget ?? ch.expectedGain ?? "400",
-            maxMarginPct: ch.maxMarginPct ?? "50"
+            maxMarginPct: ch.maxMarginPct ?? "50",
+            operationalChecks: {
+              accountBalance: ch.operationalChecks?.accountBalance ?? false,
+              finalProfitTarget: ch.operationalChecks?.finalProfitTarget ?? false,
+              risk: ch.operationalChecks?.risk ?? false,
+              slPoints: ch.operationalChecks?.slPoints ?? false,
+              tpProp: ch.operationalChecks?.tpProp ?? false,
+              brokerExposure: ch.operationalChecks?.brokerExposure ?? false,
+              entryPrice: ch.operationalChecks?.entryPrice ?? false
+            }
           })));
         }
       }
@@ -301,7 +358,14 @@ export default function PropHedgeTab() {
       setChallenges(prev => prev.map(ch => {
         if (ch.asset !== symbol || ch.active || !ch.autoPrice) return ch;
         const a = ASSETS[symbol] || ASSETS.XAUUSD;
-        return { ...ch, entryPrice: price.toFixed(a.decimals) };
+        return {
+          ...ch,
+          entryPrice: price.toFixed(a.decimals),
+          operationalChecks: {
+            ...(ch.operationalChecks || {}),
+            entryPrice: true
+          }
+        };
       }));
     } catch (e) {
       setLiveMap(prev => ({
@@ -325,6 +389,30 @@ export default function PropHedgeTab() {
   const setChallenge = (id, patch) => {
     setChallenges(prev => prev.map(ch => ch.id === id ? { ...ch, ...patch } : ch));
   };
+
+  const markOperationalUpdated = (id, key) => {
+    setChallenges(prev => prev.map(ch => {
+      if (ch.id !== id) return ch;
+      return {
+        ...ch,
+        operationalChecks: {
+          ...(ch.operationalChecks || {}),
+          [key]: true
+        }
+      };
+    }));
+  };
+
+  const resetOperationalChecks = (ch) => ({
+    ...(ch.operationalChecks || {}),
+    accountBalance: false,
+    finalProfitTarget: false,
+    risk: false,
+    slPoints: false,
+    tpProp: false,
+    brokerExposure: false,
+    entryPrice: false
+  });
 
   const addChallenge = () => {
     setChallenges(prev => [...prev, makeChallenge(`Prop ${prev.length + 1}`)]);
@@ -423,6 +511,7 @@ export default function PropHedgeTab() {
         closePropPL: "",
         closeBrokerPL: "",
         autoPrice: true,
+        operationalChecks: resetOperationalChecks(ch),
         entryPrice: Number.isFinite(Number(live?.price)) ? Number(live.price).toFixed(a.decimals) : ch.entryPrice
       };
     }));
@@ -442,6 +531,7 @@ export default function PropHedgeTab() {
     const a = ASSETS[ch.active.asset];
 
     setBrokerBalance(String(Number(newBrokerRealizedBalance.toFixed(2))));
+    setBrokerBalanceUpdated(false);
 
     setChallenges(prev => prev.map(row => {
       if (row.id !== id) return row;
@@ -452,6 +542,7 @@ export default function PropHedgeTab() {
         closePropPL: "",
         closeBrokerPL: "",
         autoPrice: true,
+        operationalChecks: resetOperationalChecks(row),
         entryPrice: Number.isFinite(Number(live?.price)) ? Number(live.price).toFixed(a.decimals) : row.entryPrice
       };
     }));
@@ -537,7 +628,7 @@ export default function PropHedgeTab() {
         </div>
 
         <div style={grid2}>
-          <TextNumberField label="Saldo Broker realizzato ($)" value={brokerBalance} onChange={setBrokerBalance} operational />
+          <TextNumberField label="Saldo Broker realizzato ($)" value={brokerBalance} onChange={setBrokerBalance} operational updated={brokerBalanceUpdated} onOperationalChange={()=>setBrokerBalanceUpdated(true)} />
           <div style={statCard}>
             <div style={statLabel}>Equity Broker live</div>
             <div style={{...statValue,color:brokerEquity>=num(brokerBalance)?"#5eead4":"#fca5a5"}}>$ {fmt(brokerEquity,2)}</div>
@@ -649,41 +740,48 @@ export default function PropHedgeTab() {
                   </div>
 
                   <TextNumberField label="Valore Prop / Account Size ($)" value={ch.accountSize} onChange={v=>setChallenge(ch.id,{accountSize:v})} />
-                  <TextNumberField label="Saldo Account Prop ($)" value={ch.accountBalance} onChange={v=>setChallenge(ch.id,{accountBalance:v})} operational />
+                  <TextNumberField label="Saldo Account Prop ($)" value={ch.accountBalance} onChange={v=>setChallenge(ch.id,{accountBalance:v})} operational updated={!!ch.operationalChecks?.accountBalance} onOperationalChange={()=>markOperationalUpdated(ch.id,"accountBalance")} />
                   <TextNumberField label="DD Max Prop (%)" value={ch.ddMax} onChange={v=>setChallenge(ch.id,{ddMax:v})} />
                   <TextNumberField label="Costo Prop ($)" value={ch.propCost} onChange={v=>setChallenge(ch.id,{propCost:v})} />
-                  <TextNumberField label="Guadagno finale desiderato ($)" value={ch.finalProfitTarget} onChange={v=>setChallenge(ch.id,{finalProfitTarget:v})} operational />
-                  <TextNumberField label="Rischio ($)" value={ch.risk} onChange={v=>setChallenge(ch.id,{risk:v})} operational />
-                  <TextNumberField label="SL Distance (punti)" value={ch.slPoints} onChange={v=>setChallenge(ch.id,{slPoints:v})} operational />
-                  <TextNumberField label="TP Prop ($)" value={ch.tpProp} onChange={v=>setChallenge(ch.id,{tpProp:v})} operational />
+                  <TextNumberField label="Guadagno finale desiderato ($)" value={ch.finalProfitTarget} onChange={v=>setChallenge(ch.id,{finalProfitTarget:v})} operational updated={!!ch.operationalChecks?.finalProfitTarget} onOperationalChange={()=>markOperationalUpdated(ch.id,"finalProfitTarget")} />
+                  <TextNumberField label="Rischio ($)" value={ch.risk} onChange={v=>setChallenge(ch.id,{risk:v})} operational updated={!!ch.operationalChecks?.risk} onOperationalChange={()=>markOperationalUpdated(ch.id,"risk")} />
+                  <TextNumberField label="SL Distance (punti)" value={ch.slPoints} onChange={v=>setChallenge(ch.id,{slPoints:v})} operational updated={!!ch.operationalChecks?.slPoints} onOperationalChange={()=>markOperationalUpdated(ch.id,"slPoints")} />
+                  <TextNumberField label="TP Prop ($)" value={ch.tpProp} onChange={v=>setChallenge(ch.id,{tpProp:v})} operational updated={!!ch.operationalChecks?.tpProp} onOperationalChange={()=>markOperationalUpdated(ch.id,"tpProp")} />
                   <TextNumberField label="Leva" value={ch.leverage} onChange={v=>setChallenge(ch.id,{leverage:v})} />
                   <TextNumberField label="Margine massimo consentito (%)" value={ch.maxMarginPct ?? "50"} onChange={v=>setChallenge(ch.id,{maxMarginPct:v})} />
-                  <TextNumberField label="Esposizione Broker attuale ($)" value={ch.brokerExposure} onChange={v=>setChallenge(ch.id,{brokerExposure:v})} operational />
+                  <TextNumberField label="Esposizione Broker attuale ($)" value={ch.brokerExposure} onChange={v=>setChallenge(ch.id,{brokerExposure:v})} operational updated={!!ch.operationalChecks?.brokerExposure} onOperationalChange={()=>markOperationalUpdated(ch.id,"brokerExposure")} />
 
                   <div style={{
                     padding:"8px 8px 8px",
                     borderRadius:14,
-                    border:"1px solid rgba(34,211,238,.38)",
-                    background:"rgba(8,145,178,.07)",
-                    boxShadow:"0 0 0 1px rgba(34,211,238,.05) inset"
+                    border: ch.operationalChecks?.entryPrice ? "1px solid rgba(34,197,94,.58)" : "1px solid rgba(34,211,238,.38)",
+                    background: ch.operationalChecks?.entryPrice ? "rgba(22,163,74,.08)" : "rgba(8,145,178,.07)",
+                    boxShadow: ch.operationalChecks?.entryPrice ? "0 0 0 1px rgba(34,197,94,.05) inset" : "0 0 0 1px rgba(34,211,238,.05) inset"
                   }}>
                     <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"center",marginBottom:6}}>
                       <label style={{...fieldLabel,marginBottom:0}}>Prezzo ingresso</label>
                       <span style={{
-                        fontSize:9,fontWeight:900,letterSpacing:.55,color:"#67e8f9",
-                        border:"1px solid rgba(34,211,238,.35)",
-                        background:"rgba(8,145,178,.12)",
-                        borderRadius:999,padding:"3px 6px",whiteSpace:"nowrap"
-                      }}>DA AGGIORNARE</span>
+                        fontSize:9,
+                        fontWeight:900,
+                        letterSpacing:.55,
+                        color: ch.operationalChecks?.entryPrice ? "#86efac" : "#67e8f9",
+                        border: ch.operationalChecks?.entryPrice ? "1px solid rgba(34,197,94,.42)" : "1px solid rgba(34,211,238,.35)",
+                        background: ch.operationalChecks?.entryPrice ? "rgba(22,163,74,.14)" : "rgba(8,145,178,.12)",
+                        borderRadius:999,
+                        padding:"3px 6px",
+                        whiteSpace:"nowrap"
+                      }}>
+                        {ch.operationalChecks?.entryPrice ? "AGGIORNATA" : "DA AGGIORNARE"}
+                      </span>
                     </div>
                     <div style={{display:"flex",gap:8}}>
                       <input
                         style={{
                           ...input,
                           marginBottom:0,
-                          border:"1px solid rgba(34,211,238,.72)",
-                          boxShadow:"0 0 12px rgba(34,211,238,.08)",
-                          background:"#071525"
+                          border: ch.operationalChecks?.entryPrice ? "1px solid rgba(34,197,94,.78)" : "1px solid rgba(34,211,238,.72)",
+                          boxShadow: ch.operationalChecks?.entryPrice ? "0 0 12px rgba(34,197,94,.10)" : "0 0 12px rgba(34,211,238,.08)",
+                          background: ch.operationalChecks?.entryPrice ? "#07150d" : "#071525"
                         }}
                         type="text"
                         inputMode="decimal"
@@ -692,7 +790,14 @@ export default function PropHedgeTab() {
                         onChange={e=>{
                           const raw=e.target.value;
                           if (/^-?[0-9]*[.,]?[0-9]*$/.test(raw) || raw==="") {
-                            setChallenge(ch.id,{entryPrice:raw,autoPrice:false});
+                            setChallenge(ch.id,{
+                              entryPrice:raw,
+                              autoPrice:false,
+                              operationalChecks:{
+                                ...(ch.operationalChecks || {}),
+                                entryPrice:true
+                              }
+                            });
                           }
                         }}
                       />
@@ -703,7 +808,11 @@ export default function PropHedgeTab() {
                           const aa=ASSETS[ch.asset];
                           setChallenge(ch.id,{
                             autoPrice:true,
-                            entryPrice:Number.isFinite(Number(lp)) ? Number(lp).toFixed(aa.decimals) : ch.entryPrice
+                            entryPrice:Number.isFinite(Number(lp)) ? Number(lp).toFixed(aa.decimals) : ch.entryPrice,
+                            operationalChecks:{
+                              ...(ch.operationalChecks || {}),
+                              entryPrice:true
+                            }
                           });
                           refreshSymbol(ch.asset);
                         }}
@@ -801,6 +910,30 @@ export default function PropHedgeTab() {
                     </div>
                   </div>
                 )}
+
+                {(() => {
+                  const checks = ch.operationalChecks || {};
+                  const requiredKeys = ["accountBalance","finalProfitTarget","risk","slPoints","tpProp","brokerExposure","entryPrice"];
+                  const done = requiredKeys.filter(k => !!checks[k]).length;
+                  const total = requiredKeys.length;
+                  const allDone = done === total && brokerBalanceUpdated;
+                  return (
+                    <div style={{
+                      marginTop:14,
+                      padding:"11px 13px",
+                      borderRadius:14,
+                      border: allDone ? "1px solid rgba(34,197,94,.42)" : "1px solid rgba(34,211,238,.25)",
+                      background: allDone ? "rgba(22,163,74,.08)" : "rgba(8,145,178,.05)",
+                      color: allDone ? "#86efac" : "#bae6fd",
+                      fontSize:12,
+                      fontWeight:800
+                    }}>
+                      {allDone
+                        ? "✅ Checklist operativa completa"
+                        : `Checklist: ${done}/${total} campi challenge aggiornati${brokerBalanceUpdated ? " • Saldo Broker aggiornato" : " • Saldo Broker DA AGGIORNARE"}`}
+                    </div>
+                  );
+                })()}
 
                 <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:14}}>
                   <button
