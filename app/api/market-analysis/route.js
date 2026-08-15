@@ -10,10 +10,8 @@ const SUPPORTED = new Set([
 ]);
 
 const TF = {
-  M15: { multiplier: 15, timespan: "minute", days: 10, minBars: 220 },
-  H1:  { multiplier: 1, timespan: "hour", days: 20, minBars: 220 },
-  H4:  { multiplier: 4, timespan: "hour", days: 60, minBars: 220 },
-  D1:  { multiplier: 1, timespan: "day", days: 380, minBars: 220 },
+  M15: { multiplier: 15, timespan: "minute", days: 14 },
+  H1:  { multiplier: 1, timespan: "hour", days: 380 },
 };
 
 const CACHE_TTL = 120_000; // 2 minuti
@@ -159,6 +157,33 @@ function lastFinite(arr) {
     if (Number.isFinite(arr[i])) return arr[i];
   }
   return null;
+}
+
+function aggregateBars(bars, bucketMs) {
+  const buckets = new Map();
+
+  for (const b of bars) {
+    const bucket = Math.floor(b.t / bucketMs) * bucketMs;
+    const existing = buckets.get(bucket);
+
+    if (!existing) {
+      buckets.set(bucket, {
+        t: bucket,
+        o: b.o,
+        h: b.h,
+        l: b.l,
+        c: b.c,
+        v: b.v || 0
+      });
+    } else {
+      existing.h = Math.max(existing.h, b.h);
+      existing.l = Math.min(existing.l, b.l);
+      existing.c = b.c;
+      existing.v += b.v || 0;
+    }
+  }
+
+  return [...buckets.values()].sort((a,b) => a.t - b.t);
 }
 
 function analyzeTimeframe(bars, name) {
@@ -395,14 +420,23 @@ export async function GET(request) {
   }
 
   try {
-    const entries = await Promise.all(
-      Object.entries(TF).map(async ([name, cfg]) => {
-        const bars = await fetchBars(symbol, cfg, apiKey);
-        return [name, analyzeTimeframe(bars, name)];
-      })
-    );
+    // Solo 2 chiamate Massive per analisi:
+    // M15 nativo + H1 lungo; H4 e D1 vengono aggregati localmente.
+    const [m15Bars, h1Bars] = await Promise.all([
+      fetchBars(symbol, TF.M15, apiKey),
+      fetchBars(symbol, TF.H1, apiKey)
+    ]);
 
-    const timeframes = Object.fromEntries(entries);
+    const h4Bars = aggregateBars(h1Bars, 4 * 60 * 60 * 1000);
+    const d1Bars = aggregateBars(h1Bars, 24 * 60 * 60 * 1000);
+
+    const timeframes = {
+      M15: analyzeTimeframe(m15Bars, "M15"),
+      H1: analyzeTimeframe(h1Bars, "H1"),
+      H4: analyzeTimeframe(h4Bars, "H4"),
+      D1: analyzeTimeframe(d1Bars, "D1"),
+    };
+
     const combined = combine(timeframes);
 
     const data = {
@@ -410,6 +444,7 @@ export async function GET(request) {
       symbol,
       generatedAt: new Date().toISOString(),
       source: "Massive",
+      apiCallsUsed: 2,
       note: "Score quantitativo, non probabilità di successo.",
       combined,
       timeframes
