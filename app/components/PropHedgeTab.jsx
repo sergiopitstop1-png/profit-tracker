@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { supabase } from "../profit-tracker/supabaseClient";
 import {
   panel, panelHeader, panelTitle, panelSubtitle, input,
   primaryButtonBlue, secondaryButton, statCard, statLabel,
@@ -82,7 +83,6 @@ function makeChallenge(name, id) {
       risk: false,
       slPoints: false,
       tpProp: false,
-      brokerExposure: false,
       entryPrice: false
     },
   };
@@ -103,7 +103,7 @@ function calcChallenge(ch, live) {
   const sl = num(ch.slPoints);
   const px = num(ch.entryPrice) || num(live?.price);
   const lev = num(ch.leverage);
-  const exposure = num(ch.brokerExposure);
+  const exposure = num(ch.autoBrokerExposure ?? ch.brokerExposure);
   const quoteToUsd = Number.isFinite(Number(live?.quoteToUsd)) && Number(live?.quoteToUsd) > 0
     ? Number(live.quoteToUsd)
     : 1;
@@ -284,13 +284,30 @@ export default function PropHedgeTab() {
   const [challenges, setChallenges] = useState(DEFAULT_CHALLENGES);
   const [brokerBalance, setBrokerBalance] = useState("5000");
   const [brokerBalanceUpdated, setBrokerBalanceUpdated] = useState(false);
+  const [brokerBalanceLoaded, setBrokerBalanceLoaded] = useState(false);
+  const [showBrokerAdjust, setShowBrokerAdjust] = useState(false);
+  const [brokerAdjustType, setBrokerAdjustType] = useState("deposit");
+  const [brokerAdjustAmount, setBrokerAdjustAmount] = useState("");
+  const [brokerAdjustNewBalance, setBrokerAdjustNewBalance] = useState("");
+  const [brokerAdjustNote, setBrokerAdjustNote] = useState("");
+  const [brokerAdjustSaving, setBrokerAdjustSaving] = useState(false);
+  const [brokerAdjustments, setBrokerAdjustments] = useState([]);
   const [liveMap, setLiveMap] = useState({});
   const [hydrated, setHydrated] = useState(false);
+
+  // Storico Supabase
+  const [historyRows, setHistoryRows] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+  const [historyFilters, setHistoryFilters] = useState({
+    prop: "TUTTE",
+    asset: "TUTTI",
+    result: "TUTTI"
+  });
 
   useEffect(() => {
     try {
       const savedChallenges = localStorage.getItem("propHedgeV7Challenges");
-      const savedBrokerBalance = localStorage.getItem("propHedgeV7BrokerBalance");
       if (savedChallenges) {
         const parsed = JSON.parse(savedChallenges);
         if (Array.isArray(parsed) && parsed.length) {
@@ -304,13 +321,11 @@ export default function PropHedgeTab() {
               risk: ch.operationalChecks?.risk ?? false,
               slPoints: ch.operationalChecks?.slPoints ?? false,
               tpProp: ch.operationalChecks?.tpProp ?? false,
-              brokerExposure: ch.operationalChecks?.brokerExposure ?? false,
               entryPrice: ch.operationalChecks?.entryPrice ?? false
             }
           })));
         }
       }
-      if (savedBrokerBalance !== null) setBrokerBalance(savedBrokerBalance);
     } catch {}
     setHydrated(true);
   }, []);
@@ -319,14 +334,173 @@ export default function PropHedgeTab() {
     if (!hydrated) return;
     try {
       localStorage.setItem("propHedgeV7Challenges", JSON.stringify(challenges));
-      localStorage.setItem("propHedgeV7BrokerBalance", brokerBalance);
     } catch {}
-  }, [hydrated, challenges, brokerBalance]);
+  }, [hydrated, challenges]);
 
   const symbolsKey = useMemo(
     () => [...new Set(challenges.map(c => c.asset))].sort().join("|"),
     [challenges]
   );
+
+  const loadBrokerState = async () => {
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData?.user?.id;
+      if (!uid) throw new Error("Utente Supabase non autenticato");
+
+      const { data, error } = await supabase
+        .from("prop_hedge_broker_state")
+        .select("current_balance")
+        .eq("user_id", uid)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (!data) {
+        const initial = num(brokerBalance) || 0;
+        const { error: insertError } = await supabase
+          .from("prop_hedge_broker_state")
+          .insert({ user_id: uid, current_balance: initial });
+
+        if (insertError) throw insertError;
+        setBrokerBalance(String(Number(initial.toFixed(2))));
+      } else {
+        setBrokerBalance(String(Number(Number(data.current_balance || 0).toFixed(2))));
+      }
+
+      setBrokerBalanceLoaded(true);
+    } catch (e) {
+      console.error("Errore caricamento saldo Broker:", e);
+      setBrokerBalanceLoaded(false);
+    }
+  };
+
+  const loadBrokerAdjustments = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("prop_hedge_broker_adjustments")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(100);
+
+      if (error) throw error;
+      setBrokerAdjustments(data || []);
+    } catch (e) {
+      console.error("Errore caricamento movimenti Broker:", e);
+    }
+  };
+
+  const saveBrokerBalance = async (newBalance) => {
+    const { data: userData } = await supabase.auth.getUser();
+    const uid = userData?.user?.id;
+    if (!uid) throw new Error("Utente Supabase non autenticato");
+
+    const { error } = await supabase
+      .from("prop_hedge_broker_state")
+      .upsert(
+        {
+          user_id: uid,
+          current_balance: Number(newBalance),
+          updated_at: new Date().toISOString()
+        },
+        { onConflict: "user_id" }
+      );
+
+    if (error) throw error;
+  };
+
+  const applyBrokerAdjustment = async () => {
+    if (brokerAdjustSaving) return;
+
+    const before = num(brokerBalance);
+    let after = before;
+    let amount = 0;
+
+    if (brokerAdjustType === "correction") {
+      after = num(brokerAdjustNewBalance);
+      amount = after - before;
+    } else {
+      amount = Math.abs(num(brokerAdjustAmount));
+      if (!amount) {
+        alert("Inserisci un importo.");
+        return;
+      }
+      after = brokerAdjustType === "deposit" ? before + amount : before - amount;
+    }
+
+    if (!Number.isFinite(after) || after < 0) {
+      alert("Il saldo Broker risultante non è valido.");
+      return;
+    }
+
+    setBrokerAdjustSaving(true);
+
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData?.user?.id;
+      if (!uid) throw new Error("Utente Supabase non autenticato");
+
+      const movement = brokerAdjustType === "deposit"
+        ? Math.abs(amount)
+        : brokerAdjustType === "withdrawal"
+          ? -Math.abs(amount)
+          : amount;
+
+      const { error: adjustmentError } = await supabase
+        .from("prop_hedge_broker_adjustments")
+        .insert({
+          user_id: uid,
+          adjustment_type: brokerAdjustType,
+          amount: movement,
+          balance_before: before,
+          balance_after: after,
+          note: brokerAdjustNote.trim() || null
+        });
+
+      if (adjustmentError) throw adjustmentError;
+
+      await saveBrokerBalance(after);
+
+      setBrokerBalance(String(Number(after.toFixed(2))));
+      setBrokerBalanceUpdated(true);
+      setBrokerAdjustAmount("");
+      setBrokerAdjustNewBalance("");
+      setBrokerAdjustNote("");
+      setShowBrokerAdjust(false);
+      await loadBrokerAdjustments();
+    } catch (e) {
+      console.error("Errore rettifica saldo Broker:", e);
+      alert("Errore nella modifica del saldo Broker: " + (e?.message || String(e)));
+    } finally {
+      setBrokerAdjustSaving(false);
+    }
+  };
+
+  const loadHistory = async () => {
+    setHistoryLoading(true);
+    setHistoryError("");
+    try {
+      const { data, error } = await supabase
+        .from("prop_hedge_operations")
+        .select("*")
+        .order("closed_at", { ascending: false })
+        .limit(500);
+
+      if (error) throw error;
+      setHistoryRows(data || []);
+    } catch (e) {
+      console.error("Errore storico Prop Hedge:", e);
+      setHistoryError(e?.message || "Errore caricamento storico");
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadHistory();
+    loadBrokerState();
+    loadBrokerAdjustments();
+  }, []);
 
   const refreshSymbol = async (symbol) => {
     try {
@@ -410,7 +584,6 @@ export default function PropHedgeTab() {
     risk: false,
     slPoints: false,
     tpProp: false,
-    brokerExposure: false,
     entryPrice: false
   });
 
@@ -430,10 +603,13 @@ export default function PropHedgeTab() {
   const calcs = useMemo(() => {
     const map = {};
     for (const ch of challenges) {
-      map[ch.id] = calcChallenge(ch, liveMap[ch.asset]);
+      map[ch.id] = calcChallenge(
+        { ...ch, autoBrokerExposure: challengeExposureMap[ch.id] ?? 0 },
+        liveMap[ch.asset]
+      );
     }
     return map;
-  }, [challenges, liveMap]);
+  }, [challenges, liveMap, challengeExposureMap]);
 
   const trackings = useMemo(() => {
     const map = {};
@@ -491,6 +667,7 @@ export default function PropHedgeTab() {
         brokerTP: c.brokerTP,
         brokerSL: c.brokerSL,
         propBalanceStart: num(ch.accountBalance),
+        brokerBalanceStart: num(brokerBalance),
         quoteToUsd: c.quoteToUsd,
         maxBrokerLossAtEntry: c.maxBrokerLoss,
         placedAt: new Date().toISOString()
@@ -517,7 +694,7 @@ export default function PropHedgeTab() {
     }));
   };
 
-  const closeAndUpdate = (id) => {
+  const closeAndUpdate = async (id) => {
     const ch = challenges.find(x => x.id === id);
     const tracking = trackings[id];
     if (!ch?.active || !tracking) return;
@@ -529,6 +706,94 @@ export default function PropHedgeTab() {
     const newBrokerRealizedBalance = num(brokerBalance) + brokerPLFinal;
     const live = liveMap[ch.active.asset];
     const a = ASSETS[ch.active.asset];
+
+    const historyRecord = {
+      challenge_id: ch.id,
+      prop_name: ch.name || "Prop",
+      asset: ch.active.asset,
+      prop_direction: ch.active.direction,
+      broker_direction: ch.active.brokerDirection,
+
+      opened_at: ch.active.placedAt,
+      closed_at: new Date().toISOString(),
+
+      account_size: num(ch.accountSize),
+      prop_balance_start: ch.active.propBalanceStart,
+      prop_balance_end: newPropBalance,
+      broker_balance_start: ch.active.brokerBalanceStart ?? num(brokerBalance),
+      broker_balance_end: newBrokerRealizedBalance,
+
+      prop_cost: num(ch.propCost),
+      final_profit_target: num(ch.finalProfitTarget),
+      risk_usd: num(ch.risk),
+      sl_distance: num(ch.slPoints),
+      tp_prop_usd: num(ch.tpProp),
+      dd_max_pct: num(ch.ddMax),
+      max_margin_pct: num(ch.maxMarginPct),
+      leverage: num(ch.leverage),
+      broker_exposure_start: challengeExposureMap[ch.id] ?? 0,
+
+      entry_price: ch.active.entry,
+      exit_price: tracking.current,
+
+      prop_lots: ch.active.propLots,
+      broker_lots: ch.active.brokerLots,
+
+      prop_tp_price: ch.active.propTP,
+      prop_sl_price: ch.active.propSL,
+      broker_tp_price: ch.active.brokerTP,
+      broker_sl_price: ch.active.brokerSL,
+
+      tp_broker_target_usd: calcChallenge({ ...ch, autoBrokerExposure: challengeExposureMap[ch.id] ?? 0 }, liveMap[ch.asset]).brokerTpDollars,
+      broker_profit_at_prop_sl: calcChallenge({ ...ch, autoBrokerExposure: challengeExposureMap[ch.id] ?? 0 }, liveMap[ch.asset]).brokerProfitAtPropSL,
+      broker_max_loss: ch.active.maxBrokerLossAtEntry ?? calcChallenge({ ...ch, autoBrokerExposure: challengeExposureMap[ch.id] ?? 0 }, liveMap[ch.asset]).maxBrokerLoss,
+
+      prop_pl: propPLFinal,
+      broker_pl: brokerPLFinal,
+      combined_pl: propPLFinal + brokerPLFinal,
+
+      used_manual_prop_pl: ch.closePropPL !== "",
+      used_manual_broker_pl: ch.closeBrokerPL !== "",
+
+      status: "closed",
+      metadata: {
+        quote_to_usd: tracking.quoteToUsd,
+        live_source: live?.source || "",
+        live_time: live?.time || null
+      }
+    };
+
+    try {
+      const { data: insertedRows, error } = await supabase
+        .from("prop_hedge_operations")
+        .insert(historyRecord)
+        .select("id")
+        .limit(1);
+
+      if (error) throw error;
+
+      const insertedId = insertedRows?.[0]?.id || null;
+
+      try {
+        await saveBrokerBalance(newBrokerRealizedBalance);
+      } catch (balanceError) {
+        if (insertedId) {
+          await supabase
+            .from("prop_hedge_operations")
+            .delete()
+            .eq("id", insertedId);
+        }
+        throw balanceError;
+      }
+    } catch (e) {
+      console.error("Errore salvataggio storico Prop Hedge:", e);
+      alert(
+        "❌ Non ho salvato l'operazione nello storico Supabase.\\n\\n" +
+        (e?.message || String(e)) +
+        "\\n\\nL'operazione resta aperta: puoi riprovare senza perdere i dati."
+      );
+      return;
+    }
 
     setBrokerBalance(String(Number(newBrokerRealizedBalance.toFixed(2))));
     setBrokerBalanceUpdated(false);
@@ -543,9 +808,17 @@ export default function PropHedgeTab() {
         closeBrokerPL: "",
         autoPrice: true,
         operationalChecks: resetOperationalChecks(row),
-        entryPrice: Number.isFinite(Number(live?.price)) ? Number(live.price).toFixed(a.decimals) : row.entryPrice
+        entryPrice: Number.isFinite(Number(live?.price))
+          ? Number(live.price).toFixed(a.decimals)
+          : row.entryPrice
       };
     }));
+
+    await Promise.all([
+      loadHistory(),
+      loadBrokerState(),
+      loadBrokerAdjustments()
+    ]);
   };
 
   const totalCombinedPL = activeChallenges.reduce(
@@ -572,6 +845,62 @@ export default function PropHedgeTab() {
       projectedResidual: brokerEquity - projectedExposure
     };
   };
+
+  const filteredHistory = useMemo(() => {
+    return historyRows.filter(row => {
+      const propMatch = historyFilters.prop === "TUTTE" || row.prop_name === historyFilters.prop;
+      const assetMatch = historyFilters.asset === "TUTTI" || row.asset === historyFilters.asset;
+      const resultMatch =
+        historyFilters.result === "TUTTI" ||
+        (historyFilters.result === "POSITIVO" && Number(row.combined_pl || 0) > 0) ||
+        (historyFilters.result === "NEGATIVO" && Number(row.combined_pl || 0) < 0) ||
+        (historyFilters.result === "PARI" && Number(row.combined_pl || 0) === 0);
+
+      return propMatch && assetMatch && resultMatch;
+    });
+  }, [historyRows, historyFilters]);
+
+  const historyStats = useMemo(() => {
+    return filteredHistory.reduce((acc, row) => {
+      acc.count += 1;
+      acc.propPL += Number(row.prop_pl || 0);
+      acc.brokerPL += Number(row.broker_pl || 0);
+      acc.combinedPL += Number(row.combined_pl || 0);
+      if (Number(row.combined_pl || 0) > 0) acc.wins += 1;
+      if (Number(row.combined_pl || 0) < 0) acc.losses += 1;
+      return acc;
+    }, { count:0, propPL:0, brokerPL:0, combinedPL:0, wins:0, losses:0 });
+  }, [filteredHistory]);
+
+  const historyPropOptions = useMemo(
+    () => [...new Set(historyRows.map(r => r.prop_name).filter(Boolean))].sort(),
+    [historyRows]
+  );
+
+  const historyAssetOptions = useMemo(
+    () => [...new Set(historyRows.map(r => r.asset).filter(Boolean))].sort(),
+    [historyRows]
+  );
+
+  const challengeExposureMap = useMemo(() => {
+    const result = {};
+
+    for (const ch of challenges) {
+      const matching = historyRows.filter(row => {
+        if (row.challenge_id) return row.challenge_id === ch.id;
+        return row.prop_name === ch.name;
+      });
+
+      const brokerNet = matching.reduce(
+        (sum, row) => sum + Number(row.broker_pl || 0),
+        0
+      );
+
+      result[ch.id] = Math.max(0, -brokerNet);
+    }
+
+    return result;
+  }, [historyRows, challenges]);
 
   const safetyStyle = {
     green: { icon:"🟢", title:"CAPITALE SUFFICIENTE", bg:"rgba(34,197,94,.12)", border:"rgba(34,197,94,.45)", color:"#86efac" },
@@ -628,7 +957,22 @@ export default function PropHedgeTab() {
         </div>
 
         <div style={grid2}>
-          <TextNumberField label="Saldo Broker realizzato ($)" value={brokerBalance} onChange={setBrokerBalance} operational updated={brokerBalanceUpdated} onOperationalChange={()=>setBrokerBalanceUpdated(true)} />
+          <div style={{
+            ...statCard,
+            border:"1px solid rgba(34,211,238,.38)"
+          }}>
+            <div style={statLabel}>Saldo Broker realizzato</div>
+            <div style={statValue}>$ {fmt(num(brokerBalance),2)}</div>
+            <div style={statSub}>
+              {brokerBalanceLoaded ? "Persistente su Supabase" : "Caricamento / fallback locale"}
+            </div>
+            <button
+              style={{...secondaryButton,marginTop:10}}
+              onClick={() => setShowBrokerAdjust(v => !v)}
+            >
+              {showBrokerAdjust ? "Chiudi modifica saldo" : "✏️ Modifica saldo Broker"}
+            </button>
+          </div>
           <div style={statCard}>
             <div style={statLabel}>Equity Broker live</div>
             <div style={{...statValue,color:brokerEquity>=num(brokerBalance)?"#5eead4":"#fca5a5"}}>$ {fmt(brokerEquity,2)}</div>
@@ -650,6 +994,112 @@ export default function PropHedgeTab() {
             <div style={statSub}>Prop + Broker di tutte le operazioni attive.</div>
           </div>
         </div>
+
+        {showBrokerAdjust && (
+          <div style={{
+            marginTop:14,
+            padding:14,
+            borderRadius:16,
+            border:"1px solid rgba(56,189,248,.28)",
+            background:"rgba(2,6,23,.48)"
+          }}>
+            <div style={{display:"flex",justifyContent:"space-between",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
+              <div>
+                <div style={{fontSize:17,fontWeight:900,color:"#f8fafc"}}>✏️ Modifica saldo Broker</div>
+                <div style={{fontSize:12,color:"#94a3b8",marginTop:3}}>
+                  Versamenti, prelievi e correzioni vengono registrati su Supabase.
+                </div>
+              </div>
+            </div>
+
+            <div style={grid2}>
+              <div>
+                <label style={fieldLabel}>Tipo movimento</label>
+                <select
+                  style={input}
+                  value={brokerAdjustType}
+                  onChange={e=>setBrokerAdjustType(e.target.value)}
+                >
+                  <option value="deposit">Versamento</option>
+                  <option value="withdrawal">Prelievo</option>
+                  <option value="correction">Correzione saldo</option>
+                </select>
+              </div>
+
+              {brokerAdjustType === "correction" ? (
+                <TextNumberField
+                  label="Nuovo saldo Broker ($)"
+                  value={brokerAdjustNewBalance}
+                  onChange={setBrokerAdjustNewBalance}
+                />
+              ) : (
+                <TextNumberField
+                  label={brokerAdjustType === "deposit" ? "Importo versamento ($)" : "Importo prelievo ($)"}
+                  value={brokerAdjustAmount}
+                  onChange={setBrokerAdjustAmount}
+                />
+              )}
+
+              <div style={{gridColumn:"1 / -1"}}>
+                <label style={fieldLabel}>Nota facoltativa</label>
+                <input
+                  style={input}
+                  type="text"
+                  value={brokerAdjustNote}
+                  placeholder="Es. versamento extra / prelievo / correzione estratto conto"
+                  onChange={e=>setBrokerAdjustNote(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div style={{
+              display:"flex",
+              gap:10,
+              flexWrap:"wrap",
+              alignItems:"center"
+            }}>
+              <button
+                style={primaryButtonBlue}
+                disabled={brokerAdjustSaving}
+                onClick={applyBrokerAdjustment}
+              >
+                {brokerAdjustSaving ? "Salvo…" : "✅ Conferma modifica saldo"}
+              </button>
+              <span style={{fontSize:12,color:"#94a3b8"}}>
+                Saldo attuale: <b style={{color:"#f8fafc"}}>$ {fmt(num(brokerBalance),2)}</b>
+              </span>
+            </div>
+
+            {brokerAdjustments.length > 0 && (
+              <div style={{marginTop:14}}>
+                <div style={{fontSize:12,fontWeight:900,color:"#94a3b8",marginBottom:8}}>ULTIME RETTIFICHE</div>
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {brokerAdjustments.slice(0,5).map(row=>(
+                    <div key={row.id} style={{
+                      display:"grid",
+                      gridTemplateColumns:"150px 110px 120px 1fr",
+                      gap:8,
+                      alignItems:"center",
+                      padding:"8px 10px",
+                      borderRadius:10,
+                      background:"rgba(15,23,42,.72)",
+                      border:"1px solid rgba(51,65,85,.60)",
+                      fontSize:11,
+                      color:"#cbd5e1"
+                    }}>
+                      <span>{new Date(row.created_at).toLocaleString("it-IT")}</span>
+                      <b>{row.adjustment_type === "deposit" ? "Versamento" : row.adjustment_type === "withdrawal" ? "Prelievo" : "Correzione"}</b>
+                      <span style={{color:Number(row.amount)>=0?"#5eead4":"#fca5a5"}}>
+                        {signedMoney(Number(row.amount))}
+                      </span>
+                      <span>{row.note || "—"}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {Object.keys(brokerNetByAsset).length > 0 && (
           <div style={{marginTop:14}}>
@@ -749,7 +1199,20 @@ export default function PropHedgeTab() {
                   <TextNumberField label="TP Prop ($)" value={ch.tpProp} onChange={v=>setChallenge(ch.id,{tpProp:v})} operational updated={!!ch.operationalChecks?.tpProp} onOperationalChange={()=>markOperationalUpdated(ch.id,"tpProp")} />
                   <TextNumberField label="Leva" value={ch.leverage} onChange={v=>setChallenge(ch.id,{leverage:v})} />
                   <TextNumberField label="Margine massimo consentito (%)" value={ch.maxMarginPct ?? "50"} onChange={v=>setChallenge(ch.id,{maxMarginPct:v})} />
-                  <TextNumberField label="Esposizione Broker attuale ($)" value={ch.brokerExposure} onChange={v=>setChallenge(ch.id,{brokerExposure:v})} operational updated={!!ch.operationalChecks?.brokerExposure} onOperationalChange={()=>markOperationalUpdated(ch.id,"brokerExposure")} />
+                  <div style={{
+                    padding:"8px 10px",
+                    borderRadius:14,
+                    border:"1px solid rgba(168,85,247,.34)",
+                    background:"rgba(88,28,135,.08)"
+                  }}>
+                    <label style={{...fieldLabel,marginBottom:6}}>Esposizione Broker challenge — AUTOMATICA</label>
+                    <div style={{fontSize:20,fontWeight:900,color:"#d8b4fe"}}>
+                      $ {fmt(challengeExposureMap[ch.id] ?? 0,2)}
+                    </div>
+                    <div style={{fontSize:11,color:"#94a3b8",marginTop:4}}>
+                      Derivata dal P/L Broker realizzato nello storico di questa challenge.
+                    </div>
+                  </div>
 
                   <div style={{
                     padding:"8px 8px 8px",
@@ -913,10 +1376,10 @@ export default function PropHedgeTab() {
 
                 {(() => {
                   const checks = ch.operationalChecks || {};
-                  const requiredKeys = ["accountBalance","finalProfitTarget","risk","slPoints","tpProp","brokerExposure","entryPrice"];
+                  const requiredKeys = ["accountBalance","finalProfitTarget","risk","slPoints","tpProp","entryPrice"];
                   const done = requiredKeys.filter(k => !!checks[k]).length;
                   const total = requiredKeys.length;
-                  const allDone = done === total && brokerBalanceUpdated;
+                  const allDone = done === total;
                   return (
                     <div style={{
                       marginTop:14,
@@ -930,7 +1393,7 @@ export default function PropHedgeTab() {
                     }}>
                       {allDone
                         ? "✅ Checklist operativa completa"
-                        : `Checklist: ${done}/${total} campi challenge aggiornati${brokerBalanceUpdated ? " • Saldo Broker aggiornato" : " • Saldo Broker DA AGGIORNARE"}`}
+                        : `Checklist: ${done}/${total} campi challenge aggiornati`}
                     </div>
                   );
                 })()}
@@ -1060,8 +1523,183 @@ export default function PropHedgeTab() {
         );
       })}
 
+      <div style={{
+        ...panel,
+        border:"1px solid rgba(168,85,247,.34)",
+        background:"linear-gradient(135deg,rgba(88,28,135,.08),rgba(15,23,42,.96))"
+      }}>
+        <div style={panelHeader}>
+          <div>
+            <h3 style={panelTitle}>🗂️ Storico Prop Hedge</h3>
+            <p style={panelSubtitle}>Salvataggio automatico su Supabase quando premi “Chiudi e aggiorna saldi”.</p>
+          </div>
+          <button style={secondaryButton} onClick={loadHistory}>
+            {historyLoading ? "Aggiorno…" : "↻ Aggiorna storico"}
+          </button>
+        </div>
+
+        {historyError && (
+          <div style={{
+            padding:"10px 12px",
+            borderRadius:12,
+            border:"1px solid rgba(239,68,68,.45)",
+            background:"rgba(127,29,29,.20)",
+            color:"#fecaca",
+            marginBottom:14
+          }}>
+            ❌ {historyError}
+          </div>
+        )}
+
+        <div style={{
+          display:"grid",
+          gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",
+          gap:10,
+          marginBottom:14
+        }}>
+          <div>
+            <label style={fieldLabel}>Prop</label>
+            <select
+              style={input}
+              value={historyFilters.prop}
+              onChange={e=>setHistoryFilters(prev=>({...prev,prop:e.target.value}))}
+            >
+              <option value="TUTTE">Tutte</option>
+              {historyPropOptions.map(v=><option key={v} value={v}>{v}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label style={fieldLabel}>Asset</label>
+            <select
+              style={input}
+              value={historyFilters.asset}
+              onChange={e=>setHistoryFilters(prev=>({...prev,asset:e.target.value}))}
+            >
+              <option value="TUTTI">Tutti</option>
+              {historyAssetOptions.map(v=><option key={v} value={v}>{v}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label style={fieldLabel}>Risultato combinato</label>
+            <select
+              style={input}
+              value={historyFilters.result}
+              onChange={e=>setHistoryFilters(prev=>({...prev,result:e.target.value}))}
+            >
+              <option value="TUTTI">Tutti</option>
+              <option value="POSITIVO">Positivo</option>
+              <option value="NEGATIVO">Negativo</option>
+              <option value="PARI">Pari</option>
+            </select>
+          </div>
+        </div>
+
+        <div style={statsGrid}>
+          <div style={statCard}>
+            <div style={statLabel}>Operazioni</div>
+            <div style={statValue}>{historyStats.count}</div>
+            <div style={statSub}>{historyStats.wins} positive • {historyStats.losses} negative</div>
+          </div>
+          <div style={statCard}>
+            <div style={statLabel}>P/L Prop totale</div>
+            <div style={{...statValue,color:historyStats.propPL>=0?"#5eead4":"#fca5a5"}}>
+              {signedMoney(historyStats.propPL)}
+            </div>
+          </div>
+          <div style={statCard}>
+            <div style={statLabel}>P/L Broker totale</div>
+            <div style={{...statValue,color:historyStats.brokerPL>=0?"#5eead4":"#fca5a5"}}>
+              {signedMoney(historyStats.brokerPL)}
+            </div>
+          </div>
+          <div style={statCard}>
+            <div style={statLabel}>P/L combinato</div>
+            <div style={{...statValue,color:historyStats.combinedPL>=0?"#5eead4":"#fca5a5"}}>
+              {signedMoney(historyStats.combinedPL)}
+            </div>
+          </div>
+        </div>
+
+        <div style={{
+          marginTop:14,
+          overflowX:"auto",
+          border:"1px solid rgba(51,65,85,.78)",
+          borderRadius:16
+        }}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:1250}}>
+            <thead>
+              <tr style={{background:"#0b1220"}}>
+                {[
+                  "Data","Prop","Asset","Dir.","Ingresso","Uscita",
+                  "Lotti Prop","Lotti Broker","P/L Prop","P/L Broker","Combinato",
+                  "Saldo Prop","Saldo Broker"
+                ].map(h=>(
+                  <th key={h} style={{
+                    textAlign:"left",
+                    padding:"11px 10px",
+                    color:"#94a3b8",
+                    fontSize:11,
+                    textTransform:"uppercase",
+                    letterSpacing:.55,
+                    borderBottom:"1px solid rgba(51,65,85,.78)",
+                    whiteSpace:"nowrap"
+                  }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filteredHistory.length === 0 && (
+                <tr>
+                  <td colSpan={13} style={{padding:20,color:"#94a3b8",textAlign:"center"}}>
+                    {historyLoading ? "Caricamento storico…" : "Nessuna operazione nello storico."}
+                  </td>
+                </tr>
+              )}
+
+              {filteredHistory.map(row => {
+                const decimals = ASSETS[row.asset]?.decimals ?? 5;
+                const combined = Number(row.combined_pl || 0);
+                return (
+                  <tr key={row.id} style={{borderBottom:"1px solid rgba(30,41,59,.82)"}}>
+                    <td style={{padding:"10px",color:"#cbd5e1",fontSize:12,whiteSpace:"nowrap"}}>
+                      {row.closed_at ? new Date(row.closed_at).toLocaleString("it-IT") : "—"}
+                    </td>
+                    <td style={{padding:"10px",fontWeight:850,color:"#f8fafc"}}>{row.prop_name}</td>
+                    <td style={{padding:"10px",color:"#cbd5e1"}}>{row.asset}</td>
+                    <td style={{padding:"10px",fontWeight:800,color:row.prop_direction==="BUY"?"#5eead4":"#fdba74"}}>
+                      {row.prop_direction}
+                    </td>
+                    <td style={{padding:"10px",whiteSpace:"nowrap"}}>{fmt(Number(row.entry_price),decimals)}</td>
+                    <td style={{padding:"10px",whiteSpace:"nowrap"}}>{fmt(Number(row.exit_price),decimals)}</td>
+                    <td style={{padding:"10px"}}>{fmt(Number(row.prop_lots),3)}</td>
+                    <td style={{padding:"10px"}}>{fmt(Number(row.broker_lots),2)}</td>
+                    <td style={{padding:"10px",color:Number(row.prop_pl)>=0?"#5eead4":"#fca5a5",fontWeight:800}}>
+                      {signedMoney(Number(row.prop_pl))}
+                    </td>
+                    <td style={{padding:"10px",color:Number(row.broker_pl)>=0?"#5eead4":"#fca5a5",fontWeight:800}}>
+                      {signedMoney(Number(row.broker_pl))}
+                    </td>
+                    <td style={{padding:"10px",color:combined>=0?"#5eead4":"#fca5a5",fontWeight:900}}>
+                      {signedMoney(combined)}
+                    </td>
+                    <td style={{padding:"10px",whiteSpace:"nowrap"}}>
+                      $ {fmt(Number(row.prop_balance_start),2)} → $ {fmt(Number(row.prop_balance_end),2)}
+                    </td>
+                    <td style={{padding:"10px",whiteSpace:"nowrap"}}>
+                      $ {fmt(Number(row.broker_balance_start),2)} → $ {fmt(Number(row.broker_balance_end),2)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <div style={hintBox}>
-        V7 Multi Challenge: le operazioni attive e i saldi vengono salvati nel browser.
+        V9 Multi Challenge + Storico Supabase: le operazioni attive e i saldi vengono salvati nel browser.
         Il quadro Broker usa un'esposizione residua conservativa, sommando le perdite potenziali delle coperture attive.
         L'esposizione netta in lotti per asset è mostrata separatamente. Prezzi, P/L e saldi restano stime:
         spread, commissioni, swap, slippage e specifiche dei contratti possono creare differenze reali.
