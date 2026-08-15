@@ -180,12 +180,43 @@ function trackOperation(active, live) {
   };
 }
 
-function TextNumberField({ label, value, onChange, disabled = false, placeholder = "" }) {
+function TextNumberField({ label, value, onChange, disabled = false, placeholder = "", operational = false }) {
   return (
-    <div>
-      <label style={fieldLabel}>{label}</label>
+    <div style={operational ? {
+      padding: "8px 8px 0",
+      borderRadius: 14,
+      border: "1px solid rgba(34,211,238,.38)",
+      background: "rgba(8,145,178,.07)",
+      boxShadow: "0 0 0 1px rgba(34,211,238,.05) inset"
+    } : undefined}>
+      <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"center",marginBottom:6}}>
+        <label style={{...fieldLabel,marginBottom:0}}>{label}</label>
+        {operational && (
+          <span style={{
+            fontSize:9,
+            fontWeight:900,
+            letterSpacing:.55,
+            color:"#67e8f9",
+            border:"1px solid rgba(34,211,238,.35)",
+            background:"rgba(8,145,178,.12)",
+            borderRadius:999,
+            padding:"3px 6px",
+            whiteSpace:"nowrap"
+          }}>
+            DA AGGIORNARE
+          </span>
+        )}
+      </div>
       <input
-        style={{ ...input, opacity: disabled ? 0.62 : 1 }}
+        style={{
+          ...input,
+          opacity: disabled ? 0.62 : 1,
+          ...(operational ? {
+            border:"1px solid rgba(34,211,238,.72)",
+            boxShadow:"0 0 12px rgba(34,211,238,.08)",
+            background:"#071525"
+          } : {})
+        }}
         type="text"
         inputMode="decimal"
         autoComplete="off"
@@ -479,6 +510,18 @@ export default function PropHedgeTab() {
       </div>
 
       <div style={{
+        padding:"10px 12px",
+        borderRadius:14,
+        border:"1px solid rgba(34,211,238,.28)",
+        background:"rgba(8,145,178,.06)",
+        color:"#bae6fd",
+        fontSize:12
+      }}>
+        <b style={{color:"#67e8f9"}}>Campi evidenziati = da controllare/aggiornare a ogni operazione.</b>
+        {" "}Gli altri parametri sono normalmente strutturali della challenge.
+      </div>
+
+      <div style={{
         ...panel,
         border:"1px solid rgba(56,189,248,.34)",
         background:"linear-gradient(135deg,rgba(14,116,144,.10),rgba(15,23,42,.96))"
@@ -494,7 +537,7 @@ export default function PropHedgeTab() {
         </div>
 
         <div style={grid2}>
-          <TextNumberField label="Saldo Broker realizzato ($)" value={brokerBalance} onChange={setBrokerBalance} />
+          <TextNumberField label="Saldo Broker realizzato ($)" value={brokerBalance} onChange={setBrokerBalance} operational />
           <div style={statCard}>
             <div style={statLabel}>Equity Broker live</div>
             <div style={{...statValue,color:brokerEquity>=num(brokerBalance)?"#5eead4":"#fca5a5"}}>$ {fmt(brokerEquity,2)}</div>
@@ -606,22 +649,42 @@ export default function PropHedgeTab() {
                   </div>
 
                   <TextNumberField label="Valore Prop / Account Size ($)" value={ch.accountSize} onChange={v=>setChallenge(ch.id,{accountSize:v})} />
-                  <TextNumberField label="Saldo Account Prop ($)" value={ch.accountBalance} onChange={v=>setChallenge(ch.id,{accountBalance:v})} />
+                  <TextNumberField label="Saldo Account Prop ($)" value={ch.accountBalance} onChange={v=>setChallenge(ch.id,{accountBalance:v})} operational />
                   <TextNumberField label="DD Max Prop (%)" value={ch.ddMax} onChange={v=>setChallenge(ch.id,{ddMax:v})} />
                   <TextNumberField label="Costo Prop ($)" value={ch.propCost} onChange={v=>setChallenge(ch.id,{propCost:v})} />
-                  <TextNumberField label="Guadagno finale desiderato ($)" value={ch.finalProfitTarget} onChange={v=>setChallenge(ch.id,{finalProfitTarget:v})} />
-                  <TextNumberField label="Rischio ($)" value={ch.risk} onChange={v=>setChallenge(ch.id,{risk:v})} />
-                  <TextNumberField label="SL Distance (punti)" value={ch.slPoints} onChange={v=>setChallenge(ch.id,{slPoints:v})} />
-                  <TextNumberField label="TP Prop ($)" value={ch.tpProp} onChange={v=>setChallenge(ch.id,{tpProp:v})} />
+                  <TextNumberField label="Guadagno finale desiderato ($)" value={ch.finalProfitTarget} onChange={v=>setChallenge(ch.id,{finalProfitTarget:v})} operational />
+                  <TextNumberField label="Rischio ($)" value={ch.risk} onChange={v=>setChallenge(ch.id,{risk:v})} operational />
+                  <TextNumberField label="SL Distance (punti)" value={ch.slPoints} onChange={v=>setChallenge(ch.id,{slPoints:v})} operational />
+                  <TextNumberField label="TP Prop ($)" value={ch.tpProp} onChange={v=>setChallenge(ch.id,{tpProp:v})} operational />
                   <TextNumberField label="Leva" value={ch.leverage} onChange={v=>setChallenge(ch.id,{leverage:v})} />
                   <TextNumberField label="Margine massimo consentito (%)" value={ch.maxMarginPct ?? "50"} onChange={v=>setChallenge(ch.id,{maxMarginPct:v})} />
-                  <TextNumberField label="Esposizione Broker attuale ($)" value={ch.brokerExposure} onChange={v=>setChallenge(ch.id,{brokerExposure:v})} />
+                  <TextNumberField label="Esposizione Broker attuale ($)" value={ch.brokerExposure} onChange={v=>setChallenge(ch.id,{brokerExposure:v})} operational />
 
-                  <div>
-                    <label style={fieldLabel}>Prezzo ingresso</label>
+                  <div style={{
+                    padding:"8px 8px 8px",
+                    borderRadius:14,
+                    border:"1px solid rgba(34,211,238,.38)",
+                    background:"rgba(8,145,178,.07)",
+                    boxShadow:"0 0 0 1px rgba(34,211,238,.05) inset"
+                  }}>
+                    <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"center",marginBottom:6}}>
+                      <label style={{...fieldLabel,marginBottom:0}}>Prezzo ingresso</label>
+                      <span style={{
+                        fontSize:9,fontWeight:900,letterSpacing:.55,color:"#67e8f9",
+                        border:"1px solid rgba(34,211,238,.35)",
+                        background:"rgba(8,145,178,.12)",
+                        borderRadius:999,padding:"3px 6px",whiteSpace:"nowrap"
+                      }}>DA AGGIORNARE</span>
+                    </div>
                     <div style={{display:"flex",gap:8}}>
                       <input
-                        style={{...input,marginBottom:0}}
+                        style={{
+                          ...input,
+                          marginBottom:0,
+                          border:"1px solid rgba(34,211,238,.72)",
+                          boxShadow:"0 0 12px rgba(34,211,238,.08)",
+                          background:"#071525"
+                        }}
                         type="text"
                         inputMode="decimal"
                         value={ch.entryPrice}
