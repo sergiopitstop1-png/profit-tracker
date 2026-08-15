@@ -74,11 +74,12 @@ function biasTheme(bias) {
   };
 }
 
-export default function MarketEnginePanel({ defaultAsset = "XAUUSD" }) {
+export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges = [], onApplyDirection = null }) {
   const [symbol, setSymbol] = useState(defaultAsset);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [targetChallengeId, setTargetChallengeId] = useState("");
 
   const analyze = async (force = false) => {
     if (loading) return;
@@ -106,8 +107,38 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD" }) {
     return () => clearInterval(id);
   }, [symbol]);
 
+  useEffect(() => {
+    if (!targetChallengeId && challenges.length) {
+      setTargetChallengeId(challenges[0].id);
+    } else if (targetChallengeId && !challenges.some(c => c.id === targetChallengeId)) {
+      setTargetChallengeId(challenges[0]?.id || "");
+    }
+  }, [challenges, targetChallengeId]);
+
   const theme = biasTheme(data?.combined?.bias || "NEUTRAL");
   const tfOrder = ["M15","H1","H4","D1"];
+
+  const propDirection = data?.combined?.propDirection || "WAIT";
+  const signalStrength = data?.combined?.signalStrength || "INSUFFICIENT";
+  const canApplyDirection =
+    propDirection !== "WAIT" &&
+    signalStrength !== "INSUFFICIENT" &&
+    !!targetChallengeId &&
+    typeof onApplyDirection === "function";
+
+  const formatBarTime = (ts) => {
+    if (!Number.isFinite(Number(ts))) return "—";
+    return new Date(Number(ts)).toLocaleString("it-IT");
+  };
+
+  const lagText = (ms) => {
+    if (!Number.isFinite(Number(ms))) return "";
+    const minutes = Math.round(Number(ms) / 60000);
+    if (minutes < 60) return `${minutes} min`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 48) return `${hours} h`;
+    return `${Math.round(hours / 24)} gg`;
+  };
 
   return (
     <div style={{
@@ -170,7 +201,81 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD" }) {
               Confidence {fmt(data?.combined?.confidence,0)}/100
             </div>
           </div>
-          <div style={{fontSize:11,color:"#94a3b8",marginTop:6}}>
+
+          <div style={{
+            marginTop:12,
+            padding:"12px 13px",
+            borderRadius:13,
+            border:"1px solid rgba(148,163,184,.24)",
+            background:"rgba(2,6,23,.34)"
+          }}>
+            <div style={{fontSize:11,color:"#94a3b8",fontWeight:800,letterSpacing:.55}}>
+              🎯 DIREZIONE PROP (opposta al bias)
+            </div>
+            <div style={{
+              marginTop:4,
+              fontSize:23,
+              fontWeight:950,
+              color:
+                propDirection === "BUY" ? "#5eead4" :
+                propDirection === "SELL" ? "#fca5a5" :
+                "#fde68a"
+            }}>
+              {propDirection === "WAIT"
+                ? "⚠️ ATTENDI — SEGNALE INSUFFICIENTE"
+                : `${propDirection === "BUY" ? "🟢" : "🔴"} ${propDirection}`}
+            </div>
+            <div style={{fontSize:11,color:"#94a3b8",marginTop:4}}>
+              Qualità segnale: <b style={{color:"#e2e8f0"}}>{signalStrength}</b>.
+              {" "}Sotto confidence 30/100 non viene proposta alcuna direzione.
+            </div>
+          </div>
+
+          {challenges.length > 0 && (
+            <div style={{
+              display:"grid",
+              gridTemplateColumns:"minmax(170px,1fr) auto",
+              gap:8,
+              alignItems:"end",
+              marginTop:10
+            }}>
+              <div>
+                <label style={{display:"block",fontSize:10,color:"#94a3b8",marginBottom:4}}>
+                  Applica a challenge
+                </label>
+                <select
+                  style={{...input,marginBottom:0,padding:"8px 10px"}}
+                  value={targetChallengeId}
+                  onChange={e=>setTargetChallengeId(e.target.value)}
+                >
+                  {challenges.map(ch=>(
+                    <option key={ch.id} value={ch.id}>
+                      {ch.name || "Prop"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <button
+                style={{
+                  ...primaryButtonBlue,
+                  opacity: canApplyDirection ? 1 : .45,
+                  cursor: canApplyDirection ? "pointer" : "not-allowed",
+                  whiteSpace:"nowrap"
+                }}
+                disabled={!canApplyDirection}
+                onClick={()=>{
+                  if (canApplyDirection) {
+                    onApplyDirection(targetChallengeId, propDirection);
+                  }
+                }}
+              >
+                🎯 USA DIREZIONE MARKET ENGINE
+              </button>
+            </div>
+          )}
+
+          <div style={{fontSize:11,color:"#94a3b8",marginTop:8}}>
             La confidence è forza dello score, NON una probabilità statistica di successo.
           </div>
         </div>
@@ -194,18 +299,38 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD" }) {
           <div style={statsGrid}>
             {tfOrder.map(tf => {
               const x = data.timeframes?.[tf];
+              const fresh = data.combined?.freshness?.[tf];
+              const stale = !!fresh?.stale;
               const t = biasTheme(x?.bias || "NEUTRAL");
               return (
                 <div key={tf} style={{
                   ...statCard,
-                  border:`1px solid ${t.border}`
+                  border: stale ? "1px solid rgba(245,158,11,.62)" : `1px solid ${t.border}`,
+                  opacity: stale ? .72 : 1
                 }}>
-                  <div style={statLabel}>{tf}</div>
-                  <div style={{...statValue,color:t.color,fontSize:24}}>
+                  <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"center"}}>
+                    <div style={statLabel}>{tf}</div>
+                    {stale && (
+                      <span style={{
+                        fontSize:9,fontWeight:900,color:"#fde68a",
+                        border:"1px solid rgba(245,158,11,.45)",
+                        background:"rgba(180,83,9,.12)",
+                        borderRadius:999,padding:"3px 6px"
+                      }}>
+                        ⚠️ OBSOLETO
+                      </span>
+                    )}
+                  </div>
+                  <div style={{...statValue,color:stale ? "#fde68a" : t.color,fontSize:24}}>
                     {x?.bias || "—"} {Number.isFinite(Number(x?.score)) ? `(${fmt(x.score,0)})` : ""}
                   </div>
                   <div style={statSub}>
                     RSI {fmt(x?.rsi14,1)} • ATR {fmt(x?.atrPct,3)}%
+                  </div>
+                  <div style={{fontSize:10,color:stale?"#fde68a":"#94a3b8",marginTop:5}}>
+                    Ultima candela: {formatBarTime(x?.timestamp)}
+                    {fresh?.lagMs ? ` • lag ${lagText(fresh.lagMs)}` : ""}
+                    {stale ? " • escluso dallo score" : ""}
                   </div>
                   <div style={{marginTop:8,fontSize:11,color:"#94a3b8",lineHeight:1.45}}>
                     EMA20 {fmt(x?.ema20,priceDecimals(symbol))}<br/>
@@ -227,9 +352,26 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD" }) {
               const x = data.timeframes?.[tf];
               const t = biasTheme(x?.bias || "NEUTRAL");
               return (
-                <div key={tf} style={statCard}>
-                  <div style={{fontWeight:900,fontSize:16,color:t.color,marginBottom:8}}>
+                <div key={tf} style={{
+                  ...statCard,
+                  opacity:data.combined?.freshness?.[tf]?.stale ? .72 : 1
+                }}>
+                  <div style={{
+                    fontWeight:900,
+                    fontSize:16,
+                    color:data.combined?.freshness?.[tf]?.stale ? "#fde68a" : t.color,
+                    marginBottom:4
+                  }}>
                     {tf} — {x?.bias}
+                    {data.combined?.freshness?.[tf]?.stale ? " ⚠️" : ""}
+                  </div>
+                  <div style={{
+                    fontSize:10,
+                    color:data.combined?.freshness?.[tf]?.stale ? "#fde68a" : "#94a3b8",
+                    marginBottom:8
+                  }}>
+                    {formatBarTime(x?.timestamp)}
+                    {data.combined?.freshness?.[tf]?.stale ? " • escluso dallo score" : ""}
                   </div>
 
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:12}}>
@@ -287,9 +429,14 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD" }) {
             color:"#94a3b8",
             fontSize:11
           }}>
-            Allineamento: BUY {data.combined?.alignment?.buy ?? 0} •
+            Allineamento utilizzato: BUY {data.combined?.alignment?.buy ?? 0} •
             SELL {data.combined?.alignment?.sell ?? 0} •
             NEUTRAL {data.combined?.alignment?.neutral ?? 0}
+            {" • "}
+            TF validi: {(data.combined?.usableTimeframes || []).join(", ") || "nessuno"}
+            {(data.combined?.staleTimeframes || []).length
+              ? ` • esclusi: ${(data.combined?.staleTimeframes || []).join(", ")}`
+              : ""}
             {" • "}
             Generata: {data.generatedAt ? new Date(data.generatedAt).toLocaleString("it-IT") : "—"}
             {data.cache ? " • cache Vercel" : ""}
@@ -299,6 +446,8 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD" }) {
 
       <div style={hintBox}>
         Market Engine sperimentale: combina trend EMA, RSI, MACD, ATR e struttura prezzi.
+        I timeframe anormalmente vecchi rispetto agli altri vengono marcati OBSOLETI ed esclusi dallo score.
+        La "Direzione Prop" è volutamente opposta al bias di mercato e richiede conferma manuale tramite pulsante.
         Lo score è descrittivo e non costituisce previsione certa, segnale operativo o consulenza finanziaria.
         Sul piano gratuito Massive l'analisi usa cache di 2 minuti per non bruciare il limite API.
       </div>
