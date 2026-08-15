@@ -283,12 +283,41 @@ function analyzeTimeframe(bars, name) {
 
 function combine(timeframes) {
   const weights = { M15: 0.15, H1: 0.30, H4: 0.35, D1: 0.20 };
+
+  const timestamps = Object.values(timeframes)
+    .map(x => Number(x?.timestamp))
+    .filter(Number.isFinite);
+
+  const freshestTs = timestamps.length ? Math.max(...timestamps) : null;
+
+  // Quanto può essere indietro un timeframe rispetto al più fresco
+  // prima di considerarlo "anomalo". Weekend/mercato chiuso non è un problema:
+  // confrontiamo i timeframe tra loro, non con l'orologio assoluto.
+  const lagThresholdMs = {
+    M15: 2 * 60 * 60 * 1000,
+    H1: 6 * 60 * 60 * 1000,
+    H4: 18 * 60 * 60 * 1000,
+    D1: 72 * 60 * 60 * 1000,
+  };
+
+  const freshness = {};
+  for (const [tf, data] of Object.entries(timeframes)) {
+    const ts = Number(data?.timestamp);
+    const lagMs = freshestTs && Number.isFinite(ts) ? Math.max(0, freshestTs - ts) : null;
+    const stale = !Number.isFinite(ts) || (Number.isFinite(lagMs) && lagMs > (lagThresholdMs[tf] || 86400000));
+    freshness[tf] = {
+      stale,
+      lagMs,
+      timestamp: Number.isFinite(ts) ? ts : null
+    };
+  }
+
   let weighted = 0;
   let totalWeight = 0;
 
   for (const [tf, data] of Object.entries(timeframes)) {
     const w = weights[tf] || 0;
-    if (Number.isFinite(data?.score)) {
+    if (!freshness[tf]?.stale && Number.isFinite(data?.score)) {
       weighted += data.score * w;
       totalWeight += w;
     }
@@ -302,16 +331,36 @@ function combine(timeframes) {
 
   const confidence = Math.min(100, Math.round(Math.abs(score)));
 
-  const directional = Object.values(timeframes).map(x => x.bias);
-  const buyCount = directional.filter(x => x === "BUY").length;
-  const sellCount = directional.filter(x => x === "SELL").length;
-  const neutralCount = directional.filter(x => x === "NEUTRAL").length;
+  const usable = Object.entries(timeframes)
+    .filter(([tf]) => !freshness[tf]?.stale)
+    .map(([,x]) => x.bias);
+
+  const buyCount = usable.filter(x => x === "BUY").length;
+  const sellCount = usable.filter(x => x === "SELL").length;
+  const neutralCount = usable.filter(x => x === "NEUTRAL").length;
+
+  const propDirection =
+    bias === "BUY" ? "SELL" :
+    bias === "SELL" ? "BUY" :
+    "WAIT";
+
+  const signalStrength =
+    bias === "NEUTRAL" || confidence < 30 ? "INSUFFICIENT" :
+    confidence < 50 ? "WEAK" :
+    confidence < 70 ? "GOOD" :
+    "STRONG";
 
   return {
     score: Number(score.toFixed(1)),
     confidence,
     bias,
-    alignment: { buy: buyCount, sell: sellCount, neutral: neutralCount }
+    propDirection,
+    signalStrength,
+    alignment: { buy: buyCount, sell: sellCount, neutral: neutralCount },
+    freshness,
+    usableTimeframes: Object.keys(timeframes).filter(tf => !freshness[tf]?.stale),
+    staleTimeframes: Object.keys(timeframes).filter(tf => freshness[tf]?.stale),
+    freshestTimestamp: freshestTs
   };
 }
 
