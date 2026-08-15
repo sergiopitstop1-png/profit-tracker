@@ -35,8 +35,8 @@ export default function TradingViewChart({ symbol = "XAUUSD" }) {
 
     const widget = document.createElement("div");
     widget.className = "tradingview-widget-container__widget";
-    widget.style.height = "100%";
-    widget.style.minHeight = "1000px";
+    widget.style.height = "760px";
+    widget.style.minHeight = "760px";
     widget.style.width = "100%";
     container.current.appendChild(widget);
 
@@ -45,7 +45,9 @@ export default function TradingViewChart({ symbol = "XAUUSD" }) {
     script.type = "text/javascript";
     script.async = true;
     script.innerHTML = JSON.stringify({
-      autosize: true,
+      autosize: false,
+      width: "100%",
+      height: 760,
       symbol: tvSymbol,
       interval: "1",
       timezone: "Europe/Rome",
@@ -69,7 +71,7 @@ export default function TradingViewChart({ symbol = "XAUUSD" }) {
     <div
       ref={container}
       className="tradingview-widget-container"
-      style={{ height: "1000px", width: "100%" }}
+      style={{ height: "760px", minHeight: "760px", width: "100%", position: "relative" }}
     />
   );
 }
