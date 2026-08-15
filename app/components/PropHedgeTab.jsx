@@ -31,9 +31,9 @@ const ASSETS = {
 };
 
 const fieldLabel = { display: "block", color: "#93c5fd", fontSize: 13, marginBottom: 6 };
-const grid2 = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px,1fr))", gap: 14 };
-const orderGrid = { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 14, marginTop: 16 };
-const orderRow = { display: "flex", justifyContent: "space-between", gap: 16, padding: "8px 0", borderBottom: "1px solid rgba(51,65,85,.55)" };
+const grid2 = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px,1fr))", gap: 12 };
+const orderGrid = { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 14, marginTop: 14 };
+const orderRow = { display: "flex", justifyContent: "space-between", gap: 16, padding: "7px 0", borderBottom: "1px solid rgba(51,65,85,.55)" };
 
 function num(v) {
   const x = Number(String(v ?? "").replace(",", "."));
@@ -51,532 +51,757 @@ function signedMoney(v) {
   if (!Number.isFinite(v)) return "—";
   return `${v >= 0 ? "+" : "−"}$ ${fmt(Math.abs(v), 2)}`;
 }
-
-export default function PropHedgeTab() {
-  const [asset, setAsset] = useState("XAUUSD");
-  const [direction, setDirection] = useState("BUY");
-  const [accountSize, setAccountSize] = useState("100000");
-  const [propCost, setPropCost] = useState("350");
-  const [expectedGain, setExpectedGain] = useState("400");
-  const [risk, setRisk] = useState("1000");
-  const [slPoints, setSlPoints] = useState("700");
-  const [tpProp, setTpProp] = useState("10000");
-  const [price, setPrice] = useState("");
-  const [leverage, setLeverage] = useState("20");
-  const [accountBalance, setAccountBalance] = useState("101545");
-  const [ddMax, setDdMax] = useState("6");
-  const [brokerExposure, setBrokerExposure] = useState("416");
-  const [brokerBalance, setBrokerBalance] = useState("3000");
-  const [live, setLive] = useState({ status: "loading", bid: null, ask: null, price: null, time: null, source: "", quoteToUsd: 1 });
-  const [placed, setPlaced] = useState(null);
-  const [closePropPL, setClosePropPL] = useState("");
-  const [closeBrokerPL, setCloseBrokerPL] = useState("");
-
-  const a = ASSETS[asset];
-
-  const refreshPrice = async () => {
-    try {
-      setLive(s => ({ ...s, status: "loading" }));
-      const r = await fetch(`/api/prop-price?symbol=${encodeURIComponent(asset)}&t=${Date.now()}`, { cache: "no-store" });
-      const data = await r.json();
-      if (!r.ok || !Number.isFinite(Number(data.price))) throw new Error(data.error || "Prezzo non disponibile");
-      const p = Number(data.price);
-      setPrice(p.toFixed(a.decimals));
-      setLive({
-        status: "live",
-        bid: data.bid ?? null,
-        ask: data.ask ?? null,
-        price: p,
-        time: data.time ?? null,
-        source: data.source ?? "",
-        quoteToUsd: Number.isFinite(Number(data.quoteToUsd)) ? Number(data.quoteToUsd) : 1
-      });
-    } catch (e) {
-      setLive(s => ({ ...s, status: "error" }));
-    }
+function uid() {
+  return `prop-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+function makeChallenge(name, id) {
+  return {
+    id: id || uid(),
+    name,
+    asset: "XAUUSD",
+    direction: "BUY",
+    accountSize: "100000",
+    propCost: "350",
+    expectedGain: "400",
+    risk: "1000",
+    slPoints: "700",
+    tpProp: "10000",
+    leverage: "20",
+    accountBalance: "100000",
+    ddMax: "6",
+    brokerExposure: "0",
+    entryPrice: "",
+    autoPrice: true,
+    active: null,
+    closePropPL: "",
+    closeBrokerPL: "",
   };
+}
 
-  useEffect(() => {
-    refreshPrice();
-    const id = setInterval(refreshPrice, 2000);
-    return () => clearInterval(id);
-  }, [asset]);
+const DEFAULT_CHALLENGES = [
+  makeChallenge("GOAT", "goat"),
+  makeChallenge("Finotive", "finotive"),
+  makeChallenge("Orion", "orion"),
+];
 
-  const c = useMemo(() => {
-    const account = num(accountSize);
-    const bal = num(accountBalance);
-    const dd = num(ddMax);
-    const r = num(risk);
-    const sl = num(slPoints);
-    const px = num(price);
-    const lev = num(leverage);
-    const exposure = num(brokerExposure);
-    const brokerBal = num(brokerBalance);
-    const quoteToUsd = Number.isFinite(live.quoteToUsd) && live.quoteToUsd > 0 ? live.quoteToUsd : 1;
+function calcChallenge(ch, live) {
+  const a = ASSETS[ch.asset] || ASSETS.XAUUSD;
+  const account = num(ch.accountSize);
+  const bal = num(ch.accountBalance);
+  const dd = num(ch.ddMax);
+  const risk = num(ch.risk);
+  const sl = num(ch.slPoints);
+  const px = num(ch.entryPrice) || num(live?.price);
+  const lev = num(ch.leverage);
+  const exposure = num(ch.brokerExposure);
+  const quoteToUsd = Number.isFinite(Number(live?.quoteToUsd)) && Number(live?.quoteToUsd) > 0
+    ? Number(live.quoteToUsd)
+    : 1;
 
-    const burnBalance = account * (1 - dd / 100);
-    const ddResidual = Math.max(0, bal - burnBalance);
-    const riskPct = account > 0 ? (r / account) * 100 : 0;
-    const shots = r > 0 ? ddResidual / r : 0;
+  const burnBalance = account * (1 - dd / 100);
+  const ddResidual = Math.max(0, bal - burnBalance);
+  const riskPct = account > 0 ? (risk / account) * 100 : 0;
+  const shots = risk > 0 ? ddResidual / risk : 0;
 
-    const propLots = sl > 0 ? r / sl : 0;
-    const marginPct = account > 0 && lev > 0
-      ? ((propLots * a.contract * px) / lev / account) * 100
-      : 0;
+  // Formula concordata: Lotti Prop = Rischio / SL Distance.
+  const propLots = sl > 0 ? risk / sl : 0;
 
-    const brokerTpDollars = shots > 0
-      ? ((num(expectedGain) + num(propCost) + exposure) * 1.10) / shots
-      : 0;
+  const marginPct = account > 0 && lev > 0
+    ? ((propLots * a.contract * px) / lev / account) * 100
+    : 0;
 
-    const slMove = sl * a.point;
-    const tpMove = propLots > 0 ? num(tpProp) / (propLots * a.contract * quoteToUsd) : 0;
+  const brokerTpDollars = shots > 0
+    ? ((num(ch.expectedGain) + num(ch.propCost) + exposure) * 1.10) / shots
+    : 0;
 
-    const brokerLotsRaw = slMove > 0
-      ? brokerTpDollars / (a.contract * slMove * quoteToUsd)
-      : 0;
-    const brokerLots = ceilStep(brokerLotsRaw, a.lotStep);
+  const slMove = sl * a.point;
+  const tpMove = propLots > 0
+    ? num(ch.tpProp) / (propLots * a.contract * quoteToUsd)
+    : 0;
 
-    const propSL = direction === "BUY" ? px - slMove : px + slMove;
-    const propTPPrice = direction === "BUY" ? px + tpMove : px - tpMove;
-    const brokerDirection = direction === "BUY" ? "SELL" : "BUY";
-    const brokerTP = propSL;
-    const brokerSL = propTPPrice;
+  const brokerLotsRaw = slMove > 0
+    ? brokerTpDollars / (a.contract * slMove * quoteToUsd)
+    : 0;
 
-    // Perdita del broker nello scenario in cui la Prop raggiunge il proprio TP.
-    const maxBrokerLoss = Math.abs(propTPPrice - px) * a.contract * brokerLots * quoteToUsd;
-    const brokerResidualWorst = brokerBal - maxBrokerLoss;
-    const prudentialRequired = maxBrokerLoss * 1.20;
+  const brokerLots = ceilStep(brokerLotsRaw, a.lotStep);
 
-    let brokerSafety = "red";
-    if (brokerBal >= prudentialRequired) brokerSafety = "green";
-    else if (brokerBal >= maxBrokerLoss) brokerSafety = "yellow";
+  const propSL = ch.direction === "BUY" ? px - slMove : px + slMove;
+  const propTPPrice = ch.direction === "BUY" ? px + tpMove : px - tpMove;
+  const brokerDirection = ch.direction === "BUY" ? "SELL" : "BUY";
+  const brokerTP = propSL;
+  const brokerSL = propTPPrice;
 
-    return {
-      burnBalance, ddResidual, riskPct, shots, propLots, marginPct,
-      brokerTpDollars, slMove, tpMove, brokerLotsRaw, brokerLots,
-      propSL, propTPPrice, brokerDirection, brokerTP, brokerSL, px,
-      maxBrokerLoss, brokerResidualWorst, prudentialRequired, brokerSafety, quoteToUsd
-    };
-  }, [
-    asset, direction, accountSize, propCost, expectedGain, risk, slPoints, tpProp,
-    price, leverage, accountBalance, ddMax, brokerExposure, brokerBalance, a, live.quoteToUsd
-  ]);
+  const maxBrokerLoss = Math.abs(propTPPrice - px) * a.contract * brokerLots * quoteToUsd;
+  const brokerProfitAtPropSL = Math.abs(propSL - px) * a.contract * brokerLots * quoteToUsd;
 
-  const tracking = useMemo(() => {
-    if (!placed) return null;
-    const current = Number.isFinite(Number(live.price)) ? Number(live.price) : num(price);
-    const delta = current - placed.entry;
-    const propSign = placed.direction === "BUY" ? 1 : -1;
-    const brokerSign = placed.brokerDirection === "BUY" ? 1 : -1;
-
-    const propPL = delta * placed.contract * placed.propLots * propSign * placed.quoteToUsd;
-    const brokerPL = delta * placed.contract * placed.brokerLots * brokerSign * placed.quoteToUsd;
-    const propBalanceNow = placed.propBalanceStart + propPL;
-    const brokerBalanceNow = placed.brokerBalanceStart + brokerPL;
-    const combinedPL = propPL + brokerPL;
-
-    return { current, delta, propPL, brokerPL, propBalanceNow, brokerBalanceNow, combinedPL };
-  }, [placed, live.price, price]);
-
-  const placeTrade = () => {
-    if (!c.px || !c.propLots || !c.brokerLots) return;
-    setClosePropPL("");
-    setCloseBrokerPL("");
-    setPlaced({
-      asset,
-      label: a.label,
-      decimals: a.decimals,
-      contract: a.contract,
-      entry: c.px,
-      direction,
-      brokerDirection: c.brokerDirection,
-      propLots: c.propLots,
-      brokerLots: c.brokerLots,
-      propTP: c.propTPPrice,
-      propSL: c.propSL,
-      brokerTP: c.brokerTP,
-      brokerSL: c.brokerSL,
-      propBalanceStart: num(accountBalance),
-      brokerBalanceStart: num(brokerBalance),
-      quoteToUsd: c.quoteToUsd,
-      placedAt: new Date().toISOString()
-    });
+  return {
+    a, px, quoteToUsd, burnBalance, ddResidual, riskPct, shots,
+    propLots, marginPct, brokerTpDollars, slMove, tpMove,
+    brokerLotsRaw, brokerLots, propSL, propTPPrice, brokerDirection,
+    brokerTP, brokerSL, maxBrokerLoss, brokerProfitAtPropSL
   };
+}
 
-  const resetTrade = () => {
-    setPlaced(null);
-    setClosePropPL("");
-    setCloseBrokerPL("");
+function trackOperation(active, live) {
+  if (!active) return null;
+  const current = Number.isFinite(Number(live?.price)) ? Number(live.price) : active.entry;
+  const quoteToUsd = Number.isFinite(Number(live?.quoteToUsd)) && Number(live?.quoteToUsd) > 0
+    ? Number(live.quoteToUsd)
+    : active.quoteToUsd || 1;
+
+  const delta = current - active.entry;
+  const propSign = active.direction === "BUY" ? 1 : -1;
+  const brokerSign = active.brokerDirection === "BUY" ? 1 : -1;
+
+  const propPL = delta * active.contract * active.propLots * propSign * quoteToUsd;
+  const brokerPL = delta * active.contract * active.brokerLots * brokerSign * quoteToUsd;
+
+  const propBalanceNow = active.propBalanceStart + propPL;
+  const combinedPL = propPL + brokerPL;
+
+  const remainingAdverseDistance = active.brokerDirection === "SELL"
+    ? Math.max(0, active.brokerSL - current)
+    : Math.max(0, current - active.brokerSL);
+
+  const remainingBrokerLoss = remainingAdverseDistance * active.contract * active.brokerLots * quoteToUsd;
+
+  return {
+    current, quoteToUsd, delta, propPL, brokerPL, propBalanceNow,
+    combinedPL, remainingBrokerLoss
   };
+}
 
-  const closeAndUpdateBalances = () => {
-    if (!placed || !tracking) return;
-
-    const propPLFinal = closePropPL === "" ? tracking.propPL : num(closePropPL);
-    const brokerPLFinal = closeBrokerPL === "" ? tracking.brokerPL : num(closeBrokerPL);
-
-    const newPropBalance = placed.propBalanceStart + propPLFinal;
-    const newBrokerBalance = placed.brokerBalanceStart + brokerPLFinal;
-
-    setAccountBalance(String(Number(newPropBalance.toFixed(2))));
-    setBrokerBalance(String(Number(newBrokerBalance.toFixed(2))));
-    setPlaced(null);
-    setClosePropPL("");
-    setCloseBrokerPL("");
-  };
-
-  const Field = ({ label, value, setValue, step = "any", disabled = false }) => (
+function TextNumberField({ label, value, onChange, disabled = false, placeholder = "" }) {
+  return (
     <div>
       <label style={fieldLabel}>{label}</label>
       <input
-        style={{ ...input, opacity: disabled ? 0.65 : 1 }}
+        style={{ ...input, opacity: disabled ? 0.62 : 1 }}
         type="text"
         inputMode="decimal"
         autoComplete="off"
         value={value}
+        placeholder={placeholder}
         disabled={disabled}
         onFocus={e => e.currentTarget.select()}
         onChange={e => {
           const raw = e.target.value;
-          // Consente tastiera italiana: numeri, virgola, punto e segno meno.
-          if (/^-?[0-9]*[.,]?[0-9]*$/.test(raw) || raw === "") {
-            setValue(raw);
-          }
+          if (/^-?[0-9]*[.,]?[0-9]*$/.test(raw) || raw === "") onChange(raw);
         }}
       />
     </div>
   );
+}
 
-  const safetyStyles = {
-    green: { bg: "rgba(34,197,94,.13)", border: "rgba(34,197,94,.48)", color: "#86efac", icon: "🟢", title: "COPERTURA SOSTENIBILE" },
-    yellow: { bg: "rgba(245,158,11,.13)", border: "rgba(245,158,11,.50)", color: "#fde68a", icon: "🟡", title: "ATTENZIONE — BUFFER RIDOTTO" },
-    red: { bg: "rgba(239,68,68,.13)", border: "rgba(239,68,68,.52)", color: "#fca5a5", icon: "🔴", title: "SALDO BROKER INSUFFICIENTE" }
+export default function PropHedgeTab() {
+  const [challenges, setChallenges] = useState(DEFAULT_CHALLENGES);
+  const [brokerBalance, setBrokerBalance] = useState("5000");
+  const [liveMap, setLiveMap] = useState({});
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    try {
+      const savedChallenges = localStorage.getItem("propHedgeV7Challenges");
+      const savedBrokerBalance = localStorage.getItem("propHedgeV7BrokerBalance");
+      if (savedChallenges) {
+        const parsed = JSON.parse(savedChallenges);
+        if (Array.isArray(parsed) && parsed.length) setChallenges(parsed);
+      }
+      if (savedBrokerBalance !== null) setBrokerBalance(savedBrokerBalance);
+    } catch {}
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      localStorage.setItem("propHedgeV7Challenges", JSON.stringify(challenges));
+      localStorage.setItem("propHedgeV7BrokerBalance", brokerBalance);
+    } catch {}
+  }, [hydrated, challenges, brokerBalance]);
+
+  const symbolsKey = useMemo(
+    () => [...new Set(challenges.map(c => c.asset))].sort().join("|"),
+    [challenges]
+  );
+
+  const refreshSymbol = async (symbol) => {
+    try {
+      setLiveMap(prev => ({
+        ...prev,
+        [symbol]: { ...(prev[symbol] || {}), status: "loading" }
+      }));
+
+      const r = await fetch(`/api/prop-price?symbol=${encodeURIComponent(symbol)}&t=${Date.now()}`, { cache: "no-store" });
+      const data = await r.json();
+
+      if (!r.ok || !Number.isFinite(Number(data.price))) {
+        throw new Error(data.error || "Prezzo non disponibile");
+      }
+
+      const price = Number(data.price);
+      const live = {
+        status: "live",
+        price,
+        bid: data.bid ?? null,
+        ask: data.ask ?? null,
+        source: data.source ?? "",
+        time: data.time ?? new Date().toISOString(),
+        quoteToUsd: Number.isFinite(Number(data.quoteToUsd)) ? Number(data.quoteToUsd) : 1
+      };
+
+      setLiveMap(prev => ({ ...prev, [symbol]: live }));
+
+      setChallenges(prev => prev.map(ch => {
+        if (ch.asset !== symbol || ch.active || !ch.autoPrice) return ch;
+        const a = ASSETS[symbol] || ASSETS.XAUUSD;
+        return { ...ch, entryPrice: price.toFixed(a.decimals) };
+      }));
+    } catch (e) {
+      setLiveMap(prev => ({
+        ...prev,
+        [symbol]: { ...(prev[symbol] || {}), status: "error" }
+      }));
+    }
   };
-  const safety = safetyStyles[c.brokerSafety];
+
+  useEffect(() => {
+    const symbols = symbolsKey ? symbolsKey.split("|") : [];
+    symbols.forEach(refreshSymbol);
+
+    const id = setInterval(() => {
+      symbols.forEach(refreshSymbol);
+    }, 2000);
+
+    return () => clearInterval(id);
+  }, [symbolsKey]);
+
+  const setChallenge = (id, patch) => {
+    setChallenges(prev => prev.map(ch => ch.id === id ? { ...ch, ...patch } : ch));
+  };
+
+  const addChallenge = () => {
+    setChallenges(prev => [...prev, makeChallenge(`Prop ${prev.length + 1}`)]);
+  };
+
+  const removeChallenge = (id) => {
+    const ch = challenges.find(x => x.id === id);
+    if (ch?.active) {
+      alert("Chiudi o annulla prima l'operazione attiva.");
+      return;
+    }
+    setChallenges(prev => prev.filter(ch => ch.id !== id));
+  };
+
+  const calcs = useMemo(() => {
+    const map = {};
+    for (const ch of challenges) {
+      map[ch.id] = calcChallenge(ch, liveMap[ch.asset]);
+    }
+    return map;
+  }, [challenges, liveMap]);
+
+  const trackings = useMemo(() => {
+    const map = {};
+    for (const ch of challenges) {
+      if (ch.active) map[ch.id] = trackOperation(ch.active, liveMap[ch.active.asset]);
+    }
+    return map;
+  }, [challenges, liveMap]);
+
+  const activeChallenges = challenges.filter(ch => ch.active);
+
+  const floatingBrokerPL = activeChallenges.reduce(
+    (sum, ch) => sum + (trackings[ch.id]?.brokerPL || 0),
+    0
+  );
+
+  const brokerEquity = num(brokerBalance) + floatingBrokerPL;
+
+  const activeRemainingExposure = activeChallenges.reduce(
+    (sum, ch) => sum + (trackings[ch.id]?.remainingBrokerLoss || 0),
+    0
+  );
+
+  const brokerNetByAsset = useMemo(() => {
+    const net = {};
+    for (const ch of activeChallenges) {
+      const op = ch.active;
+      const signedLots = op.brokerDirection === "BUY" ? op.brokerLots : -op.brokerLots;
+      net[op.asset] = (net[op.asset] || 0) + signedLots;
+    }
+    return net;
+  }, [challenges]);
+
+  const placeTrade = (id) => {
+    const ch = challenges.find(x => x.id === id);
+    const c = calcs[id];
+    if (!ch || !c || !c.px || !c.propLots || !c.brokerLots) {
+      alert("Controlla prezzo, rischio e SL.");
+      return;
+    }
+
+    setChallenge(id, {
+      active: {
+        asset: ch.asset,
+        label: c.a.label,
+        decimals: c.a.decimals,
+        contract: c.a.contract,
+        entry: c.px,
+        direction: ch.direction,
+        brokerDirection: c.brokerDirection,
+        propLots: c.propLots,
+        brokerLots: c.brokerLots,
+        propTP: c.propTPPrice,
+        propSL: c.propSL,
+        brokerTP: c.brokerTP,
+        brokerSL: c.brokerSL,
+        propBalanceStart: num(ch.accountBalance),
+        quoteToUsd: c.quoteToUsd,
+        maxBrokerLossAtEntry: c.maxBrokerLoss,
+        placedAt: new Date().toISOString()
+      },
+      closePropPL: "",
+      closeBrokerPL: ""
+    });
+  };
+
+  const cancelTrade = (id) => {
+    const live = liveMap[challenges.find(c => c.id === id)?.asset];
+    const a = ASSETS[challenges.find(c => c.id === id)?.asset] || ASSETS.XAUUSD;
+    setChallenges(prev => prev.map(ch => {
+      if (ch.id !== id) return ch;
+      return {
+        ...ch,
+        active: null,
+        closePropPL: "",
+        closeBrokerPL: "",
+        autoPrice: true,
+        entryPrice: Number.isFinite(Number(live?.price)) ? Number(live.price).toFixed(a.decimals) : ch.entryPrice
+      };
+    }));
+  };
+
+  const closeAndUpdate = (id) => {
+    const ch = challenges.find(x => x.id === id);
+    const tracking = trackings[id];
+    if (!ch?.active || !tracking) return;
+
+    const propPLFinal = ch.closePropPL === "" ? tracking.propPL : num(ch.closePropPL);
+    const brokerPLFinal = ch.closeBrokerPL === "" ? tracking.brokerPL : num(ch.closeBrokerPL);
+
+    const newPropBalance = ch.active.propBalanceStart + propPLFinal;
+    const newBrokerRealizedBalance = num(brokerBalance) + brokerPLFinal;
+    const live = liveMap[ch.active.asset];
+    const a = ASSETS[ch.active.asset];
+
+    setBrokerBalance(String(Number(newBrokerRealizedBalance.toFixed(2))));
+
+    setChallenges(prev => prev.map(row => {
+      if (row.id !== id) return row;
+      return {
+        ...row,
+        accountBalance: String(Number(newPropBalance.toFixed(2))),
+        active: null,
+        closePropPL: "",
+        closeBrokerPL: "",
+        autoPrice: true,
+        entryPrice: Number.isFinite(Number(live?.price)) ? Number(live.price).toFixed(a.decimals) : row.entryPrice
+      };
+    }));
+  };
+
+  const totalCombinedPL = activeChallenges.reduce(
+    (sum, ch) => sum + (trackings[ch.id]?.combinedPL || 0),
+    0
+  );
+
+  const safetyFor = (id) => {
+    const c = calcs[id];
+    const ch = challenges.find(x => x.id === id);
+    if (!c || ch?.active) return null;
+
+    const projectedExposure = activeRemainingExposure + c.maxBrokerLoss;
+    const requiredWithBuffer = projectedExposure * 1.20;
+
+    let level = "red";
+    if (brokerEquity >= requiredWithBuffer) level = "green";
+    else if (brokerEquity >= projectedExposure) level = "yellow";
+
+    return {
+      level,
+      projectedExposure,
+      requiredWithBuffer,
+      projectedResidual: brokerEquity - projectedExposure
+    };
+  };
+
+  const safetyStyle = {
+    green: { icon:"🟢", title:"CAPITALE SUFFICIENTE", bg:"rgba(34,197,94,.12)", border:"rgba(34,197,94,.45)", color:"#86efac" },
+    yellow:{ icon:"🟡", title:"ATTENZIONE — BUFFER RIDOTTO", bg:"rgba(245,158,11,.12)", border:"rgba(245,158,11,.48)", color:"#fde68a" },
+    red:   { icon:"🔴", title:"CAPITALE INSUFFICIENTE", bg:"rgba(239,68,68,.12)", border:"rgba(239,68,68,.48)", color:"#fca5a5" }
+  };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div>
-        <h2 style={sectionTitle}>📈 Prop Hedge</h2>
-        <p style={sectionDescription}>Dimensionamento, controllo capitale Broker e monitoraggio live dopo l’ingresso.</p>
+    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", gap:12, flexWrap:"wrap", alignItems:"flex-start" }}>
+        <div>
+          <h2 style={sectionTitle}>📈 Prop Hedge — Multi Challenge</h2>
+          <p style={sectionDescription}>
+            Più Prop contemporaneamente, un unico Broker condiviso e controllo dell'esposizione aggregata.
+          </p>
+        </div>
+        <button style={primaryButtonBlue} onClick={addChallenge}>+ Aggiungi Challenge</button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(420px,1fr))", gap: 16 }}>
-        <div style={panel}>
-          <div style={panelHeader}>
-            <div>
-              <h3 style={panelTitle}>Parametri Prop</h3>
-              <p style={panelSubtitle}>Account, rischio e obiettivi.</p>
-            </div>
-          </div>
-          <div style={grid2}>
-            <Field label="Valore Prop / Account Size ($)" value={accountSize} setValue={setAccountSize} disabled={!!placed} />
-            <Field label="Costo Prop ($)" value={propCost} setValue={setPropCost} disabled={!!placed} />
-            <Field label="Guadagno atteso ($)" value={expectedGain} setValue={setExpectedGain} disabled={!!placed} />
-            <Field label="Rischio ($)" value={risk} setValue={setRisk} disabled={!!placed} />
-            <Field label="SL Distance (punti)" value={slPoints} setValue={setSlPoints} disabled={!!placed} />
-            <Field label="TP Prop ($)" value={tpProp} setValue={setTpProp} disabled={!!placed} />
-            <Field label="DD Max Prop (%)" value={ddMax} setValue={setDdMax} step="0.1" disabled={!!placed} />
-          </div>
-        </div>
-
-        <div style={panel}>
-          <div style={panelHeader}>
-            <div>
-              <h3 style={panelTitle}>Mercato e Drawdown</h3>
-              <p style={panelSubtitle}>Prezzo live via API Vercel con fallback manuale.</p>
-            </div>
-          </div>
-
-          <div style={grid2}>
-            <div>
-              <label style={fieldLabel}>Asset</label>
-              <select style={input} value={asset} disabled={!!placed} onChange={e => setAsset(e.target.value)}>
-                {Object.entries(ASSETS).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={fieldLabel}>Direzione Prop</label>
-              <select style={input} value={direction} disabled={!!placed} onChange={e => setDirection(e.target.value)}>
-                <option>BUY</option><option>SELL</option>
-              </select>
-            </div>
-
-            <Field label="Prezzo strumento / Ingresso" value={price} setValue={setPrice} disabled={!!placed} />
-            <Field label="Leva" value={leverage} setValue={setLeverage} disabled={!!placed} />
-            <Field label="Saldo Account Prop ($)" value={accountBalance} setValue={setAccountBalance} disabled={!!placed} />
-            <Field label="Esposizione Broker attuale ($)" value={brokerExposure} setValue={setBrokerExposure} disabled={!!placed} />
-            <Field label="Saldo Broker disponibile ($)" value={brokerBalance} setValue={setBrokerBalance} disabled={!!placed} />
-          </div>
-
-          <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
-            <button style={primaryButtonBlue} onClick={refreshPrice}>Aggiorna prezzo</button>
-            <button style={secondaryButton} disabled={!!placed} onClick={() => setAccountBalance(accountSize)}>
-              Sincronizza saldo con Valore Prop
-            </button>
-            <span style={{ fontSize:13, color: live.status==="live" ? "#5eead4" : live.status==="error" ? "#fca5a5" : "#fde68a" }}>
-              {live.status==="live"
-                ? `● LIVE ${live.source ? "— "+live.source : ""}`
-                : live.status==="error"
-                  ? "● Feed non disponibile: usa il prezzo manuale"
-                  : "● aggiornamento…"}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div style={panel}>
+      <div style={{
+        ...panel,
+        border:"1px solid rgba(56,189,248,.34)",
+        background:"linear-gradient(135deg,rgba(14,116,144,.10),rgba(15,23,42,.96))"
+      }}>
         <div style={panelHeader}>
           <div>
-            <h3 style={panelTitle}>Controllo capitale Broker — prima di piazzare</h3>
-            <p style={panelSubtitle}>Scenario peggiore: la Prop raggiunge il proprio Take Profit e il Broker va contro.</p>
+            <h3 style={panelTitle}>🏦 Broker centrale</h3>
+            <p style={panelSubtitle}>Il saldo è condiviso da tutte le coperture attive.</p>
+          </div>
+          <div style={{ color:"#5eead4", fontWeight:900 }}>
+            {activeChallenges.length} operazion{activeChallenges.length === 1 ? "e" : "i"} attiv{activeChallenges.length === 1 ? "a" : "e"}
           </div>
         </div>
 
-        <div style={statsGrid}>
+        <div style={grid2}>
+          <TextNumberField label="Saldo Broker realizzato ($)" value={brokerBalance} onChange={setBrokerBalance} />
           <div style={statCard}>
-            <div style={statLabel}>Perdita max Broker</div>
-            <div style={{ ...statValue, color:"#fca5a5" }}>−$ {fmt(c.maxBrokerLoss,2)}</div>
-            <div style={statSub}>Perdita teorica se la Prop arriva al TP.</div>
+            <div style={statLabel}>Equity Broker live</div>
+            <div style={{...statValue,color:brokerEquity>=num(brokerBalance)?"#5eead4":"#fca5a5"}}>$ {fmt(brokerEquity,2)}</div>
+            <div style={statSub}>Saldo realizzato + P/L floating delle coperture.</div>
           </div>
           <div style={statCard}>
-            <div style={statLabel}>Saldo Broker</div>
-            <div style={statValue}>$ {fmt(num(brokerBalance),2)}</div>
-            <div style={statSub}>Capitale disponibile prima dell’ingresso.</div>
+            <div style={statLabel}>P/L Broker floating</div>
+            <div style={{...statValue,color:floatingBrokerPL>=0?"#5eead4":"#fca5a5"}}>{signedMoney(floatingBrokerPL)}</div>
+            <div style={statSub}>Somma delle sole gambe Broker attive.</div>
           </div>
           <div style={statCard}>
-            <div style={statLabel}>Saldo residuo scenario peggiore</div>
-            <div style={{ ...statValue, color: c.brokerResidualWorst >= 0 ? "#5eead4" : "#fca5a5" }}>
-              $ {fmt(c.brokerResidualWorst,2)}
+            <div style={statLabel}>Esposizione residua conservativa</div>
+            <div style={{...statValue,color:"#fde68a"}}>$ {fmt(activeRemainingExposure,2)}</div>
+            <div style={statSub}>Perdita aggiuntiva fino agli SL Broker, sommata in modo prudenziale.</div>
+          </div>
+          <div style={statCard}>
+            <div style={statLabel}>P/L combinato live</div>
+            <div style={{...statValue,color:totalCombinedPL>=0?"#5eead4":"#fca5a5"}}>{signedMoney(totalCombinedPL)}</div>
+            <div style={statSub}>Prop + Broker di tutte le operazioni attive.</div>
+          </div>
+        </div>
+
+        {Object.keys(brokerNetByAsset).length > 0 && (
+          <div style={{marginTop:14}}>
+            <div style={{color:"#94a3b8",fontSize:12,fontWeight:800,marginBottom:8}}>ESPOSIZIONE NETTA LOTTI BROKER PER ASSET</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {Object.entries(brokerNetByAsset).map(([symbol,lots]) => (
+                <span key={symbol} style={{
+                  padding:"7px 10px", borderRadius:999,
+                  border:"1px solid rgba(71,85,105,.8)",
+                  background:"rgba(2,6,23,.5)", color:"#e2e8f0", fontWeight:800, fontSize:12
+                }}>
+                  {symbol}: {lots >= 0 ? "+" : ""}{fmt(lots,2)}
+                </span>
+              ))}
             </div>
-            <div style={statSub}>Saldo Broker − perdita massima teorica.</div>
           </div>
-          <div style={statCard}>
-            <div style={statLabel}>Capitale prudenziale +20%</div>
-            <div style={statValue}>$ {fmt(c.prudentialRequired,2)}</div>
-            <div style={statSub}>Buffer aggiuntivo per non lavorare al limite.</div>
-          </div>
-        </div>
-
-        <div style={{
-          marginTop:14, padding:"14px 16px", borderRadius:16,
-          background:safety.bg, border:`1px solid ${safety.border}`, color:safety.color,
-          fontWeight:800
-        }}>
-          {safety.icon} {safety.title}
-          <div style={{fontSize:12,fontWeight:600,marginTop:5,opacity:.9}}>
-            {c.brokerSafety === "green" && `Hai almeno il 20% di buffer oltre alla perdita massima teorica.`}
-            {c.brokerSafety === "yellow" && `Il saldo copre la perdita teorica, ma non raggiunge il buffer prudenziale del 20%.`}
-            {c.brokerSafety === "red" && `Mancano $ ${fmt(Math.max(0, c.maxBrokerLoss - num(brokerBalance)),2)} per coprire la perdita teorica massima.`}
-          </div>
-        </div>
+        )}
       </div>
 
-      <div style={panel}>
-        <div style={panelHeader}>
-          <div>
-            <h3 style={panelTitle}>Risultati e ordini</h3>
-            <p style={panelSubtitle}>Valori da controllare prima di confermare l’operazione.</p>
-          </div>
-        </div>
+      {challenges.map((ch, index) => {
+        const c = calcs[ch.id];
+        const live = liveMap[ch.asset] || {};
+        const tracking = trackings[ch.id];
+        const safetyInfo = safetyFor(ch.id);
+        const safe = safetyInfo ? safetyStyle[safetyInfo.level] : null;
+        const disabled = !!ch.active;
 
-        <div style={statsGrid}>
-          <div style={statCard}><div style={statLabel}>Lotti Prop</div><div style={statValue}>{fmt(c.propLots,3)}</div><div style={statSub}>Rischio / SL Distance</div></div>
-          <div style={statCard}><div style={statLabel}>Margine utilizzato</div><div style={statValue}>{fmt(c.marginPct,2)}%</div><div style={statSub}>Lotti × contract × prezzo / leva / saldo</div></div>
-          <div style={statCard}><div style={statLabel}>DD residuo</div><div style={statValue}>$ {fmt(c.ddResidual,2)}</div><div style={statSub}>Saldo attuale − saldo di rottura (${fmt(c.burnBalance,2)})</div></div>
-          <div style={statCard}><div style={statLabel}>Tiri disponibili</div><div style={statValue}>{fmt(c.shots,2)}</div><div style={statSub}>DD residuo / rischio per trade</div></div>
-          <div style={statCard}><div style={statLabel}>TP Broker ($)</div><div style={statValue}>$ {fmt(c.brokerTpDollars,2)}</div><div style={statSub}>(Guadagno + costo + esposizione) × 1,10 / tiri</div></div>
-          <div style={statCard}><div style={statLabel}>Lotti Broker</div><div style={{...statValue,color:"#5eead4"}}>{fmt(c.brokerLots,2)}</div><div style={statSub}>Teorici {fmt(c.brokerLotsRaw,3)} → arrotondati a {a.lotStep}</div></div>
-        </div>
-
-        <div style={orderGrid}>
-          <div style={statCard}>
-            <div style={{fontWeight:900,fontSize:18,marginBottom:8}}>
-              PROP — <span style={{color:direction==="BUY"?"#5eead4":"#fdba74"}}>{direction}</span>
-            </div>
-            <div style={orderRow}><span>Asset</span><b>{a.label}</b></div>
-            <div style={orderRow}><span>Lotti</span><b>{fmt(c.propLots,3)}</b></div>
-            <div style={orderRow}><span>Ingresso</span><b>{fmt(c.px,a.decimals)}</b></div>
-            <div style={orderRow}><span>Take Profit</span><b>{fmt(c.propTPPrice,a.decimals)}</b></div>
-            <div style={orderRow}><span>Stop Loss</span><b>{fmt(c.propSL,a.decimals)}</b></div>
-          </div>
-
-          <div style={statCard}>
-            <div style={{fontWeight:900,fontSize:18,marginBottom:8}}>
-              BROKER — <span style={{color:c.brokerDirection==="BUY"?"#5eead4":"#fdba74"}}>{c.brokerDirection}</span>
-            </div>
-            <div style={orderRow}><span>Asset</span><b>{a.label}</b></div>
-            <div style={orderRow}><span>Lotti</span><b>{fmt(c.brokerLots,2)}</b></div>
-            <div style={orderRow}><span>Ingresso</span><b>{fmt(c.px,a.decimals)}</b></div>
-            <div style={orderRow}><span>Take Profit</span><b>{fmt(c.brokerTP,a.decimals)}</b></div>
-            <div style={orderRow}><span>Stop Loss</span><b>{fmt(c.brokerSL,a.decimals)}</b></div>
-          </div>
-        </div>
-
-        <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginTop:16 }}>
-          {!placed ? (
-            <button
-              onClick={placeTrade}
-              style={{
-                border:"none", borderRadius:14, padding:"13px 22px", cursor:"pointer",
-                fontWeight:900, fontSize:15, color:"#052e16",
-                background:"linear-gradient(135deg,#4ade80,#22c55e)"
-              }}
-            >
-              ✅ PIAZZATA — AVVIA MONITOR
-            </button>
-          ) : (
-            <>
-              <button
-                onClick={closeAndUpdateBalances}
-                style={{
-                  border:"none", borderRadius:14, padding:"13px 22px",
-                  cursor:"pointer", fontWeight:900, fontSize:15, color:"#052e16",
-                  background:"linear-gradient(135deg,#4ade80,#22c55e)"
-                }}
-              >
-                ✅ CHIUDI E AGGIORNA SALDI
-              </button>
-              <button
-                onClick={resetTrade}
-                style={{
-                  border:"1px solid rgba(248,113,113,.55)", borderRadius:14, padding:"13px 22px",
-                  cursor:"pointer", fontWeight:900, fontSize:15, color:"#fecaca",
-                  background:"rgba(127,29,29,.35)"
-                }}
-              >
-                ↩️ ANNULLA / RESET
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-
-      {placed && tracking && (
-        <div style={{
-          ...panel,
-          border:"1px solid rgba(34,197,94,.42)",
-          boxShadow:"0 20px 48px rgba(0,0,0,.26), 0 0 0 1px rgba(34,197,94,.08) inset"
-        }}>
-          <div style={panelHeader}>
-            <div>
-              <h3 style={panelTitle}>⚡ Monitor operazione LIVE</h3>
-              <p style={panelSubtitle}>
-                Ingresso congelato a {fmt(placed.entry, placed.decimals)} • prezzo corrente {fmt(tracking.current, placed.decimals)}
-              </p>
-            </div>
-            <div style={{color:"#5eead4",fontWeight:900}}>● OPERAZIONE ATTIVA</div>
-          </div>
-
-          <div style={statsGrid}>
-            <div style={statCard}>
-              <div style={statLabel}>Movimento dal piazzato</div>
-              <div style={{...statValue,color:tracking.delta>=0?"#5eead4":"#fca5a5"}}>
-                {tracking.delta >= 0 ? "+" : ""}{fmt(tracking.delta, placed.decimals)}
-              </div>
-              <div style={statSub}>{placed.label}</div>
-            </div>
-
-            <div style={statCard}>
-              <div style={statLabel}>P/L Prop live</div>
-              <div style={{...statValue,color:tracking.propPL>=0?"#5eead4":"#fca5a5"}}>{signedMoney(tracking.propPL)}</div>
-              <div style={statSub}>Saldo: $ {fmt(tracking.propBalanceNow,2)}</div>
-            </div>
-
-            <div style={statCard}>
-              <div style={statLabel}>P/L Broker live</div>
-              <div style={{...statValue,color:tracking.brokerPL>=0?"#5eead4":"#fca5a5"}}>{signedMoney(tracking.brokerPL)}</div>
-              <div style={statSub}>Saldo: $ {fmt(tracking.brokerBalanceNow,2)}</div>
-            </div>
-
-            <div style={statCard}>
-              <div style={statLabel}>P/L combinato</div>
-              <div style={{...statValue,color:tracking.combinedPL>=0?"#5eead4":"#fca5a5"}}>{signedMoney(tracking.combinedPL)}</div>
-              <div style={statSub}>Somma teorica delle due gambe.</div>
-            </div>
-          </div>
-
-          <div style={{...panel, marginTop:16, background:"rgba(2,6,23,.42)"}}>
+        return (
+          <div key={ch.id} style={{
+            ...panel,
+            border: ch.active ? "1px solid rgba(34,197,94,.42)" : "1px solid rgba(51,65,85,.95)"
+          }}>
             <div style={panelHeader}>
-              <div>
-                <h4 style={{...panelTitle,fontSize:18}}>Chiusura reale</h4>
-                <p style={panelSubtitle}>Opzionale: inserisci il P/L reale se differisce da quello teorico del feed. Lascia vuoto per usare il P/L live.</p>
+              <div style={{flex:"1 1 320px"}}>
+                <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                  <input
+                    value={ch.name}
+                    disabled={disabled}
+                    onChange={e => setChallenge(ch.id,{name:e.target.value})}
+                    style={{
+                      ...input, marginBottom:0, maxWidth:260, fontSize:18, fontWeight:900,
+                      background:"rgba(2,6,23,.55)"
+                    }}
+                  />
+                  {ch.active
+                    ? <span style={{color:"#5eead4",fontWeight:900}}>● OPERAZIONE ATTIVA</span>
+                    : <span style={{color:live.status==="live"?"#5eead4":live.status==="error"?"#fca5a5":"#fde68a",fontWeight:800,fontSize:13}}>
+                        {live.status==="live" ? "● LIVE — Swissquote" : live.status==="error" ? "● Feed non disponibile" : "● aggiornamento…"}
+                      </span>
+                  }
+                </div>
+                <p style={{...panelSubtitle,marginTop:8}}>Challenge #{index + 1}</p>
               </div>
-            </div>
-            <div style={grid2}>
-              <div>
-                <label style={fieldLabel}>P/L reale Prop ($)</label>
-                <input
-                  style={input}
-                  type="text"
-                  inputMode="decimal"
-                  autoComplete="off"
-                  placeholder={signedMoney(tracking.propPL)}
-                  value={closePropPL}
-                  onChange={e => {
-                    const raw = e.target.value;
-                    if (/^-?[0-9]*[.,]?[0-9]*$/.test(raw) || raw === "") setClosePropPL(raw);
-                  }}
-                />
-              </div>
-              <div>
-                <label style={fieldLabel}>P/L reale Broker ($)</label>
-                <input
-                  style={input}
-                  type="text"
-                  inputMode="decimal"
-                  autoComplete="off"
-                  placeholder={signedMoney(tracking.brokerPL)}
-                  value={closeBrokerPL}
-                  onChange={e => {
-                    const raw = e.target.value;
-                    if (/^-?[0-9]*[.,]?[0-9]*$/.test(raw) || raw === "") setCloseBrokerPL(raw);
-                  }}
-                />
-              </div>
-            </div>
-            <div style={{
-              marginTop:10, padding:"10px 12px", borderRadius:12,
-              background:"rgba(15,23,42,.8)", border:"1px solid rgba(51,65,85,.75)",
-              color:"#cbd5e1", fontSize:13
-            }}>
-              Se chiudi ora:
-              <b style={{marginLeft:8}}>Prop → $ {fmt(
-                placed.propBalanceStart + (closePropPL === "" ? tracking.propPL : num(closePropPL)), 2
-              )}</b>
-              <b style={{marginLeft:16}}>Broker → $ {fmt(
-                placed.brokerBalanceStart + (closeBrokerPL === "" ? tracking.brokerPL : num(closeBrokerPL)), 2
-              )}</b>
-            </div>
-          </div>
 
-          <div style={orderGrid}>
-            <div style={statCard}>
-              <div style={{fontWeight:900,fontSize:18,marginBottom:8}}>
-                PROP — <span style={{color:placed.direction==="BUY"?"#5eead4":"#fdba74"}}>{placed.direction}</span>
-              </div>
-              <div style={orderRow}><span>Saldo iniziale</span><b>$ {fmt(placed.propBalanceStart,2)}</b></div>
-              <div style={orderRow}><span>Saldo live</span><b style={{color:tracking.propBalanceNow>=placed.propBalanceStart?"#5eead4":"#fca5a5"}}>$ {fmt(tracking.propBalanceNow,2)}</b></div>
-              <div style={orderRow}><span>TP</span><b>{fmt(placed.propTP,placed.decimals)}</b></div>
-              <div style={orderRow}><span>SL</span><b>{fmt(placed.propSL,placed.decimals)}</b></div>
+              {!ch.active && challenges.length > 1 && (
+                <button
+                  style={{...secondaryButton,color:"#fca5a5",border:"1px solid rgba(239,68,68,.35)"}}
+                  onClick={() => removeChallenge(ch.id)}
+                >
+                  Rimuovi
+                </button>
+              )}
             </div>
 
-            <div style={statCard}>
-              <div style={{fontWeight:900,fontSize:18,marginBottom:8}}>
-                BROKER — <span style={{color:placed.brokerDirection==="BUY"?"#5eead4":"#fdba74"}}>{placed.brokerDirection}</span>
-              </div>
-              <div style={orderRow}><span>Saldo iniziale</span><b>$ {fmt(placed.brokerBalanceStart,2)}</b></div>
-              <div style={orderRow}><span>Saldo live</span><b style={{color:tracking.brokerBalanceNow>=placed.brokerBalanceStart?"#5eead4":"#fca5a5"}}>$ {fmt(tracking.brokerBalanceNow,2)}</b></div>
-              <div style={orderRow}><span>TP</span><b>{fmt(placed.brokerTP,placed.decimals)}</b></div>
-              <div style={orderRow}><span>SL</span><b>{fmt(placed.brokerSL,placed.decimals)}</b></div>
-            </div>
+            {!ch.active && (
+              <>
+                <div style={grid2}>
+                  <div>
+                    <label style={fieldLabel}>Asset</label>
+                    <select
+                      style={input}
+                      value={ch.asset}
+                      onChange={e => {
+                        const symbol = e.target.value;
+                        setChallenge(ch.id,{asset:symbol,autoPrice:true,entryPrice:""});
+                        refreshSymbol(symbol);
+                      }}
+                    >
+                      {Object.entries(ASSETS).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={fieldLabel}>Direzione Prop</label>
+                    <select style={input} value={ch.direction} onChange={e => setChallenge(ch.id,{direction:e.target.value})}>
+                      <option>BUY</option><option>SELL</option>
+                    </select>
+                  </div>
+
+                  <TextNumberField label="Valore Prop / Account Size ($)" value={ch.accountSize} onChange={v=>setChallenge(ch.id,{accountSize:v})} />
+                  <TextNumberField label="Saldo Account Prop ($)" value={ch.accountBalance} onChange={v=>setChallenge(ch.id,{accountBalance:v})} />
+                  <TextNumberField label="DD Max Prop (%)" value={ch.ddMax} onChange={v=>setChallenge(ch.id,{ddMax:v})} />
+                  <TextNumberField label="Costo Prop ($)" value={ch.propCost} onChange={v=>setChallenge(ch.id,{propCost:v})} />
+                  <TextNumberField label="Guadagno atteso ($)" value={ch.expectedGain} onChange={v=>setChallenge(ch.id,{expectedGain:v})} />
+                  <TextNumberField label="Rischio ($)" value={ch.risk} onChange={v=>setChallenge(ch.id,{risk:v})} />
+                  <TextNumberField label="SL Distance (punti)" value={ch.slPoints} onChange={v=>setChallenge(ch.id,{slPoints:v})} />
+                  <TextNumberField label="TP Prop ($)" value={ch.tpProp} onChange={v=>setChallenge(ch.id,{tpProp:v})} />
+                  <TextNumberField label="Leva" value={ch.leverage} onChange={v=>setChallenge(ch.id,{leverage:v})} />
+                  <TextNumberField label="Esposizione Broker attuale ($)" value={ch.brokerExposure} onChange={v=>setChallenge(ch.id,{brokerExposure:v})} />
+
+                  <div>
+                    <label style={fieldLabel}>Prezzo ingresso</label>
+                    <div style={{display:"flex",gap:8}}>
+                      <input
+                        style={{...input,marginBottom:0}}
+                        type="text"
+                        inputMode="decimal"
+                        value={ch.entryPrice}
+                        onFocus={e=>e.currentTarget.select()}
+                        onChange={e=>{
+                          const raw=e.target.value;
+                          if (/^-?[0-9]*[.,]?[0-9]*$/.test(raw) || raw==="") {
+                            setChallenge(ch.id,{entryPrice:raw,autoPrice:false});
+                          }
+                        }}
+                      />
+                      <button
+                        style={{...secondaryButton,whiteSpace:"nowrap"}}
+                        onClick={()=>{
+                          const lp=liveMap[ch.asset]?.price;
+                          const aa=ASSETS[ch.asset];
+                          setChallenge(ch.id,{
+                            autoPrice:true,
+                            entryPrice:Number.isFinite(Number(lp)) ? Number(lp).toFixed(aa.decimals) : ch.entryPrice
+                          });
+                          refreshSymbol(ch.asset);
+                        }}
+                      >
+                        Usa LIVE
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={statsGrid}>
+                  <div style={statCard}><div style={statLabel}>Lotti Prop</div><div style={statValue}>{fmt(c.propLots,3)}</div><div style={statSub}>Rischio / SL Distance</div></div>
+                  <div style={statCard}><div style={statLabel}>DD residuo</div><div style={statValue}>$ {fmt(c.ddResidual,2)}</div><div style={statSub}>Rottura a $ {fmt(c.burnBalance,2)}</div></div>
+                  <div style={statCard}><div style={statLabel}>Tiri disponibili</div><div style={statValue}>{fmt(c.shots,2)}</div><div style={statSub}>DD residuo / rischio per trade</div></div>
+                  <div style={statCard}><div style={statLabel}>Margine utilizzato</div><div style={statValue}>{fmt(c.marginPct,2)}%</div><div style={statSub}>Stima sul saldo Prop</div></div>
+                  <div style={statCard}><div style={statLabel}>Lotti Broker</div><div style={{...statValue,color:"#5eead4"}}>{fmt(c.brokerLots,2)}</div><div style={statSub}>Teorici {fmt(c.brokerLotsRaw,3)}</div></div>
+                  <div style={statCard}><div style={statLabel}>Perdita max Broker</div><div style={{...statValue,color:"#fca5a5"}}>−$ {fmt(c.maxBrokerLoss,2)}</div><div style={statSub}>Se questa Prop raggiunge il TP</div></div>
+                </div>
+
+                <div style={orderGrid}>
+                  <div style={statCard}>
+                    <div style={{fontWeight:900,fontSize:17,marginBottom:8}}>
+                      PROP — <span style={{color:ch.direction==="BUY"?"#5eead4":"#fdba74"}}>{ch.direction}</span>
+                    </div>
+                    <div style={orderRow}><span>Lotti</span><b>{fmt(c.propLots,3)}</b></div>
+                    <div style={orderRow}><span>Ingresso</span><b>{fmt(c.px,c.a.decimals)}</b></div>
+                    <div style={orderRow}><span>Take Profit</span><b>{fmt(c.propTPPrice,c.a.decimals)}</b></div>
+                    <div style={orderRow}><span>Stop Loss</span><b>{fmt(c.propSL,c.a.decimals)}</b></div>
+                  </div>
+
+                  <div style={statCard}>
+                    <div style={{fontWeight:900,fontSize:17,marginBottom:8}}>
+                      BROKER — <span style={{color:c.brokerDirection==="BUY"?"#5eead4":"#fdba74"}}>{c.brokerDirection}</span>
+                    </div>
+                    <div style={orderRow}><span>Lotti</span><b>{fmt(c.brokerLots,2)}</b></div>
+                    <div style={orderRow}><span>Ingresso</span><b>{fmt(c.px,c.a.decimals)}</b></div>
+                    <div style={orderRow}><span>Take Profit</span><b>{fmt(c.brokerTP,c.a.decimals)}</b></div>
+                    <div style={orderRow}><span>Stop Loss</span><b>{fmt(c.brokerSL,c.a.decimals)}</b></div>
+                  </div>
+                </div>
+
+                {safe && (
+                  <div style={{
+                    marginTop:14,padding:"13px 15px",borderRadius:15,
+                    background:safe.bg,border:`1px solid ${safe.border}`,color:safe.color,fontWeight:850
+                  }}>
+                    {safe.icon} {safe.title}
+                    <div style={{fontSize:12,fontWeight:600,marginTop:5}}>
+                      Se piazzi anche {ch.name}: esposizione Broker conservativa $ {fmt(safetyInfo.projectedExposure,2)}
+                      {" • "}equity Broker $ {fmt(brokerEquity,2)}
+                      {" • "}buffer dopo esposizione $ {fmt(safetyInfo.projectedResidual,2)}
+                      {" • "}prudenziale +20% $ {fmt(safetyInfo.requiredWithBuffer,2)}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:14}}>
+                  <button
+                    onClick={()=>placeTrade(ch.id)}
+                    style={{
+                      border:"none",borderRadius:14,padding:"12px 20px",cursor:"pointer",
+                      fontWeight:900,color:"#052e16",background:"linear-gradient(135deg,#4ade80,#22c55e)"
+                    }}
+                  >
+                    ✅ PIAZZATA — AVVIA MONITOR
+                  </button>
+                  <button style={secondaryButton} onClick={()=>refreshSymbol(ch.asset)}>Aggiorna prezzo</button>
+                </div>
+              </>
+            )}
+
+            {ch.active && tracking && (
+              <>
+                <div style={statsGrid}>
+                  <div style={statCard}>
+                    <div style={statLabel}>Prezzo ingresso</div>
+                    <div style={statValue}>{fmt(ch.active.entry,ch.active.decimals)}</div>
+                    <div style={statSub}>Prezzo congelato al click PIAZZATA</div>
+                  </div>
+                  <div style={statCard}>
+                    <div style={statLabel}>Prezzo corrente</div>
+                    <div style={statValue}>{fmt(tracking.current,ch.active.decimals)}</div>
+                    <div style={statSub}>{ch.active.label}</div>
+                  </div>
+                  <div style={statCard}>
+                    <div style={statLabel}>P/L Prop live</div>
+                    <div style={{...statValue,color:tracking.propPL>=0?"#5eead4":"#fca5a5"}}>{signedMoney(tracking.propPL)}</div>
+                    <div style={statSub}>Saldo Prop live $ {fmt(tracking.propBalanceNow,2)}</div>
+                  </div>
+                  <div style={statCard}>
+                    <div style={statLabel}>P/L Broker live</div>
+                    <div style={{...statValue,color:tracking.brokerPL>=0?"#5eead4":"#fca5a5"}}>{signedMoney(tracking.brokerPL)}</div>
+                    <div style={statSub}>Confluisce nell'equity Broker centrale</div>
+                  </div>
+                  <div style={statCard}>
+                    <div style={statLabel}>P/L combinato</div>
+                    <div style={{...statValue,color:tracking.combinedPL>=0?"#5eead4":"#fca5a5"}}>{signedMoney(tracking.combinedPL)}</div>
+                    <div style={statSub}>Prop + sua copertura Broker</div>
+                  </div>
+                  <div style={statCard}>
+                    <div style={statLabel}>Esposizione Broker residua</div>
+                    <div style={{...statValue,color:"#fde68a"}}>$ {fmt(tracking.remainingBrokerLoss,2)}</div>
+                    <div style={statSub}>Perdita aggiuntiva teorica fino allo SL Broker</div>
+                  </div>
+                </div>
+
+                <div style={orderGrid}>
+                  <div style={statCard}>
+                    <div style={{fontWeight:900,fontSize:17,marginBottom:8}}>PROP — {ch.active.direction}</div>
+                    <div style={orderRow}><span>Lotti</span><b>{fmt(ch.active.propLots,3)}</b></div>
+                    <div style={orderRow}><span>TP</span><b>{fmt(ch.active.propTP,ch.active.decimals)}</b></div>
+                    <div style={orderRow}><span>SL</span><b>{fmt(ch.active.propSL,ch.active.decimals)}</b></div>
+                    <div style={orderRow}><span>Saldo iniziale</span><b>$ {fmt(ch.active.propBalanceStart,2)}</b></div>
+                  </div>
+                  <div style={statCard}>
+                    <div style={{fontWeight:900,fontSize:17,marginBottom:8}}>BROKER — {ch.active.brokerDirection}</div>
+                    <div style={orderRow}><span>Lotti</span><b>{fmt(ch.active.brokerLots,2)}</b></div>
+                    <div style={orderRow}><span>TP</span><b>{fmt(ch.active.brokerTP,ch.active.decimals)}</b></div>
+                    <div style={orderRow}><span>SL</span><b>{fmt(ch.active.brokerSL,ch.active.decimals)}</b></div>
+                    <div style={orderRow}><span>P/L live</span><b>{signedMoney(tracking.brokerPL)}</b></div>
+                  </div>
+                </div>
+
+                <div style={{...panel,marginTop:14,background:"rgba(2,6,23,.42)"}}>
+                  <div style={panelHeader}>
+                    <div>
+                      <h4 style={{...panelTitle,fontSize:17}}>Chiusura reale — {ch.name}</h4>
+                      <p style={panelSubtitle}>Lascia vuoto per usare il P/L teorico live, oppure inserisci quello reale.</p>
+                    </div>
+                  </div>
+                  <div style={grid2}>
+                    <TextNumberField
+                      label="P/L reale Prop ($)"
+                      value={ch.closePropPL}
+                      placeholder={signedMoney(tracking.propPL)}
+                      onChange={v=>setChallenge(ch.id,{closePropPL:v})}
+                    />
+                    <TextNumberField
+                      label="P/L reale Broker ($)"
+                      value={ch.closeBrokerPL}
+                      placeholder={signedMoney(tracking.brokerPL)}
+                      onChange={v=>setChallenge(ch.id,{closeBrokerPL:v})}
+                    />
+                  </div>
+                  <div style={{color:"#cbd5e1",fontSize:13}}>
+                    Se chiudi ora:
+                    <b style={{marginLeft:8}}>Prop → $ {fmt(
+                      ch.active.propBalanceStart + (ch.closePropPL === "" ? tracking.propPL : num(ch.closePropPL)),2
+                    )}</b>
+                    <b style={{marginLeft:16}}>Broker realizzato → $ {fmt(
+                      num(brokerBalance) + (ch.closeBrokerPL === "" ? tracking.brokerPL : num(ch.closeBrokerPL)),2
+                    )}</b>
+                  </div>
+                </div>
+
+                <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:14}}>
+                  <button
+                    onClick={()=>closeAndUpdate(ch.id)}
+                    style={{
+                      border:"none",borderRadius:14,padding:"12px 20px",cursor:"pointer",
+                      fontWeight:900,color:"#052e16",background:"linear-gradient(135deg,#4ade80,#22c55e)"
+                    }}
+                  >
+                    ✅ CHIUDI E AGGIORNA SALDI
+                  </button>
+                  <button
+                    onClick={()=>cancelTrade(ch.id)}
+                    style={{
+                      border:"1px solid rgba(248,113,113,.55)",borderRadius:14,padding:"12px 20px",
+                      cursor:"pointer",fontWeight:900,color:"#fecaca",background:"rgba(127,29,29,.35)"
+                    }}
+                  >
+                    ↩️ ANNULLA / RESET
+                  </button>
+                </div>
+              </>
+            )}
           </div>
-        </div>
-      )}
+        );
+      })}
 
       <div style={hintBox}>
-        Il monitor è teorico e usa il prezzo del feed, non il prezzo esatto di esecuzione del tuo broker/prop.
-        Spread, commissioni, swap, slippage e specifiche del contratto possono produrre differenze reali.
+        V7 Multi Challenge: le operazioni attive e i saldi vengono salvati nel browser.
+        Il quadro Broker usa un'esposizione residua conservativa, sommando le perdite potenziali delle coperture attive.
+        L'esposizione netta in lotti per asset è mostrata separatamente. Prezzi, P/L e saldi restano stime:
+        spread, commissioni, swap, slippage e specifiche dei contratti possono creare differenze reali.
       </div>
     </div>
   );
