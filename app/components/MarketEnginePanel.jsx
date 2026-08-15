@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import TradingViewChart from "./TradingViewChart";
 import {
   panel, panelHeader, panelTitle, panelSubtitle, input,
   primaryButtonBlue, secondaryButton, statCard, statLabel,
@@ -80,11 +81,21 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [targetChallengeId, setTargetChallengeId] = useState("");
+  const requestInFlightRef = useRef(false);
+  const lastRequestAtRef = useRef(0);
+  const [usingFallback, setUsingFallback] = useState(false);
 
   const analyze = async (force = false) => {
-    if (loading) return;
+    const now = Date.now();
+
+    if (requestInFlightRef.current) return;
+    if (!force && now - lastRequestAtRef.current < 15_000) return;
+
+    requestInFlightRef.current = true;
+    lastRequestAtRef.current = now;
     setLoading(true);
     setError("");
+    setUsingFallback(false);
 
     try {
       const r = await fetch(
@@ -92,11 +103,41 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
         { cache:"no-store" }
       );
       const j = await r.json();
-      if (!r.ok || !j?.ok) throw new Error(j?.error || "Analisi non disponibile");
+
+      if (!r.ok || !j?.ok) {
+        throw new Error(j?.error || "Analisi non disponibile");
+      }
+
       setData(j);
+
+      try {
+        localStorage.setItem(
+          `propMarketLastGood:${symbol}`,
+          JSON.stringify({ savedAt: Date.now(), data: j })
+        );
+      } catch {}
     } catch (e) {
-      setError(e?.message || "Errore Market Engine");
+      const message = e?.message || "Errore Market Engine";
+      let fallback = null;
+
+      try {
+        const raw = localStorage.getItem(`propMarketLastGood:${symbol}`);
+        if (raw) fallback = JSON.parse(raw);
+      } catch {}
+
+      if (fallback?.data?.ok) {
+        setData(fallback.data);
+        setUsingFallback(true);
+        setError(
+          message.includes("maximum requests")
+            ? "Massive rate limit: mostro l’ultima analisi valida salvata."
+            : `Feed temporaneamente non disponibile: mostro l’ultima analisi valida. (${message})`
+        );
+      } else {
+        setError(message);
+      }
     } finally {
+      requestInFlightRef.current = false;
       setLoading(false);
     }
   };
@@ -120,6 +161,13 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
 
   const propDirection = data?.combined?.propDirection || "WAIT";
   const signalStrength = data?.combined?.signalStrength || "INSUFFICIENT";
+
+  const signalUi = {
+    INSUFFICIENT: { label:"INSUFFICIENTE", color:"#fbbf24", bg:"rgba(180,83,9,.15)", border:"rgba(245,158,11,.50)", min:0, max:29 },
+    WEAK: { label:"DEBOLE", color:"#fb923c", bg:"rgba(194,65,12,.14)", border:"rgba(251,146,60,.50)", min:30, max:49 },
+    GOOD: { label:"BUONO", color:"#a3e635", bg:"rgba(77,124,15,.14)", border:"rgba(163,230,53,.48)", min:50, max:69 },
+    STRONG: { label:"OTTIMO", color:"#4ade80", bg:"rgba(22,101,52,.14)", border:"rgba(74,222,128,.50)", min:70, max:100 },
+  }[signalStrength] || { label:"INSUFFICIENTE", color:"#fbbf24", bg:"rgba(180,83,9,.15)", border:"rgba(245,158,11,.50)", min:0, max:29 };
   const canApplyDirection =
     propDirection !== "WAIT" &&
     signalStrength !== "INSUFFICIENT" &&
@@ -154,10 +202,19 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
           </p>
         </div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          <button style={secondaryButton} onClick={()=>analyze(false)}>
+          <button
+            style={{...secondaryButton,opacity:loading?.55:1}}
+            disabled={loading}
+            onClick={()=>analyze(false)}
+          >
             {loading ? "Analizzo…" : "↻ Aggiorna"}
           </button>
-          <button style={primaryButtonBlue} onClick={()=>analyze(true)}>
+          <button
+            style={{...primaryButtonBlue,opacity:loading?.55:1}}
+            disabled={loading}
+            onClick={()=>analyze(true)}
+            title="Bypassa la cache. Usa 2 chiamate Massive."
+          >
             Forza nuova analisi
           </button>
         </div>
@@ -165,12 +222,12 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
 
       <div style={{
         display:"grid",
-        gridTemplateColumns:"minmax(220px,320px) 1fr",
-        gap:14,
-        alignItems:"end",
+        gridTemplateColumns:"minmax(220px,.8fr) minmax(260px,1.1fr) minmax(310px,1.25fr) minmax(290px,1.1fr)",
+        gap:12,
+        alignItems:"stretch",
         marginBottom:14
       }}>
-        <div>
+        <div style={{display:"flex",flexDirection:"column",justifyContent:"center"}}>
           <label style={{display:"block",color:"#93c5fd",fontSize:13,marginBottom:6}}>Asset da analizzare</label>
           <select style={input} value={symbol} onChange={e=>setSymbol(e.target.value)}>
             {Object.entries(ASSETS).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
@@ -178,124 +235,245 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
         </div>
 
         <div style={{
-          padding:"14px 16px",
+          padding:"16px",
           borderRadius:16,
           background:theme.bg,
-          border:`1px solid ${theme.border}`
+          border:`1px solid ${theme.border}`,
+          display:"flex",
+          flexDirection:"column",
+          justifyContent:"center"
         }}>
-          <div style={{fontSize:12,color:"#94a3b8",fontWeight:800,letterSpacing:.6}}>MARKET BIAS</div>
-          <div style={{
-            display:"flex",
-            gap:12,
-            alignItems:"baseline",
-            flexWrap:"wrap",
-            marginTop:4
-          }}>
-            <div style={{fontSize:26,fontWeight:950,color:theme.color}}>
-              {theme.icon} {theme.label}
-            </div>
-            <div style={{fontSize:18,fontWeight:900,color:"#f8fafc"}}>
+          <div style={{fontSize:11,color:"#94a3b8",fontWeight:900,letterSpacing:.7}}>MARKET BIAS</div>
+          <div style={{fontSize:28,fontWeight:950,color:theme.color,marginTop:6}}>
+            {theme.icon} {theme.label}
+          </div>
+          <div style={{display:"flex",gap:12,flexWrap:"wrap",marginTop:10,alignItems:"baseline"}}>
+            <div style={{fontSize:22,fontWeight:950,color:"#f8fafc"}}>
               Score {fmt(data?.combined?.score,1)}
             </div>
-            <div style={{fontSize:14,fontWeight:800,color:"#cbd5e1"}}>
+            <div style={{fontSize:13,fontWeight:900,color:"#cbd5e1"}}>
               Confidence {fmt(data?.combined?.confidence,0)}/100
             </div>
+          </div>
+          <div style={{fontSize:10,color:"#94a3b8",marginTop:6}}>
+            Forza dello score, non probabilità statistica.
+          </div>
+        </div>
+
+        <div style={{
+          padding:"16px",
+          borderRadius:16,
+          border: propDirection === "BUY"
+            ? "1px solid rgba(45,212,191,.48)"
+            : propDirection === "SELL"
+              ? "1px solid rgba(248,113,113,.48)"
+              : "1px solid rgba(245,158,11,.42)",
+          background: propDirection === "BUY"
+            ? "linear-gradient(135deg,rgba(13,148,136,.12),rgba(15,23,42,.96))"
+            : propDirection === "SELL"
+              ? "linear-gradient(135deg,rgba(153,27,27,.16),rgba(15,23,42,.96))"
+              : "linear-gradient(135deg,rgba(180,83,9,.12),rgba(15,23,42,.96))",
+          display:"flex",
+          flexDirection:"column",
+          justifyContent:"center",
+          boxShadow: propDirection === "WAIT"
+            ? "none"
+            : `0 0 30px ${propDirection === "BUY" ? "rgba(45,212,191,.08)" : "rgba(248,113,113,.08)"}`
+        }}>
+          <div style={{fontSize:11,color:"#94a3b8",fontWeight:900,letterSpacing:.65}}>
+            🎯 DIREZIONE PROP — OPPOSTA AL BIAS
+          </div>
+
+          <div style={{
+            marginTop:4,
+            fontSize: propDirection === "WAIT" ? 24 : 48,
+            lineHeight:1,
+            fontWeight:1000,
+            letterSpacing:1,
+            color:
+              propDirection === "BUY" ? "#5eead4" :
+              propDirection === "SELL" ? "#fb7185" :
+              "#fde68a",
+            textShadow:
+              propDirection === "BUY" ? "0 0 22px rgba(45,212,191,.28)" :
+              propDirection === "SELL" ? "0 0 22px rgba(248,113,113,.28)" :
+              "none"
+          }}>
+            {propDirection === "WAIT"
+              ? "⚠️ ATTENDI"
+              : `${propDirection === "BUY" ? "▲" : "▼"} ${propDirection}`}
           </div>
 
           <div style={{
             marginTop:12,
-            padding:"12px 13px",
-            borderRadius:13,
-            border:"1px solid rgba(148,163,184,.24)",
-            background:"rgba(2,6,23,.34)"
+            padding:"9px 10px",
+            borderRadius:11,
+            background:"rgba(2,6,23,.40)",
+            border:"1px solid rgba(148,163,184,.16)",
+            color:"#cbd5e1",
+            fontSize:11
           }}>
-            <div style={{fontSize:11,color:"#94a3b8",fontWeight:800,letterSpacing:.55}}>
-              🎯 DIREZIONE PROP (opposta al bias)
-            </div>
-            <div style={{
-              marginTop:4,
-              fontSize:23,
-              fontWeight:950,
-              color:
-                propDirection === "BUY" ? "#5eead4" :
-                propDirection === "SELL" ? "#fca5a5" :
-                "#fde68a"
-            }}>
-              {propDirection === "WAIT"
-                ? "⚠️ ATTENDI — SEGNALE INSUFFICIENTE"
-                : `${propDirection === "BUY" ? "🟢" : "🔴"} ${propDirection}`}
-            </div>
-            <div style={{fontSize:11,color:"#94a3b8",marginTop:4}}>
-              Qualità segnale: <b style={{color:"#e2e8f0"}}>{signalStrength}</b>.
-              {" "}Sotto confidence 30/100 non viene proposta alcuna direzione.
-            </div>
+            {propDirection === "WAIT"
+              ? "Segnale insufficiente: nessuna direzione applicabile."
+              : "Direzione suggerita per la Prop con obiettivo movimento contrario verso SL."}
+          </div>
+        </div>
+
+        <div style={{
+          padding:"16px",
+          borderRadius:16,
+          border:`1px solid ${signalUi.border}`,
+          background:signalUi.bg,
+          display:"flex",
+          flexDirection:"column",
+          justifyContent:"center"
+        }}>
+          <div style={{fontSize:11,color:"#94a3b8",fontWeight:900,letterSpacing:.65}}>QUALITÀ DEL SEGNALE</div>
+          <div style={{
+            marginTop:6,
+            fontSize:28,
+            fontWeight:1000,
+            color:signalUi.color
+          }}>
+            {signalUi.label}
+          </div>
+          <div style={{fontSize:13,fontWeight:900,color:"#e2e8f0",marginTop:3}}>
+            Confidence {fmt(data?.combined?.confidence,0)}/100
           </div>
 
-          {challenges.length > 0 && (
-            <div style={{
-              display:"grid",
-              gridTemplateColumns:"minmax(170px,1fr) auto",
-              gap:8,
-              alignItems:"end",
-              marginTop:10
-            }}>
-              <div>
-                <label style={{display:"block",fontSize:10,color:"#94a3b8",marginBottom:4}}>
-                  Applica a challenge
-                </label>
-                <select
-                  style={{...input,marginBottom:0,padding:"8px 10px"}}
-                  value={targetChallengeId}
-                  onChange={e=>setTargetChallengeId(e.target.value)}
-                >
-                  {challenges.map(ch=>(
-                    <option key={ch.id} value={ch.id}>
-                      {ch.name || "Prop"}
-                    </option>
-                  ))}
-                </select>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4,marginTop:12}}>
+            {[
+              ["INSUFF.","0–29","#ef4444"],
+              ["DEBOLE","30–49","#f59e0b"],
+              ["BUONO","50–69","#84cc16"],
+              ["OTTIMO","70–100","#22c55e"]
+            ].map(([lab,range,color],i)=>(
+              <div key={lab} style={{textAlign:"center"}}>
+                <div style={{
+                  height:8,
+                  borderRadius:999,
+                  background:color,
+                  opacity:
+                    (signalStrength==="INSUFFICIENT"&&i===0) ||
+                    (signalStrength==="WEAK"&&i===1) ||
+                    (signalStrength==="GOOD"&&i===2) ||
+                    (signalStrength==="STRONG"&&i===3) ? 1 : .28,
+                  boxShadow:
+                    (signalStrength==="INSUFFICIENT"&&i===0) ||
+                    (signalStrength==="WEAK"&&i===1) ||
+                    (signalStrength==="GOOD"&&i===2) ||
+                    (signalStrength==="STRONG"&&i===3) ? `0 0 10px ${color}` : "none"
+                }} />
+                <div style={{fontSize:9,fontWeight:900,color:"#cbd5e1",marginTop:4}}>{lab}</div>
+                <div style={{fontSize:8,color:"#64748b"}}>{range}</div>
               </div>
-
-              <button
-                style={{
-                  ...primaryButtonBlue,
-                  opacity: canApplyDirection ? 1 : .45,
-                  cursor: canApplyDirection ? "pointer" : "not-allowed",
-                  whiteSpace:"nowrap"
-                }}
-                disabled={!canApplyDirection}
-                onClick={()=>{
-                  if (canApplyDirection) {
-                    onApplyDirection(targetChallengeId, propDirection);
-                  }
-                }}
-              >
-                🎯 USA DIREZIONE MARKET ENGINE
-              </button>
-            </div>
-          )}
-
-          <div style={{fontSize:11,color:"#94a3b8",marginTop:8}}>
-            La confidence è forza dello score, NON una probabilità statistica di successo.
+            ))}
           </div>
         </div>
       </div>
+
+      {challenges.length > 0 && (
+        <div style={{
+          display:"grid",
+          gridTemplateColumns:"minmax(180px,320px) auto",
+          gap:8,
+          alignItems:"end",
+          marginBottom:14
+        }}>
+          <div>
+            <label style={{display:"block",fontSize:10,color:"#94a3b8",marginBottom:4}}>
+              Applica direzione a challenge
+            </label>
+            <select
+              style={{...input,marginBottom:0,padding:"9px 10px"}}
+              value={targetChallengeId}
+              onChange={e=>setTargetChallengeId(e.target.value)}
+            >
+              {challenges.map(ch=>(
+                <option key={ch.id} value={ch.id}>
+                  {ch.name || "Prop"}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <button
+            style={{
+              ...primaryButtonBlue,
+              opacity: canApplyDirection ? 1 : .45,
+              cursor: canApplyDirection ? "pointer" : "not-allowed",
+              whiteSpace:"nowrap"
+            }}
+            disabled={!canApplyDirection}
+            onClick={()=>{
+              if (canApplyDirection) {
+                onApplyDirection(targetChallengeId, propDirection);
+              }
+            }}
+          >
+            🎯 USA DIREZIONE MARKET ENGINE
+          </button>
+        </div>
+      )}
 
       {error && (
         <div style={{
           padding:"12px 14px",
           borderRadius:14,
-          border:"1px solid rgba(239,68,68,.45)",
-          background:"rgba(127,29,29,.18)",
-          color:"#fecaca",
+          border: usingFallback ? "1px solid rgba(245,158,11,.45)" : "1px solid rgba(239,68,68,.45)",
+          background: usingFallback ? "rgba(180,83,9,.14)" : "rgba(127,29,29,.18)",
+          color: usingFallback ? "#fde68a" : "#fecaca",
           marginBottom:14
         }}>
-          ❌ {error}
+          {usingFallback ? "⚠️" : "❌"} {error}
+          {usingFallback && (
+            <div style={{fontSize:11,marginTop:4,opacity:.9}}>
+              La War Room mostra l’ultima analisi valida invece di azzerarsi.
+            </div>
+          )}
         </div>
       )}
 
       {data && (
         <>
+          <div style={{
+            marginBottom:14,
+            padding:"12px",
+            borderRadius:16,
+            border:"1px solid rgba(56,189,248,.26)",
+            background:"rgba(2,6,23,.55)",
+            overflow:"hidden"
+          }}>
+            <div style={{
+              display:"flex",
+              justifyContent:"space-between",
+              alignItems:"center",
+              gap:10,
+              flexWrap:"wrap",
+              marginBottom:9
+            }}>
+              <div>
+                <div style={{fontSize:13,fontWeight:950,color:"#e2e8f0"}}>
+                  📈 TradingView — {ASSETS[symbol] || symbol}
+                </div>
+                <div style={{fontSize:10,color:"#64748b",marginTop:2}}>
+                  Grafico visuale sincronizzato con l'asset selezionato nel Market Engine.
+                </div>
+              </div>
+              <div style={{
+                fontSize:10,
+                color:"#93c5fd",
+                border:"1px solid rgba(59,130,246,.28)",
+                background:"rgba(30,64,175,.10)",
+                padding:"5px 8px",
+                borderRadius:999
+              }}>
+                TradingView Advanced Chart
+              </div>
+            </div>
+            <TradingViewChart symbol={symbol} />
+          </div>
+
           <div style={statsGrid}>
             {tfOrder.map(tf => {
               const x = data.timeframes?.[tf];
@@ -440,6 +618,7 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
             {" • "}
             Generata: {data.generatedAt ? new Date(data.generatedAt).toLocaleString("it-IT") : "—"}
             {data.cache ? " • cache Vercel" : ""}
+            {Number.isFinite(Number(data.apiCallsUsed)) ? ` • ${data.apiCallsUsed} chiamate Massive` : ""}
           </div>
         </>
       )}
@@ -449,7 +628,8 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
         I timeframe anormalmente vecchi rispetto agli altri vengono marcati OBSOLETI ed esclusi dallo score.
         La "Direzione Prop" è volutamente opposta al bias di mercato e richiede conferma manuale tramite pulsante.
         Lo score è descrittivo e non costituisce previsione certa, segnale operativo o consulenza finanziaria.
-        Sul piano gratuito Massive l'analisi usa cache di 2 minuti per non bruciare il limite API.
+        La V10.2 usa solo 2 chiamate Massive per analisi: M15 + H1; H4 e D1 vengono aggregati localmente.
+        Cache 2 minuti, blocco anti-doppia richiesta e fallback sull'ultima analisi valida proteggono dal rate limit.
       </div>
     </div>
   );
