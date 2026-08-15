@@ -27,9 +27,15 @@ const SYMBOLS = {
 function pickQuote(payload) {
   const rows = Array.isArray(payload) ? payload : [payload];
   for (const row of rows) {
-    const spread = row?.spreadProfilePrices?.[0] || row?.spreadProfilePrice || row;
-    const bid = Number(spread?.bid ?? row?.bid);
-    const ask = Number(spread?.ask ?? row?.ask);
+    const prices = row?.spreadProfilePrices;
+    if (Array.isArray(prices) && prices.length) {
+      const preferred = prices.find(p => p?.spreadProfile === "elite") || prices[0];
+      const bid = Number(preferred?.bid);
+      const ask = Number(preferred?.ask);
+      if (Number.isFinite(bid) && Number.isFinite(ask)) return { bid, ask, price: (bid + ask) / 2 };
+    }
+    const bid = Number(row?.bid);
+    const ask = Number(row?.ask);
     if (Number.isFinite(bid) && Number.isFinite(ask)) return { bid, ask, price: (bid + ask) / 2 };
     const price = Number(row?.price ?? row?.last ?? row?.mid);
     if (Number.isFinite(price)) return { bid: null, ask: null, price };
@@ -37,33 +43,66 @@ function pickQuote(payload) {
   return null;
 }
 
+async function getPair(base, quote) {
+  const url = `https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/${encodeURIComponent(base)}/${encodeURIComponent(quote)}`;
+  const res = await fetch(url, {
+    cache: "no-store",
+    headers: { accept: "application/json", "user-agent": "ProfitTracker/1.0" }
+  });
+  if (!res.ok) throw new Error(`Feed ${base}/${quote} HTTP ${res.status}`);
+  const payload = await res.json();
+  const q = pickQuote(payload);
+  if (!q) throw new Error(`Formato prezzo ${base}/${quote} non riconosciuto`);
+  return q;
+}
+
+async function getQuoteToUsd(quote) {
+  if (quote === "USD") return 1;
+
+  // Prima prova QUOTE/USD.
+  try {
+    const direct = await getPair(quote, "USD");
+    if (direct.price > 0) return direct.price;
+  } catch {}
+
+  // Poi prova USD/QUOTE e inverte.
+  const inverse = await getPair("USD", quote);
+  if (!inverse.price || inverse.price <= 0) throw new Error(`Conversione ${quote}->USD non disponibile`);
+  return 1 / inverse.price;
+}
+
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const symbol = (searchParams.get("symbol") || "XAUUSD").toUpperCase();
   const pair = SYMBOLS[symbol];
+
   if (!pair) {
     return Response.json({ error: "Asset non supportato" }, { status: 400 });
   }
 
   const [base, quote] = pair;
-  const url = `https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/${encodeURIComponent(base)}/${encodeURIComponent(quote)}`;
 
   try {
-    const res = await fetch(url, {
-      cache: "no-store",
-      headers: { "accept": "application/json", "user-agent": "ProfitTracker/1.0" }
-    });
-    if (!res.ok) throw new Error(`Feed HTTP ${res.status}`);
-    const payload = await res.json();
-    const q = pickQuote(payload);
-    if (!q) throw new Error("Formato prezzo non riconosciuto");
+    const [q, quoteToUsd] = await Promise.all([
+      getPair(base, quote),
+      getQuoteToUsd(quote)
+    ]);
 
     return Response.json({
-      symbol, ...q, source: "Swissquote", time: new Date().toISOString()
+      symbol,
+      ...q,
+      quoteToUsd,
+      source: "Swissquote",
+      time: new Date().toISOString()
     }, {
-      headers: { "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate" }
+      headers: {
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate"
+      }
     });
   } catch (e) {
-    return Response.json({ error: e?.message || "Feed non disponibile", symbol }, { status: 502 });
+    return Response.json({
+      error: e?.message || "Feed non disponibile",
+      symbol
+    }, { status: 502 });
   }
 }
