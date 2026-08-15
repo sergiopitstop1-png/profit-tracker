@@ -35,7 +35,8 @@ export default function TradingViewChart({ symbol = "XAUUSD" }) {
 
     const widget = document.createElement("div");
     widget.className = "tradingview-widget-container__widget";
-    widget.style.height = "calc(100% - 26px)";
+    widget.style.height = "100%";
+    widget.style.minHeight = "1000px";
     widget.style.width = "100%";
     container.current.appendChild(widget);
 
