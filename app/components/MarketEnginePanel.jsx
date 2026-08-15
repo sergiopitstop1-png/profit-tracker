@@ -84,13 +84,16 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
   const requestInFlightRef = useRef(false);
   const lastRequestAtRef = useRef(0);
   const [usingFallback, setUsingFallback] = useState(false);
+  const activeSymbolRef = useRef(symbol);
 
-  const analyze = async (force = false) => {
+  const analyze = async (force = false, requestedSymbol = symbol) => {
     const now = Date.now();
 
-    if (requestInFlightRef.current) return;
-    if (!force && now - lastRequestAtRef.current < 15_000) return;
+    // Evita doppie richieste sullo stesso asset, ma non blocca un vero cambio asset.
+    if (requestInFlightRef.current && requestedSymbol === activeSymbolRef.current) return;
+    if (!force && requestedSymbol === activeSymbolRef.current && now - lastRequestAtRef.current < 15_000) return;
 
+    activeSymbolRef.current = requestedSymbol;
     requestInFlightRef.current = true;
     lastRequestAtRef.current = now;
     setLoading(true);
@@ -99,7 +102,7 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
 
     try {
       const r = await fetch(
-        `/api/market-analysis?symbol=${encodeURIComponent(symbol)}${force ? "&force=1" : ""}`,
+        `/api/market-analysis?symbol=${encodeURIComponent(requestedSymbol)}${force ? "&force=1" : ""}`,
         { cache:"no-store" }
       );
       const j = await r.json();
@@ -108,20 +111,26 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
         throw new Error(j?.error || "Analisi non disponibile");
       }
 
+      // Se nel frattempo l'utente ha cambiato di nuovo asset,
+      // non mostriamo mai la risposta del simbolo precedente.
+      if (activeSymbolRef.current !== requestedSymbol) return;
+
       setData(j);
 
       try {
         localStorage.setItem(
-          `propMarketLastGood:${symbol}`,
+          `propMarketLastGood:${requestedSymbol}`,
           JSON.stringify({ savedAt: Date.now(), data: j })
         );
       } catch {}
     } catch (e) {
+      if (activeSymbolRef.current !== requestedSymbol) return;
+
       const message = e?.message || "Errore Market Engine";
       let fallback = null;
 
       try {
-        const raw = localStorage.getItem(`propMarketLastGood:${symbol}`);
+        const raw = localStorage.getItem(`propMarketLastGood:${requestedSymbol}`);
         if (raw) fallback = JSON.parse(raw);
       } catch {}
 
@@ -130,21 +139,32 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
         setUsingFallback(true);
         setError(
           message.includes("maximum requests")
-            ? "Massive rate limit: mostro l’ultima analisi valida salvata."
-            : `Feed temporaneamente non disponibile: mostro l’ultima analisi valida. (${message})`
+            ? "Massive rate limit: mostro l’ultima analisi valida salvata per questo asset."
+            : `Feed temporaneamente non disponibile: mostro l’ultima analisi valida di ${requestedSymbol}. (${message})`
         );
       } else {
+        setData(null);
         setError(message);
       }
     } finally {
-      requestInFlightRef.current = false;
-      setLoading(false);
+      if (activeSymbolRef.current === requestedSymbol) {
+        requestInFlightRef.current = false;
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    analyze(false);
-    const id = setInterval(() => analyze(false), 120000);
+    // Cambio asset: cancella subito il vecchio segnale e analizza il nuovo simbolo.
+    activeSymbolRef.current = symbol;
+    lastRequestAtRef.current = 0;
+    setData(null);
+    setError("");
+    setUsingFallback(false);
+
+    analyze(false, symbol);
+
+    const id = setInterval(() => analyze(false, symbol), 120000);
     return () => clearInterval(id);
   }, [symbol]);
 
@@ -219,6 +239,23 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
           </button>
         </div>
       </div>
+
+      {loading && !data && (
+        <div style={{
+          marginBottom:14,
+          padding:"15px 16px",
+          borderRadius:15,
+          border:"1px solid rgba(56,189,248,.34)",
+          background:"rgba(14,116,144,.08)",
+          color:"#bae6fd",
+          fontWeight:900
+        }}>
+          ⏳ Analisi {ASSETS[symbol] || symbol} in corso…
+          <div style={{fontSize:11,fontWeight:600,color:"#94a3b8",marginTop:4}}>
+            Il vecchio segnale è stato nascosto per evitare di associare un'analisi all'asset sbagliato.
+          </div>
+        </div>
+      )}
 
       <div style={{
         display:"grid",
