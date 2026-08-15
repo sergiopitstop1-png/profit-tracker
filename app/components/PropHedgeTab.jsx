@@ -67,6 +67,7 @@ function makeChallenge(name, id) {
     slPoints: "700",
     tpProp: "10000",
     leverage: "20",
+    maxMarginPct: "50",
     accountBalance: "100000",
     ddMax: "6",
     brokerExposure: "0",
@@ -110,6 +111,9 @@ function calcChallenge(ch, live) {
     ? ((propLots * a.contract * px) / lev / account) * 100
     : 0;
 
+  const maxMarginPct = num(ch.maxMarginPct || "50");
+  const marginExceeded = maxMarginPct > 0 && marginPct > maxMarginPct;
+
   // Formula Broker:
   // quota base per tentativo = (Costo Prop + Guadagno finale desiderato + Esposizione Broker accumulata) / Tiri disponibili
   // TP Broker = quota base × 1,10 per buffer spread/slippage.
@@ -141,7 +145,7 @@ function calcChallenge(ch, live) {
 
   return {
     a, px, quoteToUsd, burnBalance, ddResidual, riskPct, shots,
-    propLots, marginPct, brokerBasePerShot, brokerTpDollars, slMove, tpMove,
+    propLots, marginPct, maxMarginPct, marginExceeded, brokerBasePerShot, brokerTpDollars, slMove, tpMove,
     brokerLotsRaw, brokerLots, propSL, propTPPrice, brokerDirection,
     brokerTP, brokerSL, maxBrokerLoss, brokerProfitAtPropSL
   };
@@ -213,7 +217,8 @@ export default function PropHedgeTab() {
         if (Array.isArray(parsed) && parsed.length) {
           setChallenges(parsed.map(ch => ({
             ...ch,
-            finalProfitTarget: ch.finalProfitTarget ?? ch.brokerProfitTarget ?? ch.expectedGain ?? "400"
+            finalProfitTarget: ch.finalProfitTarget ?? ch.brokerProfitTarget ?? ch.expectedGain ?? "400",
+            maxMarginPct: ch.maxMarginPct ?? "50"
           })));
         }
       }
@@ -453,7 +458,16 @@ export default function PropHedgeTab() {
   };
 
   return (
-    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+    <>
+      <style>{`
+        @keyframes propMarginBlink {
+          0%, 100% { opacity: 1; text-shadow: 0 0 0 rgba(239,68,68,0); }
+          50% { opacity: .28; text-shadow: 0 0 16px rgba(239,68,68,.95); }
+        }
+        .prop-margin-alert-blink { animation: propMarginBlink .85s infinite; }
+        .prop-margin-alert-box { animation: propMarginBlink 1.15s infinite; }
+      `}</style>
+      <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
       <div style={{ display:"flex", justifyContent:"space-between", gap:12, flexWrap:"wrap", alignItems:"flex-start" }}>
         <div>
           <h2 style={sectionTitle}>📈 Prop Hedge — Multi Challenge</h2>
@@ -600,6 +614,7 @@ export default function PropHedgeTab() {
                   <TextNumberField label="SL Distance (punti)" value={ch.slPoints} onChange={v=>setChallenge(ch.id,{slPoints:v})} />
                   <TextNumberField label="TP Prop ($)" value={ch.tpProp} onChange={v=>setChallenge(ch.id,{tpProp:v})} />
                   <TextNumberField label="Leva" value={ch.leverage} onChange={v=>setChallenge(ch.id,{leverage:v})} />
+                  <TextNumberField label="Margine massimo consentito (%)" value={ch.maxMarginPct ?? "50"} onChange={v=>setChallenge(ch.id,{maxMarginPct:v})} />
                   <TextNumberField label="Esposizione Broker attuale ($)" value={ch.brokerExposure} onChange={v=>setChallenge(ch.id,{brokerExposure:v})} />
 
                   <div>
@@ -640,12 +655,52 @@ export default function PropHedgeTab() {
                   <div style={statCard}><div style={statLabel}>Lotti Prop</div><div style={statValue}>{fmt(c.propLots,3)}</div><div style={statSub}>Rischio / SL Distance</div></div>
                   <div style={statCard}><div style={statLabel}>DD residuo</div><div style={statValue}>$ {fmt(c.ddResidual,2)}</div><div style={statSub}>Rottura a $ {fmt(c.burnBalance,2)}</div></div>
                   <div style={statCard}><div style={statLabel}>Tiri disponibili</div><div style={statValue}>{fmt(c.shots,2)}</div><div style={statSub}>DD residuo / rischio per trade</div></div>
-                  <div style={statCard}><div style={statLabel}>Margine utilizzato</div><div style={statValue}>{fmt(c.marginPct,2)}%</div><div style={statSub}>Stima sul saldo Prop</div></div>
+                  <div style={{
+                    ...statCard,
+                    ...(c.marginExceeded ? {
+                      border: "1px solid rgba(239,68,68,.75)",
+                      boxShadow: "0 0 0 1px rgba(239,68,68,.16) inset, 0 0 24px rgba(239,68,68,.12)"
+                    } : {})
+                  }}>
+                    <div style={statLabel}>Margine utilizzato</div>
+                    <div
+                      className={c.marginExceeded ? "prop-margin-alert-blink" : ""}
+                      style={{
+                        ...statValue,
+                        color: c.marginExceeded ? "#ff4d5f" : "#f8fafc"
+                      }}
+                    >
+                      {fmt(c.marginPct,2)}%
+                    </div>
+                    <div style={{
+                      ...statSub,
+                      color: c.marginExceeded ? "#fca5a5" : "#aab8ce"
+                    }}>
+                      Limite Prop: {fmt(c.maxMarginPct,2)}%
+                    </div>
+                  </div>
                   <div style={statCard}><div style={statLabel}>TP Broker target ($)</div><div style={statValue}>$ {fmt(c.brokerTpDollars,2)}</div><div style={statSub}>[(Costo Prop + Guadagno finale + Esposizione) / Tiri] × 1,10</div></div>
                   <div style={statCard}><div style={statLabel}>Lotti Broker</div><div style={{...statValue,color:"#5eead4"}}>{fmt(c.brokerLots,2)}</div><div style={statSub}>Teorici {fmt(c.brokerLotsRaw,3)}</div></div>
                   <div style={statCard}><div style={statLabel}>Profitto Broker se Prop va in SL</div><div style={{...statValue,color:"#5eead4"}}>+$ {fmt(c.brokerProfitAtPropSL,2)}</div><div style={statSub}>Risultato teorico della copertura</div></div>
                   <div style={statCard}><div style={statLabel}>Perdita max Broker</div><div style={{...statValue,color:"#fca5a5"}}>−$ {fmt(c.maxBrokerLoss,2)}</div><div style={statSub}>Se questa Prop raggiunge il TP</div></div>
                 </div>
+
+                {c.marginExceeded && (
+                  <div className="prop-margin-alert-box" style={{
+                    marginTop:14,
+                    padding:"13px 15px",
+                    borderRadius:15,
+                    background:"rgba(127,29,29,.28)",
+                    border:"1px solid rgba(239,68,68,.72)",
+                    color:"#fecaca",
+                    fontWeight:900
+                  }}>
+                    🚨 MARGINE MASSIMO SUPERATO — {fmt(c.marginPct,2)}% utilizzato su un massimo consentito di {fmt(c.maxMarginPct,2)}%.
+                    <div style={{fontSize:12,fontWeight:650,marginTop:5}}>
+                      Riduci i lotti / il rischio oppure aumenta la distanza dello SL prima di piazzare.
+                    </div>
+                  </div>
+                )}
 
                 <div style={orderGrid}>
                   <div style={statCard}>
@@ -816,5 +871,6 @@ export default function PropHedgeTab() {
         spread, commissioni, swap, slippage e specifiche dei contratti possono creare differenze reali.
       </div>
     </div>
+    </>
   );
 }
