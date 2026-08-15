@@ -600,6 +600,27 @@ export default function PropHedgeTab() {
     setChallenges(prev => prev.filter(ch => ch.id !== id));
   };
 
+
+  const challengeExposureMap = useMemo(() => {
+    const result = {};
+
+    for (const ch of challenges) {
+      const matching = historyRows.filter(row => {
+        if (row.challenge_id) return row.challenge_id === ch.id;
+        return row.prop_name === ch.name;
+      });
+
+      const brokerNet = matching.reduce(
+        (sum, row) => sum + Number(row.broker_pl || 0),
+        0
+      );
+
+      result[ch.id] = Math.max(0, -brokerNet);
+    }
+
+    return result;
+  }, [historyRows, challenges]);
+
   const calcs = useMemo(() => {
     const map = {};
     for (const ch of challenges) {
@@ -882,25 +903,6 @@ export default function PropHedgeTab() {
     [historyRows]
   );
 
-  const challengeExposureMap = useMemo(() => {
-    const result = {};
-
-    for (const ch of challenges) {
-      const matching = historyRows.filter(row => {
-        if (row.challenge_id) return row.challenge_id === ch.id;
-        return row.prop_name === ch.name;
-      });
-
-      const brokerNet = matching.reduce(
-        (sum, row) => sum + Number(row.broker_pl || 0),
-        0
-      );
-
-      result[ch.id] = Math.max(0, -brokerNet);
-    }
-
-    return result;
-  }, [historyRows, challenges]);
 
   const safetyStyle = {
     green: { icon:"🟢", title:"CAPITALE SUFFICIENTE", bg:"rgba(34,197,94,.12)", border:"rgba(34,197,94,.45)", color:"#86efac" },
