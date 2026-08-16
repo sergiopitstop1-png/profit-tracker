@@ -81,6 +81,7 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [targetChallengeId, setTargetChallengeId] = useState("");
+  const [directionModeByChallenge, setDirectionModeByChallenge] = useState({});
   const requestInFlightRef = useRef(false);
   const lastRequestAtRef = useRef(0);
   const [usingFallback, setUsingFallback] = useState(false);
@@ -188,17 +189,21 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
     GOOD: { label:"BUONO", color:"#a3e635", bg:"rgba(77,124,15,.14)", border:"rgba(163,230,53,.48)", min:50, max:69 },
     STRONG: { label:"OTTIMO", color:"#4ade80", bg:"rgba(22,101,52,.14)", border:"rgba(74,222,128,.50)", min:70, max:100 },
   }[signalStrength] || { label:"INSUFFICIENTE", color:"#fbbf24", bg:"rgba(180,83,9,.15)", border:"rgba(245,158,11,.50)", min:0, max:29 };
-  const canApplyDirection =
-    propDirection !== "WAIT" &&
-    signalStrength !== "INSUFFICIENT" &&
+  // I tre pulsanti funzionano come un selettore di modalità.
+  // Anche MARKET ENGINE resta selezionabile con segnale insufficiente: in quel caso applica WAIT.
+  const canChooseDirection =
     !!targetChallengeId &&
     typeof onApplyDirection === "function";
 
-  // La scelta manuale resta sempre disponibile quando è selezionata una challenge.
-  // Non dipende dalla qualità del segnale: il Market Engine rimane consultivo.
-  const canApplyManualDirection =
-    !!targetChallengeId &&
-    typeof onApplyDirection === "function";
+  const selectedDirectionMode = targetChallengeId
+    ? (directionModeByChallenge[targetChallengeId] || "ENGINE")
+    : "ENGINE";
+
+  const chooseDirectionMode = (mode, direction) => {
+    if (!canChooseDirection) return;
+    setDirectionModeByChallenge(prev => ({ ...prev, [targetChallengeId]: mode }));
+    onApplyDirection(targetChallengeId, direction);
+  };
 
   const formatBarTime = (ts) => {
     if (!Number.isFinite(Number(ts))) return "—";
@@ -444,16 +449,19 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
             <button
               style={{
                 ...primaryButtonBlue,
-                opacity: canApplyDirection ? 1 : .45,
-                cursor: canApplyDirection ? "pointer" : "not-allowed",
+                opacity: !canChooseDirection ? .45 : selectedDirectionMode === "ENGINE" ? .45 : 1,
+                cursor: !canChooseDirection || selectedDirectionMode === "ENGINE" ? "default" : "pointer",
+                filter: selectedDirectionMode === "ENGINE" ? "brightness(.62) saturate(.72)" : "none",
+                boxShadow: selectedDirectionMode === "ENGINE" ? "inset 0 0 0 1px rgba(148,163,184,.20)" : undefined,
                 whiteSpace:"nowrap"
               }}
-              disabled={!canApplyDirection}
-              onClick={()=>{
-                if (canApplyDirection) {
-                  onApplyDirection(targetChallengeId, propDirection);
-                }
-              }}
+              disabled={!canChooseDirection || selectedDirectionMode === "ENGINE"}
+              onClick={()=>chooseDirectionMode("ENGINE", propDirection === "WAIT" ? "WAIT" : propDirection)}
+              title={selectedDirectionMode === "ENGINE"
+                ? "Market Engine già selezionato"
+                : propDirection === "WAIT"
+                  ? "Torna al Market Engine: la Prop passerà in WAIT finché non arriva un segnale valido."
+                  : `Torna al Market Engine e applica ${propDirection}.`}
             >
               🎯 USA DIREZIONE MARKET ENGINE
             </button>
@@ -465,16 +473,14 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
                 background:"rgba(13,148,136,.14)",
                 color:"#5eead4",
                 fontWeight:900,
-                opacity: canApplyManualDirection ? 1 : .45,
-                cursor: canApplyManualDirection ? "pointer" : "not-allowed",
+                opacity: !canChooseDirection ? .45 : selectedDirectionMode === "BUY" ? .45 : 1,
+                cursor: !canChooseDirection || selectedDirectionMode === "BUY" ? "default" : "pointer",
+                filter: selectedDirectionMode === "BUY" ? "brightness(.58) saturate(.65)" : "none",
+                boxShadow: selectedDirectionMode === "BUY" ? "inset 0 0 0 1px rgba(45,212,191,.18)" : undefined,
                 whiteSpace:"nowrap"
               }}
-              disabled={!canApplyManualDirection}
-              onClick={()=>{
-                if (canApplyManualDirection) {
-                  onApplyDirection(targetChallengeId, "BUY");
-                }
-              }}
+              disabled={!canChooseDirection || selectedDirectionMode === "BUY"}
+              onClick={()=>chooseDirectionMode("BUY", "BUY")}
             >
               🟢 BUY MANUALE
             </button>
@@ -486,16 +492,14 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
                 background:"rgba(185,28,28,.14)",
                 color:"#fca5a5",
                 fontWeight:900,
-                opacity: canApplyManualDirection ? 1 : .45,
-                cursor: canApplyManualDirection ? "pointer" : "not-allowed",
+                opacity: !canChooseDirection ? .45 : selectedDirectionMode === "SELL" ? .45 : 1,
+                cursor: !canChooseDirection || selectedDirectionMode === "SELL" ? "default" : "pointer",
+                filter: selectedDirectionMode === "SELL" ? "brightness(.58) saturate(.65)" : "none",
+                boxShadow: selectedDirectionMode === "SELL" ? "inset 0 0 0 1px rgba(248,113,113,.18)" : undefined,
                 whiteSpace:"nowrap"
               }}
-              disabled={!canApplyManualDirection}
-              onClick={()=>{
-                if (canApplyManualDirection) {
-                  onApplyDirection(targetChallengeId, "SELL");
-                }
-              }}
+              disabled={!canChooseDirection || selectedDirectionMode === "SELL"}
+              onClick={()=>chooseDirectionMode("SELL", "SELL")}
             >
               🔴 SELL MANUALE
             </button>
