@@ -41,6 +41,14 @@ function RegisterForm() {
         await supabase.from("user_profiles").update({ full_name: name }).eq("id", data.user.id);
       }
 
+      // Avvisa Sergio della nuova iscrizione — "fire and forget": se questa
+      // chiamata fallisce non deve mai bloccare la registrazione dell'utente.
+      fetch("/api/pronox/notify-signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      }).catch(() => {});
+
       // Se la conferma email è disattivata su Supabase, la sessione è già attiva qui
       await supabase.auth.getSession();
       window.location.href = from;
