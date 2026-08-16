@@ -33,9 +33,10 @@ async function performDeletion(email: string) {
   // Cancella prima l'utente Auth (blocca subito login/sessioni attive),
   // poi la riga profilo. Se una delle due fallisce perché già rimossa da
   // un cascade automatico, va bene comunque: l'obiettivo finale è che non
-  // resti nulla.
+  // resti nulla. Le query Supabase non lanciano eccezioni (restituiscono
+  // {error} invece di rigettare la Promise), quindi non serve .catch() qui.
   await supabase.auth.admin.deleteUser(profile.id).catch(() => {});
-  await supabase.from("user_profiles").delete().eq("id", profile.id).catch(() => {});
+  await supabase.from("user_profiles").delete().eq("id", profile.id);
 
   return { ok: true as const };
 }
