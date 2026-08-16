@@ -4,6 +4,7 @@
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
 import { notifyAdmin } from "@/lib/notifyAdmin"; // alias assoluto: se il tuo progetto non ha "@/*" configurato in tsconfig.json, vedi nota sotto
+import { sendFarewellEmail } from "@/lib/sendFarewellEmail";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -84,6 +85,7 @@ export async function POST(request: Request) {
   }
 
   await notifyAdmin("cancellazione", email);
+  await sendFarewellEmail(email);
 
   return htmlResponse(
     200,
