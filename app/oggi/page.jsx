@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createClient } from "../../lib/supabase-browser";
+import UserGreeting from "../components/UserGreeting"; // app/components/ sta un livello sopra app/oggi/
 
 const API_FD = "/api/footballdata";
 const API_ODDS = "/api/odds";
@@ -790,12 +791,15 @@ export default function Oggi() {
         <div style={{ fontSize: 11, color: "#6b7490", marginBottom: 12, letterSpacing: "0.08em" }}>
           © Sergio Apicella · PronoX 2026
         </div>
-        <div style={{ display: "flex", gap: 16, marginBottom: 20 }}>
+        <div style={{ display: "flex", gap: 16, marginBottom: 20, alignItems: "center" }}>
           <a href="/" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>← home</a>
           <a href="/pronosticatore" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>⚽ analisi manuale</a>
           <a href="/archivio" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>📊 archivio</a>
           <a href="/storico-pronostici" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>📈 storico</a>
           <a href="/piano" style={{ fontSize: 12, color: "#c8f135", textDecoration: "none", fontWeight: 700 }}>🎯 piano</a>
+          <div style={{ marginLeft: "auto" }}>
+            <UserGreeting />
+          </div>
         </div>
 
         <div style={{ background: "#161920", border: "1px solid #2a2f3f", borderRadius: 14, padding: 20, marginBottom: 16 }}>
