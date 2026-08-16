@@ -6,6 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { notifyAdmin } from "@/lib/notifyAdmin"; // alias assoluto: se il tuo progetto non ha "@/*" configurato in tsconfig.json, vedi nota sotto
+import { sendFarewellEmail } from "@/lib/sendFarewellEmail";
 
 export async function POST() {
   const cookieStore = await cookies();
@@ -53,6 +54,7 @@ export async function POST() {
   }
 
   await notifyAdmin("cancellazione", userEmail);
+  await sendFarewellEmail(userEmail);
 
   return NextResponse.json({ ok: true });
 }
