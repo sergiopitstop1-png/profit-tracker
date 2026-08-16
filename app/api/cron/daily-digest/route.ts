@@ -662,10 +662,9 @@ function buildEmailHtml(yesterdayResults: any[], tomorrowPicks: any[], yesterday
       </div>
 
       <p style="text-align:center;color:#4a4f5c;font-size:11px;margin-top:24px;">
-        Non vuoi più ricevere questa mail?
-        <a href="{{UNSUB_LINK}}" style="color:#6b7490;">Disiscriviti</a>
-        ·
-        <a href="{{DELETE_LINK}}" style="color:#6b7490;">Elimina account</a>
+        <a href="{{UNSUB_LINK}}" style="color:#6b7490;">Non ricevere più questa mail (resti iscritto a PronoX)</a>
+        <br style="margin-top:6px;" />
+        <a href="{{DELETE_LINK}}" style="color:#6b7490;">Elimina il mio account PronoX</a>
       </p>
     </div>
   </div>`;
