@@ -72,6 +72,14 @@ function makeChallenge(name, id) {
     maxMarginPct: "50",
     accountBalance: "100000",
     ddMax: "6",
+    dailyDdPct: "3",
+    propStage: "STEP 1",
+    highImpactNewsAllowed: false,
+    propNotes: "",
+    dailyRisk: {
+      date: "",
+      startEquity: "100000"
+    },
     brokerExposure: "0",
     entryPrice: "",
     autoPrice: true,
@@ -313,6 +321,9 @@ export default function PropHedgeTab() {
   const [existingInitPropBalance, setExistingInitPropBalance] = useState("");
   const [existingInitBrokerBalance, setExistingInitBrokerBalance] = useState("");
   const [existingInitExposure, setExistingInitExposure] = useState("");
+  const [showChallengeRegistry, setShowChallengeRegistry] = useState(false);
+  const [registryEditingId, setRegistryEditingId] = useState(null);
+  const [registryDraft, setRegistryDraft] = useState(null);
   const [historyFilters, setHistoryFilters] = useState({
     prop: "TUTTE",
     asset: "TUTTI",
@@ -326,7 +337,7 @@ export default function PropHedgeTab() {
         const parsed = JSON.parse(savedChallenges);
         if (Array.isArray(parsed) && parsed.length) {
           setChallenges(parsed.map(ch => ({
-            ...ch,
+            ...normalizeChallengeRegistry(ch),
             finalProfitTarget: ch.finalProfitTarget ?? ch.brokerProfitTarget ?? ch.expectedGain ?? "400",
             maxMarginPct: ch.maxMarginPct ?? "50",
             hedgeEnabled: ch.hedgeEnabled !== false,
@@ -352,6 +363,28 @@ export default function PropHedgeTab() {
       localStorage.setItem("propHedgeV7Challenges", JSON.stringify(challenges));
     } catch {}
   }, [hydrated, challenges]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const roll = () => {
+      const today = todayKey();
+      setChallenges(prev => prev.map(ch => {
+        if (ch.dailyRisk?.date === today) return ch;
+        const account = num(ch.accountSize);
+        const equity = num(ch.accountBalance);
+        return {
+          ...ch,
+          dailyRisk: {
+            date: today,
+            startEquity: String(Math.min(equity || account, account || equity))
+          }
+        };
+      }));
+    };
+    roll();
+    const id = setInterval(roll, 60000);
+    return () => clearInterval(id);
+  }, [hydrated]);
 
   const symbolsKey = useMemo(
     () => [...new Set(challenges.map(c => c.asset))].sort().join("|"),
@@ -482,7 +515,7 @@ export default function PropHedgeTab() {
           .map(row => row?.state)
           .filter(Boolean)
           .map(ch => ({
-            ...ch,
+            ...normalizeChallengeRegistry(ch),
             operationalChecks: ch.operationalChecks || {
               accountBalance: false,
               finalProfitTarget: false,
@@ -768,8 +801,90 @@ export default function PropHedgeTab() {
     entryPrice: false
   });
 
+  const todayKey = () => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+
+  const normalizeChallengeRegistry = (ch) => ({
+    ...ch,
+    propStage: ch.propStage || "STEP 1",
+    dailyDdPct: ch.dailyDdPct ?? "3",
+    highImpactNewsAllowed: ch.highImpactNewsAllowed === true,
+    propNotes: ch.propNotes || "",
+    dailyRisk: ch.dailyRisk?.date ? ch.dailyRisk : {
+      date: todayKey(),
+      startEquity: String(Math.min(num(ch.accountBalance || ch.accountSize), num(ch.accountSize) || num(ch.accountBalance)))
+    }
+  });
+
   const addChallenge = () => {
-    setChallenges(prev => [...prev, makeChallenge(`Prop ${prev.length + 1}`)]);
+    const fresh = normalizeChallengeRegistry(makeChallenge(`Prop ${challenges.length + 1}`));
+    setRegistryEditingId(null);
+    setRegistryDraft(fresh);
+    setShowChallengeRegistry(true);
+  };
+
+  const openChallengeRegistry = (ch) => {
+    setRegistryEditingId(ch.id);
+    setRegistryDraft(normalizeChallengeRegistry(ch));
+    setShowChallengeRegistry(true);
+  };
+
+  const saveChallengeRegistry = () => {
+    if (!registryDraft) return;
+    const d = normalizeChallengeRegistry(registryDraft);
+    if (!String(d.name || "").trim()) return alert("Inserisci il nome della Prop / challenge.");
+    if (num(d.accountSize) <= 0) return alert("Inserisci il valore della Prop.");
+    if (num(d.ddMax) <= 0) return alert("Inserisci il DD massimo.");
+    if (num(d.dailyDdPct) <= 0) return alert("Inserisci il DD giornaliero.");
+
+    const startEquity = Math.min(num(d.accountBalance || d.accountSize), num(d.accountSize));
+    const saved = {
+      ...d,
+      name: String(d.name).trim(),
+      dailyRisk: registryEditingId && d.dailyRisk
+        ? d.dailyRisk
+        : { date: todayKey(), startEquity: String(startEquity) }
+    };
+
+    setChallenges(prev => registryEditingId
+      ? prev.map(ch => ch.id === registryEditingId ? saved : ch)
+      : [...prev, saved]
+    );
+    setShowChallengeRegistry(false);
+    setRegistryDraft(null);
+    setRegistryEditingId(null);
+  };
+
+  const refreshDailyBaselineIfNeeded = (ch) => {
+    const today = todayKey();
+    if (ch.dailyRisk?.date === today) return ch;
+    const account = num(ch.accountSize);
+    const equity = num(ch.accountBalance);
+    return {
+      ...ch,
+      dailyRisk: {
+        date: today,
+        startEquity: String(Math.min(equity || account, account || equity))
+      }
+    };
+  };
+
+  const dailyRiskInfo = (ch, tracking = null) => {
+    const normalized = refreshDailyBaselineIfNeeded(ch);
+    const account = num(normalized.accountSize);
+    const startEquity = Math.min(num(normalized.dailyRisk?.startEquity) || account, account);
+    const pct = num(normalized.dailyDdPct);
+    const limit = startEquity * pct / 100;
+    const currentEquity = tracking ? num(tracking.propBalanceNow) : num(normalized.accountBalance);
+    const used = Math.max(0, startEquity - currentEquity);
+    const remaining = limit - used;
+    const usedPct = limit > 0 ? (used / limit) * 100 : 0;
+    return { startEquity, pct, limit, currentEquity, used, remaining, usedPct };
   };
 
   const removeChallenge = (id) => {
@@ -885,6 +1000,28 @@ export default function PropHedgeTab() {
     if (!ch || !c || !c.px || !c.propLots || (hedgeEnabledAtEntry && !c.brokerLots)) {
       alert("Controlla prezzo, rischio e SL.");
       return;
+    }
+
+    const dr = dailyRiskInfo(ch, trackings[id]);
+    if (dr.limit > 0 && dr.remaining <= num(ch.risk)) {
+      const okRisk = window.confirm(
+        `🚨 ATTENZIONE DD GIORNALIERO — ${ch.name}\n\n` +
+        `Baseline oggi: $ ${fmt(dr.startEquity,2)}\n` +
+        `DD massimo oggi: $ ${fmt(dr.limit,2)}\n` +
+        `DD residuo: $ ${fmt(dr.remaining,2)}\n` +
+        `Rischio impostato: $ ${fmt(num(ch.risk),2)}\n\n` +
+        `QUESTO TRADE PUÒ PORTARTI OLTRE IL DD GIORNALIERO.\n\nProcedere comunque?`
+      );
+      if (!okRisk) return;
+    }
+
+    if (ch.highImpactNewsAllowed === false) {
+      const okNews = window.confirm(
+        `🚨 REGOLE PROP — ${ch.name}\n\n` +
+        `Questa challenge NON consente operazioni durante notizie ad alto impatto.\n\n` +
+        `Verifica il calendario economico prima di procedere.\n\nHai verificato e vuoi procedere?`
+      );
+      if (!okNews) return;
     }
 
     setChallenge(id, {
@@ -1137,6 +1274,56 @@ export default function PropHedgeTab() {
         .prop-margin-alert-box { animation: propMarginBlink 1.15s infinite; }
       `}</style>
       <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      {showChallengeRegistry && registryDraft && (
+        <div style={{
+          position:"fixed",inset:0,zIndex:9999,background:"rgba(2,6,23,.82)",
+          display:"flex",alignItems:"center",justifyContent:"center",padding:20
+        }}>
+          <div style={{
+            width:"min(980px,96vw)",maxHeight:"92vh",overflowY:"auto",
+            borderRadius:20,border:"1px solid rgba(56,189,248,.38)",
+            background:"#07111f",boxShadow:"0 25px 80px rgba(0,0,0,.55)",padding:20
+          }}>
+            <div style={{display:"flex",justifyContent:"space-between",gap:12,alignItems:"center",marginBottom:16}}>
+              <div>
+                <div style={{fontSize:21,fontWeight:950,color:"#f8fafc"}}>📋 {registryEditingId ? "SCHEDA PROP" : "NUOVA CHALLENGE PROP"}</div>
+                <div style={{fontSize:12,color:"#94a3b8",marginTop:3}}>Anagrafica e regole operative della challenge.</div>
+              </div>
+              <button style={secondaryButton} onClick={()=>{setShowChallengeRegistry(false);setRegistryDraft(null);setRegistryEditingId(null);}}>✕ Chiudi</button>
+            </div>
+
+            <div style={grid2}>
+              <div><label style={fieldLabel}>Prop Firm / Nome challenge</label><input style={input} value={registryDraft.name || ""} onChange={e=>setRegistryDraft(d=>({...d,name:e.target.value}))}/></div>
+              <div><label style={fieldLabel}>Fase</label><select style={input} value={registryDraft.propStage || "STEP 1"} onChange={e=>setRegistryDraft(d=>({...d,propStage:e.target.value}))}><option>STEP 1</option><option>STEP 2</option><option>FUNDED / REAL</option></select></div>
+              <TextNumberField label="Valore Prop / Account Size ($)" value={registryDraft.accountSize || ""} onChange={v=>setRegistryDraft(d=>({...d,accountSize:v,accountBalance: registryEditingId ? d.accountBalance : v}))}/>
+              <TextNumberField label="TP Prop ($)" value={registryDraft.tpProp || ""} onChange={v=>setRegistryDraft(d=>({...d,tpProp:v}))}/>
+              <TextNumberField label="DD Max Prop (%)" value={registryDraft.ddMax || ""} onChange={v=>setRegistryDraft(d=>({...d,ddMax:v}))}/>
+              <TextNumberField label="DD giornaliero Prop (%)" value={registryDraft.dailyDdPct || ""} onChange={v=>setRegistryDraft(d=>({...d,dailyDdPct:v}))}/>
+              <TextNumberField label="Costo Prop ($)" value={registryDraft.propCost || ""} onChange={v=>setRegistryDraft(d=>({...d,propCost:v}))}/>
+              <TextNumberField label="Guadagno finale desiderato ($)" value={registryDraft.finalProfitTarget || ""} onChange={v=>setRegistryDraft(d=>({...d,finalProfitTarget:v}))}/>
+              <TextNumberField label="Leva" value={registryDraft.leverage || ""} onChange={v=>setRegistryDraft(d=>({...d,leverage:v}))}/>
+              <TextNumberField label="Margine massimo consentito (%)" value={registryDraft.maxMarginPct || ""} onChange={v=>setRegistryDraft(d=>({...d,maxMarginPct:v}))}/>
+              <div>
+                <label style={fieldLabel}>Operazioni durante news ad alto impatto</label>
+                <select style={input} value={registryDraft.highImpactNewsAllowed ? "SI" : "NO"} onChange={e=>setRegistryDraft(d=>({...d,highImpactNewsAllowed:e.target.value==="SI"}))}>
+                  <option value="NO">NO — non consentite</option>
+                  <option value="SI">SÌ — consentite</option>
+                </select>
+              </div>
+              <div><label style={fieldLabel}>Note / regole particolari</label><textarea style={{...input,minHeight:82,resize:"vertical"}} value={registryDraft.propNotes || ""} onChange={e=>setRegistryDraft(d=>({...d,propNotes:e.target.value}))}/></div>
+            </div>
+
+            <div style={{marginTop:14,padding:"12px 14px",borderRadius:14,border:"1px solid rgba(245,158,11,.35)",background:"rgba(120,53,15,.10)",color:"#fde68a",fontSize:12}}>
+              🛡️ DD giornaliero prudenziale: a ogni nuovo giorno la baseline è il minore tra saldo/equity corrente e valore iniziale della Prop. Se sei sopra il valore iniziale, il limite non aumenta.
+            </div>
+
+            <div style={{display:"flex",justifyContent:"flex-end",gap:10,marginTop:18}}>
+              <button style={secondaryButton} onClick={()=>{setShowChallengeRegistry(false);setRegistryDraft(null);setRegistryEditingId(null);}}>Annulla</button>
+              <button style={primaryButtonBlue} onClick={saveChallengeRegistry}>💾 Salva scheda Prop</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{ display:"flex", justifyContent:"space-between", gap:12, flexWrap:"wrap", alignItems:"flex-start" }}>
         <div>
           <h2 style={sectionTitle}>📈 Prop Hedge — Multi Challenge</h2>
@@ -1475,6 +1662,14 @@ export default function PropHedgeTab() {
               </div>
 
               <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                <button
+                  style={{...secondaryButton,color:"#bfdbfe",border:"1px solid rgba(59,130,246,.42)"}}
+                  onClick={() => openChallengeRegistry(ch)}
+                  disabled={!!ch.active}
+                  title={ch.active ? "Chiudi prima l'operazione per modificare l'anagrafica." : "Consulta o modifica l'anagrafica della Prop."}
+                >
+                  📋 SCHEDA PROP
+                </button>
                 {ch.hedgeEnabled === false ? (
                   <button
                     style={{
@@ -1653,6 +1848,34 @@ export default function PropHedgeTab() {
                     </div>
                   </div>
                 </div>
+
+                {(() => {
+                  const dr = dailyRiskInfo(ch, tracking);
+                  const danger = dr.usedPct >= 95;
+                  const warn = dr.usedPct >= 85;
+                  const caution = dr.usedPct >= 70;
+                  const border = danger ? "rgba(239,68,68,.85)" : warn ? "rgba(249,115,22,.72)" : caution ? "rgba(245,158,11,.60)" : "rgba(34,197,94,.35)";
+                  const color = danger ? "#fecaca" : warn ? "#fdba74" : caution ? "#fde68a" : "#86efac";
+                  return (
+                    <div style={{
+                      marginTop:14,padding:"13px 15px",borderRadius:15,
+                      border:`1px solid ${border}`,
+                      background: danger ? "rgba(127,29,29,.25)" : warn ? "rgba(124,45,18,.18)" : caution ? "rgba(120,53,15,.14)" : "rgba(20,83,45,.10)",
+                      color
+                    }} className={danger ? "prop-margin-alert-box" : ""}>
+                      <div style={{fontWeight:950,fontSize:14}}>
+                        {danger ? "🚨" : warn ? "🟠" : caution ? "🟡" : "🟢"} DD GIORNALIERO — {fmt(dr.usedPct,1)}% utilizzato
+                      </div>
+                      <div style={{fontSize:12,fontWeight:750,marginTop:5}}>
+                        Baseline: $ {fmt(dr.startEquity,2)} • Limite oggi: $ {fmt(dr.limit,2)} • Usato: $ {fmt(dr.used,2)} • Residuo: $ {fmt(dr.remaining,2)}
+                      </div>
+                      <div style={{height:8,borderRadius:999,background:"rgba(15,23,42,.75)",overflow:"hidden",marginTop:9}}>
+                        <div style={{height:"100%",width:`${Math.min(100,Math.max(0,dr.usedPct))}%`,background:color}} />
+                      </div>
+                      {danger && <div style={{fontSize:12,fontWeight:950,marginTop:7}}>PERICOLO: sei molto vicino al limite giornaliero della Prop.</div>}
+                    </div>
+                  );
+                })()}
 
                 <div style={statsGrid}>
                   <div style={statCard}><div style={statLabel}>Lotti Prop</div><div style={statValue}>{fmt(c.propLots,3)}</div><div style={statSub}>Rischio / SL Distance</div></div>
