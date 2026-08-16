@@ -340,6 +340,7 @@ export default function PropHedgeTab() {
   const [showChallengeRegistry, setShowChallengeRegistry] = useState(false);
   const [registryEditingId, setRegistryEditingId] = useState(null);
   const [registryDraft, setRegistryDraft] = useState(null);
+  const [mainView, setMainView] = useState("OPERATIVITA");
   const [historyFilters, setHistoryFilters] = useState({
     prop: "TUTTE",
     asset: "TUTTI",
@@ -1385,6 +1386,19 @@ export default function PropHedgeTab() {
         </div>
       </div>
 
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",padding:6,borderRadius:16,border:"1px solid rgba(51,65,85,.72)",background:"rgba(2,6,23,.42)"}}>
+        {[["OPERATIVITA","📈 OPERATIVITÀ"],["STORICO","📚 STORICO PROP"]].map(([key,label])=>(
+          <button key={key} onClick={()=>setMainView(key)} style={{
+            ...secondaryButton,
+            background:mainView===key?"rgba(30,64,175,.48)":"rgba(15,23,42,.48)",
+            border:mainView===key?"1px solid rgba(96,165,250,.72)":"1px solid rgba(71,85,105,.58)",
+            color:mainView===key?"#dbeafe":"#94a3b8"
+          }}>{label}</button>
+        ))}
+      </div>
+
+      {mainView === "OPERATIVITA" && (<>
+
       <div style={{
         display:"flex",
         justifyContent:"space-between",
@@ -2172,6 +2186,9 @@ export default function PropHedgeTab() {
         );
       })}
 
+      </>)}
+
+      {mainView === "STORICO" && (
       <div style={{
         ...panel,
         border:"1px solid rgba(168,85,247,.34)",
@@ -2346,6 +2363,7 @@ export default function PropHedgeTab() {
           </table>
         </div>
       </div>
+      )}
 
       <div style={hintBox}>
         V9 Multi Challenge + Storico Supabase: le operazioni attive e i saldi vengono salvati nel browser.
