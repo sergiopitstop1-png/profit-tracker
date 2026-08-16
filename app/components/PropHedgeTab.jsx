@@ -37,6 +37,21 @@ const grid2 = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(2
 const orderGrid = { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 14, marginTop: 14 };
 const orderRow = { display: "flex", justifyContent: "space-between", gap: 16, padding: "7px 0", borderBottom: "1px solid rgba(51,65,85,.55)" };
 
+const PROP_THEMES = [
+  { id:"sky", label:"Azzurro polvere", bg:"rgba(56,189,248,.060)", border:"rgba(125,211,252,.38)", header:"rgba(14,116,144,.15)", accent:"#bae6fd" },
+  { id:"sage", label:"Verde salvia", bg:"rgba(74,222,128,.052)", border:"rgba(134,239,172,.34)", header:"rgba(22,101,52,.14)", accent:"#bbf7d0" },
+  { id:"lavender", label:"Lavanda", bg:"rgba(192,132,252,.055)", border:"rgba(216,180,254,.34)", header:"rgba(107,33,168,.14)", accent:"#e9d5ff" },
+  { id:"amber", label:"Ambra tenue", bg:"rgba(251,191,36,.048)", border:"rgba(253,230,138,.32)", header:"rgba(146,64,14,.13)", accent:"#fef3c7" },
+  { id:"rose", label:"Rosa antico", bg:"rgba(251,113,133,.048)", border:"rgba(253,164,175,.32)", header:"rgba(159,18,57,.13)", accent:"#ffe4e6" },
+  { id:"teal", label:"Turchese", bg:"rgba(45,212,191,.050)", border:"rgba(94,234,212,.33)", header:"rgba(17,94,89,.14)", accent:"#ccfbf1" },
+  { id:"peach", label:"Pesca", bg:"rgba(251,146,60,.047)", border:"rgba(253,186,116,.31)", header:"rgba(154,52,18,.13)", accent:"#ffedd5" },
+  { id:"indigo", label:"Indaco tenue", bg:"rgba(129,140,248,.052)", border:"rgba(165,180,252,.33)", header:"rgba(55,48,163,.14)", accent:"#e0e7ff" }
+];
+
+function getPropTheme(ch, index=0) {
+  return PROP_THEMES.find(x => x.id === ch?.themeId) || PROP_THEMES[index % PROP_THEMES.length];
+}
+
 function num(v) {
   const x = Number(String(v ?? "").replace(",", "."));
   return Number.isFinite(x) ? x : 0;
@@ -76,6 +91,7 @@ function makeChallenge(name, id) {
     propStage: "STEP 1",
     highImpactNewsAllowed: false,
     propNotes: "",
+    themeId: "",
     dailyRisk: {
       date: "",
       startEquity: "100000"
@@ -815,6 +831,7 @@ export default function PropHedgeTab() {
     dailyDdPct: ch.dailyDdPct ?? "3",
     highImpactNewsAllowed: ch.highImpactNewsAllowed === true,
     propNotes: ch.propNotes || "",
+    themeId: ch.themeId || "",
     dailyRisk: ch.dailyRisk?.date ? ch.dailyRisk : {
       date: todayKey(),
       startEquity: String(Math.min(num(ch.accountBalance || ch.accountSize), num(ch.accountSize) || num(ch.accountBalance)))
@@ -822,7 +839,10 @@ export default function PropHedgeTab() {
   });
 
   const addChallenge = () => {
-    const fresh = normalizeChallengeRegistry(makeChallenge(`Prop ${challenges.length + 1}`));
+    const fresh = {
+      ...normalizeChallengeRegistry(makeChallenge(`Prop ${challenges.length + 1}`)),
+      themeId: PROP_THEMES[challenges.length % PROP_THEMES.length].id
+    };
     setRegistryEditingId(null);
     setRegistryDraft(fresh);
     setShowChallengeRegistry(true);
@@ -1310,6 +1330,13 @@ export default function PropHedgeTab() {
                   <option value="SI">SÌ — consentite</option>
                 </select>
               </div>
+              <div>
+                <label style={fieldLabel}>🎨 Colore identificativo</label>
+                <select style={input} value={registryDraft.themeId || ""} onChange={e=>setRegistryDraft(d=>({...d,themeId:e.target.value}))}>
+                  <option value="">Automatico</option>
+                  {PROP_THEMES.map(x=><option key={x.id} value={x.id}>{x.label}</option>)}
+                </select>
+              </div>
               <div><label style={fieldLabel}>Note / regole particolari</label><textarea style={{...input,minHeight:82,resize:"vertical"}} value={registryDraft.propNotes || ""} onChange={e=>setRegistryDraft(d=>({...d,propNotes:e.target.value}))}/></div>
             </div>
 
@@ -1633,13 +1660,16 @@ export default function PropHedgeTab() {
         const safetyInfo = safetyFor(ch.id);
         const safe = safetyInfo ? safetyStyle[safetyInfo.level] : null;
         const disabled = !!ch.active;
+        const theme = getPropTheme(ch, index);
 
         return (
           <div key={ch.id} style={{
             ...panel,
-            border: ch.active ? "1px solid rgba(34,197,94,.42)" : "1px solid rgba(51,65,85,.95)"
+            background:`linear-gradient(135deg,${theme.bg},rgba(15,23,42,.965))`,
+            border: ch.active ? "1px solid rgba(34,197,94,.50)" : `1px solid ${theme.border}`,
+            boxShadow:`inset 4px 0 0 ${theme.border}`
           }}>
-            <div style={panelHeader}>
+            <div style={{...panelHeader,padding:"10px 12px",borderRadius:14,background:theme.header,borderBottom:`1px solid ${theme.border}`}}>
               <div style={{flex:"1 1 320px"}}>
                 <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
                   <input
@@ -1658,7 +1688,21 @@ export default function PropHedgeTab() {
                       </span>
                   }
                 </div>
-                <p style={{...panelSubtitle,marginTop:8}}>Challenge #{index + 1}</p>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:9}}>
+                  {[
+                    ch.propStage || "STEP 1",
+                    `${fmt(num(ch.accountSize)/1000,0)}K`,
+                    `DD ${ch.ddMax}%`,
+                    `DAILY ${ch.dailyDdPct || "—"}%`,
+                    ch.highImpactNewsAllowed ? "NEWS ✓" : "NEWS 🚫"
+                  ].map((badge,i)=>(
+                    <span key={i} style={{
+                      fontSize:10,fontWeight:900,letterSpacing:.25,padding:"4px 7px",borderRadius:999,
+                      border:`1px solid ${theme.border}`,background:"rgba(2,6,23,.34)",color:theme.accent
+                    }}>{badge}</span>
+                  ))}
+                </div>
+                <p style={{...panelSubtitle,marginTop:7,color:theme.accent}}>Challenge #{index + 1}</p>
               </div>
 
               <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
