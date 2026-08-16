@@ -42,7 +42,10 @@ export async function POST() {
   // L'utente cancella SOLO il proprio account — usiamo l'id preso dalla
   // sessione, non un id passato dal client, così nessuno può cancellare
   // l'account di qualcun altro modificando la richiesta.
-  await supabaseAdmin.auth.admin.deleteUser(userId).catch(() => {});
+  const { error: authDeleteError } = await supabaseAdmin.auth.admin.deleteUser(userId);
+  if (authDeleteError) {
+    console.error(`[account/delete] ERRORE cancellazione utente Auth (id=${userId}):`, authDeleteError.message);
+  }
   const { error } = await supabaseAdmin.from("user_profiles").delete().eq("id", userId);
 
   if (error) {
