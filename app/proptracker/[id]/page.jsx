@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { createClient } from '../../../lib/supabase-browser'
+import UserGreeting from '../../components/UserGreeting'
 
 const supabase = createClient()
 
@@ -262,7 +263,8 @@ export default function PropTrackerDetail() {
           <div style={{ fontSize:'22px', fontWeight:'bold', color:C.accent }}>🎯 {cfg.nome}</div>
           {cfg.prop_firm && <div style={{ color:C.muted, fontSize:'13px' }}>{cfg.prop_firm}</div>}
         </div>
-        <div style={{ display:'flex', gap:'10px' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:'14px' }}>
+          <UserGreeting />
           <button style={{ background:C.panel, border:`1px solid ${C.border}`, color:C.text, borderRadius:'8px', padding:'8px 16px', cursor:'pointer', fontSize:'13px' }}
             onClick={() => setEditCfg(!editCfg)}>⚙ Config</button>
           <button style={{ background:C.accent, color:'#000', border:'none', borderRadius:'8px', padding:'8px 16px', fontWeight:'bold', cursor:'pointer', fontSize:'13px' }}
