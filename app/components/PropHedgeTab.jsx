@@ -1666,8 +1666,8 @@ export default function PropHedgeTab() {
           <div key={ch.id} style={{
             ...panel,
             background:`linear-gradient(135deg,${theme.bg},rgba(15,23,42,.965))`,
-            border: ch.active ? "1px solid rgba(34,197,94,.50)" : `1px solid ${theme.border}`,
-            boxShadow:`inset 4px 0 0 ${theme.border}`
+            border: ch.active ? "3px solid rgba(34,197,94,.72)" : `3px solid ${theme.border}`,
+            boxShadow:`0 0 0 1px ${theme.border}, 0 0 18px ${theme.bg}, inset 5px 0 0 ${theme.border}`
           }}>
             <div style={{...panelHeader,padding:"10px 12px",borderRadius:14,background:theme.header,borderBottom:`1px solid ${theme.border}`}}>
               <div style={{flex:"1 1 320px"}}>
@@ -1677,7 +1677,10 @@ export default function PropHedgeTab() {
                     disabled={disabled}
                     onChange={e => setChallenge(ch.id,{name:e.target.value})}
                     style={{
-                      ...input, marginBottom:0, maxWidth:260, fontSize:18, fontWeight:900,
+                      ...input, marginBottom:0, maxWidth:360, minWidth:220, fontSize:28, fontWeight:1000,
+                      lineHeight:1.05, color:"#ffe600", letterSpacing:.4,
+                      textShadow:"0 0 10px rgba(255,230,0,.30)",
+                      border:`1px solid ${theme.border}`,
                       background:"rgba(2,6,23,.55)"
                     }}
                   />
