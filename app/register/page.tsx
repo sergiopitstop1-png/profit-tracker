@@ -46,7 +46,7 @@ function RegisterForm() {
       fetch("/api/pronox/notify-signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, name }),
       }).catch(() => {});
 
       // Se la conferma email è disattivata su Supabase, la sessione è già attiva qui
