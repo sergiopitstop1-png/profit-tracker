@@ -1633,13 +1633,16 @@ export default function PropHedgeTab() {
         const safetyInfo = safetyFor(ch.id);
         const safe = safetyInfo ? safetyStyle[safetyInfo.level] : null;
         const disabled = !!ch.active;
+        const theme = propTheme(ch, index);
 
         return (
           <div key={ch.id} style={{
             ...panel,
-            border: ch.active ? "1px solid rgba(34,197,94,.42)" : "1px solid rgba(51,65,85,.95)"
+            background:`linear-gradient(135deg,${theme.bg},rgba(15,23,42,.965))`,
+            border: ch.active ? "1px solid rgba(34,197,94,.55)" : `1px solid ${theme.border}`,
+            boxShadow:`0 12px 34px rgba(0,0,0,.18), inset 4px 0 0 ${theme.border}`
           }}>
-            <div style={panelHeader}>
+            <div style={{...panelHeader,margin:"-2px -2px 14px",padding:"10px 12px",borderRadius:14,background:theme.head,borderBottom:`1px solid ${theme.border}`}}>
               <div style={{flex:"1 1 320px"}}>
                 <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
                   <input
@@ -1658,7 +1661,12 @@ export default function PropHedgeTab() {
                       </span>
                   }
                 </div>
-                <p style={{...panelSubtitle,marginTop:8}}>Challenge #{index + 1}</p>
+                <div style={{display:"flex",gap:7,flexWrap:"wrap",marginTop:9}}>
+                  {[`${ch.propStage || "STEP 1"}`, `${fmt(num(ch.accountSize)/1000,0)}K`, `DD ${ch.ddMax}%`, `DAILY ${ch.dailyDdPct || "—"}%`, ch.highImpactNewsAllowed ? "NEWS ✓" : "NEWS 🚫"].map((x,i)=>(
+                    <span key={i} style={{fontSize:10,fontWeight:900,letterSpacing:.35,padding:"4px 7px",borderRadius:999,border:`1px solid ${theme.border}`,background:"rgba(2,6,23,.38)",color:theme.accent}}>{x}</span>
+                  ))}
+                </div>
+                <p style={{...panelSubtitle,marginTop:7,color:theme.accent}}>Challenge #{index + 1}</p>
               </div>
 
               <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
@@ -1696,7 +1704,7 @@ export default function PropHedgeTab() {
                   </button>
                 )}
 
-                {!ch.active && challenges.length > 1 && (
+                {!ch.active && challenges.filter(x=>!x.archived).length > 1 && (
                   <button
                     style={{...secondaryButton,color:"#fca5a5",border:"1px solid rgba(239,68,68,.35)"}}
                     onClick={() => removeChallenge(ch.id)}
@@ -2125,7 +2133,7 @@ export default function PropHedgeTab() {
         );
       })}
 
-      <div style={{
+      {mainView === "STORICO" && <div style={{
         ...panel,
         border:"1px solid rgba(168,85,247,.34)",
         background:"linear-gradient(135deg,rgba(88,28,135,.08),rgba(15,23,42,.96))"
@@ -2298,14 +2306,53 @@ export default function PropHedgeTab() {
             </tbody>
           </table>
         </div>
-      </div>
+      </div>}
 
-      <div style={hintBox}>
+      {mainView === "ARCHIVIO" && (
+        <div style={{...panel,border:"1px solid rgba(148,163,184,.28)",background:"rgba(15,23,42,.94)"}}>
+          <div style={panelHeader}>
+            <div>
+              <h3 style={panelTitle}>🗂️ Archivio Challenge</h3>
+              <p style={panelSubtitle}>Le Prop archiviate restano salvate su Supabase e possono essere consultate o ripristinate.</p>
+            </div>
+          </div>
+          {challenges.filter(ch=>ch.archived).length === 0 ? (
+            <div style={{padding:28,textAlign:"center",color:"#94a3b8"}}>Nessuna challenge archiviata.</div>
+          ) : (
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))",gap:12}}>
+              {challenges.filter(ch=>ch.archived).map((ch,index)=>{
+                const theme=propTheme(ch,index);
+                const rows=historyRows.filter(r=>r.challenge_id===ch.id || (!r.challenge_id && r.prop_name===ch.name));
+                const propPL=rows.reduce((s,r)=>s+Number(r.prop_pl||0),0);
+                const brokerPL=rows.reduce((s,r)=>s+Number(r.broker_pl||0),0);
+                return <div key={ch.id} style={{padding:16,borderRadius:16,border:`1px solid ${theme.border}`,background:`linear-gradient(135deg,${theme.bg},rgba(2,6,23,.55))`}}>
+                  <div style={{fontSize:19,fontWeight:950,color:theme.accent}}>{ch.name}</div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>
+                    {[ch.propStage||"—",`${fmt(num(ch.accountSize)/1000,0)}K`,`DD ${ch.ddMax}%`,`DAILY ${ch.dailyDdPct||"—"}%`].map((x,i)=><span key={i} style={{fontSize:10,fontWeight:900,padding:"4px 7px",borderRadius:999,border:`1px solid ${theme.border}`,color:theme.accent}}>{x}</span>)}
+                  </div>
+                  <div style={{marginTop:13,fontSize:12,color:"#cbd5e1",lineHeight:1.8}}>
+                    Operazioni storiche: <b>{rows.length}</b><br/>
+                    P/L Prop: <b style={{color:propPL>=0?"#86efac":"#fca5a5"}}>{signedMoney(propPL)}</b><br/>
+                    P/L Broker: <b style={{color:brokerPL>=0?"#86efac":"#fca5a5"}}>{signedMoney(brokerPL)}</b><br/>
+                    Archiviata: <b>{ch.archivedAt ? new Date(ch.archivedAt).toLocaleString("it-IT") : "—"}</b>
+                  </div>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:14}}>
+                    <button style={secondaryButton} onClick={()=>openChallengeRegistry(ch)}>📋 SCHEDA PROP</button>
+                    <button style={{...secondaryButton,color:"#bbf7d0",border:"1px solid rgba(34,197,94,.4)"}} onClick={()=>restoreChallenge(ch.id)}>↩ RIPRISTINA</button>
+                  </div>
+                </div>
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {mainView === "OPERATIVITA" && <div style={hintBox}>
         V9 Multi Challenge + Storico Supabase: le operazioni attive e i saldi vengono salvati nel browser.
         Il quadro Broker usa un'esposizione residua conservativa, sommando le perdite potenziali delle coperture attive.
         L'esposizione netta in lotti per asset è mostrata separatamente. Prezzi, P/L e saldi restano stime:
         spread, commissioni, swap, slippage e specifiche dei contratti possono creare differenze reali.
-      </div>
+      </div>}
     </div>
     </>
   );
