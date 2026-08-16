@@ -2,6 +2,7 @@
 import AuthGuard from "../components/AuthGuard";
 import { useState, useEffect } from "react";
 import { createClient } from "../../lib/supabase-browser";
+import UserGreeting from "../components/UserGreeting";
 
 const supabase = createClient();
 
@@ -166,10 +167,12 @@ export default function Archivio() {
           PRONO<span style={{ color: "#c8f135" }}>X</span>
           <span style={{ fontSize: 13, fontWeight: 400, color: "#6b7490" }}> · archivio pronostici</span>
         </h1>
-        <div style={{ display: "flex", gap: 16, marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 16, marginBottom: 16, alignItems: "center" }}>
           <a href="/" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>← home</a>
           <a href="/oggi" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>📅 partite del giorno</a>
-          <a href="/pronosticatore" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>⚽ analisi manuale</a>
+          <div style={{ marginLeft: "auto" }}>
+            <UserGreeting />
+          </div>
         </div>
 
         {/* Statistiche */}
