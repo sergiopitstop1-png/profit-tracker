@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createClient } from "../../lib/supabase-browser";
+import UserGreeting from "../components/UserGreeting";
 
 const supabase = createClient();
 
@@ -239,10 +240,13 @@ export default function Piano() {
           PRONO<span style={{ color: "#c8f135" }}>X</span>
           <span style={{ fontSize: 13, fontWeight: 400, color: "#6b7490" }}> · piano staking</span>
         </h1>
-        <div style={{ display: "flex", gap: 16, marginBottom: 24 }}>
+        <div style={{ display: "flex", gap: 16, marginBottom: 24, alignItems: "center" }}>
           <a href="/" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>← home</a>
           <a href="/oggi" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>📅 partite del giorno</a>
           <a href="/archivio" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>📊 archivio</a>
+          <div style={{ marginLeft: "auto" }}>
+            <UserGreeting />
+          </div>
         </div>
 
         {loading ? (
