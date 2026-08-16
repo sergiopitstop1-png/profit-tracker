@@ -878,13 +878,11 @@ export default function PropHedgeTab() {
   const placeTrade = (id) => {
     const ch = challenges.find(x => x.id === id);
     const c = calcs[id];
+    const hedgeEnabledAtEntry = ch?.hedgeEnabled !== false;
 
-    if (ch?.hedgeEnabled === false) {
-      alert("HEDGE disattivato per questa challenge. Riattivalo prima di avviare una nuova copertura Broker.");
-      return;
-    }
-
-    if (!ch || !c || !c.px || !c.propLots || !c.brokerLots) {
+    // Con STOP HEDGE la Prop resta pienamente tradabile: viene monitorata normalmente,
+    // ma la nuova gamba Broker parte a 0 lotti e quindi non modifica il saldo Broker.
+    if (!ch || !c || !c.px || !c.propLots || (hedgeEnabledAtEntry && !c.brokerLots)) {
       alert("Controlla prezzo, rischio e SL.");
       return;
     }
@@ -899,7 +897,7 @@ export default function PropHedgeTab() {
         direction: ch.direction,
         brokerDirection: c.brokerDirection,
         propLots: c.propLots,
-        brokerLots: c.brokerLots,
+        brokerLots: hedgeEnabledAtEntry ? c.brokerLots : 0,
         propTP: c.propTPPrice,
         propSL: c.propSL,
         brokerTP: c.brokerTP,
@@ -907,7 +905,8 @@ export default function PropHedgeTab() {
         propBalanceStart: num(ch.accountBalance),
         brokerBalanceStart: num(brokerBalance),
         quoteToUsd: c.quoteToUsd,
-        maxBrokerLossAtEntry: c.maxBrokerLoss,
+        maxBrokerLossAtEntry: hedgeEnabledAtEntry ? c.maxBrokerLoss : 0,
+        hedgeEnabledAtEntry,
         placedAt: new Date().toISOString()
       },
       closePropPL: "",
@@ -1256,8 +1255,8 @@ export default function PropHedgeTab() {
         defaultAsset="XAUUSD"
         challenges={challenges}
         onApplyDirection={(challengeId, suggestedDirection) => {
-          const target = challenges.find(ch => ch.id === challengeId);
-          if (target?.hedgeEnabled === false) return;
+          // Anche con STOP HEDGE il Market Engine può impostare la direzione della Prop.
+          // Lo stop riguarda esclusivamente la nuova gamba Broker.
           setChallenge(challengeId, { direction: suggestedDirection });
         }}
       />
@@ -1523,7 +1522,7 @@ export default function PropHedgeTab() {
                 color:"#fecaca",
                 fontWeight:900
               }}>
-                🛑 HEDGE DISATTIVATO — nessuna nuova copertura Broker verrà avviata per questa challenge.
+                🛑 HEDGE DISATTIVATO — la Prop resta tradabile, ma nessuna nuova copertura Broker verrà avviata per questa challenge.
                 <div style={{fontSize:11,fontWeight:600,color:"#fca5a5",marginTop:4}}>
                   {ch.hedgeStoppedAt
                     ? `Stop attivato: ${new Date(ch.hedgeStoppedAt).toLocaleString("it-IT")}. `
@@ -1770,16 +1769,15 @@ export default function PropHedgeTab() {
                 <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:14}}>
                   <button
                     onClick={()=>placeTrade(ch.id)}
-                    disabled={ch.hedgeEnabled === false}
                     style={{
                       border:"none",borderRadius:14,padding:"12px 20px",
-                      cursor:ch.hedgeEnabled === false ? "not-allowed" : "pointer",
-                      opacity:ch.hedgeEnabled === false ? .42 : 1,
+                      cursor:"pointer",
+                      opacity:1,
                       fontWeight:900,color:"#052e16",background:"linear-gradient(135deg,#4ade80,#22c55e)"
                     }}
-                    title={ch.hedgeEnabled === false ? "HEDGE disattivato: riattivalo per creare una nuova copertura Broker." : ""}
+                    title={ch.hedgeEnabled === false ? "Avvia il trade sulla Prop senza aprire una nuova copertura Broker." : ""}
                   >
-                    {ch.hedgeEnabled === false ? "🛑 HEDGE DISATTIVATO" : "✅ PIAZZATA — AVVIA MONITOR"}
+                    {ch.hedgeEnabled === false ? "✅ PIAZZATA PROP — SENZA HEDGE" : "✅ PIAZZATA — AVVIA MONITOR"}
                   </button>
                   <button style={secondaryButton} onClick={()=>refreshSymbol(ch.asset)}>Aggiorna prezzo</button>
                 </div>
@@ -1830,10 +1828,18 @@ export default function PropHedgeTab() {
                     <div style={orderRow}><span>Saldo iniziale</span><b>$ {fmt(ch.active.propBalanceStart,2)}</b></div>
                   </div>
                   <div style={statCard}>
-                    <div style={{fontWeight:900,fontSize:17,marginBottom:8}}>BROKER — {ch.active.brokerDirection}</div>
+                    <div style={{fontWeight:900,fontSize:17,marginBottom:8}}>
+                      {ch.active.hedgeEnabledAtEntry === false ? "BROKER — NESSUNA COPERTURA" : `BROKER — ${ch.active.brokerDirection}`}
+                    </div>
                     <div style={orderRow}><span>Lotti</span><b>{fmt(ch.active.brokerLots,2)}</b></div>
-                    <div style={orderRow}><span>TP</span><b>{fmt(ch.active.brokerTP,ch.active.decimals)}</b></div>
-                    <div style={orderRow}><span>SL</span><b>{fmt(ch.active.brokerSL,ch.active.decimals)}</b></div>
+                    {ch.active.hedgeEnabledAtEntry === false ? (
+                      <div style={{color:"#fca5a5",fontSize:12,fontWeight:800,marginTop:8}}>Trade Prop aperto con STOP HEDGE attivo.</div>
+                    ) : (
+                      <>
+                        <div style={orderRow}><span>TP</span><b>{fmt(ch.active.brokerTP,ch.active.decimals)}</b></div>
+                        <div style={orderRow}><span>SL</span><b>{fmt(ch.active.brokerSL,ch.active.decimals)}</b></div>
+                      </>
+                    )}
                     <div style={orderRow}><span>P/L live</span><b>{signedMoney(tracking.brokerPL)}</b></div>
                   </div>
                 </div>
