@@ -3,7 +3,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
-import { notifyAdmin } from "../../../../lib/notifyAdmin"; // aggiusta il percorso relativo in base a dove hai il file lib/notifyAdmin.ts
+import { notifyAdmin } from "@/lib/notifyAdmin"; // alias assoluto: se il tuo progetto non ha "@/*" configurato in tsconfig.json, vedi nota sotto
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
