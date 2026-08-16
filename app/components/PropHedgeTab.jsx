@@ -92,6 +92,9 @@ function makeChallenge(name, id) {
     highImpactNewsAllowed: false,
     propNotes: "",
     themeId: "",
+    archived: false,
+    archivedAt: null,
+    archiveStatus: "",
     dailyRisk: {
       date: "",
       startEquity: "100000"
@@ -833,6 +836,9 @@ export default function PropHedgeTab() {
     highImpactNewsAllowed: ch.highImpactNewsAllowed === true,
     propNotes: ch.propNotes || "",
     themeId: ch.themeId || "",
+    archived: ch.archived === true,
+    archivedAt: ch.archivedAt || null,
+    archiveStatus: ch.archiveStatus || "",
     dailyRisk: ch.dailyRisk?.date ? ch.dailyRisk : {
       date: todayKey(),
       startEquity: String(Math.min(num(ch.accountBalance || ch.accountSize), num(ch.accountSize) || num(ch.accountBalance)))
@@ -914,7 +920,31 @@ export default function PropHedgeTab() {
       alert("Chiudi o annulla prima l'operazione attiva.");
       return;
     }
-    setChallenges(prev => prev.filter(ch => ch.id !== id));
+    const status = window.prompt(
+      `Archivia ${ch?.name || "questa challenge"}.\n\nStato finale (facoltativo): SUPERATA, BRUCIATA, CHIUSA, ALTRO`,
+      ch?.archiveStatus || ""
+    );
+    if (status === null) return;
+    const ok = window.confirm(
+      `${ch?.name || "Challenge"} verrà tolta dall'operatività ma NON cancellata.\nResterà consultabile nell'Archivio Challenge.\n\nProcedere?`
+    );
+    if (!ok) return;
+    setChallenges(prev => prev.map(x => x.id === id ? {
+      ...x,
+      archived: true,
+      archivedAt: new Date().toISOString(),
+      archiveStatus: String(status || "").trim().toUpperCase()
+    } : x));
+  };
+
+  const restoreChallenge = (id) => {
+    setChallenges(prev => prev.map(x => x.id === id ? {
+      ...x,
+      archived:false,
+      archivedAt:null,
+      archiveStatus:""
+    } : x));
+    setMainView("OPERATIVITA");
   };
 
   const stopHedge = (id) => {
@@ -1387,7 +1417,7 @@ export default function PropHedgeTab() {
       </div>
 
       <div style={{display:"flex",gap:8,flexWrap:"wrap",padding:6,borderRadius:16,border:"1px solid rgba(51,65,85,.72)",background:"rgba(2,6,23,.42)"}}>
-        {[["OPERATIVITA","📈 OPERATIVITÀ"],["STORICO","📚 STORICO PROP"]].map(([key,label])=>(
+        {[["OPERATIVITA","📈 OPERATIVITÀ"],["STORICO","📚 STORICO PROP"],["ARCHIVIO","🗂️ ARCHIVIO CHALLENGE"]].map(([key,label])=>(
           <button key={key} onClick={()=>setMainView(key)} style={{
             ...secondaryButton,
             background:mainView===key?"rgba(30,64,175,.48)":"rgba(15,23,42,.48)",
@@ -1667,7 +1697,7 @@ export default function PropHedgeTab() {
         )}
       </div>
 
-      {challenges.map((ch, index) => {
+      {challenges.filter(ch => !ch.archived).map((ch, index) => {
         const c = calcs[ch.id];
         const live = liveMap[ch.asset] || {};
         const tracking = trackings[ch.id];
@@ -1757,12 +1787,12 @@ export default function PropHedgeTab() {
                   </button>
                 )}
 
-                {!ch.active && challenges.length > 1 && (
+                {!ch.active && challenges.filter(x => !x.archived).length > 1 && (
                   <button
                     style={{...secondaryButton,color:"#fca5a5",border:"1px solid rgba(239,68,68,.35)"}}
                     onClick={() => removeChallenge(ch.id)}
                   >
-                    Rimuovi
+                    🗂️ Archivia
                   </button>
                 )}
               </div>
@@ -2363,6 +2393,78 @@ export default function PropHedgeTab() {
           </table>
         </div>
       </div>
+      )}
+
+      {mainView === "ARCHIVIO" && (
+        <div style={{
+          ...panel,
+          border:"1px solid rgba(148,163,184,.30)",
+          background:"linear-gradient(135deg,rgba(71,85,105,.07),rgba(15,23,42,.96))"
+        }}>
+          <div style={panelHeader}>
+            <div>
+              <h3 style={panelTitle}>🗂️ Archivio Challenge</h3>
+              <p style={panelSubtitle}>Le challenge archiviate restano nello state sincronizzato su Supabase. Nessuna cancellazione.</p>
+            </div>
+          </div>
+
+          {challenges.filter(ch => ch.archived).length === 0 ? (
+            <div style={{padding:"28px 12px",textAlign:"center",color:"#94a3b8",fontWeight:800}}>
+              Nessuna challenge archiviata.
+            </div>
+          ) : (
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(340px,1fr))",gap:14}}>
+              {challenges.filter(ch => ch.archived).map((ch,index)=>{
+                const theme = getPropTheme(ch,index);
+                const rows = historyRows.filter(r => r.challenge_id === ch.id || (!r.challenge_id && r.prop_name === ch.name));
+                const propPL = rows.reduce((s,r)=>s+Number(r.prop_pl||0),0);
+                const brokerPL = rows.reduce((s,r)=>s+Number(r.broker_pl||0),0);
+                const combined = propPL + brokerPL;
+                return (
+                  <div key={ch.id} style={{
+                    padding:17,borderRadius:17,
+                    border:`2px solid ${theme.border}`,
+                    background:`linear-gradient(135deg,${theme.bg},rgba(2,6,23,.58))`,
+                    boxShadow:`inset 4px 0 0 ${theme.border}`
+                  }}>
+                    <div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"flex-start",flexWrap:"wrap"}}>
+                      <div>
+                        <div style={{fontSize:24,fontWeight:1000,color:"#ffe600",textShadow:"0 0 8px rgba(255,230,0,.25)"}}>{ch.name}</div>
+                        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>
+                          {[ch.propStage||"—",`${fmt(num(ch.accountSize)/1000,0)}K`,`DD ${ch.ddMax}%`,`DAILY ${ch.dailyDdPct||"—"}%`,ch.highImpactNewsAllowed?"NEWS ✓":"NEWS 🚫"].map((x,i)=>(
+                            <span key={i} style={{fontSize:10,fontWeight:900,padding:"4px 7px",borderRadius:999,border:`1px solid ${theme.border}`,color:theme.accent}}>{x}</span>
+                          ))}
+                        </div>
+                      </div>
+                      <span style={{
+                        padding:"6px 9px",borderRadius:999,fontSize:11,fontWeight:950,
+                        border:"1px solid rgba(251,191,36,.45)",color:"#fde68a",background:"rgba(120,53,15,.18)"
+                      }}>{ch.archiveStatus || "ARCHIVIATA"}</span>
+                    </div>
+
+                    <div style={{marginTop:15,display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:8}}>
+                      <div style={statCard}><div style={statLabel}>Operazioni</div><div style={statValue}>{rows.length}</div></div>
+                      <div style={statCard}><div style={statLabel}>Saldo Prop finale</div><div style={statValue}>$ {fmt(num(ch.accountBalance),2)}</div></div>
+                      <div style={statCard}><div style={statLabel}>P/L Prop storico</div><div style={{...statValue,color:propPL>=0?"#5eead4":"#fca5a5"}}>{signedMoney(propPL)}</div></div>
+                      <div style={statCard}><div style={statLabel}>P/L Broker storico</div><div style={{...statValue,color:brokerPL>=0?"#5eead4":"#fca5a5"}}>{signedMoney(brokerPL)}</div></div>
+                    </div>
+
+                    <div style={{marginTop:10,padding:"10px 12px",borderRadius:12,background:"rgba(2,6,23,.40)",border:"1px solid rgba(71,85,105,.45)",fontSize:12,color:"#cbd5e1"}}>
+                      Risultato combinato storico: <b style={{color:combined>=0?"#86efac":"#fca5a5"}}>{signedMoney(combined)}</b><br/>
+                      Costo Prop: <b>$ {fmt(num(ch.propCost),2)}</b> • Target desiderato: <b>$ {fmt(num(ch.finalProfitTarget),2)}</b><br/>
+                      Archiviata: <b>{ch.archivedAt ? new Date(ch.archivedAt).toLocaleString("it-IT") : "—"}</b>
+                    </div>
+
+                    <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:13}}>
+                      <button style={secondaryButton} onClick={()=>openChallengeRegistry(ch)}>📋 SCHEDA PROP</button>
+                      <button style={{...secondaryButton,color:"#bbf7d0",border:"1px solid rgba(34,197,94,.42)"}} onClick={()=>restoreChallenge(ch.id)}>↩ RIPRISTINA</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       )}
 
       <div style={hintBox}>
