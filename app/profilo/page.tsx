@@ -98,7 +98,7 @@ export default function ProfiloPage() {
 
         <div style={{ background: "#161920", border: "1px solid #2a2f3f", borderRadius: 16, padding: 28 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#6b7490", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 14 }}>
-            Zona pericolosa
+            Gestione account
           </div>
           <EliminaAccountButton />
         </div>
