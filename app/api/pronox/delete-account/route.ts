@@ -30,15 +30,20 @@ async function performDeletion(email: string) {
 
   if (!profile) return { ok: false, reason: "not_found" as const };
 
-  // Cancella prima l'utente Auth (blocca subito login/sessioni attive),
-  // poi la riga profilo. Logghiamo l'eventuale errore invece di ignorarlo
-  // silenziosamente — un fallimento qui impedirebbe all'utente di
-  // registrarsi di nuovo in futuro con la stessa email, quindi va scoperto.
+  // IMPORTANTE: l'ordine conta. user_profiles.id ha una foreign key verso
+  // l'utente Auth — se proviamo a cancellare l'utente Auth mentre quella
+  // riga esiste ancora, Supabase rifiuta con "Database error deleting user"
+  // perché lascerebbe un riferimento orfano. Cancelliamo quindi PRIMA il
+  // profilo, POI l'utente Auth.
+  const { error: profileDeleteError } = await supabase.from("user_profiles").delete().eq("id", profile.id);
+  if (profileDeleteError) {
+    console.error(`[delete-account] ERRORE cancellazione profilo (id=${profile.id}, email=${email}):`, profileDeleteError.message);
+  }
+
   const { error: authDeleteError } = await supabase.auth.admin.deleteUser(profile.id);
   if (authDeleteError) {
     console.error(`[delete-account] ERRORE cancellazione utente Auth (id=${profile.id}, email=${email}):`, authDeleteError.message);
   }
-  await supabase.from("user_profiles").delete().eq("id", profile.id);
 
   return { ok: true as const };
 }
