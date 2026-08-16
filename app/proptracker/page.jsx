@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '../../lib/supabase-browser'
+import UserGreeting from '../components/UserGreeting'
 
 const supabase = createClient()
 
@@ -108,7 +109,8 @@ export default function PropTrackerPage() {
             — gestione challenge prop firm
           </span>
         </div>
-        <div style={{ display: 'flex', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <UserGreeting />
           <button style={s.btn(COLORS.panel, COLORS.text)} onClick={() => router.push('/')}>← Home</button>
           <button style={s.btn(COLORS.accent)} onClick={() => setShowForm(true)}>+ Nuova Challenge</button>
         </div>
