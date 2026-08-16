@@ -54,6 +54,11 @@ export default function ProfiloPage() {
     <main style={{ background: "#0d0f14", color: "#e8ecf5", padding: "60px 20px", minHeight: "100vh", fontFamily: "system-ui, sans-serif" }}>
       <div style={{ maxWidth: 480, margin: "0 auto" }}>
 
+        <div style={{ display: "flex", gap: 16, marginBottom: 20 }}>
+          <a href="/" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>← home</a>
+          <a href="/oggi" style={{ fontSize: 12, color: "#6b7490", textDecoration: "none" }}>🎯 PronoX</a>
+        </div>
+
         <div style={{ marginBottom: 32 }}>
           <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 8 }}>
             PRONO<span style={{ color: "#c8f135" }}>X</span>
