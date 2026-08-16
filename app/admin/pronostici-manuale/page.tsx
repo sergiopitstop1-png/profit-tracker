@@ -68,6 +68,9 @@ export default function PronosticiManualePage() {
   return (
     <div style={{ background: bg, minHeight: "100vh", padding: "40px 20px", fontFamily: "system-ui, sans-serif" }}>
       <div style={{ maxWidth: 640, margin: "0 auto" }}>
+        <div style={{ marginBottom: 16 }}>
+          <a href="/profit-tracker" style={{ fontSize: 12, color: textDim, textDecoration: "none" }}>← Profit Tracker</a>
+        </div>
         <h1 style={{ color: textMain, fontSize: 24, fontWeight: 900, marginBottom: 4 }}>
           Esito manuale pronostici
         </h1>
