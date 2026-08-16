@@ -3382,6 +3382,12 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <a href="/" style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
+              borderRadius: 10, border: '1px solid rgba(255,255,255,0.15)',
+              background: 'rgba(255,255,255,0.05)', color: '#e8ecf5',
+              fontWeight: 700, fontSize: 12, textDecoration: 'none',
+            }}>🏠 Home</a>
             <a href="/admin/pronostici-manuale" style={{
               display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
               borderRadius: 10, border: '1px solid rgba(200,241,53,0.4)',
