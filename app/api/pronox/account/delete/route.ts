@@ -39,17 +39,17 @@ export async function POST() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
-  // L'utente cancella SOLO il proprio account — usiamo l'id preso dalla
-  // sessione, non un id passato dal client, così nessuno può cancellare
-  // l'account di qualcun altro modificando la richiesta.
+  // Stesso ordine della route via mail: prima il profilo (che referenzia
+  // l'utente Auth), poi l'utente Auth — altrimenti Supabase rifiuta la
+  // cancellazione dell'utente Auth con "Database error deleting user".
+  const { error } = await supabaseAdmin.from("user_profiles").delete().eq("id", userId);
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
   const { error: authDeleteError } = await supabaseAdmin.auth.admin.deleteUser(userId);
   if (authDeleteError) {
     console.error(`[account/delete] ERRORE cancellazione utente Auth (id=${userId}):`, authDeleteError.message);
-  }
-  const { error } = await supabaseAdmin.from("user_profiles").delete().eq("id", userId);
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   await notifyAdmin("cancellazione", userEmail);
