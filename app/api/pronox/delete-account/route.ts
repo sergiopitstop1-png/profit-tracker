@@ -31,11 +31,13 @@ async function performDeletion(email: string) {
   if (!profile) return { ok: false, reason: "not_found" as const };
 
   // Cancella prima l'utente Auth (blocca subito login/sessioni attive),
-  // poi la riga profilo. Se una delle due fallisce perché già rimossa da
-  // un cascade automatico, va bene comunque: l'obiettivo finale è che non
-  // resti nulla. Le query Supabase non lanciano eccezioni (restituiscono
-  // {error} invece di rigettare la Promise), quindi non serve .catch() qui.
-  await supabase.auth.admin.deleteUser(profile.id).catch(() => {});
+  // poi la riga profilo. Logghiamo l'eventuale errore invece di ignorarlo
+  // silenziosamente — un fallimento qui impedirebbe all'utente di
+  // registrarsi di nuovo in futuro con la stessa email, quindi va scoperto.
+  const { error: authDeleteError } = await supabase.auth.admin.deleteUser(profile.id);
+  if (authDeleteError) {
+    console.error(`[delete-account] ERRORE cancellazione utente Auth (id=${profile.id}, email=${email}):`, authDeleteError.message);
+  }
   await supabase.from("user_profiles").delete().eq("id", profile.id);
 
   return { ok: true as const };
