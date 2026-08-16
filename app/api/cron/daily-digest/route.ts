@@ -1,6 +1,30 @@
 import { createClient } from "@supabase/supabase-js";
+import crypto from "crypto";
 
 const API_FOOTBALL = "https://api.football-data.org/v4";
+
+// Stesso calcolo usato in app/api/pronox/unsubscribe/route.ts — deve
+// restare identico nei due file, altrimenti i link generati qui non
+// verrebbero riconosciuti come validi dalla route di disiscrizione.
+function unsubToken(email: string) {
+  return crypto
+    .createHmac("sha256", process.env.UNSUB_SECRET!)
+    .update(email.toLowerCase().trim())
+    .digest("hex")
+    .slice(0, 16);
+}
+
+// Token con scopo "delete" — deve restare identico alla funzione omonima
+// in app/api/pronox/delete-account/route.ts, ma è volutamente diverso dal
+// token di sola disiscrizione (unsubToken) così un link non vale per l'altra
+// azione.
+function deleteToken(email: string) {
+  return crypto
+    .createHmac("sha256", process.env.UNSUB_SECRET!)
+    .update(email.toLowerCase().trim() + ":delete")
+    .digest("hex")
+    .slice(0, 16);
+}
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -636,6 +660,13 @@ function buildEmailHtml(yesterdayResults: any[], tomorrowPicks: any[], yesterday
           </a>
         </div>
       </div>
+
+      <p style="text-align:center;color:#4a4f5c;font-size:11px;margin-top:24px;">
+        Non vuoi più ricevere questa mail?
+        <a href="{{UNSUB_LINK}}" style="color:#6b7490;">Disiscriviti</a>
+        ·
+        <a href="{{DELETE_LINK}}" style="color:#6b7490;">Elimina account</a>
+      </p>
     </div>
   </div>`;
 }
@@ -658,6 +689,10 @@ async function sendDigestEmail(html: string, recipients: string[]) {
 
   for (const email of recipients) {
     try {
+      const unsubLink = `https://sergioapicella.it/api/pronox/unsubscribe?email=${encodeURIComponent(email)}&token=${unsubToken(email)}`;
+      const deleteLink = `https://sergioapicella.it/api/pronox/delete-account?email=${encodeURIComponent(email)}&token=${deleteToken(email)}`;
+      const personalizedHtml = html.replace("{{UNSUB_LINK}}", unsubLink).replace("{{DELETE_LINK}}", deleteLink);
+
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
@@ -668,7 +703,7 @@ async function sendDigestEmail(html: string, recipients: string[]) {
           from: "PronoX · Sergio Apicella <noreply@sergioapicella.it>",
           to: email,
           subject: "🎾⚽ PronoX — risultati di ieri e pronostici di domani",
-          html,
+          html: personalizedHtml,
         }),
       });
       if (res.ok) sent++;
@@ -706,7 +741,10 @@ export async function GET(request: Request) {
   const yesterdayResults = await verifyYesterdayPicks(yesterdayStr);
   const tomorrowPicks = await computeTomorrowPicks(tomorrowStr);
 
-  const { data: profiles } = await supabase.from("user_profiles").select("email");
+  const { data: profiles } = await supabase
+    .from("user_profiles")
+    .select("email")
+    .eq("digest_subscribed", true);
   const recipients = (profiles || []).map((p: any) => p.email).filter(Boolean);
 
   const html = buildEmailHtml(yesterdayResults, tomorrowPicks, yesterdayStr, tomorrowStr);
