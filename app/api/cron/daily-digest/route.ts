@@ -293,33 +293,65 @@ async function fetchSeasonMatches(code: string) {
 // giorno (es. il cron gira prima che l'import tennis delle 12:00 abbia
 // scritto i risultati), il pronostico non resta bloccato per sempre: viene
 // ritentato automaticamente ai run successivi finché non trova l'esito.
+//
+// VERSIONE CON LOGGING — aggiunta per capire perché la verifica non trovava
+// mai nulla. Logica identica alla versione precedente, solo con
+// console.log/console.error ad ogni passaggio chiave.
 
 async function verifyYesterdayPicks(yesterday: string) {
-  const { data: picks } = await supabase
+  const { data: picks, error: picksError } = await supabase
     .from("pronox_daily_picks")
     .select("*")
     .eq("status", "PENDING")
     .lte("pick_date", yesterday);
 
+  if (picksError) {
+    console.error("[verify] ERRORE query pick PENDING:", picksError.message);
+    return [];
+  }
+
+  console.log(`[verify] Trovati ${picks?.length ?? 0} pick PENDING con pick_date <= ${yesterday}`);
+
   if (!picks || picks.length === 0) return [];
 
   const verified = [];
   for (const pick of picks) {
+    console.log(`[verify] --- Pick ${pick.id} | sport=${pick.sport} | ${pick.home_team} vs ${pick.away_team} | pick_date=${pick.pick_date} | player_a_id=${pick.player_a_id} | player_b_id=${pick.player_b_id} | match_id_fd=${pick.match_id_fd}`);
     try {
       if (pick.sport === "tennis") {
         const outcome = await verifyTennisPick(pick, yesterday);
-        if (outcome === null) continue; // partita non ancora nel database (es. rinviata)
-        await supabase.from("pronox_daily_picks").update({ status: outcome }).eq("id", pick.id);
+        if (outcome === null) {
+          console.log(`[verify]     -> tennis: nessun match trovato in tennis_matches, resta PENDING`);
+          continue;
+        }
+        const { error: updErr } = await supabase.from("pronox_daily_picks").update({ status: outcome }).eq("id", pick.id);
+        if (updErr) console.error(`[verify]     -> ERRORE update Supabase:`, updErr.message);
+        else console.log(`[verify]     -> tennis: esito=${outcome}, aggiornato su Supabase`);
         verified.push({ ...pick, status: outcome });
+        continue;
+      }
+
+      if (!pick.match_id_fd) {
+        console.log(`[verify]     -> calcio: match_id_fd mancante, salto`);
         continue;
       }
 
       const r = await fetch(`${API_FOOTBALL}/matches/${pick.match_id_fd}`, {
         headers: { "X-Auth-Token": process.env.FOOTBALL_DATA_KEY! },
       });
+
+      if (!r.ok) {
+        const body = await r.text();
+        console.error(`[verify]     -> calcio: HTTP ${r.status} da football-data.org per match_id_fd=${pick.match_id_fd} | body=${body.slice(0, 200)}`);
+        continue;
+      }
+
       const d = await r.json();
       const m = d.match || d;
-      if (!m || m.status !== "FINISHED") continue;
+      if (!m || m.status !== "FINISHED") {
+        console.log(`[verify]     -> calcio: match status=${m?.status ?? "N/D"}, non ancora FINISHED, resta PENDING`);
+        continue;
+      }
 
       const ftHome = m.score?.fullTime?.home ?? 0;
       const ftAway = m.score?.fullTime?.away ?? 0;
@@ -331,10 +363,15 @@ async function verifyYesterdayPicks(yesterday: string) {
       else if (pick.prediction_label === "UNDER 2.5") outcome = total < 2.5 ? "WIN" : "LOSS";
       else if (pick.prediction_label === "BTTS SÌ") outcome = ftHome > 0 && ftAway > 0 ? "WIN" : "LOSS";
 
-      await supabase.from("pronox_daily_picks").update({ status: outcome }).eq("id", pick.id);
+      const { error: updErr } = await supabase.from("pronox_daily_picks").update({ status: outcome }).eq("id", pick.id);
+      if (updErr) console.error(`[verify]     -> ERRORE update Supabase:`, updErr.message);
+      else console.log(`[verify]     -> calcio: ${ftHome}-${ftAway}, esito=${outcome}, aggiornato su Supabase`);
       verified.push({ ...pick, status: outcome, ftHome, ftAway });
-    } catch (e) { /* partita non trovata/rinviata, resta PENDING */ }
+    } catch (e: any) {
+      console.error(`[verify]     -> ECCEZIONE non gestita per pick ${pick.id}:`, e?.message || e);
+    }
   }
+  console.log(`[verify] Totale verificati in questo run: ${verified.length}/${picks.length}`);
   return verified;
 }
 
@@ -342,12 +379,15 @@ async function verifyYesterdayPicks(yesterday: string) {
 // giocata tra i due giocatori intorno alla data del pronostico e vediamo
 // se chi era stato indicato come favorito ha vinto davvero.
 async function verifyTennisPick(pick: any, pickDate: string) {
-  if (!pick.player_a_id || !pick.player_b_id) return null;
+  if (!pick.player_a_id || !pick.player_b_id) {
+    console.log(`[verify-tennis]     player_a_id o player_b_id mancante sul pick, impossibile verificare`);
+    return null;
+  }
 
   const dateFrom = pickDate;
   const dateTo = new Date(new Date(pickDate).getTime() + 2 * 86400000).toISOString().split("T")[0];
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("tennis_matches")
     .select("winner_id, loser_id, tourney_date")
     .or(
@@ -357,6 +397,13 @@ async function verifyTennisPick(pick: any, pickDate: string) {
     .lte("tourney_date", dateTo)
     .limit(1);
 
+  if (error) {
+    console.error(`[verify-tennis]     ERRORE query tennis_matches:`, error.message);
+    return null;
+  }
+
+  console.log(`[verify-tennis]     Cerco winner/loser tra ${pick.player_a_id} e ${pick.player_b_id}, finestra ${dateFrom}..${dateTo} -> ${data?.length ?? 0} righe trovate`);
+
   if (!data || data.length === 0) return null; // non ancora giocata/importata
 
   const winnerId = data[0].winner_id;
@@ -364,6 +411,7 @@ async function verifyTennisPick(pick: any, pickDate: string) {
   // del vincitore previsto (home_team = playerA, away_team = playerB) coincide
   const predictedWinnerIsA = pick.prediction_label.startsWith(pick.home_team);
   const predictedWinnerId = predictedWinnerIsA ? pick.player_a_id : pick.player_b_id;
+  console.log(`[verify-tennis]     winner reale=${winnerId} | vincitore previsto=${predictedWinnerId} (${pick.prediction_label})`);
   return winnerId === predictedWinnerId ? "WIN" : "LOSS";
 }
 
