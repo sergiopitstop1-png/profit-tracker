@@ -319,7 +319,11 @@ async function verifyYesterdayPicks(yesterday: string) {
     console.log(`[verify] --- Pick ${pick.id} | sport=${pick.sport} | ${pick.home_team} vs ${pick.away_team} | pick_date=${pick.pick_date} | player_a_id=${pick.player_a_id} | player_b_id=${pick.player_b_id} | match_id_fd=${pick.match_id_fd}`);
     try {
       if (pick.sport === "tennis") {
-        const outcome = await verifyTennisPick(pick, yesterday);
+        // FIX: prima si passava "yesterday" (fisso per tutto il run) invece
+        // della data reale del pick — per pick più vecchi di un giorno la
+        // finestra di ricerca finiva per cercare nei giorni sbagliati e non
+        // trovava mai nulla, anche quando il risultato era già disponibile.
+        const outcome = await verifyTennisPick(pick, pick.pick_date);
         if (outcome === null) {
           console.log(`[verify]     -> tennis: nessun match trovato in tennis_matches, resta PENDING`);
           continue;
