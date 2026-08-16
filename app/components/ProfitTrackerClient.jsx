@@ -3388,6 +3388,12 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               background: 'rgba(200,241,53,0.08)', color: '#c8f135',
               fontWeight: 700, fontSize: 12, textDecoration: 'none',
             }}>🎾 Esito manuale pronostici</a>
+            <a href="/iscritti" style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
+              borderRadius: 10, border: '1px solid rgba(56,139,253,0.4)',
+              background: 'rgba(56,139,253,0.08)', color: '#388BFD',
+              fontWeight: 700, fontSize: 12, textDecoration: 'none',
+            }}>👥 Iscritti</a>
             <div style={copyrightBox}>© Sergio Apicella — Tutti i diritti riservati</div>
           </div>
         </header>
