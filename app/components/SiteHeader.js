@@ -1,3 +1,5 @@
+import UserGreeting from "./UserGreeting";
+
 export default function SiteHeader() {
   return (
     <header className="border-b border-white/10 bg-black/20 backdrop-blur">
@@ -9,7 +11,7 @@ export default function SiteHeader() {
           <p className="text-sm text-white/60">Strategia. Metodo. Operatività.</p>
         </a>
 
-        <nav className="flex flex-wrap justify-end gap-3 text-xs text-white/75 md:gap-6 md:text-sm">
+        <nav className="flex flex-wrap justify-end gap-3 text-xs text-white/75 md:gap-6 md:text-sm items-center">
           <a href="/" className="transition hover:text-orange-300">Home</a>
           <a href="/chi-sono" className="transition hover:text-orange-300">Chi Sono</a>
           <a href="/servizi" className="transition hover:text-orange-300">Servizi</a>
@@ -18,6 +20,7 @@ export default function SiteHeader() {
           <a href="/oggi" className="transition hover:text-lime-300">PronoX</a>
           <a href="/storico-pronostici" className="transition hover:text-lime-300">Storico Pronostici</a>
           <a href="/profit-tracker" className="transition hover:text-orange-300">Area Riservata</a>
+          <UserGreeting />
         </nav>
       </div>
     </header>
