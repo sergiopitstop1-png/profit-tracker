@@ -194,6 +194,12 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
     !!targetChallengeId &&
     typeof onApplyDirection === "function";
 
+  // La scelta manuale resta sempre disponibile quando è selezionata una challenge.
+  // Non dipende dalla qualità del segnale: il Market Engine rimane consultivo.
+  const canApplyManualDirection =
+    !!targetChallengeId &&
+    typeof onApplyDirection === "function";
+
   const formatBarTime = (ts) => {
     if (!Number.isFinite(Number(ts))) return "—";
     return new Date(Number(ts)).toLocaleString("it-IT");
@@ -434,22 +440,66 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
             </select>
           </div>
 
-          <button
-            style={{
-              ...primaryButtonBlue,
-              opacity: canApplyDirection ? 1 : .45,
-              cursor: canApplyDirection ? "pointer" : "not-allowed",
-              whiteSpace:"nowrap"
-            }}
-            disabled={!canApplyDirection}
-            onClick={()=>{
-              if (canApplyDirection) {
-                onApplyDirection(targetChallengeId, propDirection);
-              }
-            }}
-          >
-            🎯 USA DIREZIONE MARKET ENGINE
-          </button>
+          <div style={{display:"grid",gridTemplateColumns:"minmax(230px,1fr) auto auto",gap:8,alignItems:"stretch"}}>
+            <button
+              style={{
+                ...primaryButtonBlue,
+                opacity: canApplyDirection ? 1 : .45,
+                cursor: canApplyDirection ? "pointer" : "not-allowed",
+                whiteSpace:"nowrap"
+              }}
+              disabled={!canApplyDirection}
+              onClick={()=>{
+                if (canApplyDirection) {
+                  onApplyDirection(targetChallengeId, propDirection);
+                }
+              }}
+            >
+              🎯 USA DIREZIONE MARKET ENGINE
+            </button>
+
+            <button
+              style={{
+                ...secondaryButton,
+                border:"1px solid rgba(45,212,191,.55)",
+                background:"rgba(13,148,136,.14)",
+                color:"#5eead4",
+                fontWeight:900,
+                opacity: canApplyManualDirection ? 1 : .45,
+                cursor: canApplyManualDirection ? "pointer" : "not-allowed",
+                whiteSpace:"nowrap"
+              }}
+              disabled={!canApplyManualDirection}
+              onClick={()=>{
+                if (canApplyManualDirection) {
+                  onApplyDirection(targetChallengeId, "BUY");
+                }
+              }}
+            >
+              🟢 BUY MANUALE
+            </button>
+
+            <button
+              style={{
+                ...secondaryButton,
+                border:"1px solid rgba(248,113,113,.55)",
+                background:"rgba(185,28,28,.14)",
+                color:"#fca5a5",
+                fontWeight:900,
+                opacity: canApplyManualDirection ? 1 : .45,
+                cursor: canApplyManualDirection ? "pointer" : "not-allowed",
+                whiteSpace:"nowrap"
+              }}
+              disabled={!canApplyManualDirection}
+              onClick={()=>{
+                if (canApplyManualDirection) {
+                  onApplyDirection(targetChallengeId, "SELL");
+                }
+              }}
+            >
+              🔴 SELL MANUALE
+            </button>
+          </div>
         </div>
       )}
 
