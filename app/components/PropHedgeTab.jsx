@@ -76,6 +76,8 @@ function makeChallenge(name, id) {
     entryPrice: "",
     autoPrice: true,
     active: null,
+    hedgeEnabled: true,
+    hedgeStoppedAt: null,
     closePropPL: "",
     closeBrokerPL: "",
     operationalChecks: {
@@ -327,6 +329,8 @@ export default function PropHedgeTab() {
             ...ch,
             finalProfitTarget: ch.finalProfitTarget ?? ch.brokerProfitTarget ?? ch.expectedGain ?? "400",
             maxMarginPct: ch.maxMarginPct ?? "50",
+            hedgeEnabled: ch.hedgeEnabled !== false,
+            hedgeStoppedAt: ch.hedgeStoppedAt ?? null,
             operationalChecks: {
               accountBalance: ch.operationalChecks?.accountBalance ?? false,
               finalProfitTarget: ch.operationalChecks?.finalProfitTarget ?? false,
@@ -777,6 +781,35 @@ export default function PropHedgeTab() {
     setChallenges(prev => prev.filter(ch => ch.id !== id));
   };
 
+  const stopHedge = (id) => {
+    const ch = challenges.find(x => x.id === id);
+    if (!ch || ch.hedgeEnabled === false) return;
+
+    const activeNote = ch.active
+      ? "\n\nL'operazione Broker già attiva NON verrà chiusa: continuerà ad essere monitorata fino alla normale chiusura o annullamento."
+      : "";
+
+    const confirmed = window.confirm(
+      `Disattivare le NUOVE coperture Broker per ${ch.name || "questa challenge"}?${activeNote}`
+    );
+    if (!confirmed) return;
+
+    setChallenge(id, {
+      hedgeEnabled: false,
+      hedgeStoppedAt: new Date().toISOString()
+    });
+  };
+
+  const reactivateHedge = (id) => {
+    const ch = challenges.find(x => x.id === id);
+    if (!ch || ch.hedgeEnabled !== false) return;
+
+    setChallenge(id, {
+      hedgeEnabled: true,
+      hedgeStoppedAt: null
+    });
+  };
+
 
   const challengeExposureMap = useMemo(() => {
     const result = {};
@@ -845,6 +878,12 @@ export default function PropHedgeTab() {
   const placeTrade = (id) => {
     const ch = challenges.find(x => x.id === id);
     const c = calcs[id];
+
+    if (ch?.hedgeEnabled === false) {
+      alert("HEDGE disattivato per questa challenge. Riattivalo prima di avviare una nuova copertura Broker.");
+      return;
+    }
+
     if (!ch || !c || !c.px || !c.propLots || !c.brokerLots) {
       alert("Controlla prezzo, rischio e SL.");
       return;
@@ -1217,6 +1256,8 @@ export default function PropHedgeTab() {
         defaultAsset="XAUUSD"
         challenges={challenges}
         onApplyDirection={(challengeId, suggestedDirection) => {
+          const target = challenges.find(ch => ch.id === challengeId);
+          if (target?.hedgeEnabled === false) return;
           setChallenge(challengeId, { direction: suggestedDirection });
         }}
       />
@@ -1434,15 +1475,63 @@ export default function PropHedgeTab() {
                 <p style={{...panelSubtitle,marginTop:8}}>Challenge #{index + 1}</p>
               </div>
 
-              {!ch.active && challenges.length > 1 && (
-                <button
-                  style={{...secondaryButton,color:"#fca5a5",border:"1px solid rgba(239,68,68,.35)"}}
-                  onClick={() => removeChallenge(ch.id)}
-                >
-                  Rimuovi
-                </button>
-              )}
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                {ch.hedgeEnabled === false ? (
+                  <button
+                    style={{
+                      ...secondaryButton,
+                      color:"#bbf7d0",
+                      border:"1px solid rgba(34,197,94,.45)",
+                      background:"rgba(20,83,45,.28)"
+                    }}
+                    onClick={() => reactivateHedge(ch.id)}
+                  >
+                    ▶ RIATTIVA HEDGE
+                  </button>
+                ) : (
+                  <button
+                    style={{
+                      ...secondaryButton,
+                      color:"#fecaca",
+                      border:"1px solid rgba(248,113,113,.48)",
+                      background:"rgba(127,29,29,.28)"
+                    }}
+                    onClick={() => stopHedge(ch.id)}
+                  >
+                    🛑 STOP HEDGE
+                  </button>
+                )}
+
+                {!ch.active && challenges.length > 1 && (
+                  <button
+                    style={{...secondaryButton,color:"#fca5a5",border:"1px solid rgba(239,68,68,.35)"}}
+                    onClick={() => removeChallenge(ch.id)}
+                  >
+                    Rimuovi
+                  </button>
+                )}
+              </div>
             </div>
+
+            {ch.hedgeEnabled === false && (
+              <div style={{
+                marginBottom:14,
+                padding:"12px 14px",
+                borderRadius:14,
+                border:"1px solid rgba(248,113,113,.42)",
+                background:"rgba(127,29,29,.18)",
+                color:"#fecaca",
+                fontWeight:900
+              }}>
+                🛑 HEDGE DISATTIVATO — nessuna nuova copertura Broker verrà avviata per questa challenge.
+                <div style={{fontSize:11,fontWeight:600,color:"#fca5a5",marginTop:4}}>
+                  {ch.hedgeStoppedAt
+                    ? `Stop attivato: ${new Date(ch.hedgeStoppedAt).toLocaleString("it-IT")}. `
+                    : ""}
+                  Le eventuali operazioni già attive restano invariate e continuano a essere monitorate.
+                </div>
+              </div>
+            )}
 
             {!ch.active && (
               <>
@@ -1681,12 +1770,16 @@ export default function PropHedgeTab() {
                 <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:14}}>
                   <button
                     onClick={()=>placeTrade(ch.id)}
+                    disabled={ch.hedgeEnabled === false}
                     style={{
-                      border:"none",borderRadius:14,padding:"12px 20px",cursor:"pointer",
+                      border:"none",borderRadius:14,padding:"12px 20px",
+                      cursor:ch.hedgeEnabled === false ? "not-allowed" : "pointer",
+                      opacity:ch.hedgeEnabled === false ? .42 : 1,
                       fontWeight:900,color:"#052e16",background:"linear-gradient(135deg,#4ade80,#22c55e)"
                     }}
+                    title={ch.hedgeEnabled === false ? "HEDGE disattivato: riattivalo per creare una nuova copertura Broker." : ""}
                   >
-                    ✅ PIAZZATA — AVVIA MONITOR
+                    {ch.hedgeEnabled === false ? "🛑 HEDGE DISATTIVATO" : "✅ PIAZZATA — AVVIA MONITOR"}
                   </button>
                   <button style={secondaryButton} onClick={()=>refreshSymbol(ch.asset)}>Aggiorna prezzo</button>
                 </div>
