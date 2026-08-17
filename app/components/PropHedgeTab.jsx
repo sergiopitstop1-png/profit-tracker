@@ -105,6 +105,7 @@ function makeChallenge(name, id) {
     active: null,
     hedgeEnabled: true,
     hedgeStoppedAt: null,
+    brokerAccountId: "",
     closePropPL: "",
     closeBrokerPL: "",
     operationalChecks: {
@@ -343,6 +344,21 @@ export default function PropHedgeTab() {
   const [showChallengeRegistry, setShowChallengeRegistry] = useState(false);
   const [registryEditingId, setRegistryEditingId] = useState(null);
   const [registryDraft, setRegistryDraft] = useState(null);
+
+  // Account Broker MT5 multi-account
+  const [brokerAccounts, setBrokerAccounts] = useState([]);
+  const [brokerAccountsLoading, setBrokerAccountsLoading] = useState(false);
+  const [brokerAccountSaving, setBrokerAccountSaving] = useState(false);
+  const [brokerAccountEditingId, setBrokerAccountEditingId] = useState(null);
+  const [brokerAccountDraft, setBrokerAccountDraft] = useState({
+    alias: "",
+    broker: "",
+    mt5_login: "",
+    mt5_server: "",
+    account_type: "real",
+    active: true
+  });
+
   const [mainView, setMainView] = useState("OPERATIVITA");
   const [historyFilters, setHistoryFilters] = useState({
     prop: "TUTTE",
@@ -699,6 +715,160 @@ export default function PropHedgeTab() {
     }
   };
 
+  const emptyBrokerAccountDraft = () => ({
+    alias: "",
+    broker: "",
+    mt5_login: "",
+    mt5_server: "",
+    account_type: "real",
+    active: true
+  });
+
+  const loadBrokerAccounts = async () => {
+    setBrokerAccountsLoading(true);
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData?.user?.id;
+      if (!uid) throw new Error("Utente Supabase non autenticato");
+
+      const { data, error } = await supabase
+        .from("prop_broker_accounts")
+        .select("id,user_id,alias,broker,mt5_login,mt5_server,account_type,active,created_at,updated_at")
+        .eq("user_id", uid)
+        .order("active", { ascending: false })
+        .order("alias", { ascending: true });
+
+      if (error) throw error;
+      setBrokerAccounts(data || []);
+    } catch (e) {
+      console.error("Errore caricamento account Broker:", e);
+      alert("Errore caricamento account Broker: " + (e?.message || String(e)));
+    } finally {
+      setBrokerAccountsLoading(false);
+    }
+  };
+
+  const editBrokerAccount = (account) => {
+    setBrokerAccountEditingId(account.id);
+    setBrokerAccountDraft({
+      alias: account.alias || "",
+      broker: account.broker || "",
+      mt5_login: account.mt5_login || "",
+      mt5_server: account.mt5_server || "",
+      account_type: account.account_type || "real",
+      active: account.active !== false
+    });
+    setMainView("ACCOUNT_BROKER");
+  };
+
+  const resetBrokerAccountEditor = () => {
+    setBrokerAccountEditingId(null);
+    setBrokerAccountDraft(emptyBrokerAccountDraft());
+  };
+
+  const saveBrokerAccount = async () => {
+    if (brokerAccountSaving) return;
+
+    const alias = String(brokerAccountDraft.alias || "").trim();
+    const broker = String(brokerAccountDraft.broker || "").trim();
+    const mt5Login = String(brokerAccountDraft.mt5_login || "").trim();
+    const mt5Server = String(brokerAccountDraft.mt5_server || "").trim();
+
+    if (!alias || !broker || !mt5Login || !mt5Server) {
+      alert("Compila Alias, Broker, Login MT5 e Server MT5.");
+      return;
+    }
+
+    setBrokerAccountSaving(true);
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData?.user?.id;
+      if (!uid) throw new Error("Utente Supabase non autenticato");
+
+      const payload = {
+        user_id: uid,
+        alias,
+        broker,
+        mt5_login: mt5Login,
+        mt5_server: mt5Server,
+        account_type: brokerAccountDraft.account_type === "demo" ? "demo" : "real",
+        active: brokerAccountDraft.active !== false,
+        updated_at: new Date().toISOString()
+      };
+
+      let error;
+      if (brokerAccountEditingId) {
+        ({ error } = await supabase
+          .from("prop_broker_accounts")
+          .update(payload)
+          .eq("id", brokerAccountEditingId)
+          .eq("user_id", uid));
+      } else {
+        ({ error } = await supabase
+          .from("prop_broker_accounts")
+          .insert(payload));
+      }
+
+      if (error) throw error;
+
+      resetBrokerAccountEditor();
+      await loadBrokerAccounts();
+    } catch (e) {
+      console.error("Errore salvataggio account Broker:", e);
+      alert("Errore salvataggio account Broker: " + (e?.message || String(e)));
+    } finally {
+      setBrokerAccountSaving(false);
+    }
+  };
+
+  const toggleBrokerAccountActive = async (account) => {
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData?.user?.id;
+      if (!uid) throw new Error("Utente Supabase non autenticato");
+
+      const { error } = await supabase
+        .from("prop_broker_accounts")
+        .update({ active: !account.active, updated_at: new Date().toISOString() })
+        .eq("id", account.id)
+        .eq("user_id", uid);
+
+      if (error) throw error;
+      await loadBrokerAccounts();
+    } catch (e) {
+      alert("Errore modifica account Broker: " + (e?.message || String(e)));
+    }
+  };
+
+  const deleteBrokerAccount = async (account) => {
+    const usedBy = challenges.filter(ch => ch.brokerAccountId === account.id);
+    if (usedBy.length) {
+      alert(`Questo account è assegnato a ${usedBy.length} challenge. Cambia prima il conto Broker nelle challenge interessate.`);
+      return;
+    }
+
+    if (!window.confirm(`Eliminare l'account Broker “${account.alias}”?`)) return;
+
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData?.user?.id;
+      if (!uid) throw new Error("Utente Supabase non autenticato");
+
+      const { error } = await supabase
+        .from("prop_broker_accounts")
+        .delete()
+        .eq("id", account.id)
+        .eq("user_id", uid);
+
+      if (error) throw error;
+      await loadBrokerAccounts();
+    } catch (e) {
+      alert("Errore eliminazione account Broker: " + (e?.message || String(e)));
+    }
+  };
+
+  const brokerAccountById = (id) => brokerAccounts.find(x => x.id === id) || null;
+
   const loadHistory = async () => {
     setHistoryLoading(true);
     setHistoryError("");
@@ -723,6 +893,7 @@ export default function PropHedgeTab() {
     loadHistory();
     loadBrokerState();
     loadBrokerAdjustments();
+    loadBrokerAccounts();
     loadActiveChallengesFromSupabase();
   }, []);
 
@@ -839,6 +1010,7 @@ export default function PropHedgeTab() {
     archived: ch.archived === true,
     archivedAt: ch.archivedAt || null,
     archiveStatus: ch.archiveStatus || "",
+    brokerAccountId: ch.brokerAccountId || "",
     dailyRisk: ch.dailyRisk?.date ? ch.dailyRisk : {
       date: todayKey(),
       startEquity: String(Math.min(num(ch.accountBalance || ch.accountSize), num(ch.accountSize) || num(ch.accountBalance)))
@@ -1045,6 +1217,17 @@ export default function PropHedgeTab() {
     const ch = challenges.find(x => x.id === id);
     const c = calcs[id];
     const hedgeEnabledAtEntry = ch?.hedgeEnabled !== false;
+    const selectedBrokerAccount = brokerAccountById(ch?.brokerAccountId);
+
+    if (hedgeEnabledAtEntry && !selectedBrokerAccount) {
+      alert("Seleziona il conto Broker MT5 da usare per questa Prop.");
+      return;
+    }
+
+    if (hedgeEnabledAtEntry && selectedBrokerAccount?.active === false) {
+      alert("Il conto Broker selezionato è disattivato. Riattivalo o scegli un altro conto.");
+      return;
+    }
 
     // Con STOP HEDGE la Prop resta pienamente tradabile: viene monitorata normalmente,
     // ma la nuova gamba Broker parte a 0 lotti e quindi non modifica il saldo Broker.
@@ -1095,6 +1278,11 @@ export default function PropHedgeTab() {
         quoteToUsd: c.quoteToUsd,
         maxBrokerLossAtEntry: hedgeEnabledAtEntry ? c.maxBrokerLoss : 0,
         hedgeEnabledAtEntry,
+        brokerAccountId: hedgeEnabledAtEntry ? selectedBrokerAccount?.id || "" : "",
+        brokerAlias: hedgeEnabledAtEntry ? selectedBrokerAccount?.alias || "" : "",
+        brokerName: hedgeEnabledAtEntry ? selectedBrokerAccount?.broker || "" : "",
+        brokerLogin: hedgeEnabledAtEntry ? selectedBrokerAccount?.mt5_login || "" : "",
+        brokerServer: hedgeEnabledAtEntry ? selectedBrokerAccount?.mt5_server || "" : "",
         placedAt: new Date().toISOString()
       },
       closePropPL: "",
@@ -1346,6 +1534,15 @@ export default function PropHedgeTab() {
             <div style={grid2}>
               <div><label style={fieldLabel}>Prop Firm / Nome challenge</label><input style={input} value={registryDraft.name || ""} onChange={e=>setRegistryDraft(d=>({...d,name:e.target.value}))}/></div>
               <div><label style={fieldLabel}>Fase</label><select style={input} value={registryDraft.propStage || "STEP 1"} onChange={e=>setRegistryDraft(d=>({...d,propStage:e.target.value}))}><option>STEP 1</option><option>STEP 2</option><option>FUNDED / REAL</option></select></div>
+              <div>
+                <label style={fieldLabel}>Conto Broker predefinito per questa Prop</label>
+                <select style={input} value={registryDraft.brokerAccountId || ""} onChange={e=>setRegistryDraft(d=>({...d,brokerAccountId:e.target.value}))}>
+                  <option value="">— Seleziona account Broker —</option>
+                  {brokerAccounts.filter(a=>a.active).map(a=>(
+                    <option key={a.id} value={a.id}>{a.alias} — {a.broker} ({a.mt5_login})</option>
+                  ))}
+                </select>
+              </div>
               <TextNumberField label="Valore Prop / Account Size ($)" value={registryDraft.accountSize || ""} onChange={v=>setRegistryDraft(d=>({...d,accountSize:v,accountBalance: registryEditingId ? d.accountBalance : v}))}/>
               <TextNumberField label="TP Prop ($)" value={registryDraft.tpProp || ""} onChange={v=>setRegistryDraft(d=>({...d,tpProp:v}))}/>
               <TextNumberField label="DD Max Prop (%)" value={registryDraft.ddMax || ""} onChange={v=>setRegistryDraft(d=>({...d,ddMax:v}))}/>
@@ -1386,7 +1583,7 @@ export default function PropHedgeTab() {
         <div>
           <h2 style={sectionTitle}>📈 Prop Hedge — Multi Challenge</h2>
           <p style={sectionDescription}>
-            Più Prop contemporaneamente, un unico Broker condiviso e controllo dell'esposizione aggregata.
+            Più Prop contemporaneamente, con conto Broker dedicato per ogni challenge e controllo dell'esposizione aggregata.
           </p>
         </div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
@@ -1417,7 +1614,7 @@ export default function PropHedgeTab() {
       </div>
 
       <div style={{display:"flex",gap:8,flexWrap:"wrap",padding:6,borderRadius:16,border:"1px solid rgba(51,65,85,.72)",background:"rgba(2,6,23,.42)"}}>
-        {[["OPERATIVITA","📈 OPERATIVITÀ"],["STORICO","📚 STORICO PROP"],["ARCHIVIO","🗂️ ARCHIVIO CHALLENGE"]].map(([key,label])=>(
+        {[["OPERATIVITA","📈 OPERATIVITÀ"],["ACCOUNT_BROKER","⚙️ ACCOUNT BROKER"],["STORICO","📚 STORICO PROP"],["ARCHIVIO","🗂️ ARCHIVIO CHALLENGE"]].map(([key,label])=>(
           <button key={key} onClick={()=>setMainView(key)} style={{
             ...secondaryButton,
             background:mainView===key?"rgba(30,64,175,.48)":"rgba(15,23,42,.48)",
@@ -1843,6 +2040,28 @@ export default function PropHedgeTab() {
                     </select>
                   </div>
 
+                  <div>
+                    <label style={fieldLabel}>Conto Broker per questa Prop</label>
+                    <select
+                      style={{...input,border: ch.hedgeEnabled !== false && !ch.brokerAccountId ? "1px solid rgba(248,113,113,.72)" : input.border}}
+                      value={ch.brokerAccountId || ""}
+                      onChange={e => setChallenge(ch.id,{brokerAccountId:e.target.value})}
+                      disabled={ch.hedgeEnabled === false}
+                    >
+                      <option value="">— Seleziona account Broker —</option>
+                      {brokerAccounts.filter(a=>a.active).map(a=>(
+                        <option key={a.id} value={a.id}>{a.alias} — {a.broker} • {a.mt5_login}</option>
+                      ))}
+                    </select>
+                    <div style={{fontSize:11,color: ch.hedgeEnabled === false ? "#94a3b8" : ch.brokerAccountId ? "#86efac" : "#fca5a5",marginTop:4}}>
+                      {ch.hedgeEnabled === false
+                        ? "Hedge disattivato: nessun conto Broker necessario."
+                        : ch.brokerAccountId
+                          ? (()=>{ const a=brokerAccountById(ch.brokerAccountId); return a ? `${a.mt5_server} • ${String(a.account_type || "real").toUpperCase()}` : "Account non più disponibile"; })()
+                          : "Obbligatorio prima di PIAZZATA."}
+                    </div>
+                  </div>
+
                   <TextNumberField label="Valore Prop / Account Size ($)" value={ch.accountSize} onChange={v=>setChallenge(ch.id,{accountSize:v})} />
                   <TextNumberField label="Saldo Account Prop ($)" value={ch.accountBalance} onChange={v=>setChallenge(ch.id,{accountBalance:v})} operational updated={!!ch.operationalChecks?.accountBalance} onOperationalChange={()=>markOperationalUpdated(ch.id,"accountBalance")} />
                   <TextNumberField label="DD Max Prop (%)" value={ch.ddMax} onChange={v=>setChallenge(ch.id,{ddMax:v})} />
@@ -2217,6 +2436,58 @@ export default function PropHedgeTab() {
       })}
 
       </>)}
+
+      {mainView === "ACCOUNT_BROKER" && (
+        <div style={{...panel,border:"1px solid rgba(34,211,238,.30)",background:"linear-gradient(135deg,rgba(8,145,178,.07),rgba(15,23,42,.96))"}}>
+          <div style={panelHeader}>
+            <div>
+              <h3 style={panelTitle}>⚙️ Account Broker MT5</h3>
+              <p style={panelSubtitle}>Censimento multi-account. Ogni Prop può scegliere un conto diverso. Nessuna password viene salvata qui.</p>
+            </div>
+            <button style={secondaryButton} onClick={loadBrokerAccounts}>{brokerAccountsLoading ? "Aggiorno…" : "↻ Aggiorna"}</button>
+          </div>
+
+          <div style={{...grid2,marginBottom:18}}>
+            <div><label style={fieldLabel}>Alias account</label><input style={input} placeholder="es. Ultimate Principale" value={brokerAccountDraft.alias} onChange={e=>setBrokerAccountDraft(d=>({...d,alias:e.target.value}))}/></div>
+            <div><label style={fieldLabel}>Broker</label><input style={input} placeholder="es. Ultimate Markets" value={brokerAccountDraft.broker} onChange={e=>setBrokerAccountDraft(d=>({...d,broker:e.target.value}))}/></div>
+            <div><label style={fieldLabel}>Login MT5</label><input style={input} placeholder="Numero conto" value={brokerAccountDraft.mt5_login} onChange={e=>setBrokerAccountDraft(d=>({...d,mt5_login:e.target.value.replace(/\s/g,"")}))}/></div>
+            <div><label style={fieldLabel}>Server MT5</label><input style={input} placeholder="es. UltimateMarkets-Live 1" value={brokerAccountDraft.mt5_server} onChange={e=>setBrokerAccountDraft(d=>({...d,mt5_server:e.target.value}))}/></div>
+            <div><label style={fieldLabel}>Tipo conto</label><select style={input} value={brokerAccountDraft.account_type} onChange={e=>setBrokerAccountDraft(d=>({...d,account_type:e.target.value}))}><option value="real">REAL</option><option value="demo">DEMO</option></select></div>
+            <div><label style={fieldLabel}>Stato</label><select style={input} value={brokerAccountDraft.active ? "SI" : "NO"} onChange={e=>setBrokerAccountDraft(d=>({...d,active:e.target.value==="SI"}))}><option value="SI">ATTIVO</option><option value="NO">DISATTIVATO</option></select></div>
+          </div>
+
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:20}}>
+            <button style={primaryButtonBlue} onClick={saveBrokerAccount} disabled={brokerAccountSaving}>{brokerAccountSaving ? "Salvo…" : brokerAccountEditingId ? "💾 Salva modifiche" : "+ Aggiungi account"}</button>
+            {brokerAccountEditingId && <button style={secondaryButton} onClick={resetBrokerAccountEditor}>Annulla modifica</button>}
+          </div>
+
+          {brokerAccounts.length === 0 ? (
+            <div style={hintBox}>Nessun account Broker censito. Aggiungi il primo account MT5 qui sopra.</div>
+          ) : (
+            <div style={{display:"grid",gap:10}}>
+              {brokerAccounts.map(a=>{
+                const assigned = challenges.filter(ch=>ch.brokerAccountId===a.id && !ch.archived);
+                return (
+                  <div key={a.id} style={{padding:"13px 14px",borderRadius:14,border:a.active?"1px solid rgba(34,197,94,.30)":"1px solid rgba(100,116,139,.35)",background:a.active?"rgba(20,83,45,.08)":"rgba(30,41,59,.34)"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",gap:12,flexWrap:"wrap",alignItems:"center"}}>
+                      <div>
+                        <div style={{fontSize:16,fontWeight:950,color:a.active?"#bbf7d0":"#cbd5e1"}}>{a.alias} <span style={{fontSize:11,color:"#94a3b8"}}>• {String(a.account_type||"real").toUpperCase()}</span></div>
+                        <div style={{fontSize:12,color:"#cbd5e1",marginTop:4}}>{a.broker} • Login {a.mt5_login} • {a.mt5_server}</div>
+                        <div style={{fontSize:11,color:"#93c5fd",marginTop:4}}>Assegnato a: {assigned.length ? assigned.map(ch=>ch.name).join(", ") : "nessuna Prop"}</div>
+                      </div>
+                      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                        <button style={secondaryButton} onClick={()=>editBrokerAccount(a)}>✏️ Modifica</button>
+                        <button style={{...secondaryButton,color:a.active?"#fde68a":"#86efac"}} onClick={()=>toggleBrokerAccountActive(a)}>{a.active?"⏸ Disattiva":"▶ Attiva"}</button>
+                        <button style={{...secondaryButton,color:"#fca5a5",border:"1px solid rgba(239,68,68,.35)"}} onClick={()=>deleteBrokerAccount(a)}>🗑 Elimina</button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {mainView === "STORICO" && (
       <div style={{
