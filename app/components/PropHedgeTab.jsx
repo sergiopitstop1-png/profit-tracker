@@ -365,6 +365,9 @@ export default function PropHedgeTab() {
   const [brokerLiveError, setBrokerLiveError] = useState("");
   const [brokerLiveUpdatedAt, setBrokerLiveUpdatedAt] = useState(null);
 
+  // Invio comando Prop Hedge -> Supabase -> EA MT5
+  const [bridgeSubmitting, setBridgeSubmitting] = useState({});
+
   const [mainView, setMainView] = useState("OPERATIVITA");
   const [historyFilters, setHistoryFilters] = useState({
     prop: "TUTTE",
@@ -1298,11 +1301,13 @@ export default function PropHedgeTab() {
     return net;
   }, [challenges]);
 
-  const placeTrade = (id) => {
+  const placeTrade = async (id) => {
     const ch = challenges.find(x => x.id === id);
     const c = calcs[id];
     const hedgeEnabledAtEntry = ch?.hedgeEnabled !== false;
     const selectedBrokerAccount = brokerAccountById(ch?.brokerAccountId);
+
+    if (bridgeSubmitting[id]) return;
 
     if (hedgeEnabledAtEntry && !selectedBrokerAccount) {
       alert("Seleziona il conto Broker MT5 da usare per questa Prop.");
@@ -1365,36 +1370,121 @@ export default function PropHedgeTab() {
       if (!okNews) return;
     }
 
-    setChallenge(id, {
-      active: {
-        asset: ch.asset,
-        label: c.a.label,
-        decimals: c.a.decimals,
-        contract: c.a.contract,
-        entry: c.px,
-        direction: ch.direction,
-        brokerDirection: c.brokerDirection,
-        propLots: c.propLots,
-        brokerLots: hedgeEnabledAtEntry ? c.brokerLots : 0,
-        propTP: c.propTPPrice,
-        propSL: c.propSL,
-        brokerTP: c.brokerTP,
-        brokerSL: c.brokerSL,
-        propBalanceStart: num(ch.accountBalance),
-        brokerBalanceStart: num(brokerBalance),
-        quoteToUsd: c.quoteToUsd,
-        maxBrokerLossAtEntry: hedgeEnabledAtEntry ? c.maxBrokerLoss : 0,
-        hedgeEnabledAtEntry,
-        brokerAccountId: hedgeEnabledAtEntry ? selectedBrokerAccount?.id || "" : "",
-        brokerAlias: hedgeEnabledAtEntry ? selectedBrokerAccount?.alias || "" : "",
-        brokerName: hedgeEnabledAtEntry ? selectedBrokerAccount?.broker || "" : "",
-        brokerLogin: hedgeEnabledAtEntry ? selectedBrokerAccount?.mt5_login || "" : "",
-        brokerServer: hedgeEnabledAtEntry ? selectedBrokerAccount?.mt5_server || "" : "",
-        placedAt: new Date().toISOString()
-      },
-      closePropPL: "",
-      closeBrokerPL: ""
-    });
+    setBridgeSubmitting(prev => ({ ...prev, [id]: true }));
+
+    try {
+      let bridgeCommandId = null;
+
+      if (hedgeEnabledAtEntry) {
+        const { data: userData } = await supabase.auth.getUser();
+        const uid = userData?.user?.id;
+        if (!uid) throw new Error("Utente Supabase non autenticato");
+
+        // Protezione anti-doppione lato UI/database: non creiamo un nuovo comando
+        // se questa challenge ne ha già uno pending o processing.
+        const { data: existingCommands, error: existingError } = await supabase
+          .from("prop_bridge_commands")
+          .select("id,status,broker_account,symbol,side,volume")
+          .eq("user_id", uid)
+          .eq("challenge_id", ch.id)
+          .in("status", ["pending", "processing"])
+          .limit(1);
+
+        if (existingError) throw existingError;
+
+        if (Array.isArray(existingCommands) && existingCommands.length) {
+          const existing = existingCommands[0];
+          throw new Error(
+            `Esiste già un comando ${existing.status} per ${ch.name} (ID ${existing.id}). ` +
+            `Nessun nuovo comando è stato creato.`
+          );
+        }
+
+        const commandPayload = {
+          user_id: uid,
+          challenge_id: ch.id,
+          prop_name: ch.name || "Prop",
+          broker_account: String(selectedBrokerAccount.mt5_login),
+          symbol: ch.asset,
+          side: c.brokerDirection,
+          volume: Number(c.brokerLots),
+          entry_price: Number(c.px),
+          sl: Number(c.brokerSL),
+          tp: Number(c.brokerTP),
+          status: "pending"
+        };
+
+        const { data: insertedCommand, error: commandError } = await supabase
+          .from("prop_bridge_commands")
+          .insert(commandPayload)
+          .select("id,status,broker_account,symbol,side,volume,sl,tp")
+          .single();
+
+        if (commandError) throw commandError;
+        bridgeCommandId = insertedCommand?.id || null;
+
+        if (!bridgeCommandId) {
+          throw new Error("Comando Bridge creato senza ID. Operazione annullata.");
+        }
+      }
+
+      const placedAt = new Date().toISOString();
+
+      setChallenge(id, {
+        active: {
+          asset: ch.asset,
+          label: c.a.label,
+          decimals: c.a.decimals,
+          contract: c.a.contract,
+          entry: c.px,
+          direction: ch.direction,
+          brokerDirection: c.brokerDirection,
+          propLots: c.propLots,
+          brokerLots: hedgeEnabledAtEntry ? c.brokerLots : 0,
+          propTP: c.propTPPrice,
+          propSL: c.propSL,
+          brokerTP: c.brokerTP,
+          brokerSL: c.brokerSL,
+          propBalanceStart: num(ch.accountBalance),
+          brokerBalanceStart: num(brokerBalance),
+          quoteToUsd: c.quoteToUsd,
+          maxBrokerLossAtEntry: hedgeEnabledAtEntry ? c.maxBrokerLoss : 0,
+          hedgeEnabledAtEntry,
+          brokerAccountId: hedgeEnabledAtEntry ? selectedBrokerAccount?.id || "" : "",
+          brokerAlias: hedgeEnabledAtEntry ? selectedBrokerAccount?.alias || "" : "",
+          brokerName: hedgeEnabledAtEntry ? selectedBrokerAccount?.broker || "" : "",
+          brokerLogin: hedgeEnabledAtEntry ? selectedBrokerAccount?.mt5_login || "" : "",
+          brokerServer: hedgeEnabledAtEntry ? selectedBrokerAccount?.mt5_server || "" : "",
+          bridgeCommandId,
+          bridgeCommandStatus: hedgeEnabledAtEntry ? "pending" : null,
+          placedAt
+        },
+        closePropPL: "",
+        closeBrokerPL: ""
+      });
+
+      if (hedgeEnabledAtEntry) {
+        alert(
+          `✅ COMANDO BRIDGE CREATO\n\n` +
+          `Prop: ${ch.name}\n` +
+          `Broker: ${selectedBrokerAccount.alias} — ${selectedBrokerAccount.mt5_login}\n` +
+          `Ordine: ${c.brokerDirection} ${c.brokerLots.toFixed(2)} ${ch.asset}\n` +
+          `TP: ${c.brokerTP.toFixed(c.a.decimals)}\n` +
+          `SL: ${c.brokerSL.toFixed(c.a.decimals)}\n\n` +
+          `Command ID: ${bridgeCommandId}\n` +
+          `Stato: pending`
+        );
+      }
+    } catch (e) {
+      console.error("Errore creazione comando Prop Bridge:", e);
+      alert(
+        `❌ COMANDO BROKER NON CREATO\n\n` +
+        `${e?.message || String(e)}\n\n` +
+        `La challenge NON è stata avviata.`
+      );
+    } finally {
+      setBridgeSubmitting(prev => ({ ...prev, [id]: false }));
+    }
   };
 
   const cancelTrade = (id) => {
@@ -2494,16 +2584,18 @@ export default function PropHedgeTab() {
                 <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:14}}>
                   <button
                     onClick={()=>placeTrade(ch.id)}
-                    disabled={ch.hedgeEnabled !== false && safetyInfo?.level === "red"}
+                    disabled={bridgeSubmitting[ch.id] || (ch.hedgeEnabled !== false && safetyInfo?.level === "red")}
                     style={{
                       border:"none",borderRadius:14,padding:"12px 20px",
-                      cursor:(ch.hedgeEnabled !== false && safetyInfo?.level === "red") ? "not-allowed" : "pointer",
-                      opacity:(ch.hedgeEnabled !== false && safetyInfo?.level === "red") ? .45 : 1,
+                      cursor:(bridgeSubmitting[ch.id] || (ch.hedgeEnabled !== false && safetyInfo?.level === "red")) ? "not-allowed" : "pointer",
+                      opacity:(bridgeSubmitting[ch.id] || (ch.hedgeEnabled !== false && safetyInfo?.level === "red")) ? .45 : 1,
                       fontWeight:900,color:"#052e16",background:"linear-gradient(135deg,#4ade80,#22c55e)"
                     }}
                     title={ch.hedgeEnabled === false ? "Avvia il trade sulla Prop senza aprire una nuova copertura Broker." : ""}
                   >
-                    {ch.hedgeEnabled === false ? "✅ PIAZZATA PROP — SENZA HEDGE" : "✅ PIAZZATA — AVVIA MONITOR"}
+                    {bridgeSubmitting[ch.id]
+                      ? "⏳ CREAZIONE COMANDO…"
+                      : (ch.hedgeEnabled === false ? "✅ PIAZZATA PROP — SENZA HEDGE" : "✅ PIAZZATA — INVIA AL BRIDGE")}
                   </button>
                   <button style={secondaryButton} onClick={()=>refreshSymbol(ch.asset)}>Aggiorna prezzo</button>
                 </div>
