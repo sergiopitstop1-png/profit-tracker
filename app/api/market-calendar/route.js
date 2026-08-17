@@ -67,14 +67,32 @@ function parseNumberLike(v) {
     : null;
 }
 
+/*
+============================================================
+CLASSIFICAZIONE EVENTI MACRO
+
+IMPORTANTE:
+Le regole specifiche "Philly Fed", "Richmond Fed" ecc.
+DEVONO stare prima della regola generica "Fed/FOMC",
+altrimenti vengono scambiati per eventi di politica monetaria.
+============================================================
+*/
+
 function eventRule(name) {
   const t =
     String(name || "")
       .toLowerCase();
 
+  /*
+  ------------------------------------------------------------
+  OCCUPAZIONE
+  ------------------------------------------------------------
+  */
+
   if (
     t.includes("non-farm") ||
-    t.includes("nonfarm payroll")
+    t.includes("nonfarm payroll") ||
+    t.includes("non farm payroll")
   ) {
     return {
       key: "NFP",
@@ -82,6 +100,45 @@ function eventRule(name) {
       strongerIsGoldNegative: true
     };
   }
+
+  if (
+    t.includes("unemployment rate")
+  ) {
+    return {
+      key: "UNEMPLOYMENT",
+      weight: 18,
+      strongerIsGoldNegative: false
+    };
+  }
+
+  if (
+    t.includes("jobless claims") ||
+    t.includes("initial claims") ||
+    t.includes("unemployment claims")
+  ) {
+    return {
+      key: "JOBLESS_CLAIMS",
+      weight: 15,
+      strongerIsGoldNegative: false
+    };
+  }
+
+  if (
+    t.includes("adp") &&
+    t.includes("employment")
+  ) {
+    return {
+      key: "ADP_EMPLOYMENT",
+      weight: 13,
+      strongerIsGoldNegative: true
+    };
+  }
+
+  /*
+  ------------------------------------------------------------
+  INFLAZIONE
+  ------------------------------------------------------------
+  */
 
   if (
     t.includes("core cpi")
@@ -125,25 +182,21 @@ function eventRule(name) {
   }
 
   if (
-    t.includes("unemployment rate")
+    t.includes("ppi") ||
+    t.includes("producer price")
   ) {
     return {
-      key: "UNEMPLOYMENT",
-      weight: 18,
-      strongerIsGoldNegative: false
+      key: "PPI",
+      weight: 14,
+      strongerIsGoldNegative: true
     };
   }
 
-  if (
-    t.includes("jobless claims") ||
-    t.includes("initial claims")
-  ) {
-    return {
-      key: "JOBLESS_CLAIMS",
-      weight: 15,
-      strongerIsGoldNegative: false
-    };
-  }
+  /*
+  ------------------------------------------------------------
+  CONSUMI / ATTIVITÀ ECONOMICA
+  ------------------------------------------------------------
+  */
 
   if (
     t.includes("retail sales")
@@ -164,6 +217,32 @@ function eventRule(name) {
       strongerIsGoldNegative: true
     };
   }
+
+  if (
+    t.includes("industrial production")
+  ) {
+    return {
+      key: "INDUSTRIAL_PRODUCTION",
+      weight: 11,
+      strongerIsGoldNegative: true
+    };
+  }
+
+  if (
+    t.includes("durable goods")
+  ) {
+    return {
+      key: "DURABLE_GOODS",
+      weight: 11,
+      strongerIsGoldNegative: true
+    };
+  }
+
+  /*
+  ------------------------------------------------------------
+  ISM / PMI
+  ------------------------------------------------------------
+  */
 
   if (
     t.includes("ism") &&
@@ -191,9 +270,86 @@ function eventRule(name) {
   }
 
   if (
-    t.includes("fed") ||
+    t.includes("manufacturing pmi")
+  ) {
+    return {
+      key: "MANUFACTURING_PMI",
+      weight: 11,
+      strongerIsGoldNegative: true
+    };
+  }
+
+  if (
+    t.includes("services pmi")
+  ) {
+    return {
+      key: "SERVICES_PMI",
+      weight: 11,
+      strongerIsGoldNegative: true
+    };
+  }
+
+  /*
+  ------------------------------------------------------------
+  INDICI REGIONALI FED
+
+  DEVONO STARE PRIMA DELLA REGOLA GENERICA FED/FOMC
+  ------------------------------------------------------------
+  */
+
+  if (
+    t.includes("philly fed") ||
+    t.includes("philadelphia fed") ||
+    t.includes("empire state") ||
+    t.includes("richmond fed") ||
+    t.includes("dallas fed") ||
+    t.includes("kansas city fed")
+  ) {
+    return {
+      key: "REGIONAL_ACTIVITY",
+      weight: 10,
+      strongerIsGoldNegative: true
+    };
+  }
+
+  /*
+  ------------------------------------------------------------
+  FIDUCIA / SENTIMENT
+  ------------------------------------------------------------
+  */
+
+  if (
+    t.includes("consumer confidence") ||
+    t.includes("consumer sentiment") ||
+    t.includes("michigan consumer")
+  ) {
+    return {
+      key: "CONSUMER_SENTIMENT",
+      weight: 9,
+      strongerIsGoldNegative: true
+    };
+  }
+
+  /*
+  ------------------------------------------------------------
+  FED / FOMC / POLITICA MONETARIA
+
+  Qui strongerIsGoldNegative = null perché:
+  - verbali FOMC
+  - discorsi Fed
+  - decisioni tassi
+
+  spesso non sono valori numerici confrontabili direttamente
+  con forecast/actual.
+  ------------------------------------------------------------
+  */
+
+  if (
     t.includes("fomc") ||
-    t.includes("interest rate")
+    t.includes("federal reserve") ||
+    t.includes("interest rate decision") ||
+    t.includes("fed chair") ||
+    t.includes("powell")
   ) {
     return {
       key: "FED",
@@ -202,12 +358,27 @@ function eventRule(name) {
     };
   }
 
+  /*
+  ------------------------------------------------------------
+  EVENTI NON CLASSIFICATI
+  ------------------------------------------------------------
+  */
+
   return {
     key: "OTHER",
     weight: 8,
     strongerIsGoldNegative: null
   };
 }
+
+/*
+============================================================
+CALCOLO SURPRISE
+
+score > 0  => tendenzialmente favorevole all'oro
+score < 0  => tendenzialmente sfavorevole all'oro
+============================================================
+*/
 
 function surpriseScore(
   event
@@ -254,6 +425,13 @@ function surpriseScore(
     ) /
     denominator;
 
+  /*
+    Surprise normalizzata.
+
+    A circa +/-15% rispetto al consensus
+    consideriamo la sorpresa già molto forte.
+  */
+
   const normalized =
     Math.max(
       -1,
@@ -262,6 +440,19 @@ function surpriseScore(
         surprise / 0.15
       )
     );
+
+  /*
+    Esempio CPI:
+    actual > forecast
+    => più inflazione
+    => possibile pressione rialzista sui rendimenti/USD
+    => normalmente negativo per oro.
+
+    Esempio unemployment:
+    actual > forecast
+    => mercato lavoro più debole
+    => potenzialmente positivo per oro.
+  */
 
   const direction =
     rule.strongerIsGoldNegative
@@ -283,6 +474,12 @@ function surpriseScore(
       true
   };
 }
+
+/*
+============================================================
+GET
+============================================================
+*/
 
 export async function GET(
   request
@@ -308,6 +505,12 @@ export async function GET(
       new URL(
         request.url
       );
+
+    /*
+    ----------------------------------------------------------
+    PARAMETRI
+    ----------------------------------------------------------
+    */
 
     const hours =
       Math.min(
@@ -338,12 +541,24 @@ export async function GET(
         "USD"
       ).toUpperCase();
 
+    /*
+    ----------------------------------------------------------
+    URL TICKATLAS
+    ----------------------------------------------------------
+    */
+
     const url =
       `${TICKATLAS_BASE}` +
       `?next_hours=${encodeURIComponent(hours)}` +
       `&impact=${encodeURIComponent(impact)}` +
       `&currencies=${encodeURIComponent(currencies)}` +
       `&limit=100`;
+
+    /*
+    ----------------------------------------------------------
+    REQUEST
+    ----------------------------------------------------------
+    */
 
     const response =
       await fetch(
@@ -419,19 +634,33 @@ export async function GET(
       );
     }
 
+    /*
+    ----------------------------------------------------------
+    EVENTI
+    ----------------------------------------------------------
+    */
+
     const events =
       Array.isArray(
         data?.data?.events
       )
         ? data.data.events
+
         : Array.isArray(
             data?.events
           )
           ? data.events
+
           : [];
 
     const now =
       Date.now();
+
+    /*
+    ----------------------------------------------------------
+    NORMALIZZAZIONE EVENTI
+    ----------------------------------------------------------
+    */
 
     const normalized =
       events.map(
@@ -528,6 +757,14 @@ export async function GET(
         }
       );
 
+    /*
+    ----------------------------------------------------------
+    EVENTI GIÀ PUBBLICATI
+
+    Consideriamo solo le ultime 6 ore.
+    ----------------------------------------------------------
+    */
+
     const released =
       normalized.filter(
         e =>
@@ -538,12 +775,30 @@ export async function GET(
           e.minutesFromNow >= -360
       );
 
+    /*
+    ----------------------------------------------------------
+    EVENTI FUTURI
+    ----------------------------------------------------------
+    */
+
     const upcoming =
-      normalized.filter(
-        e =>
-          e.minutesFromNow !== null &&
-          e.minutesFromNow > 0
-      );
+      normalized
+        .filter(
+          e =>
+            e.minutesFromNow !== null &&
+            e.minutesFromNow > 0
+        )
+        .sort(
+          (a, b) =>
+            a.minutesFromNow -
+            b.minutesFromNow
+        );
+
+    /*
+    ----------------------------------------------------------
+    SCORE EVENTI PUBBLICATI
+    ----------------------------------------------------------
+    */
 
     let eventScore =
       released.reduce(
@@ -565,10 +820,22 @@ export async function GET(
         )
       );
 
+    /*
+    ----------------------------------------------------------
+    PROSSIMO EVENTO
+    ----------------------------------------------------------
+    */
+
     const nextHighImpact =
       upcoming.length
         ? upcoming[0]
         : null;
+
+    /*
+    ----------------------------------------------------------
+    RISCHIO EVENTO
+    ----------------------------------------------------------
+    */
 
     let eventRisk =
       "LOW";
@@ -600,6 +867,12 @@ export async function GET(
         "MEDIUM";
     }
 
+    /*
+    ----------------------------------------------------------
+    BIAS CALENDARIO
+    ----------------------------------------------------------
+    */
+
     const bias =
       eventScore >= 15
         ? "BULLISH_GOLD"
@@ -608,6 +881,32 @@ export async function GET(
           ? "BEARISH_GOLD"
 
           : "NEUTRAL";
+
+    /*
+    ----------------------------------------------------------
+    EVENTI FED SPECIFICI
+    ----------------------------------------------------------
+    */
+
+    const fedEvents =
+      normalized.filter(
+        e =>
+          e.macroKey ===
+          "FED"
+      );
+
+    const regionalFedEvents =
+      normalized.filter(
+        e =>
+          e.macroKey ===
+          "REGIONAL_ACTIVITY"
+      );
+
+    /*
+    ----------------------------------------------------------
+    RISPOSTA
+    ----------------------------------------------------------
+    */
 
     return json({
       ok: true,
@@ -620,7 +919,7 @@ export async function GET(
           .toISOString(),
 
       engineVersion:
-        "TICKATLAS-CALENDAR-V1",
+        "TICKATLAS-CALENDAR-V1.1",
 
       query: {
         hours,
@@ -647,6 +946,10 @@ export async function GET(
       upcomingEvents:
         upcoming,
 
+      fedEvents,
+
+      regionalFedEvents,
+
       events:
         normalized,
 
@@ -658,11 +961,17 @@ export async function GET(
           released.length,
 
         upcoming:
-          upcoming.length
+          upcoming.length,
+
+        fed:
+          fedEvents.length,
+
+        regionalFed:
+          regionalFedEvents.length
       },
 
       note:
-        "TickAtlas Calendar V1: gli eventi già pubblicati possono contribuire allo score macro; gli eventi futuri aumentano soprattutto il rischio operativo."
+        "TickAtlas Calendar V1.1: FOMC/Fed separati dagli indicatori regionali Fed. Gli eventi già pubblicati possono contribuire allo score macro; gli eventi futuri aumentano soprattutto il rischio operativo."
     });
   }
 
@@ -678,6 +987,9 @@ export async function GET(
 
         source:
           "TICKATLAS",
+
+        engineVersion:
+          "TICKATLAS-CALENDAR-V1.1",
 
         error:
           error?.message ||
