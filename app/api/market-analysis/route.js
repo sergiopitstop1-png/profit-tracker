@@ -1,10 +1,20 @@
-// Market Engine V2 — Day Regime + 3H Blocks + Rolling Windows
-// DEBUG BUILD — verifica freshness feed Massive
+// Market Engine V2.1 — MT5 PRIMARY + Massive fallback + freshness guard
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const MASSIVE_BASE = "https://api.massive.com";
+
+const SUPABASE_URL =
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  process.env.SUPABASE_URL;
+
+const SUPABASE_SERVICE_ROLE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+const MT5_FEED_MAX_AGE_MS = 90_000;
+const M15_MAX_BAR_AGE_MS = 45 * 60 * 1000;
+const H1_MAX_BAR_AGE_MS  = 120 * 60 * 1000;
 
 const SUPPORTED = new Set([
   "XAUUSD","XAGUSD","EURUSD","GBPUSD","USDJPY","USDCHF","USDCAD","AUDUSD","NZDUSD",
@@ -31,23 +41,33 @@ async function fetchBars(symbol, cfg, apiKey) {
   const to = new Date();
 
   const from = new Date(
-    to.getTime() - cfg.days * 86400000
+    to.getTime() -
+    cfg.days * 86400000
   );
 
-  const ticker = `C:${symbol}`;
+  const ticker =
+    `C:${symbol}`;
 
   const url =
     `${MASSIVE_BASE}/v2/aggs/ticker/${encodeURIComponent(ticker)}` +
     `/range/${cfg.multiplier}/${cfg.timespan}/${isoDate(from)}/${isoDate(to)}` +
     `?adjusted=true&sort=asc&limit=50000&apiKey=${encodeURIComponent(apiKey)}`;
 
-  const r = await fetch(url, {
-    cache: "no-store"
-  });
+  const r =
+    await fetch(
+      url,
+      {
+        cache: "no-store"
+      }
+    );
 
-  const j = await r.json();
+  const j =
+    await r.json();
 
-  if (!r.ok || j?.status === "ERROR") {
+  if (
+    !r.ok ||
+    j?.status === "ERROR"
+  ) {
     throw new Error(
       j?.error ||
       j?.message ||
@@ -55,22 +75,26 @@ async function fetchBars(symbol, cfg, apiKey) {
     );
   }
 
-  const bars = Array.isArray(j?.results)
-    ? j.results
-        .map(x => ({
-          t: Number(x.t),
-          o: Number(x.o),
-          h: Number(x.h),
-          l: Number(x.l),
-          c: Number(x.c),
-          v: Number(x.v || 0),
-        }))
-        .filter(x =>
-          [x.t, x.o, x.h, x.l, x.c].every(Number.isFinite)
-        )
-    : [];
+  const bars =
+    Array.isArray(j?.results)
+      ? j.results
+          .map(x => ({
+            t: Number(x.t),
+            o: Number(x.o),
+            h: Number(x.h),
+            l: Number(x.l),
+            c: Number(x.c),
+            v: Number(x.v || 0),
+          }))
+          .filter(x =>
+            [x.t, x.o, x.h, x.l, x.c]
+              .every(Number.isFinite)
+          )
+      : [];
 
-  if (bars.length < 60) {
+  if (
+    bars.length < 60
+  ) {
     throw new Error(
       `${symbol} ${cfg.timespan}: dati insufficienti (${bars.length} barre)`
     );
@@ -79,68 +103,402 @@ async function fetchBars(symbol, cfg, apiKey) {
   return bars;
 }
 
+function normalizeBars(arr) {
+  if (!Array.isArray(arr)) {
+    return [];
+  }
+
+  return arr
+    .map(b => ({
+      t: Number(b?.t),
+      o: Number(b?.o),
+      h: Number(b?.h),
+      l: Number(b?.l),
+      c: Number(b?.c),
+      v: Number(b?.v || 0)
+    }))
+    .filter(b =>
+      [b.t, b.o, b.h, b.l, b.c]
+        .every(Number.isFinite)
+    )
+    .sort(
+      (a, b) =>
+        a.t - b.t
+    );
+}
+
+async function fetchMt5MarketFeed(symbol) {
+  if (
+    !SUPABASE_URL ||
+    !SUPABASE_SERVICE_ROLE_KEY
+  ) {
+    return {
+      ok: false,
+      reason:
+        "SUPABASE_ENV_MISSING"
+    };
+  }
+
+  const url =
+    `${SUPABASE_URL}/rest/v1/prop_market_feed` +
+    `?market_key=eq.${encodeURIComponent(symbol)}` +
+    `&select=market_key,source_symbol,account_login,account_server,account_company,terminal_time,last_m15_time,last_h1_time,m15,h1,updated_at` +
+    `&limit=1`;
+
+  const r =
+    await fetch(
+      url,
+      {
+        method: "GET",
+
+        headers: {
+          apikey:
+            SUPABASE_SERVICE_ROLE_KEY,
+
+          Authorization:
+            `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+
+          "Content-Type":
+            "application/json"
+        },
+
+        cache:
+          "no-store"
+      }
+    );
+
+  if (!r.ok) {
+    return {
+      ok: false,
+
+      reason:
+        `SUPABASE_HTTP_${r.status}`,
+
+      detail:
+        await r.text()
+    };
+  }
+
+  const rows =
+    await r.json();
+
+  const row =
+    Array.isArray(rows)
+      ? rows[0]
+      : null;
+
+  if (!row) {
+    return {
+      ok: false,
+      reason:
+        "NO_MT5_FEED"
+    };
+  }
+
+  const m15 =
+    normalizeBars(
+      row.m15
+    );
+
+  const h1 =
+    normalizeBars(
+      row.h1
+    );
+
+  if (
+    m15.length < 60 ||
+    h1.length < 60
+  ) {
+    return {
+      ok: false,
+
+      reason:
+        "MT5_BARS_INSUFFICIENT",
+
+      m15Count:
+        m15.length,
+
+      h1Count:
+        h1.length
+    };
+  }
+
+  const updatedMs =
+    new Date(
+      row.updated_at || 0
+    ).getTime();
+
+  const feedAgeMs =
+    Number.isFinite(updatedMs)
+      ? Math.max(
+          0,
+          Date.now() - updatedMs
+        )
+      : Infinity;
+
+  const lastM15Ms =
+    m15[
+      m15.length - 1
+    ]?.t || 0;
+
+  const lastH1Ms =
+    h1[
+      h1.length - 1
+    ]?.t || 0;
+
+  const m15AgeMs =
+    lastM15Ms
+      ? Math.max(
+          0,
+          Date.now() -
+          lastM15Ms
+        )
+      : Infinity;
+
+  const h1AgeMs =
+    lastH1Ms
+      ? Math.max(
+          0,
+          Date.now() -
+          lastH1Ms
+        )
+      : Infinity;
+
+  const live =
+    feedAgeMs <=
+      MT5_FEED_MAX_AGE_MS &&
+    m15AgeMs <=
+      M15_MAX_BAR_AGE_MS &&
+    h1AgeMs <=
+      H1_MAX_BAR_AGE_MS;
+
+  return {
+    ok: true,
+    live,
+
+    row,
+
+    m15,
+    h1,
+
+    feedAgeMs,
+    m15AgeMs,
+    h1AgeMs
+  };
+}
+
+function validateBarFreshness(
+  m15Bars,
+  h1Bars
+) {
+  const now =
+    Date.now();
+
+  const lastM15 =
+    m15Bars?.[
+      m15Bars.length - 1
+    ]?.t || 0;
+
+  const lastH1 =
+    h1Bars?.[
+      h1Bars.length - 1
+    ]?.t || 0;
+
+  const m15AgeMs =
+    lastM15
+      ? Math.max(
+          0,
+          now - lastM15
+        )
+      : Infinity;
+
+  const h1AgeMs =
+    lastH1
+      ? Math.max(
+          0,
+          now - lastH1
+        )
+      : Infinity;
+
+  return {
+    live:
+      m15AgeMs <=
+        M15_MAX_BAR_AGE_MS &&
+      h1AgeMs <=
+        H1_MAX_BAR_AGE_MS,
+
+    m15AgeMs,
+    h1AgeMs,
+
+    lastM15,
+    lastH1
+  };
+}
+
+function waitCombined(
+  reason,
+  feedMeta = {}
+) {
+  return {
+    bias:
+      "NEUTRAL",
+
+    score:
+      0,
+
+    confidence:
+      0,
+
+    propDirection:
+      "WAIT",
+
+    signalStrength:
+      "INSUFFICIENT",
+
+    forecastDirection:
+      "WAIT",
+
+    forecastCondition:
+      "NO_LIVE_DATA",
+
+    horizon:
+      "0-3H",
+
+    agreement: {
+      agreeCount:
+        0,
+
+      conflictCount:
+        0,
+
+      session:
+        0,
+
+      rolling:
+        0,
+
+      blocks:
+        0,
+
+      micro:
+        0
+    },
+
+    reasons: [
+      reason ||
+      "Feed di mercato non sufficientemente fresco: segnale bloccato."
+    ],
+
+    feedGuard:
+      feedMeta
+  };
+}
+
 function ema(values, period) {
-  if (!values.length) return [];
+  if (!values.length) {
+    return [];
+  }
 
-  const k = 2 / (period + 1);
+  const k =
+    2 / (period + 1);
 
-  const out = new Array(
-    values.length
-  ).fill(null);
+  const out =
+    new Array(
+      values.length
+    ).fill(null);
 
-  if (values.length < period) {
+  if (
+    values.length <
+    period
+  ) {
     return out;
   }
 
   let seed = 0;
 
-  for (let i = 0; i < period; i++) {
-    seed += values[i];
+  for (
+    let i = 0;
+    i < period;
+    i++
+  ) {
+    seed +=
+      values[i];
   }
 
-  let prev = seed / period;
+  let prev =
+    seed / period;
 
-  out[period - 1] = prev;
+  out[
+    period - 1
+  ] = prev;
 
-  for (let i = period; i < values.length; i++) {
+  for (
+    let i = period;
+    i < values.length;
+    i++
+  ) {
     prev =
       values[i] * k +
       prev * (1 - k);
 
-    out[i] = prev;
+    out[i] =
+      prev;
   }
 
   return out;
 }
 
-function rsi(values, period = 14) {
-  const out = new Array(
-    values.length
-  ).fill(null);
+function rsi(
+  values,
+  period = 14
+) {
+  const out =
+    new Array(
+      values.length
+    ).fill(null);
 
-  if (values.length <= period) {
+  if (
+    values.length <=
+    period
+  ) {
     return out;
   }
 
   let gain = 0;
   let loss = 0;
 
-  for (let i = 1; i <= period; i++) {
+  for (
+    let i = 1;
+    i <= period;
+    i++
+  ) {
     const d =
       values[i] -
       values[i - 1];
 
-    gain += Math.max(d, 0);
-    loss += Math.max(-d, 0);
+    gain +=
+      Math.max(d, 0);
+
+    loss +=
+      Math.max(-d, 0);
   }
 
-  let avgGain = gain / period;
-  let avgLoss = loss / period;
+  let avgGain =
+    gain / period;
+
+  let avgLoss =
+    loss / period;
 
   out[period] =
     avgLoss === 0
       ? 100
-      : 100 - 100 / (1 + avgGain / avgLoss);
+      : 100 -
+        100 /
+        (
+          1 +
+          avgGain /
+          avgLoss
+        );
 
   for (
     let i = period + 1;
@@ -151,61 +509,100 @@ function rsi(values, period = 14) {
       values[i] -
       values[i - 1];
 
-    const g = Math.max(d, 0);
-    const l = Math.max(-d, 0);
+    const g =
+      Math.max(d, 0);
+
+    const l =
+      Math.max(-d, 0);
 
     avgGain =
-      (avgGain * (period - 1) + g) /
-      period;
+      (
+        avgGain *
+        (period - 1) +
+        g
+      ) / period;
 
     avgLoss =
-      (avgLoss * (period - 1) + l) /
-      period;
+      (
+        avgLoss *
+        (period - 1) +
+        l
+      ) / period;
 
     out[i] =
       avgLoss === 0
         ? 100
-        : 100 - 100 / (1 + avgGain / avgLoss);
+        : 100 -
+          100 /
+          (
+            1 +
+            avgGain /
+            avgLoss
+          );
   }
 
   return out;
 }
 
-function atr(bars, period = 14) {
-  const tr = bars.map((b, i) => {
-    if (i === 0) {
-      return b.h - b.l;
-    }
+function atr(
+  bars,
+  period = 14
+) {
+  const tr =
+    bars.map(
+      (b, i) => {
+        if (i === 0) {
+          return (
+            b.h - b.l
+          );
+        }
 
-    const pc =
-      bars[i - 1].c;
+        const pc =
+          bars[
+            i - 1
+          ].c;
 
-    return Math.max(
-      b.h - b.l,
-      Math.abs(b.h - pc),
-      Math.abs(b.l - pc)
+        return Math.max(
+          b.h - b.l,
+          Math.abs(
+            b.h - pc
+          ),
+          Math.abs(
+            b.l - pc
+          )
+        );
+      }
     );
-  });
 
-  const out = new Array(
-    bars.length
-  ).fill(null);
+  const out =
+    new Array(
+      bars.length
+    ).fill(null);
 
-  if (bars.length < period) {
+  if (
+    bars.length <
+    period
+  ) {
     return out;
   }
 
   let seed = 0;
 
-  for (let i = 0; i < period; i++) {
-    seed += tr[i];
+  for (
+    let i = 0;
+    i < period;
+    i++
+  ) {
+    seed +=
+      tr[i];
   }
 
   let prev =
     seed / period;
 
-  out[period - 1] =
-    prev;
+  out[
+    period - 1
+  ] = prev;
 
   for (
     let i = period;
@@ -213,10 +610,14 @@ function atr(bars, period = 14) {
     i++
   ) {
     prev =
-      ((prev * (period - 1)) + tr[i]) /
-      period;
+      (
+        prev *
+        (period - 1) +
+        tr[i]
+      ) / period;
 
-    out[i] = prev;
+    out[i] =
+      prev;
   }
 
   return out;
@@ -229,31 +630,50 @@ function macd(
   signalPeriod = 9
 ) {
   const ef =
-    ema(values, fast);
+    ema(
+      values,
+      fast
+    );
 
   const es =
-    ema(values, slow);
+    ema(
+      values,
+      slow
+    );
 
   const line =
-    values.map((_, i) =>
-      Number.isFinite(ef[i]) &&
-      Number.isFinite(es[i])
-        ? ef[i] - es[i]
-        : null
+    values.map(
+      (_, i) =>
+        Number.isFinite(
+          ef[i]
+        ) &&
+        Number.isFinite(
+          es[i]
+        )
+          ? ef[i] -
+            es[i]
+          : null
     );
 
   const compact = [];
   const indexMap = [];
 
-  line.forEach((v, i) => {
-    if (Number.isFinite(v)) {
-      compact.push(v);
-      indexMap.push(i);
+  line.forEach(
+    (v, i) => {
+      if (
+        Number.isFinite(v)
+      ) {
+        compact.push(v);
+        indexMap.push(i);
+      }
     }
-  });
+  );
 
   const sigCompact =
-    ema(compact, signalPeriod);
+    ema(
+      compact,
+      signalPeriod
+    );
 
   const signal =
     new Array(
@@ -261,18 +681,31 @@ function macd(
     ).fill(null);
 
   indexMap.forEach(
-    (originalIndex, compactIndex) => {
-      signal[originalIndex] =
-        sigCompact[compactIndex];
+    (
+      originalIndex,
+      compactIndex
+    ) => {
+      signal[
+        originalIndex
+      ] =
+        sigCompact[
+          compactIndex
+        ];
     }
   );
 
   const histogram =
-    values.map((_, i) =>
-      Number.isFinite(line[i]) &&
-      Number.isFinite(signal[i])
-        ? line[i] - signal[i]
-        : null
+    values.map(
+      (_, i) =>
+        Number.isFinite(
+          line[i]
+        ) &&
+        Number.isFinite(
+          signal[i]
+        )
+          ? line[i] -
+            signal[i]
+          : null
     );
 
   return {
@@ -284,11 +717,16 @@ function macd(
 
 function lastFinite(arr) {
   for (
-    let i = arr.length - 1;
+    let i =
+      arr.length - 1;
     i >= 0;
     i--
   ) {
-    if (Number.isFinite(arr[i])) {
+    if (
+      Number.isFinite(
+        arr[i]
+      )
+    ) {
       return arr[i];
     }
   }
@@ -296,19 +734,33 @@ function lastFinite(arr) {
   return null;
 }
 
-function clamp(v, min, max) {
+function clamp(
+  v,
+  min,
+  max
+) {
   return Math.max(
     min,
-    Math.min(max, v)
+    Math.min(
+      max,
+      v
+    )
   );
 }
 
-function signLabel(v, threshold = 0) {
-  if (v > threshold) {
+function signLabel(
+  v,
+  threshold = 0
+) {
+  if (
+    v > threshold
+  ) {
     return "BUY";
   }
 
-  if (v < -threshold) {
+  if (
+    v < -threshold
+  ) {
     return "SELL";
   }
 
@@ -320,13 +772,26 @@ function zonedParts(ts) {
     new Intl.DateTimeFormat(
       "en-CA",
       {
-        timeZone: ENGINE_TZ,
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        hourCycle: "h23"
+        timeZone:
+          ENGINE_TZ,
+
+        year:
+          "numeric",
+
+        month:
+          "2-digit",
+
+        day:
+          "2-digit",
+
+        hour:
+          "2-digit",
+
+        minute:
+          "2-digit",
+
+        hourCycle:
+          "h23"
       }
     ).formatToParts(
       new Date(ts)
@@ -334,9 +799,15 @@ function zonedParts(ts) {
 
   const out = {};
 
-  for (const p of parts) {
-    if (p.type !== "literal") {
-      out[p.type] = p.value;
+  for (
+    const p of parts
+  ) {
+    if (
+      p.type !==
+      "literal"
+    ) {
+      out[p.type] =
+        p.value;
     }
   }
 
@@ -345,14 +816,21 @@ function zonedParts(ts) {
       `${out.year}-${out.month}-${out.day}`,
 
     hour:
-      Number(out.hour),
+      Number(
+        out.hour
+      ),
 
     minute:
-      Number(out.minute)
+      Number(
+        out.minute
+      )
   };
 }
 
-function pct(from, to) {
+function pct(
+  from,
+  to
+) {
   if (
     !Number.isFinite(from) ||
     !Number.isFinite(to) ||
@@ -362,7 +840,9 @@ function pct(from, to) {
   }
 
   return (
-    (to - from) /
+    (
+      to - from
+    ) /
     Math.abs(from)
   ) * 100;
 }
@@ -392,19 +872,31 @@ function rollingMoveFromM15(
   atrValue
 ) {
   if (
-    !Array.isArray(bars) ||
-    bars.length < barCount + 1
+    !Array.isArray(
+      bars
+    ) ||
+    bars.length <
+      barCount + 1
   ) {
     return {
-      dollars: 0,
-      pct: 0,
-      atr: 0,
-      direction: "NEUTRAL"
+      dollars:
+        0,
+
+      pct:
+        0,
+
+      atr:
+        0,
+
+      direction:
+        "NEUTRAL"
     };
   }
 
   const end =
-    bars[bars.length - 1].c;
+    bars[
+      bars.length - 1
+    ].c;
 
   const start =
     bars[
@@ -417,7 +909,10 @@ function rollingMoveFromM15(
     end - start;
 
   const movePct =
-    pct(start, end);
+    pct(
+      start,
+      end
+    );
 
   const atrMove =
     atrUnits(
@@ -428,8 +923,12 @@ function rollingMoveFromM15(
 
   return {
     dollars,
-    pct: movePct,
-    atr: atrMove,
+
+    pct:
+      movePct,
+
+    atr:
+      atrMove,
 
     direction:
       signLabel(
@@ -446,9 +945,14 @@ function buildThreeHourBlocks(
   const byBlock =
     new Map();
 
-  for (const b of m15Bars) {
+  for (
+    const b of
+    m15Bars
+  ) {
     const zp =
-      zonedParts(b.t);
+      zonedParts(
+        b.t
+      );
 
     const blockIndex =
       Math.floor(
@@ -461,7 +965,9 @@ function buildThreeHourBlocks(
     const key =
       `${zp.dateKey}-${String(startHour).padStart(2, "0")}`;
 
-    if (!byBlock.has(key)) {
+    if (
+      !byBlock.has(key)
+    ) {
       byBlock.set(
         key,
         {
@@ -499,7 +1005,9 @@ function buildThreeHourBlocks(
       );
     } else {
       const x =
-        byBlock.get(key);
+        byBlock.get(
+          key
+        );
 
       x.high =
         Math.max(
@@ -519,7 +1027,8 @@ function buildThreeHourBlocks(
       x.lastTs =
         b.t;
 
-      x.bars += 1;
+      x.bars +=
+        1;
     }
   }
 
@@ -543,16 +1052,19 @@ function buildThreeHourBlocks(
         );
 
       const atrMove =
-        Number.isFinite(atrValue) &&
+        Number.isFinite(
+          atrValue
+        ) &&
         atrValue > 0
-          ? move / atrValue
+          ? move /
+            atrValue
           : 0;
 
       return {
         ...x,
 
         label:
-          `${String(x.startHour).padStart(2, "0")}–${String(x.endHour).padStart(2, "0")}`,
+          `${String(x.startHour).padStart(2,"0")}–${String(x.endHour).padStart(2,"0")}`,
 
         move,
 
@@ -617,7 +1129,8 @@ function currentSessionStats(
     latest.c;
 
   const move =
-    current - open;
+    current -
+    open;
 
   const movePct =
     pct(
@@ -633,13 +1146,17 @@ function currentSessionStats(
 
   const positionInRange =
     (
-      current - low
+      current -
+      low
     ) / range;
 
   const moveAtr =
-    Number.isFinite(atrValue) &&
+    Number.isFinite(
+      atrValue
+    ) &&
     atrValue > 0
-      ? move / atrValue
+      ? move /
+        atrValue
       : 0;
 
   const last16 =
@@ -699,17 +1216,23 @@ function currentSessionStats(
       );
 
     if (
-      newHigh > oldHigh &&
-      newLow > oldLow
+      newHigh >
+        oldHigh &&
+      newLow >
+        oldLow
     ) {
       structure =
         "HH_HL";
 
       structureScore =
         1;
-    } else if (
-      newHigh < oldHigh &&
-      newLow < oldLow
+    }
+
+    else if (
+      newHigh <
+        oldHigh &&
+      newLow <
+        oldLow
     ) {
       structure =
         "LH_LL";
@@ -723,7 +1246,8 @@ function currentSessionStats(
 
   score +=
     clamp(
-      moveAtr / 3.0,
+      moveAtr /
+      3.0,
       -1,
       1
     ) * 42;
@@ -733,7 +1257,8 @@ function currentSessionStats(
       (
         positionInRange -
         0.5
-      ) / 0.45,
+      ) /
+      0.45,
       -1,
       1
     ) * 24;
@@ -760,7 +1285,10 @@ function currentSessionStats(
           return (
             s +
             (
-              (b.c - b.o) /
+              (
+                b.c -
+                b.o
+              ) /
               r
             )
           );
@@ -787,8 +1315,10 @@ function currentSessionStats(
   const regime =
     score >= 24
       ? "BULLISH"
+
       : score <= -24
         ? "BEARISH"
+
         : "NEUTRAL";
 
   return {
@@ -897,7 +1427,8 @@ function analyzeCompactTimeframe(
       -8
     );
 
-  let priceAction = 0;
+  let priceAction =
+    0;
 
   if (
     old.length >= 4 &&
@@ -932,17 +1463,23 @@ function analyzeCompactTimeframe(
       );
 
     if (
-      newHigh > oldHigh &&
-      newLow > oldLow
+      newHigh >
+        oldHigh &&
+      newLow >
+        oldLow
     ) {
-      priceAction += 1;
+      priceAction +=
+        1;
     }
 
     if (
-      newHigh < oldHigh &&
-      newLow < oldLow
+      newHigh <
+        oldHigh &&
+      newLow <
+        oldLow
     ) {
-      priceAction -= 1;
+      priceAction -=
+        1;
     }
   }
 
@@ -954,7 +1491,8 @@ function analyzeCompactTimeframe(
       : 3;
 
   if (
-    closes.length > barsBack &&
+    closes.length >
+      barsBack &&
     Number.isFinite(a) &&
     a > 0
   ) {
@@ -970,7 +1508,8 @@ function analyzeCompactTimeframe(
 
     score +=
       clamp(
-        m / 2.0,
+        m /
+        2.0,
         -1,
         1
       ) * 42;
@@ -981,7 +1520,9 @@ function analyzeCompactTimeframe(
     28;
 
   if (
-    Number.isFinite(e20)
+    Number.isFinite(
+      e20
+    )
   ) {
     score +=
       close > e20
@@ -990,8 +1531,12 @@ function analyzeCompactTimeframe(
   }
 
   if (
-    Number.isFinite(e20) &&
-    Number.isFinite(e50)
+    Number.isFinite(
+      e20
+    ) &&
+    Number.isFinite(
+      e50
+    )
   ) {
     score +=
       e20 > e50
@@ -1004,20 +1549,27 @@ function analyzeCompactTimeframe(
   ) {
     score +=
       clamp(
-        (r - 50) / 18,
+        (
+          r - 50
+        ) /
+        18,
         -1,
         1
       ) * 8;
   }
 
   if (
-    Number.isFinite(hist)
+    Number.isFinite(
+      hist
+    )
   ) {
     score +=
       hist > 0
         ? 8
+
         : hist < 0
           ? -8
+
           : 0;
   }
 
@@ -1065,8 +1617,10 @@ function analyzeCompactTimeframe(
     bias:
       score >= 20
         ? "BUY"
+
         : score <= -20
           ? "SELL"
+
           : "NEUTRAL"
   };
 }
@@ -1125,7 +1679,9 @@ function fibonacciContext(
         };
 
   const nearest =
-    Object.entries(levels)
+    Object.entries(
+      levels
+    )
       .map(
         ([name, price]) => ({
           name,
@@ -1147,7 +1703,9 @@ function fibonacciContext(
 
   const nearFib =
     nearest &&
-    Number.isFinite(atrValue) &&
+    Number.isFinite(
+      atrValue
+    ) &&
     atrValue > 0
       ? nearest.distance <=
         atrValue * 0.35
@@ -1162,7 +1720,8 @@ function fibonacciContext(
     levels,
 
     nearest:
-      nearest || null,
+      nearest ||
+      null,
 
     nearFib
   };
@@ -1184,15 +1743,21 @@ function buildForecast({
     );
 
   const completedOrCurrent =
-    currentDayBlocks.slice(-4);
+    currentDayBlocks.slice(
+      -4
+    );
 
   const blockDirectional =
     completedOrCurrent.reduce(
-      (sum, b) => {
+      (
+        sum,
+        b
+      ) => {
         return (
           sum +
           clamp(
-            b.atrMove / 1.6,
+            b.atrMove /
+            1.6,
             -1,
             1
           )
@@ -1215,25 +1780,29 @@ function buildForecast({
     clamp(
       (
         clamp(
-          rolling.h1.atr / 1.2,
+          rolling.h1.atr /
+          1.2,
           -1,
           1
         ) * 0.20 +
 
         clamp(
-          rolling.h3.atr / 2.0,
+          rolling.h3.atr /
+          2.0,
           -1,
           1
         ) * 0.38 +
 
         clamp(
-          rolling.h6.atr / 3.0,
+          rolling.h6.atr /
+          3.0,
           -1,
           1
         ) * 0.28 +
 
         clamp(
-          rolling.h12.atr / 4.5,
+          rolling.h12.atr /
+          4.5,
           -1,
           1
         ) * 0.14
@@ -1243,14 +1812,23 @@ function buildForecast({
     ) * 100;
 
   const microScore =
-    m15.score * 0.58 +
-    h1.score * 0.42;
+    m15.score *
+      0.58 +
+    h1.score *
+      0.42;
 
   let raw =
-    session.score * 0.34 +
-    rollingScore * 0.28 +
-    blockScore * 0.20 +
-    microScore * 0.18;
+    session.score *
+      0.34 +
+
+    rollingScore *
+      0.28 +
+
+    blockScore *
+      0.20 +
+
+    microScore *
+      0.18;
 
   const daySign =
     Math.sign(
@@ -1264,9 +1842,11 @@ function buildForecast({
     Math.sign(
       rolling.h3.atr
     ) === rawSign &&
+
     Math.sign(
       m15.score
     ) === rawSign &&
+
     Math.sign(
       h1.score
     ) === rawSign;
@@ -1275,11 +1855,16 @@ function buildForecast({
     Math.abs(
       session.score
     ) >= 50 &&
+
     rawSign !== 0 &&
-    rawSign !== daySign &&
+
+    rawSign !==
+      daySign &&
+
     !reversalAgreement
   ) {
-    raw *= 0.35;
+    raw *=
+      0.35;
   }
 
   raw =
@@ -1292,8 +1877,10 @@ function buildForecast({
   const direction =
     raw >= 22
       ? "BUY"
+
       : raw <= -22
         ? "SELL"
+
         : "WAIT";
 
   const familyValues = [
@@ -1308,13 +1895,16 @@ function buildForecast({
   const targetSign =
     direction === "BUY"
       ? 1
+
       : direction === "SELL"
         ? -1
+
         : 0;
 
   const agreeCount =
     targetSign === 0
       ? 0
+
       : familyValues.filter(
           v =>
             Math.sign(v) ===
@@ -1328,6 +1918,7 @@ function buildForecast({
           v =>
             Math.abs(v) >= 18
         ).length
+
       : familyValues.filter(
           v =>
             Math.sign(v) ===
@@ -1343,11 +1934,17 @@ function buildForecast({
             Math.abs(raw)
           )
         )
+
       : Math.round(
           clamp(
-            Math.abs(raw) * 0.55 +
-            agreeCount * 12 -
-            conflictCount * 10,
+            Math.abs(raw) *
+              0.55 +
+
+            agreeCount *
+              12 -
+
+            conflictCount *
+              10,
             0,
             100
           )
@@ -1377,17 +1974,22 @@ function buildForecast({
     direction === "WAIT" ||
     confidence < 40
       ? "INSUFFICIENT"
+
       : confidence < 55
         ? "WEAK"
+
         : confidence < 70
           ? "GOOD"
+
           : "STRONG";
 
   const propDirection =
     direction === "BUY"
       ? "SELL"
+
       : direction === "SELL"
         ? "BUY"
+
         : "WAIT";
 
   let condition =
@@ -1400,13 +2002,16 @@ function buildForecast({
       Math.sign(
         session.score
       ) === targetSign &&
+
       Math.sign(
         rollingScore
       ) === targetSign
     ) {
       condition =
         "CONTINUATION";
-    } else if (
+    }
+
+    else if (
       Math.sign(
         session.score
       ) !== targetSign &&
@@ -1414,7 +2019,9 @@ function buildForecast({
     ) {
       condition =
         "REVERSAL";
-    } else {
+    }
+
+    else {
       condition =
         "PULLBACK_OR_TRANSITION";
     }
@@ -1426,8 +2033,10 @@ function buildForecast({
     `Regime giornata ${
       session.regime === "BULLISH"
         ? "rialzista"
+
         : session.regime === "BEARISH"
           ? "ribassista"
+
           : "neutrale"
     }: ${
       session.move >= 0
@@ -1530,22 +2139,6 @@ function buildForecast({
 export async function GET(
   request
 ) {
-  const apiKey =
-    process.env
-      .MASSIVE_API_KEY;
-
-  if (!apiKey) {
-    return Response.json(
-      {
-        error:
-          "MASSIVE_API_KEY non configurata su Vercel"
-      },
-      {
-        status: 500
-      }
-    );
-  }
-
   const {
     searchParams
   } =
@@ -1577,7 +2170,8 @@ export async function GET(
           "Asset non supportato"
       },
       {
-        status: 400
+        status:
+          400
       }
     );
   }
@@ -1618,96 +2212,350 @@ export async function GET(
   }
 
   try {
-    const [
-      m15Bars,
-      h1Bars
-    ] =
-      await Promise.all([
-        fetchBars(
+    let m15Bars = [];
+    let h1Bars = [];
+
+    let source =
+      "NONE";
+
+    let sourceDetail =
+      {};
+
+    let apiCallsUsed =
+      0;
+
+    // ========================================================
+    // 1) PRIMA SCELTA: MT5 -> MarketFeedBridge -> Supabase
+    // ========================================================
+
+    const mt5Feed =
+      await fetchMt5MarketFeed(
+        symbol
+      );
+
+    if (
+      mt5Feed.ok &&
+      mt5Feed.live
+    ) {
+      m15Bars =
+        mt5Feed.m15;
+
+      h1Bars =
+        mt5Feed.h1;
+
+      source =
+        "MT5";
+
+      sourceDetail = {
+        status:
+          "LIVE",
+
+        sourceSymbol:
+          mt5Feed.row?.source_symbol ||
           symbol,
-          TF.M15,
-          apiKey
-        ),
 
-        fetchBars(
-          symbol,
-          TF.H1,
-          apiKey
-        )
-      ]);
+        accountLogin:
+          mt5Feed.row?.account_login ||
+          null,
 
-    /*
-     * DEBUG FEED
-     *
-     * Questi dati NON vengono elaborati.
-     * Servono esclusivamente a verificare
-     * cosa Massive ci sta realmente restituendo.
-     */
+        accountServer:
+          mt5Feed.row?.account_server ||
+          null,
 
-    const lastM15Raw =
-      m15Bars[
-        m15Bars.length - 1
-      ];
+        accountCompany:
+          mt5Feed.row?.account_company ||
+          null,
 
-    const lastH1Raw =
-      h1Bars[
-        h1Bars.length - 1
-      ];
+        feedAgeSeconds:
+          Math.round(
+            mt5Feed.feedAgeMs /
+            1000
+          ),
 
-    const debugFeed = {
-      serverNowISO:
-        new Date().toISOString(),
+        lastM15:
+          new Date(
+            m15Bars[
+              m15Bars.length - 1
+            ].t
+          ).toISOString(),
 
-      m15BarsCount:
-        m15Bars.length,
+        lastH1:
+          new Date(
+            h1Bars[
+              h1Bars.length - 1
+            ].t
+          ).toISOString()
+      };
+    }
 
-      h1BarsCount:
-        h1Bars.length,
+    else {
+      // ======================================================
+      // 2) FALLBACK: MASSIVE SOLO SE FRESCO
+      // ======================================================
 
-      lastM15Raw,
+      const apiKey =
+        process.env
+          .MASSIVE_API_KEY;
 
-      lastH1Raw,
+      if (apiKey) {
+        const [
+          massiveM15,
+          massiveH1
+        ] =
+          await Promise.all([
+            fetchBars(
+              symbol,
+              TF.M15,
+              apiKey
+            ),
 
-      lastM15ISO:
-        lastM15Raw?.t
-          ? new Date(
-              lastM15Raw.t
-            ).toISOString()
-          : null,
-
-      lastH1ISO:
-        lastH1Raw?.t
-          ? new Date(
-              lastH1Raw.t
-            ).toISOString()
-          : null,
-
-      m15LagMinutes:
-        lastM15Raw?.t
-          ? Number(
-              (
-                (
-                  Date.now() -
-                  lastM15Raw.t
-                ) /
-                60000
-              ).toFixed(1)
+            fetchBars(
+              symbol,
+              TF.H1,
+              apiKey
             )
-          : null,
+          ]);
 
-      h1LagMinutes:
-        lastH1Raw?.t
-          ? Number(
+        apiCallsUsed =
+          2;
+
+        const fresh =
+          validateBarFreshness(
+            massiveM15,
+            massiveH1
+          );
+
+        if (
+          fresh.live
+        ) {
+          m15Bars =
+            massiveM15;
+
+          h1Bars =
+            massiveH1;
+
+          source =
+            "MASSIVE_FALLBACK";
+
+          sourceDetail = {
+            status:
+              "LIVE",
+
+            mt5UnavailableReason:
+              mt5Feed.reason ||
               (
+                mt5Feed.ok
+                  ? "MT5_STALE"
+                  : "MT5_UNAVAILABLE"
+              ),
+
+            lastM15:
+              new Date(
+                fresh.lastM15
+              ).toISOString(),
+
+            lastH1:
+              new Date(
+                fresh.lastH1
+              ).toISOString(),
+
+            m15AgeMinutes:
+              Number(
                 (
-                  Date.now() -
-                  lastH1Raw.t
-                ) /
-                60000
-              ).toFixed(1)
-            )
-          : null
-    };
+                  fresh.m15AgeMs /
+                  60000
+                ).toFixed(1)
+              ),
+
+            h1AgeMinutes:
+              Number(
+                (
+                  fresh.h1AgeMs /
+                  60000
+                ).toFixed(1)
+              )
+          };
+        }
+
+        else {
+          source =
+            "NO_LIVE_FEED";
+
+          sourceDetail = {
+            status:
+              "STALE",
+
+            mt5UnavailableReason:
+              mt5Feed.reason ||
+              (
+                mt5Feed.ok
+                  ? "MT5_STALE"
+                  : "MT5_UNAVAILABLE"
+              ),
+
+            mt5FeedAgeSeconds:
+              mt5Feed.ok &&
+              Number.isFinite(
+                mt5Feed.feedAgeMs
+              )
+                ? Math.round(
+                    mt5Feed.feedAgeMs /
+                    1000
+                  )
+                : null,
+
+            massiveLastM15:
+              fresh.lastM15
+                ? new Date(
+                    fresh.lastM15
+                  ).toISOString()
+                : null,
+
+            massiveLastH1:
+              fresh.lastH1
+                ? new Date(
+                    fresh.lastH1
+                  ).toISOString()
+                : null,
+
+            massiveM15AgeMinutes:
+              Number.isFinite(
+                fresh.m15AgeMs
+              )
+                ? Number(
+                    (
+                      fresh.m15AgeMs /
+                      60000
+                    ).toFixed(1)
+                  )
+                : null,
+
+            massiveH1AgeMinutes:
+              Number.isFinite(
+                fresh.h1AgeMs
+              )
+                ? Number(
+                    (
+                      fresh.h1AgeMs /
+                      60000
+                    ).toFixed(1)
+                  )
+                : null
+          };
+        }
+      }
+
+      else {
+        source =
+          "NO_LIVE_FEED";
+
+        sourceDetail = {
+          status:
+            "STALE",
+
+          mt5UnavailableReason:
+            mt5Feed.reason ||
+            (
+              mt5Feed.ok
+                ? "MT5_STALE"
+                : "MT5_UNAVAILABLE"
+            ),
+
+          massiveFallback:
+            "MASSIVE_API_KEY non configurata"
+        };
+      }
+    }
+
+    // ========================================================
+    // 3) BLOCCO SICUREZZA
+    // ========================================================
+
+    if (
+      !m15Bars.length ||
+      !h1Bars.length
+    ) {
+      const data = {
+        ok:
+          true,
+
+        symbol,
+
+        generatedAt:
+          new Date()
+            .toISOString(),
+
+        engineVersion:
+          "V2.1-MT5-PRIMARY",
+
+        source,
+
+        sourceDetail,
+
+        apiCallsUsed,
+
+        note:
+          "Segnale bloccato: nessun feed M15/H1 sufficientemente fresco.",
+
+        combined:
+          waitCombined(
+            "⛔ Feed non live: Market Engine in WAIT. Nessuna direzione operativa.",
+            sourceDetail
+          ),
+
+        session:
+          null,
+
+        blocks3h:
+          [],
+
+        rolling:
+          null,
+
+        fib:
+          null,
+
+        timeframes:
+          null,
+
+        macro: {
+          status:
+            "NOT_CONFIGURED",
+
+          score:
+            0,
+
+          note:
+            "Modulo macro/news non collegato."
+        }
+      };
+
+      globalThis
+        .__propMarketCache
+        .set(
+          cacheKey,
+          {
+            ts:
+              Date.now(),
+
+            data
+          }
+        );
+
+      return Response.json(
+        data,
+        {
+          headers: {
+            "Cache-Control":
+              "no-store"
+          }
+        }
+      );
+    }
+
+    // ========================================================
+    // 4) ANALISI V2 SU DATI FRESCHI
+    // ========================================================
 
     const m15Atr =
       lastFinite(
@@ -1807,10 +2655,14 @@ export async function GET(
 
     const combined = {
       bias:
-        forecast.direction === "BUY"
+        forecast.direction ===
+        "BUY"
           ? "BUY"
-          : forecast.direction === "SELL"
+
+          : forecast.direction ===
+            "SELL"
             ? "SELL"
+
             : "NEUTRAL",
 
       score:
@@ -1838,11 +2690,19 @@ export async function GET(
         forecast.agreement,
 
       reasons:
-        forecast.reasons
+        forecast.reasons,
+
+      feedGuard: {
+        allowed:
+          true,
+
+        source
+      }
     };
 
     const data = {
-      ok: true,
+      ok:
+        true,
 
       symbol,
 
@@ -1850,27 +2710,22 @@ export async function GET(
         new Date()
           .toISOString(),
 
-      source:
-        "Massive",
+      source,
 
-      apiCallsUsed:
-        2,
+      sourceDetail,
+
+      apiCallsUsed,
 
       engineVersion:
-        "V2-DAY-3H-DEBUG",
-
-      /*
-       * QUESTA È LA PARTE CHE CI INTERESSA ADESSO
-       */
-
-      debug:
-        debugFeed,
+        "V2.1-MT5-PRIMARY",
 
       timezone:
         ENGINE_TZ,
 
       note:
-        "V2 DEBUG: verifica freshness feed Massive. Regime giornata + blocchi 3H + rolling momentum + price action M15/H1.",
+        source === "MT5"
+          ? "Forecast calcolato sulle candele live provenienti direttamente da MT5."
+          : "MT5 non disponibile: forecast calcolato sul fallback Massive verificato fresco.",
 
       combined,
 
@@ -1894,7 +2749,7 @@ export async function GET(
           0,
 
         note:
-          "Modulo macro/news non collegato: non influenza il forecast."
+          "Modulo macro/news non collegato: non influenza ancora il forecast."
       }
     };
 
@@ -1922,7 +2777,7 @@ export async function GET(
 
   } catch (e) {
     console.error(
-      "Market analysis error:",
+      "Market analysis V2.1 error:",
       e
     );
 
@@ -1939,7 +2794,8 @@ export async function GET(
             .toISOString()
       },
       {
-        status: 502
+        status:
+          502
       }
     );
   }
