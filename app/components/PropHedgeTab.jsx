@@ -1314,6 +1314,28 @@ export default function PropHedgeTab() {
       return;
     }
 
+    if (hedgeEnabledAtEntry) {
+      const safety = safetyFor(id);
+      if (!safety || safety.reason === "NO_ACCOUNT") {
+        alert("Seleziona un conto Broker MT5 valido prima di piazzare.");
+        return;
+      }
+      if (safety.reason === "OFFLINE") {
+        alert(`⛔ ${safety.brokerAlias} non ha un heartbeat MT5 online recente.\n\nOperazione bloccata per sicurezza.`);
+        return;
+      }
+      if (safety.level === "red") {
+        alert(
+          `⛔ COPERTURA NON SOSTENIBILE — ${safety.brokerAlias}\n\n` +
+          `Equity account: $ ${fmt(safety.brokerEquity,2)}\n` +
+          `Esposizione conservativa dopo questo trade: $ ${fmt(safety.projectedExposure,2)}\n` +
+          `Buffer risultante: $ ${fmt(safety.projectedResidual,2)}\n\n` +
+          `La PIAZZATA è bloccata: gli altri conti Broker non vengono usati per coprire questa Prop.`
+        );
+        return;
+      }
+    }
+
     // Con STOP HEDGE la Prop resta pienamente tradabile: viene monitorata normalmente,
     // ma la nuova gamba Broker parte a 0 lotti e quindi non modifica il saldo Broker.
     if (!ch || !c || !c.px || !c.propLots || (hedgeEnabledAtEntry && !c.brokerLots)) {
@@ -1524,23 +1546,46 @@ export default function PropHedgeTab() {
     0
   );
 
+  // Sicurezza PER SINGOLO ACCOUNT BROKER: una Prop usa solo l'equity del conto MT5 assegnato.
+  // Le altre MT5 non possono "prestare" capitale a questa challenge.
   const safetyFor = (id) => {
     const c = calcs[id];
     const ch = challenges.find(x => x.id === id);
-    if (!c || ch?.active) return null;
+    if (!c || ch?.active || ch?.hedgeEnabled === false) return null;
 
-    const projectedExposure = activeRemainingExposure + c.maxBrokerLoss;
+    const account = brokerAccountById(ch?.brokerAccountId);
+    if (!account) {
+      return { level:"red", reason:"NO_ACCOUNT", brokerAlias:"Nessun conto", brokerEquity:0, currentExposure:0, projectedExposure:c.maxBrokerLoss, requiredWithBuffer:c.maxBrokerLoss * 1.20, projectedResidual:-c.maxBrokerLoss };
+    }
+
+    const live = brokerLiveStateByAccountId[account.id] || null;
+    const ageMs = live?.last_seen_at ? Date.now() - new Date(live.last_seen_at).getTime() : Infinity;
+    const online = !!live && live.connected === true && ageMs <= 30000;
+    const accountEquity = online ? num(live.equity) : 0;
+
+    // Somma soltanto il rischio residuo delle operazioni già attive SULLO STESSO conto MT5.
+    const currentExposure = activeChallenges.reduce((sum, activeCh) => {
+      if (activeCh.active?.brokerAccountId !== account.id) return sum;
+      return sum + (trackings[activeCh.id]?.remainingBrokerLoss || 0);
+    }, 0);
+
+    const projectedExposure = currentExposure + c.maxBrokerLoss;
     const requiredWithBuffer = projectedExposure * 1.20;
 
     let level = "red";
-    if (brokerEquity >= requiredWithBuffer) level = "green";
-    else if (brokerEquity >= projectedExposure) level = "yellow";
+    if (online && accountEquity >= requiredWithBuffer) level = "green";
+    else if (online && accountEquity >= projectedExposure) level = "yellow";
 
     return {
       level,
+      reason: online ? "OK" : "OFFLINE",
+      brokerAlias: account.alias || account.broker || "Broker",
+      brokerEquity: accountEquity,
+      currentExposure,
       projectedExposure,
       requiredWithBuffer,
-      projectedResidual: brokerEquity - projectedExposure
+      projectedResidual: accountEquity - projectedExposure,
+      online
     };
   };
 
@@ -2412,9 +2457,11 @@ export default function PropHedgeTab() {
                   }}>
                     {safe.icon} {safe.title}
                     <div style={{fontSize:12,fontWeight:600,marginTop:5}}>
-                      Se piazzi anche {ch.name}: esposizione Broker conservativa $ {fmt(safetyInfo.projectedExposure,2)}
-                      {" • "}equity Broker $ {fmt(brokerEquity,2)}
-                      {" • "}buffer dopo esposizione $ {fmt(safetyInfo.projectedResidual,2)}
+                      Conto: {safetyInfo.brokerAlias}
+                      {" • "}equity conto $ {fmt(safetyInfo.brokerEquity,2)}
+                      {" • "}esposizione già attiva sul conto $ {fmt(safetyInfo.currentExposure,2)}
+                      {" • "}esposizione dopo {ch.name} $ {fmt(safetyInfo.projectedExposure,2)}
+                      {" • "}buffer $ {fmt(safetyInfo.projectedResidual,2)}
                       {" • "}prudenziale +20% $ {fmt(safetyInfo.requiredWithBuffer,2)}
                     </div>
                   </div>
@@ -2447,10 +2494,11 @@ export default function PropHedgeTab() {
                 <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:14}}>
                   <button
                     onClick={()=>placeTrade(ch.id)}
+                    disabled={ch.hedgeEnabled !== false && safetyInfo?.level === "red"}
                     style={{
                       border:"none",borderRadius:14,padding:"12px 20px",
-                      cursor:"pointer",
-                      opacity:1,
+                      cursor:(ch.hedgeEnabled !== false && safetyInfo?.level === "red") ? "not-allowed" : "pointer",
+                      opacity:(ch.hedgeEnabled !== false && safetyInfo?.level === "red") ? .45 : 1,
                       fontWeight:900,color:"#052e16",background:"linear-gradient(135deg,#4ade80,#22c55e)"
                     }}
                     title={ch.hedgeEnabled === false ? "Avvia il trade sulla Prop senza aprire una nuova copertura Broker." : ""}
