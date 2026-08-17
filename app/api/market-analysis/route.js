@@ -1,4 +1,5 @@
 // Market Engine V2 — Day Regime + 3H Blocks + Rolling Windows
+// DEBUG BUILD — verifica freshness feed Massive
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -17,6 +18,7 @@ const TF = {
 };
 
 const CACHE_TTL = 120_000;
+
 globalThis.__propMarketCache ??= new Map();
 
 const ENGINE_TZ = "Europe/Rome";
@@ -27,7 +29,11 @@ function isoDate(d) {
 
 async function fetchBars(symbol, cfg, apiKey) {
   const to = new Date();
-  const from = new Date(to.getTime() - cfg.days * 86400000);
+
+  const from = new Date(
+    to.getTime() - cfg.days * 86400000
+  );
+
   const ticker = `C:${symbol}`;
 
   const url =
@@ -35,24 +41,33 @@ async function fetchBars(symbol, cfg, apiKey) {
     `/range/${cfg.multiplier}/${cfg.timespan}/${isoDate(from)}/${isoDate(to)}` +
     `?adjusted=true&sort=asc&limit=50000&apiKey=${encodeURIComponent(apiKey)}`;
 
-  const r = await fetch(url, { cache: "no-store" });
+  const r = await fetch(url, {
+    cache: "no-store"
+  });
+
   const j = await r.json();
 
   if (!r.ok || j?.status === "ERROR") {
-    throw new Error(j?.error || j?.message || `Massive HTTP ${r.status}`);
+    throw new Error(
+      j?.error ||
+      j?.message ||
+      `Massive HTTP ${r.status}`
+    );
   }
 
   const bars = Array.isArray(j?.results)
-    ? j.results.map(x => ({
-        t: Number(x.t),
-        o: Number(x.o),
-        h: Number(x.h),
-        l: Number(x.l),
-        c: Number(x.c),
-        v: Number(x.v || 0),
-      })).filter(x =>
-        [x.t, x.o, x.h, x.l, x.c].every(Number.isFinite)
-      )
+    ? j.results
+        .map(x => ({
+          t: Number(x.t),
+          o: Number(x.o),
+          h: Number(x.h),
+          l: Number(x.l),
+          c: Number(x.c),
+          v: Number(x.v || 0),
+        }))
+        .filter(x =>
+          [x.t, x.o, x.h, x.l, x.c].every(Number.isFinite)
+        )
     : [];
 
   if (bars.length < 60) {
@@ -68,9 +83,14 @@ function ema(values, period) {
   if (!values.length) return [];
 
   const k = 2 / (period + 1);
-  const out = new Array(values.length).fill(null);
 
-  if (values.length < period) return out;
+  const out = new Array(
+    values.length
+  ).fill(null);
+
+  if (values.length < period) {
+    return out;
+  }
 
   let seed = 0;
 
@@ -79,10 +99,14 @@ function ema(values, period) {
   }
 
   let prev = seed / period;
+
   out[period - 1] = prev;
 
   for (let i = period; i < values.length; i++) {
-    prev = values[i] * k + prev * (1 - k);
+    prev =
+      values[i] * k +
+      prev * (1 - k);
+
     out[i] = prev;
   }
 
@@ -90,15 +114,21 @@ function ema(values, period) {
 }
 
 function rsi(values, period = 14) {
-  const out = new Array(values.length).fill(null);
+  const out = new Array(
+    values.length
+  ).fill(null);
 
-  if (values.length <= period) return out;
+  if (values.length <= period) {
+    return out;
+  }
 
   let gain = 0;
   let loss = 0;
 
   for (let i = 1; i <= period; i++) {
-    const d = values[i] - values[i - 1];
+    const d =
+      values[i] -
+      values[i - 1];
 
     gain += Math.max(d, 0);
     loss += Math.max(-d, 0);
@@ -112,17 +142,25 @@ function rsi(values, period = 14) {
       ? 100
       : 100 - 100 / (1 + avgGain / avgLoss);
 
-  for (let i = period + 1; i < values.length; i++) {
-    const d = values[i] - values[i - 1];
+  for (
+    let i = period + 1;
+    i < values.length;
+    i++
+  ) {
+    const d =
+      values[i] -
+      values[i - 1];
 
     const g = Math.max(d, 0);
     const l = Math.max(-d, 0);
 
     avgGain =
-      (avgGain * (period - 1) + g) / period;
+      (avgGain * (period - 1) + g) /
+      period;
 
     avgLoss =
-      (avgLoss * (period - 1) + l) / period;
+      (avgLoss * (period - 1) + l) /
+      period;
 
     out[i] =
       avgLoss === 0
@@ -135,9 +173,12 @@ function rsi(values, period = 14) {
 
 function atr(bars, period = 14) {
   const tr = bars.map((b, i) => {
-    if (i === 0) return b.h - b.l;
+    if (i === 0) {
+      return b.h - b.l;
+    }
 
-    const pc = bars[i - 1].c;
+    const pc =
+      bars[i - 1].c;
 
     return Math.max(
       b.h - b.l,
@@ -146,9 +187,13 @@ function atr(bars, period = 14) {
     );
   });
 
-  const out = new Array(bars.length).fill(null);
+  const out = new Array(
+    bars.length
+  ).fill(null);
 
-  if (bars.length < period) return out;
+  if (bars.length < period) {
+    return out;
+  }
 
   let seed = 0;
 
@@ -156,12 +201,20 @@ function atr(bars, period = 14) {
     seed += tr[i];
   }
 
-  let prev = seed / period;
-  out[period - 1] = prev;
+  let prev =
+    seed / period;
 
-  for (let i = period; i < bars.length; i++) {
+  out[period - 1] =
+    prev;
+
+  for (
+    let i = period;
+    i < bars.length;
+    i++
+  ) {
     prev =
-      ((prev * (period - 1)) + tr[i]) / period;
+      ((prev * (period - 1)) + tr[i]) /
+      period;
 
     out[i] = prev;
   }
@@ -175,15 +228,19 @@ function macd(
   slow = 26,
   signalPeriod = 9
 ) {
-  const ef = ema(values, fast);
-  const es = ema(values, slow);
+  const ef =
+    ema(values, fast);
 
-  const line = values.map((_, i) =>
-    Number.isFinite(ef[i]) &&
-    Number.isFinite(es[i])
-      ? ef[i] - es[i]
-      : null
-  );
+  const es =
+    ema(values, slow);
+
+  const line =
+    values.map((_, i) =>
+      Number.isFinite(ef[i]) &&
+      Number.isFinite(es[i])
+        ? ef[i] - es[i]
+        : null
+    );
 
   const compact = [];
   const indexMap = [];
@@ -199,7 +256,9 @@ function macd(
     ema(compact, signalPeriod);
 
   const signal =
-    new Array(values.length).fill(null);
+    new Array(
+      values.length
+    ).fill(null);
 
   indexMap.forEach(
     (originalIndex, compactIndex) => {
@@ -244,10 +303,7 @@ function clamp(v, min, max) {
   );
 }
 
-function signLabel(
-  v,
-  threshold = 0
-) {
+function signLabel(v, threshold = 0) {
   if (v > threshold) {
     return "BUY";
   }
@@ -374,6 +430,7 @@ function rollingMoveFromM15(
     dollars,
     pct: movePct,
     atr: atrMove,
+
     direction:
       signLabel(
         atrMove,
@@ -409,6 +466,7 @@ function buildThreeHourBlocks(
         key,
         {
           key,
+
           dateKey:
             zp.dateKey,
 
@@ -485,22 +543,21 @@ function buildThreeHourBlocks(
         );
 
       const atrMove =
-        Number.isFinite(
-          atrValue
-        ) &&
+        Number.isFinite(atrValue) &&
         atrValue > 0
-          ? move /
-            atrValue
+          ? move / atrValue
           : 0;
 
       return {
         ...x,
 
         label:
-          `${String(x.startHour).padStart(2,"0")}–${String(x.endHour).padStart(2,"0")}`,
+          `${String(x.startHour).padStart(2, "0")}–${String(x.endHour).padStart(2, "0")}`,
 
         move,
+
         movePct,
+
         atrMove,
 
         direction:
@@ -580,12 +637,9 @@ function currentSessionStats(
     ) / range;
 
   const moveAtr =
-    Number.isFinite(
-      atrValue
-    ) &&
+    Number.isFinite(atrValue) &&
     atrValue > 0
-      ? move /
-        atrValue
+      ? move / atrValue
       : 0;
 
   const last16 =
@@ -645,23 +699,17 @@ function currentSessionStats(
       );
 
     if (
-      newHigh >
-        oldHigh &&
-      newLow >
-        oldLow
+      newHigh > oldHigh &&
+      newLow > oldLow
     ) {
       structure =
         "HH_HL";
 
       structureScore =
         1;
-    }
-
-    else if (
-      newHigh <
-        oldHigh &&
-      newLow <
-        oldLow
+    } else if (
+      newHigh < oldHigh &&
+      newLow < oldLow
     ) {
       structure =
         "LH_LL";
@@ -709,11 +757,13 @@ function currentSessionStats(
               1e-9
             );
 
-          return s +
+          return (
+            s +
             (
               (b.c - b.o) /
               r
-            );
+            )
+          );
         },
         0
       ) /
@@ -737,10 +787,8 @@ function currentSessionStats(
   const regime =
     score >= 24
       ? "BULLISH"
-
       : score <= -24
         ? "BEARISH"
-
         : "NEUTRAL";
 
   return {
@@ -748,12 +796,17 @@ function currentSessionStats(
       currentDateKey,
 
     open,
+
     high,
+
     low,
+
     current,
 
     move,
+
     movePct,
+
     moveAtr,
 
     positionInRange,
@@ -844,8 +897,7 @@ function analyzeCompactTimeframe(
       -8
     );
 
-  let priceAction =
-    0;
+  let priceAction = 0;
 
   if (
     old.length >= 4 &&
@@ -880,19 +932,15 @@ function analyzeCompactTimeframe(
       );
 
     if (
-      newHigh >
-        oldHigh &&
-      newLow >
-        oldLow
+      newHigh > oldHigh &&
+      newLow > oldLow
     ) {
       priceAction += 1;
     }
 
     if (
-      newHigh <
-        oldHigh &&
-      newLow <
-        oldLow
+      newHigh < oldHigh &&
+      newLow < oldLow
     ) {
       priceAction -= 1;
     }
@@ -906,8 +954,7 @@ function analyzeCompactTimeframe(
       : 3;
 
   if (
-    closes.length >
-      barsBack &&
+    closes.length > barsBack &&
     Number.isFinite(a) &&
     a > 0
   ) {
@@ -934,9 +981,7 @@ function analyzeCompactTimeframe(
     28;
 
   if (
-    Number.isFinite(
-      e20
-    )
+    Number.isFinite(e20)
   ) {
     score +=
       close > e20
@@ -945,12 +990,8 @@ function analyzeCompactTimeframe(
   }
 
   if (
-    Number.isFinite(
-      e20
-    ) &&
-    Number.isFinite(
-      e50
-    )
+    Number.isFinite(e20) &&
+    Number.isFinite(e50)
   ) {
     score +=
       e20 > e50
@@ -970,9 +1011,7 @@ function analyzeCompactTimeframe(
   }
 
   if (
-    Number.isFinite(
-      hist
-    )
+    Number.isFinite(hist)
   ) {
     score +=
       hist > 0
@@ -1086,12 +1125,11 @@ function fibonacciContext(
         };
 
   const nearest =
-    Object.entries(
-      levels
-    )
+    Object.entries(levels)
       .map(
         ([name, price]) => ({
           name,
+
           price,
 
           distance:
@@ -1109,9 +1147,7 @@ function fibonacciContext(
 
   const nearFib =
     nearest &&
-    Number.isFinite(
-      atrValue
-    ) &&
+    Number.isFinite(atrValue) &&
     atrValue > 0
       ? nearest.distance <=
         atrValue * 0.35
@@ -1153,13 +1189,14 @@ function buildForecast({
   const blockDirectional =
     completedOrCurrent.reduce(
       (sum, b) => {
-        return sum +
+        return (
+          sum +
           clamp(
-            b.atrMove /
-            1.6,
+            b.atrMove / 1.6,
             -1,
             1
-          );
+          )
+        );
       },
       0
     );
@@ -1178,29 +1215,25 @@ function buildForecast({
     clamp(
       (
         clamp(
-          rolling.h1.atr /
-          1.2,
+          rolling.h1.atr / 1.2,
           -1,
           1
         ) * 0.20 +
 
         clamp(
-          rolling.h3.atr /
-          2.0,
+          rolling.h3.atr / 2.0,
           -1,
           1
         ) * 0.38 +
 
         clamp(
-          rolling.h6.atr /
-          3.0,
+          rolling.h6.atr / 3.0,
           -1,
           1
         ) * 0.28 +
 
         clamp(
-          rolling.h12.atr /
-          4.5,
+          rolling.h12.atr / 4.5,
           -1,
           1
         ) * 0.14
@@ -1210,23 +1243,14 @@ function buildForecast({
     ) * 100;
 
   const microScore =
-    m15.score *
-      0.58 +
-    h1.score *
-      0.42;
+    m15.score * 0.58 +
+    h1.score * 0.42;
 
   let raw =
-    session.score *
-      0.34 +
-
-    rollingScore *
-      0.28 +
-
-    blockScore *
-      0.20 +
-
-    microScore *
-      0.18;
+    session.score * 0.34 +
+    rollingScore * 0.28 +
+    blockScore * 0.20 +
+    microScore * 0.18;
 
   const daySign =
     Math.sign(
@@ -1240,11 +1264,9 @@ function buildForecast({
     Math.sign(
       rolling.h3.atr
     ) === rawSign &&
-
     Math.sign(
       m15.score
     ) === rawSign &&
-
     Math.sign(
       h1.score
     ) === rawSign;
@@ -1253,12 +1275,8 @@ function buildForecast({
     Math.abs(
       session.score
     ) >= 50 &&
-
     rawSign !== 0 &&
-
-    rawSign !==
-      daySign &&
-
+    rawSign !== daySign &&
     !reversalAgreement
   ) {
     raw *= 0.35;
@@ -1274,10 +1292,8 @@ function buildForecast({
   const direction =
     raw >= 22
       ? "BUY"
-
       : raw <= -22
         ? "SELL"
-
         : "WAIT";
 
   const familyValues = [
@@ -1292,16 +1308,13 @@ function buildForecast({
   const targetSign =
     direction === "BUY"
       ? 1
-
       : direction === "SELL"
         ? -1
-
         : 0;
 
   const agreeCount =
     targetSign === 0
       ? 0
-
       : familyValues.filter(
           v =>
             Math.sign(v) ===
@@ -1311,12 +1324,10 @@ function buildForecast({
 
   const conflictCount =
     targetSign === 0
-
       ? familyValues.filter(
           v =>
             Math.abs(v) >= 18
         ).length
-
       : familyValues.filter(
           v =>
             Math.sign(v) ===
@@ -1326,24 +1337,17 @@ function buildForecast({
 
   let confidence =
     direction === "WAIT"
-
       ? Math.round(
           Math.min(
             39,
             Math.abs(raw)
           )
         )
-
       : Math.round(
           clamp(
-            Math.abs(raw) *
-              0.55 +
-
-            agreeCount *
-              12 -
-
-            conflictCount *
-              10,
+            Math.abs(raw) * 0.55 +
+            agreeCount * 12 -
+            conflictCount * 10,
             0,
             100
           )
@@ -1373,22 +1377,17 @@ function buildForecast({
     direction === "WAIT" ||
     confidence < 40
       ? "INSUFFICIENT"
-
       : confidence < 55
         ? "WEAK"
-
         : confidence < 70
           ? "GOOD"
-
           : "STRONG";
 
   const propDirection =
     direction === "BUY"
       ? "SELL"
-
       : direction === "SELL"
         ? "BUY"
-
         : "WAIT";
 
   let condition =
@@ -1401,16 +1400,13 @@ function buildForecast({
       Math.sign(
         session.score
       ) === targetSign &&
-
       Math.sign(
         rollingScore
       ) === targetSign
     ) {
       condition =
         "CONTINUATION";
-    }
-
-    else if (
+    } else if (
       Math.sign(
         session.score
       ) !== targetSign &&
@@ -1418,9 +1414,7 @@ function buildForecast({
     ) {
       condition =
         "REVERSAL";
-    }
-
-    else {
+    } else {
       condition =
         "PULLBACK_OR_TRANSITION";
     }
@@ -1432,10 +1426,8 @@ function buildForecast({
     `Regime giornata ${
       session.regime === "BULLISH"
         ? "rialzista"
-
         : session.regime === "BEARISH"
           ? "ribassista"
-
           : "neutrale"
     }: ${
       session.move >= 0
@@ -1507,6 +1499,7 @@ function buildForecast({
 
     agreement: {
       agreeCount,
+
       conflictCount,
 
       session:
@@ -1643,6 +1636,79 @@ export async function GET(
         )
       ]);
 
+    /*
+     * DEBUG FEED
+     *
+     * Questi dati NON vengono elaborati.
+     * Servono esclusivamente a verificare
+     * cosa Massive ci sta realmente restituendo.
+     */
+
+    const lastM15Raw =
+      m15Bars[
+        m15Bars.length - 1
+      ];
+
+    const lastH1Raw =
+      h1Bars[
+        h1Bars.length - 1
+      ];
+
+    const debugFeed = {
+      serverNowISO:
+        new Date().toISOString(),
+
+      m15BarsCount:
+        m15Bars.length,
+
+      h1BarsCount:
+        h1Bars.length,
+
+      lastM15Raw,
+
+      lastH1Raw,
+
+      lastM15ISO:
+        lastM15Raw?.t
+          ? new Date(
+              lastM15Raw.t
+            ).toISOString()
+          : null,
+
+      lastH1ISO:
+        lastH1Raw?.t
+          ? new Date(
+              lastH1Raw.t
+            ).toISOString()
+          : null,
+
+      m15LagMinutes:
+        lastM15Raw?.t
+          ? Number(
+              (
+                (
+                  Date.now() -
+                  lastM15Raw.t
+                ) /
+                60000
+              ).toFixed(1)
+            )
+          : null,
+
+      h1LagMinutes:
+        lastH1Raw?.t
+          ? Number(
+              (
+                (
+                  Date.now() -
+                  lastH1Raw.t
+                ) /
+                60000
+              ).toFixed(1)
+            )
+          : null
+    };
+
     const m15Atr =
       lastFinite(
         atr(
@@ -1717,13 +1783,18 @@ export async function GET(
     const forecast =
       buildForecast({
         session,
+
         blocks:
           blocks3h,
+
         rolling,
+
         m15:
           compact.M15,
+
         h1:
           compact.H1,
+
         fib
       });
 
@@ -1738,10 +1809,8 @@ export async function GET(
       bias:
         forecast.direction === "BUY"
           ? "BUY"
-
           : forecast.direction === "SELL"
             ? "SELL"
-
             : "NEUTRAL",
 
       score:
@@ -1788,13 +1857,20 @@ export async function GET(
         2,
 
       engineVersion:
-        "V2-DAY-3H",
+        "V2-DAY-3H-DEBUG",
+
+      /*
+       * QUESTA È LA PARTE CHE CI INTERESSA ADESSO
+       */
+
+      debug:
+        debugFeed,
 
       timezone:
         ENGINE_TZ,
 
       note:
-        "V2: regime giornata + blocchi 3H + rolling momentum + price action M15/H1. Macro non ancora collegata.",
+        "V2 DEBUG: verifica freshness feed Massive. Regime giornata + blocchi 3H + rolling momentum + price action M15/H1.",
 
       combined,
 
@@ -1856,7 +1932,11 @@ export async function GET(
           e?.message ||
           "Errore Market Engine",
 
-        symbol
+        symbol,
+
+        generatedAt:
+          new Date()
+            .toISOString()
       },
       {
         status: 502
