@@ -1,465 +1,1336 @@
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const SUPABASE_URL =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  process.env.SUPABASE_URL;
+const FRED_BASE =
+  "https://api.stlouisfed.org/fred";
 
-const SUPABASE_SERVICE_ROLE_KEY =
-  process.env.SUPABASE_SERVICE_ROLE_KEY;
+const FRED_API_KEY =
+  process.env.FRED_API_KEY;
 
-const MARKET_FEED_SECRET =
-  process.env.MARKET_FEED_SECRET;
+/*
+============================================================
+FRED MACRO BACKGROUND ENGINE
+Target principale: XAUUSD
 
-function json(data, status = 200) {
-  return Response.json(data, {
-    status,
-    headers: {
-      "Cache-Control": "no-store"
-    }
-  });
-}
+IMPORTANTE:
+- NON è un segnale BUY/SELL autonomo.
+- NON contiene consensus/forecast di mercato.
+- Serve come contesto macro strutturale.
+============================================================
+*/
 
-function validBar(b) {
-  return (
-    b &&
-    Number.isFinite(Number(b.t)) &&
-    Number.isFinite(Number(b.o)) &&
-    Number.isFinite(Number(b.h)) &&
-    Number.isFinite(Number(b.l)) &&
-    Number.isFinite(Number(b.c))
-  );
-}
+const SERIES = [
+  {
+    id: "DGS10",
+    key: "US10Y",
+    name: "Treasury USA 10Y",
+    group: "YIELDS",
+    frequency: "DAILY",
+    weight: 14
+  },
 
-function sanitizeBars(arr, max = 500) {
-  if (!Array.isArray(arr)) return [];
+  {
+    id: "DGS2",
+    key: "US2Y",
+    name: "Treasury USA 2Y",
+    group: "YIELDS",
+    frequency: "DAILY",
+    weight: 16
+  },
 
-  return arr
-    .filter(validBar)
-    .map(b => ({
-      t: Number(b.t),
-      o: Number(b.o),
-      h: Number(b.h),
-      l: Number(b.l),
-      c: Number(b.c),
-      v: Number(b.v || 0)
-    }))
-    .sort((a, b) => a.t - b.t)
-    .slice(-max);
-}
+  {
+    id: "FEDFUNDS",
+    key: "FED_FUNDS",
+    name: "Federal Funds Effective Rate",
+    group: "RATES",
+    frequency: "MONTHLY",
+    weight: 10
+  },
 
-async function supabaseRequest(path, options = {}) {
-  if (!SUPABASE_URL) {
-    throw new Error("SUPABASE_URL non configurata.");
+  {
+    id: "CPIAUCSL",
+    key: "CPI",
+    name: "Consumer Price Index",
+    group: "INFLATION",
+    frequency: "MONTHLY",
+    weight: 6
+  },
+
+  {
+    id: "CPILFESL",
+    key: "CORE_CPI",
+    name: "Core CPI",
+    group: "INFLATION",
+    frequency: "MONTHLY",
+    weight: 8
+  },
+
+  {
+    id: "PCEPI",
+    key: "PCE",
+    name: "PCE Price Index",
+    group: "INFLATION",
+    frequency: "MONTHLY",
+    weight: 6
+  },
+
+  {
+    id: "PCEPILFE",
+    key: "CORE_PCE",
+    name: "Core PCE",
+    group: "INFLATION",
+    frequency: "MONTHLY",
+    weight: 9
+  },
+
+  {
+    id: "UNRATE",
+    key: "UNEMPLOYMENT",
+    name: "Unemployment Rate",
+    group: "LABOR",
+    frequency: "MONTHLY",
+    weight: 7
+  },
+
+  {
+    id: "PAYEMS",
+    key: "PAYROLLS",
+    name: "Total Nonfarm Payrolls",
+    group: "LABOR",
+    frequency: "MONTHLY",
+    weight: 7
   }
+];
 
-  if (!SUPABASE_SERVICE_ROLE_KEY) {
-    throw new Error(
-      "SUPABASE_SERVICE_ROLE_KEY non configurata."
-    );
-  }
-
-  const response = await fetch(
-    `${SUPABASE_URL}/rest/v1/${path}`,
+function json(
+  data,
+  status = 200
+) {
+  return Response.json(
+    data,
     {
-      ...options,
+      status,
 
       headers: {
-        apikey: SUPABASE_SERVICE_ROLE_KEY,
-
-        Authorization:
-          `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-
-        "Content-Type": "application/json",
-
-        Prefer:
-          "resolution=merge-duplicates,return=representation",
-
-        ...(options.headers || {})
-      },
-
-      cache: "no-store"
+        "Cache-Control":
+          "no-store"
+      }
     }
   );
+}
 
-  const text =
-    await response.text();
+function toNumber(v) {
+  if (
+    v === null ||
+    v === undefined ||
+    v === "" ||
+    v === "."
+  ) {
+    return null;
+  }
 
-  let data = null;
+  const n =
+    Number(v);
 
-  if (text) {
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = text;
+  return Number.isFinite(n)
+    ? n
+    : null;
+}
+
+function clamp(
+  value,
+  min,
+  max
+) {
+  return Math.max(
+    min,
+    Math.min(
+      max,
+      value
+    )
+  );
+}
+
+async function sleep(ms) {
+  return new Promise(
+    resolve =>
+      setTimeout(
+        resolve,
+        ms
+      )
+  );
+}
+
+async function fetchFredSeries(
+  seriesId,
+  limit = 18
+) {
+  const url =
+    `${FRED_BASE}/series/observations` +
+    `?series_id=${encodeURIComponent(seriesId)}` +
+    `&api_key=${encodeURIComponent(FRED_API_KEY)}` +
+    `&file_type=json` +
+    `&sort_order=desc` +
+    `&limit=${limit}`;
+
+  async function doRequest(
+    attempt = 1
+  ) {
+    const response =
+      await fetch(
+        url,
+        {
+          cache:
+            "no-store",
+
+          headers: {
+            Accept:
+              "application/json"
+          }
+        }
+      );
+
+    const text =
+      await response.text();
+
+    const contentType =
+      response.headers
+        .get(
+          "content-type"
+        ) ||
+      "";
+
+    /*
+      FRED normalmente restituisce JSON.
+
+      In caso di risposta HTML/intermedia
+      o pagina di errore temporanea,
+      facciamo un solo retry.
+    */
+
+    if (
+      !contentType.includes(
+        "application/json"
+      )
+    ) {
+      if (
+        attempt < 2
+      ) {
+        await sleep(400);
+
+        return doRequest(
+          attempt + 1
+        );
+      }
+
+      throw new Error(
+        `${seriesId}: risposta non JSON da FRED (HTTP ${response.status})`
+      );
     }
+
+    let data;
+
+    try {
+      data =
+        JSON.parse(text);
+    }
+
+    catch {
+      if (
+        attempt < 2
+      ) {
+        await sleep(400);
+
+        return doRequest(
+          attempt + 1
+        );
+      }
+
+      throw new Error(
+        `${seriesId}: JSON FRED non valido`
+      );
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        data?.error_message ||
+        `FRED HTTP ${response.status}`
+      );
+    }
+
+    const observations =
+      Array.isArray(
+        data?.observations
+      )
+        ? data.observations
+            .map(o => ({
+              date:
+                o.date,
+
+              value:
+                toNumber(
+                  o.value
+                )
+            }))
+            .filter(
+              o =>
+                o.value !== null
+            )
+        : [];
+
+    if (
+      observations.length <
+      2
+    ) {
+      throw new Error(
+        `${seriesId}: osservazioni insufficienti`
+      );
+    }
+
+    return observations;
   }
 
-  if (!response.ok) {
-    throw new Error(
-      typeof data === "string"
-        ? data
-        : JSON.stringify(data)
-    );
-  }
-
-  return data;
+  return doRequest();
 }
 
 /*
 ============================================================
-POST
-MT5 -> ProfitTracker -> Supabase
+CALCOLI BASE
 ============================================================
 */
 
-export async function POST(request) {
-  try {
-    if (!MARKET_FEED_SECRET) {
-      return json(
-        {
-          ok: false,
-          error:
-            "MARKET_FEED_SECRET non configurato su Vercel."
-        },
-        500
-      );
-    }
+function latestChange(
+  observations
+) {
+  const latest =
+    observations[0];
 
-    const body =
-      await request.json();
+  const previous =
+    observations[1];
 
-    /*
-    ----------------------------------------------------------
-    SICUREZZA
-    ----------------------------------------------------------
-    */
+  if (
+    !latest ||
+    !previous
+  ) {
+    return null;
+  }
+
+  const absolute =
+    latest.value -
+    previous.value;
+
+  const pct =
+    previous.value !== 0
+      ? (
+          absolute /
+          Math.abs(
+            previous.value
+          )
+        ) * 100
+      : 0;
+
+  return {
+    latest:
+      latest.value,
+
+    latestDate:
+      latest.date,
+
+    previous:
+      previous.value,
+
+    previousDate:
+      previous.date,
+
+    change:
+      absolute,
+
+    changePct:
+      pct
+  };
+}
+
+function inflationStats(
+  observations
+) {
+  if (
+    observations.length <
+    2
+  ) {
+    return null;
+  }
+
+  const latest =
+    observations[0];
+
+  const previous =
+    observations[1];
+
+  const mom =
+    previous.value !== 0
+      ? (
+          (
+            latest.value /
+            previous.value
+          ) - 1
+        ) * 100
+      : null;
+
+  let yoy =
+    null;
+
+  if (
+    observations.length >=
+    13
+  ) {
+    const yearAgo =
+      observations[12];
 
     if (
-      !body?.secret ||
-      body.secret !== MARKET_FEED_SECRET
+      yearAgo.value !== 0
     ) {
-      return json(
-        {
-          ok: false,
-          error: "Secret non valido."
-        },
-        401
-      );
+      yoy =
+        (
+          (
+            latest.value /
+            yearAgo.value
+          ) - 1
+        ) * 100;
     }
-
-    /*
-    ----------------------------------------------------------
-    DATI BASE
-    ----------------------------------------------------------
-    */
-
-    const marketKey =
-      String(
-        body.market_key || ""
-      )
-        .trim()
-        .toUpperCase();
-
-    if (!marketKey) {
-      return json(
-        {
-          ok: false,
-          error:
-            "market_key mancante."
-        },
-        400
-      );
-    }
-
-    const m15 =
-      sanitizeBars(
-        body.m15,
-        500
-      );
-
-    const h1 =
-      sanitizeBars(
-        body.h1,
-        500
-      );
-
-    if (m15.length < 20) {
-      return json(
-        {
-          ok: false,
-          error:
-            `M15 insufficienti: ${m15.length}`
-        },
-        400
-      );
-    }
-
-    if (h1.length < 20) {
-      return json(
-        {
-          ok: false,
-          error:
-            `H1 insufficienti: ${h1.length}`
-        },
-        400
-      );
-    }
-
-    /*
-    ----------------------------------------------------------
-    ULTIME CANDELE
-    ----------------------------------------------------------
-    */
-
-    const lastM15 =
-      m15[m15.length - 1];
-
-    const lastH1 =
-      h1[h1.length - 1];
-
-    const terminalTimeMs =
-      Number(
-        body.terminal_time
-      );
-
-    const terminalTimeISO =
-      Number.isFinite(
-        terminalTimeMs
-      )
-        ? new Date(
-            terminalTimeMs
-          ).toISOString()
-        : new Date()
-            .toISOString();
-
-    const payload = {
-      market_key:
-        marketKey,
-
-      source_symbol:
-        String(
-          body.source_symbol ||
-          ""
-        ),
-
-      account_login:
-        String(
-          body.account_login ||
-          ""
-        ),
-
-      account_server:
-        String(
-          body.account_server ||
-          ""
-        ),
-
-      account_company:
-        String(
-          body.account_company ||
-          ""
-        ),
-
-      terminal_time:
-        terminalTimeISO,
-
-      last_m15_time:
-        new Date(
-          lastM15.t
-        ).toISOString(),
-
-      last_h1_time:
-        new Date(
-          lastH1.t
-        ).toISOString(),
-
-      m15,
-
-      h1,
-
-      updated_at:
-        new Date()
-          .toISOString()
-    };
-
-    /*
-    ----------------------------------------------------------
-    UPSERT SUPABASE
-    Una sola riga per ogni market_key.
-    XAUUSD viene semplicemente aggiornata.
-    ----------------------------------------------------------
-    */
-
-    const result =
-      await supabaseRequest(
-        "prop_market_feed?on_conflict=market_key",
-        {
-          method: "POST",
-          body:
-            JSON.stringify(
-              payload
-            )
-        }
-      );
-
-    return json({
-      ok: true,
-
-      market_key:
-        marketKey,
-
-      source_symbol:
-        payload.source_symbol,
-
-      m15_count:
-        m15.length,
-
-      h1_count:
-        h1.length,
-
-      last_m15:
-        payload.last_m15_time,
-
-      last_h1:
-        payload.last_h1_time,
-
-      received_at:
-        payload.updated_at,
-
-      saved:
-        true,
-
-      rows:
-        Array.isArray(result)
-          ? result.length
-          : null
-    });
-
-  } catch (e) {
-    console.error(
-      "Market Feed POST error:",
-      e
-    );
-
-    return json(
-      {
-        ok: false,
-
-        error:
-          e?.message ||
-          String(e)
-      },
-      500
-    );
   }
+
+  return {
+    latest:
+      latest.value,
+
+    latestDate:
+      latest.date,
+
+    mom,
+
+    yoy
+  };
+}
+
+/*
+============================================================
+SCORING XAUUSD
+
+score > 0
+=> contesto più favorevole all'oro
+
+score < 0
+=> contesto più sfavorevole all'oro
+============================================================
+*/
+
+function scoreYield(
+  change,
+  weight
+) {
+  if (!change) {
+    return 0;
+  }
+
+  /*
+    Rendimenti in salita:
+    normalmente vento contrario per oro.
+
+    Rendimenti in discesa:
+    normalmente supporto all'oro.
+  */
+
+  const normalized =
+    clamp(
+      change.change /
+      0.20,
+      -1,
+      1
+    );
+
+  return (
+    -normalized *
+    weight
+  );
+}
+
+function scoreFedFunds(
+  change,
+  weight
+) {
+  if (!change) {
+    return 0;
+  }
+
+  const normalized =
+    clamp(
+      change.change /
+      0.50,
+      -1,
+      1
+    );
+
+  return (
+    -normalized *
+    weight
+  );
+}
+
+function scoreUnemployment(
+  change,
+  weight
+) {
+  if (!change) {
+    return 0;
+  }
+
+  const normalized =
+    clamp(
+      change.change /
+      0.40,
+      -1,
+      1
+    );
+
+  return (
+    normalized *
+    weight
+  );
+}
+
+function scorePayrolls(
+  observations,
+  weight
+) {
+  if (
+    observations.length <
+    2
+  ) {
+    return 0;
+  }
+
+  const latestGain =
+    observations[0].value -
+    observations[1].value;
+
+  let previousGain =
+    latestGain;
+
+  if (
+    observations.length >=
+    3
+  ) {
+    previousGain =
+      observations[1].value -
+      observations[2].value;
+  }
+
+  const acceleration =
+    latestGain -
+    previousGain;
+
+  /*
+    PAYEMS è in migliaia di persone.
+    150k di accelerazione è già
+    un movimento significativo.
+  */
+
+  const normalized =
+    clamp(
+      acceleration /
+      150,
+      -1,
+      1
+    );
+
+  return (
+    -normalized *
+    weight
+  );
+}
+
+function scoreInflationTrend(
+  observations,
+  weight
+) {
+  if (
+    observations.length <
+    3
+  ) {
+    return 0;
+  }
+
+  const latest =
+    inflationStats(
+      observations
+    );
+
+  const shifted =
+    inflationStats(
+      observations.slice(1)
+    );
+
+  if (
+    latest?.mom === null ||
+    latest?.mom === undefined ||
+    shifted?.mom === null ||
+    shifted?.mom === undefined
+  ) {
+    return 0;
+  }
+
+  const acceleration =
+    latest.mom -
+    shifted.mom;
+
+  const normalized =
+    clamp(
+      acceleration /
+      0.30,
+      -1,
+      1
+    );
+
+  return (
+    -normalized *
+    weight
+  );
+}
+
+/*
+============================================================
+INTERPRETAZIONE SCORE
+============================================================
+*/
+
+function macroBias(
+  score
+) {
+  if (
+    score >= 22
+  ) {
+    return "BULLISH_GOLD";
+  }
+
+  if (
+    score <= -22
+  ) {
+    return "BEARISH_GOLD";
+  }
+
+  return "NEUTRAL";
+}
+
+function macroStrength(
+  score
+) {
+  const a =
+    Math.abs(score);
+
+  if (
+    a >= 55
+  ) {
+    return "STRONG";
+  }
+
+  if (
+    a >= 32
+  ) {
+    return "GOOD";
+  }
+
+  if (
+    a >= 18
+  ) {
+    return "WEAK";
+  }
+
+  return "NEUTRAL";
 }
 
 /*
 ============================================================
 GET
-Serve per controllare velocemente se MT5 sta alimentando il feed.
-NON restituisce le 300 candele complete.
 ============================================================
 */
 
-export async function GET(request) {
+export async function GET() {
   try {
-    const {
-      searchParams
-    } =
-      new URL(
-        request.url
-      );
-
-    const marketKey =
-      String(
-        searchParams.get(
-          "symbol"
-        ) ||
-        "XAUUSD"
-      )
-        .trim()
-        .toUpperCase();
-
-    const rows =
-      await supabaseRequest(
-        `prop_market_feed` +
-        `?market_key=eq.${encodeURIComponent(marketKey)}` +
-        `&select=market_key,source_symbol,account_login,account_server,account_company,terminal_time,last_m15_time,last_h1_time,updated_at`,
-        {
-          method: "GET"
-        }
-      );
-
-    const row =
-      Array.isArray(rows)
-        ? rows[0]
-        : null;
-
-    if (!row) {
+    if (!FRED_API_KEY) {
       return json(
         {
           ok: false,
 
-          market_key:
-            marketKey,
-
-          status:
-            "NO_FEED"
+          error:
+            "FRED_API_KEY non configurata su Vercel."
         },
-        404
+        500
       );
     }
 
-    const now =
-      Date.now();
+    /*
+    ----------------------------------------------------------
+    Recupero serie in parallelo
+    ----------------------------------------------------------
+    */
 
-    const updated =
-      new Date(
-        row.updated_at
-      ).getTime();
+    const results =
+      await Promise.allSettled(
+        SERIES.map(
+          async config => {
+            const observations =
+              await fetchFredSeries(
+                config.id,
+                18
+              );
 
-    const ageSeconds =
-      Number.isFinite(
-        updated
-      )
-        ? Math.round(
-            (
-              now -
-              updated
-            ) / 1000
+            return {
+              config,
+              observations
+            };
+          }
+        )
+      );
+
+    const loaded = {};
+    const errors = [];
+
+    results.forEach(
+      (
+        result,
+        index
+      ) => {
+        const config =
+          SERIES[index];
+
+        if (
+          result.status ===
+          "fulfilled"
+        ) {
+          loaded[
+            config.key
+          ] = {
+            config:
+              result.value
+                .config,
+
+            observations:
+              result.value
+                .observations
+          };
+        }
+
+        else {
+          errors.push({
+            series:
+              config.id,
+
+            key:
+              config.key,
+
+            error:
+              result.reason
+                ?.message ||
+              String(
+                result.reason
+              )
+          });
+        }
+      }
+    );
+
+    /*
+    ----------------------------------------------------------
+    Componenti score
+    ----------------------------------------------------------
+    */
+
+    const components = [];
+
+    /*
+    TREASURY 10Y
+    */
+
+    if (
+      loaded.US10Y
+    ) {
+      const change =
+        latestChange(
+          loaded.US10Y
+            .observations
+        );
+
+      const score =
+        scoreYield(
+          change,
+          loaded.US10Y
+            .config
+            .weight
+        );
+
+      components.push({
+        key:
+          "US10Y",
+
+        label:
+          "Treasury 10Y",
+
+        score:
+          Number(
+            score.toFixed(2)
+          ),
+
+        latest:
+          change?.latest,
+
+        previous:
+          change?.previous,
+
+        change:
+          change?.change,
+
+        latestDate:
+          change?.latestDate
+      });
+    }
+
+    /*
+    TREASURY 2Y
+    */
+
+    if (
+      loaded.US2Y
+    ) {
+      const change =
+        latestChange(
+          loaded.US2Y
+            .observations
+        );
+
+      const score =
+        scoreYield(
+          change,
+          loaded.US2Y
+            .config
+            .weight
+        );
+
+      components.push({
+        key:
+          "US2Y",
+
+        label:
+          "Treasury 2Y",
+
+        score:
+          Number(
+            score.toFixed(2)
+          ),
+
+        latest:
+          change?.latest,
+
+        previous:
+          change?.previous,
+
+        change:
+          change?.change,
+
+        latestDate:
+          change?.latestDate
+      });
+    }
+
+    /*
+    FED FUNDS
+    */
+
+    if (
+      loaded.FED_FUNDS
+    ) {
+      const change =
+        latestChange(
+          loaded.FED_FUNDS
+            .observations
+        );
+
+      const score =
+        scoreFedFunds(
+          change,
+          loaded
+            .FED_FUNDS
+            .config
+            .weight
+        );
+
+      components.push({
+        key:
+          "FED_FUNDS",
+
+        label:
+          "Fed Funds",
+
+        score:
+          Number(
+            score.toFixed(2)
+          ),
+
+        latest:
+          change?.latest,
+
+        previous:
+          change?.previous,
+
+        change:
+          change?.change,
+
+        latestDate:
+          change?.latestDate
+      });
+    }
+
+    /*
+    UNEMPLOYMENT
+    */
+
+    if (
+      loaded.UNEMPLOYMENT
+    ) {
+      const change =
+        latestChange(
+          loaded
+            .UNEMPLOYMENT
+            .observations
+        );
+
+      const score =
+        scoreUnemployment(
+          change,
+          loaded
+            .UNEMPLOYMENT
+            .config
+            .weight
+        );
+
+      components.push({
+        key:
+          "UNEMPLOYMENT",
+
+        label:
+          "Unemployment",
+
+        score:
+          Number(
+            score.toFixed(2)
+          ),
+
+        latest:
+          change?.latest,
+
+        previous:
+          change?.previous,
+
+        change:
+          change?.change,
+
+        latestDate:
+          change?.latestDate
+      });
+    }
+
+    /*
+    PAYROLLS
+    */
+
+    if (
+      loaded.PAYROLLS
+    ) {
+      const obs =
+        loaded.PAYROLLS
+          .observations;
+
+      const score =
+        scorePayrolls(
+          obs,
+          loaded.PAYROLLS
+            .config
+            .weight
+        );
+
+      const change =
+        latestChange(obs);
+
+      components.push({
+        key:
+          "PAYROLLS",
+
+        label:
+          "Payroll Employment",
+
+        score:
+          Number(
+            score.toFixed(2)
+          ),
+
+        latest:
+          change?.latest,
+
+        previous:
+          change?.previous,
+
+        change:
+          change?.change,
+
+        latestDate:
+          change?.latestDate
+      });
+    }
+
+    /*
+    INFLATION
+    */
+
+    const inflationKeys = [
+      "CPI",
+      "CORE_CPI",
+      "PCE",
+      "CORE_PCE"
+    ];
+
+    const inflation = {};
+
+    for (
+      const key of
+      inflationKeys
+    ) {
+      const item =
+        loaded[key];
+
+      if (!item) {
+        continue;
+      }
+
+      const stats =
+        inflationStats(
+          item.observations
+        );
+
+      const score =
+        scoreInflationTrend(
+          item.observations,
+          item.config.weight
+        );
+
+      inflation[key] = {
+        seriesId:
+          item.config.id,
+
+        name:
+          item.config.name,
+
+        latest:
+          stats?.latest,
+
+        latestDate:
+          stats?.latestDate,
+
+        mom:
+          stats?.mom !== null &&
+          stats?.mom !== undefined
+            ? Number(
+                stats.mom
+                  .toFixed(3)
+              )
+            : null,
+
+        yoy:
+          stats?.yoy !== null &&
+          stats?.yoy !== undefined
+            ? Number(
+                stats.yoy
+                  .toFixed(3)
+              )
+            : null,
+
+        score:
+          Number(
+            score.toFixed(2)
           )
-        : null;
+      };
+
+      components.push({
+        key,
+
+        label:
+          item.config.name,
+
+        score:
+          Number(
+            score.toFixed(2)
+          ),
+
+        latest:
+          stats?.latest,
+
+        latestDate:
+          stats?.latestDate,
+
+        mom:
+          inflation[key]
+            .mom,
+
+        yoy:
+          inflation[key]
+            .yoy
+      });
+    }
+
+    /*
+    ----------------------------------------------------------
+    SCORE FINALE
+    ----------------------------------------------------------
+    */
+
+    const rawScore =
+      components.reduce(
+        (
+          sum,
+          component
+        ) =>
+          sum +
+          (
+            Number(
+              component.score
+            ) || 0
+          ),
+        0
+      );
+
+    const score =
+      clamp(
+        rawScore,
+        -65,
+        65
+      );
+
+    const bias =
+      macroBias(
+        score
+      );
+
+    const strength =
+      macroStrength(
+        score
+      );
+
+    /*
+    ----------------------------------------------------------
+    YIELD CURVE
+    ----------------------------------------------------------
+    */
+
+    let yieldCurve =
+      null;
+
+    const y10 =
+      components.find(
+        x =>
+          x.key ===
+          "US10Y"
+      );
+
+    const y2 =
+      components.find(
+        x =>
+          x.key ===
+          "US2Y"
+      );
+
+    if (
+      Number.isFinite(
+        y10?.latest
+      ) &&
+      Number.isFinite(
+        y2?.latest
+      )
+    ) {
+      yieldCurve = {
+        tenYear:
+          y10.latest,
+
+        twoYear:
+          y2.latest,
+
+        spread:
+          Number(
+            (
+              y10.latest -
+              y2.latest
+            ).toFixed(3)
+          )
+      };
+    }
+
+    /*
+    ----------------------------------------------------------
+    SPIEGAZIONE
+    ----------------------------------------------------------
+    */
+
+    const reasons =
+      components
+        .filter(
+          c =>
+            Math.abs(
+              Number(
+                c.score
+              ) || 0
+            ) >= 2
+        )
+        .sort(
+          (a, b) =>
+            Math.abs(
+              b.score
+            ) -
+            Math.abs(
+              a.score
+            )
+        )
+        .slice(
+          0,
+          5
+        )
+        .map(
+          c => {
+            const direction =
+              c.score > 0
+                ? "supporta oro"
+                : "pressione su oro";
+
+            return (
+              `${c.label}: ${direction} (${c.score > 0 ? "+" : ""}${c.score})`
+            );
+          }
+        );
 
     return json({
       ok: true,
 
-      status:
-        ageSeconds !== null &&
-        ageSeconds <= 90
-          ? "LIVE"
-          : "STALE",
+      source:
+        "FRED",
 
-      age_seconds:
-        ageSeconds,
+      generatedAt:
+        new Date()
+          .toISOString(),
 
-      ...row
+      engineVersion:
+        "FRED-MACRO-V1.1",
+
+      macro: {
+        score:
+          Number(
+            score.toFixed(1)
+          ),
+
+        rawScore:
+          Number(
+            rawScore.toFixed(1)
+          ),
+
+        bias,
+
+        strength,
+
+        confidence:
+          Math.round(
+            clamp(
+              Math.abs(score) *
+              1.25,
+              0,
+              80
+            )
+          ),
+
+        role:
+          "BACKGROUND",
+
+        reasons
+      },
+
+      yields: {
+        US10Y:
+          y10 || null,
+
+        US2Y:
+          y2 || null,
+
+        curve:
+          yieldCurve
+      },
+
+      inflation,
+
+      labor: {
+        unemployment:
+          components.find(
+            x =>
+              x.key ===
+              "UNEMPLOYMENT"
+          ) || null,
+
+        payrolls:
+          components.find(
+            x =>
+              x.key ===
+              "PAYROLLS"
+          ) || null
+      },
+
+      rates: {
+        fedFunds:
+          components.find(
+            x =>
+              x.key ===
+              "FED_FUNDS"
+          ) || null
+      },
+
+      components,
+
+      errors,
+
+      seriesLoaded:
+        Object.keys(
+          loaded
+        ).length,
+
+      seriesRequested:
+        SERIES.length,
+
+      note:
+        "FRED Macro Background V1.1: contesto strutturale per XAUUSD. Non rappresenta un segnale operativo autonomo e non contiene consensus di mercato."
     });
+  }
 
-  } catch (e) {
+  catch (error) {
     console.error(
-      "Market Feed GET error:",
-      e
+      "FRED Macro error:",
+      error
     );
 
     return json(
       {
         ok: false,
 
+        source:
+          "FRED",
+
+        engineVersion:
+          "FRED-MACRO-V1.1",
+
         error:
-          e?.message ||
-          String(e)
+          error?.message ||
+          String(error)
       },
       500
     );
