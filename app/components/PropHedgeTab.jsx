@@ -1,6 +1,6 @@
 "use client";
 
-// PropHedgeTab v1.11 — launcher in Operatività + blocco piazzata se MT5 selezionata non ONLINE
+// PropHedgeTab v1.14 — navigatore rapido Prop + launcher/safety MT5
 
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
@@ -2063,6 +2063,31 @@ export default function PropHedgeTab() {
   );
 
 
+  const jumpToChallenge = (challengeId) => {
+    setMainView("OPERATIVITA");
+
+    // Aspetta il render della vista Operatività e poi porta la Prop in cima.
+    window.setTimeout(() => {
+      const el = document.getElementById(`prop-card-${challengeId}`);
+      if (!el) return;
+
+      el.scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+      });
+
+      // Piccolo highlight temporaneo per individuarla al volo.
+      el.animate(
+        [
+          { boxShadow: "0 0 0 0 rgba(56,189,248,0)" },
+          { boxShadow: "0 0 0 4px rgba(56,189,248,.42), 0 0 34px rgba(56,189,248,.22)" },
+          { boxShadow: "0 0 0 0 rgba(56,189,248,0)" }
+        ],
+        { duration: 1200, easing: "ease-out" }
+      );
+    }, 60);
+  };
+
   const safetyStyle = {
     green: { icon:"🟢", title:"CAPITALE SUFFICIENTE", bg:"rgba(34,197,94,.12)", border:"rgba(34,197,94,.45)", color:"#86efac" },
     yellow:{ icon:"🟡", title:"ATTENZIONE — BUFFER RIDOTTO", bg:"rgba(245,158,11,.12)", border:"rgba(245,158,11,.48)", color:"#fde68a" },
@@ -2208,6 +2233,49 @@ export default function PropHedgeTab() {
       </div>
 
       {mainView === "OPERATIVITA" && (<>
+
+      <div style={{
+        display:"flex",
+        gap:8,
+        flexWrap:"wrap",
+        alignItems:"center",
+        padding:"9px 10px",
+        borderRadius:14,
+        border:"1px solid rgba(56,189,248,.26)",
+        background:"rgba(2,6,23,.52)"
+      }}>
+        <span style={{
+          color:"#64748b",
+          fontSize:10,
+          fontWeight:950,
+          letterSpacing:.55,
+          marginRight:2
+        }}>
+          VAI ALLA PROP
+        </span>
+
+        {challenges.filter(ch => !ch.archived).map((ch,index) => {
+          const theme = getPropTheme(ch,index);
+          return (
+            <button
+              key={`jump-${ch.id}`}
+              onClick={()=>jumpToChallenge(ch.id)}
+              title={`Vai direttamente a ${ch.name || "Prop"}`}
+              style={{
+                ...secondaryButton,
+                padding:"7px 11px",
+                border:`1px solid ${theme.border}`,
+                background:ch.active ? "rgba(20,83,45,.20)" : theme.bg,
+                color:ch.active ? "#86efac" : theme.accent,
+                fontWeight:950,
+                boxShadow:ch.active ? "0 0 12px rgba(34,197,94,.10)" : "none"
+              }}
+            >
+              {ch.active ? "● " : ""}{ch.name || "Prop"}
+            </button>
+          );
+        })}
+      </div>
 
       <div style={{
         display:"flex",
@@ -2547,8 +2615,12 @@ export default function PropHedgeTab() {
         const theme = getPropTheme(ch, index);
 
         return (
-          <div key={ch.id} style={{
+          <div
+            key={ch.id}
+            id={`prop-card-${ch.id}`}
+            style={{
             ...panel,
+            scrollMarginTop:"18px",
             background:`linear-gradient(135deg,${theme.bg},rgba(15,23,42,.965))`,
             border: ch.active ? "3px solid rgba(34,197,94,.72)" : `3px solid ${theme.border}`,
             boxShadow:`0 0 0 1px ${theme.border}, 0 0 18px ${theme.bg}, inset 5px 0 0 ${theme.border}`
