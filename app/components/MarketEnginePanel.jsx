@@ -39,6 +39,13 @@ function fmt(v, d = 2) {
   });
 }
 
+function priceDecimals(symbol) {
+  if (symbol.includes("JPY")) return 3;
+  if (symbol.startsWith("XAU")) return 3;
+  if (symbol.startsWith("XAG")) return 4;
+  return 5;
+}
+
 
 function biasTheme(bias) {
   if (bias === "BUY") {
@@ -206,9 +213,9 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
     }}>
       <div style={panelHeader}>
         <div>
-          <h3 style={panelTitle}>🧠 WAR ROOM — Market Engine</h3>
+          <h3 style={panelTitle}>🧠 WAR ROOM — Market Engine V2</h3>
           <p style={panelSubtitle}>
-            Analisi quantitativa multi-timeframe basata su candele Massive.
+            Forecast operativo 0–3H: trend giornata, blocchi 3 ore, rolling momentum e price action.
           </p>
         </div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -270,9 +277,9 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
           flexDirection:"column",
           justifyContent:"center"
         }}>
-          <div style={{fontSize:11,color:"#94a3b8",fontWeight:900,letterSpacing:.7}}>MARKET BIAS</div>
+          <div style={{fontSize:11,color:"#94a3b8",fontWeight:900,letterSpacing:.7}}>TREND / FORECAST 0–3H</div>
           <div style={{fontSize:28,fontWeight:950,color:theme.color,marginTop:6}}>
-            {theme.icon} {theme.label}
+            {theme.icon} {data?.combined?.forecastDirection === "BUY" ? "FORECAST RIALZISTA" : data?.combined?.forecastDirection === "SELL" ? "FORECAST RIBASSISTA" : "FORECAST NEUTRALE"}
           </div>
           <div style={{display:"flex",gap:12,flexWrap:"wrap",marginTop:10,alignItems:"baseline"}}>
             <div style={{fontSize:22,fontWeight:950,color:"#f8fafc"}}>
@@ -308,7 +315,7 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
             : `0 0 30px ${propDirection === "BUY" ? "rgba(45,212,191,.08)" : "rgba(248,113,113,.08)"}`
         }}>
           <div style={{fontSize:11,color:"#94a3b8",fontWeight:900,letterSpacing:.65}}>
-            🎯 DIREZIONE PROP — OPPOSTA AL BIAS
+            🎯 DIREZIONE PROP — OPPOSTA AL FORECAST
           </div>
 
           <div style={{
@@ -507,6 +514,139 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
       {data && (
         <>
           <div style={{
+            display:"grid",
+            gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",
+            gap:10,
+            marginBottom:12
+          }}>
+            <div style={{
+              padding:"12px 13px",
+              borderRadius:14,
+              border:"1px solid rgba(34,197,94,.28)",
+              background:"rgba(20,83,45,.10)"
+            }}>
+              <div style={{fontSize:10,fontWeight:950,color:"#94a3b8",letterSpacing:.5}}>REGIME GIORNATA</div>
+              <div style={{
+                marginTop:5,
+                fontSize:20,
+                fontWeight:1000,
+                color:data?.session?.regime==="BULLISH"?"#5eead4":data?.session?.regime==="BEARISH"?"#fca5a5":"#fde68a"
+              }}>
+                {data?.session?.regime==="BULLISH"?"🟢 RIALZISTA":data?.session?.regime==="BEARISH"?"🔴 RIBASSISTA":"🟡 NEUTRALE"}
+              </div>
+              <div style={{fontSize:11,color:"#cbd5e1",marginTop:6}}>
+                Open {fmt(data?.session?.open,priceDecimals(symbol))} → {fmt(data?.session?.current,priceDecimals(symbol))}
+                {" • "}
+                <b style={{color:Number(data?.session?.move)>=0?"#5eead4":"#fca5a5"}}>
+                  {Number(data?.session?.move)>=0?"+":""}{fmt(data?.session?.move,2)}
+                </b>
+              </div>
+              <div style={{fontSize:10,color:"#64748b",marginTop:4}}>
+                Struttura: {data?.session?.structure || "—"} • posizione range {fmt((Number(data?.session?.positionInRange)||0)*100,0)}%
+              </div>
+            </div>
+
+            <div style={{
+              padding:"12px 13px",
+              borderRadius:14,
+              border:"1px solid rgba(56,189,248,.28)",
+              background:"rgba(14,116,144,.08)"
+            }}>
+              <div style={{fontSize:10,fontWeight:950,color:"#94a3b8",letterSpacing:.5}}>ROLLING MOMENTUM</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:6,marginTop:7}}>
+                {[["1H",data?.rolling?.h1],["3H",data?.rolling?.h3],["6H",data?.rolling?.h6],["12H",data?.rolling?.h12]].map(([lab,x])=>(
+                  <div key={lab} style={{fontSize:11,color:"#cbd5e1"}}>
+                    <b>{lab}</b>{" "}
+                    <span style={{color:Number(x?.dollars)>=0?"#5eead4":"#fca5a5",fontWeight:900}}>
+                      {Number(x?.dollars)>=0?"+":""}{fmt(Number(x?.dollars)||0,1)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{
+              padding:"12px 13px",
+              borderRadius:14,
+              border:"1px solid rgba(168,85,247,.28)",
+              background:"rgba(88,28,135,.08)"
+            }}>
+              <div style={{fontSize:10,fontWeight:950,color:"#94a3b8",letterSpacing:.5}}>TIPO DI MOVIMENTO</div>
+              <div style={{fontSize:18,fontWeight:1000,color:"#e9d5ff",marginTop:6}}>
+                {data?.combined?.forecastCondition==="CONTINUATION"?"CONTINUAZIONE":
+                 data?.combined?.forecastCondition==="REVERSAL"?"INVERSIONE":
+                 data?.combined?.forecastCondition==="PULLBACK_OR_TRANSITION"?"PULLBACK / TRANSIZIONE":"MISTO"}
+              </div>
+              <div style={{fontSize:10,color:"#94a3b8",marginTop:5}}>
+                Accordo famiglie: {data?.combined?.agreement?.agreeCount ?? 0}/4 • conflitti {data?.combined?.agreement?.conflictCount ?? 0}
+              </div>
+            </div>
+
+            <div style={{
+              padding:"12px 13px",
+              borderRadius:14,
+              border:"1px solid rgba(245,158,11,.28)",
+              background:"rgba(120,53,15,.08)"
+            }}>
+              <div style={{fontSize:10,fontWeight:950,color:"#94a3b8",letterSpacing:.5}}>MACRO / NEWS</div>
+              <div style={{fontSize:18,fontWeight:1000,color:"#fde68a",marginTop:6}}>
+                NON COLLEGATA
+              </div>
+              <div style={{fontSize:10,color:"#94a3b8",marginTop:5}}>
+                Per ora il forecast usa solo dati di mercato. La macro non modifica lo score.
+              </div>
+            </div>
+          </div>
+
+          <div style={{
+            marginBottom:12,
+            padding:"11px 12px",
+            borderRadius:14,
+            border:"1px solid rgba(71,85,105,.50)",
+            background:"rgba(2,6,23,.38)"
+          }}>
+            <div style={{fontSize:10,fontWeight:950,color:"#94a3b8",letterSpacing:.5,marginBottom:8}}>
+              BLOCCHI DELLA GIORNATA — 3 ORE
+            </div>
+            <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+              {(data?.blocks3h || []).map((b,i)=>(
+                <div key={b.key || i} style={{
+                  padding:"7px 9px",
+                  borderRadius:10,
+                  minWidth:88,
+                  border:Number(b.move)>0?"1px solid rgba(45,212,191,.30)":Number(b.move)<0?"1px solid rgba(248,113,113,.30)":"1px solid rgba(148,163,184,.25)",
+                  background:Number(b.move)>0?"rgba(13,148,136,.08)":Number(b.move)<0?"rgba(153,27,27,.08)":"rgba(30,41,59,.22)"
+                }}>
+                  <div style={{fontSize:9,color:"#94a3b8",fontWeight:900}}>{b.label}</div>
+                  <div style={{
+                    fontSize:13,
+                    fontWeight:1000,
+                    color:Number(b.move)>0?"#5eead4":Number(b.move)<0?"#fca5a5":"#cbd5e1",
+                    marginTop:2
+                  }}>
+                    {Number(b.move)>=0?"+":""}{fmt(Number(b.move)||0,1)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {(data?.combined?.reasons || []).length > 0 && (
+            <div style={{
+              marginBottom:12,
+              padding:"10px 12px",
+              borderRadius:14,
+              border:"1px solid rgba(56,189,248,.22)",
+              background:"rgba(14,116,144,.05)",
+              color:"#cbd5e1",
+              fontSize:11,
+              lineHeight:1.5
+            }}>
+              {(data.combined.reasons || []).slice(0,4).map((r,i)=><div key={i}>• {r}</div>)}
+            </div>
+          )}
+
+          <div style={{
             marginBottom:14,
             padding:"12px",
             borderRadius:16,
@@ -557,7 +697,7 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
         color:"#64748b",
         fontSize:10
       }}>
-        Analisi tecnica eseguita in background. La diagnostica M15/H1/H4/D1 è nascosta dalla plancia operativa.
+        V2 operativo in osservazione: il forecast privilegia prezzo, regime della giornata e momentum 0–3H. Gli indicatori restano solo conferme.
       </div>
 
     </div>
