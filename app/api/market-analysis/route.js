@@ -1,4 +1,4 @@
-// Market Engine V2.1 — MT5 PRIMARY + Massive fallback + freshness guard
+// Market Engine V2.2 — trend-day guard + MT5 PRIMARY + Massive fallback
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -14,21 +14,21 @@ const SUPABASE_SERVICE_ROLE_KEY =
 
 const MT5_FEED_MAX_AGE_MS = 90_000;
 const M15_MAX_BAR_AGE_MS = 45 * 60 * 1000;
-const H1_MAX_BAR_AGE_MS  = 120 * 60 * 1000;
+const H1_MAX_BAR_AGE_MS = 120 * 60 * 1000;
 
 const SUPPORTED = new Set([
-  "XAUUSD","XAGUSD","EURUSD","GBPUSD","USDJPY","USDCHF","USDCAD","AUDUSD","NZDUSD",
-  "EURGBP","EURJPY","EURCHF","EURAUD","GBPJPY","GBPCHF","GBPAUD","AUDJPY","CADJPY",
-  "CHFJPY","NZDJPY"
+  "XAUUSD", "XAGUSD", "EURUSD", "GBPUSD", "USDJPY",
+  "USDCHF", "USDCAD", "AUDUSD", "NZDUSD", "EURGBP",
+  "EURJPY", "EURCHF", "EURAUD", "GBPJPY", "GBPCHF",
+  "GBPAUD", "AUDJPY", "CADJPY", "CHFJPY", "NZDJPY"
 ]);
 
 const TF = {
   M15: { multiplier: 15, timespan: "minute", days: 14 },
-  H1:  { multiplier: 1, timespan: "hour", days: 380 },
+  H1: { multiplier: 1, timespan: "hour", days: 380 },
 };
 
 const CACHE_TTL = 120_000;
-
 globalThis.__propMarketCache ??= new Map();
 
 const ENGINE_TZ = "Europe/Rome";
@@ -45,24 +45,19 @@ async function fetchBars(symbol, cfg, apiKey) {
     cfg.days * 86400000
   );
 
-  const ticker =
-    `C:${symbol}`;
+  const ticker = `C:${symbol}`;
 
   const url =
     `${MASSIVE_BASE}/v2/aggs/ticker/${encodeURIComponent(ticker)}` +
     `/range/${cfg.multiplier}/${cfg.timespan}/${isoDate(from)}/${isoDate(to)}` +
     `?adjusted=true&sort=asc&limit=50000&apiKey=${encodeURIComponent(apiKey)}`;
 
-  const r =
-    await fetch(
-      url,
-      {
-        cache: "no-store"
-      }
-    );
+  const r = await fetch(
+    url,
+    { cache: "no-store" }
+  );
 
-  const j =
-    await r.json();
+  const j = await r.json();
 
   if (
     !r.ok ||
@@ -92,9 +87,7 @@ async function fetchBars(symbol, cfg, apiKey) {
           )
       : [];
 
-  if (
-    bars.length < 60
-  ) {
+  if (bars.length < 60) {
     throw new Error(
       `${symbol} ${cfg.timespan}: dati insufficienti (${bars.length} barre)`
     );
@@ -104,9 +97,7 @@ async function fetchBars(symbol, cfg, apiKey) {
 }
 
 function normalizeBars(arr) {
-  if (!Array.isArray(arr)) {
-    return [];
-  }
+  if (!Array.isArray(arr)) return [];
 
   return arr
     .map(b => ({
@@ -121,10 +112,7 @@ function normalizeBars(arr) {
       [b.t, b.o, b.h, b.l, b.c]
         .every(Number.isFinite)
     )
-    .sort(
-      (a, b) =>
-        a.t - b.t
-    );
+    .sort((a, b) => a.t - b.t);
 }
 
 async function fetchMt5MarketFeed(symbol) {
@@ -134,8 +122,7 @@ async function fetchMt5MarketFeed(symbol) {
   ) {
     return {
       ok: false,
-      reason:
-        "SUPABASE_ENV_MISSING"
+      reason: "SUPABASE_ENV_MISSING"
     };
   }
 
@@ -145,42 +132,27 @@ async function fetchMt5MarketFeed(symbol) {
     `&select=market_key,source_symbol,account_login,account_server,account_company,terminal_time,last_m15_time,last_h1_time,m15,h1,updated_at` +
     `&limit=1`;
 
-  const r =
-    await fetch(
-      url,
-      {
-        method: "GET",
+  const r = await fetch(url, {
+    method: "GET",
 
-        headers: {
-          apikey:
-            SUPABASE_SERVICE_ROLE_KEY,
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      "Content-Type": "application/json"
+    },
 
-          Authorization:
-            `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-
-          "Content-Type":
-            "application/json"
-        },
-
-        cache:
-          "no-store"
-      }
-    );
+    cache: "no-store"
+  });
 
   if (!r.ok) {
     return {
       ok: false,
-
-      reason:
-        `SUPABASE_HTTP_${r.status}`,
-
-      detail:
-        await r.text()
+      reason: `SUPABASE_HTTP_${r.status}`,
+      detail: await r.text()
     };
   }
 
-  const rows =
-    await r.json();
+  const rows = await r.json();
 
   const row =
     Array.isArray(rows)
@@ -190,20 +162,12 @@ async function fetchMt5MarketFeed(symbol) {
   if (!row) {
     return {
       ok: false,
-      reason:
-        "NO_MT5_FEED"
+      reason: "NO_MT5_FEED"
     };
   }
 
-  const m15 =
-    normalizeBars(
-      row.m15
-    );
-
-  const h1 =
-    normalizeBars(
-      row.h1
-    );
+  const m15 = normalizeBars(row.m15);
+  const h1 = normalizeBars(row.h1);
 
   if (
     m15.length < 60 ||
@@ -211,15 +175,9 @@ async function fetchMt5MarketFeed(symbol) {
   ) {
     return {
       ok: false,
-
-      reason:
-        "MT5_BARS_INSUFFICIENT",
-
-      m15Count:
-        m15.length,
-
-      h1Count:
-        h1.length
+      reason: "MT5_BARS_INSUFFICIENT",
+      m15Count: m15.length,
+      h1Count: h1.length
     };
   }
 
@@ -237,21 +195,16 @@ async function fetchMt5MarketFeed(symbol) {
       : Infinity;
 
   const lastM15Ms =
-    m15[
-      m15.length - 1
-    ]?.t || 0;
+    m15[m15.length - 1]?.t || 0;
 
   const lastH1Ms =
-    h1[
-      h1.length - 1
-    ]?.t || 0;
+    h1[h1.length - 1]?.t || 0;
 
   const m15AgeMs =
     lastM15Ms
       ? Math.max(
           0,
-          Date.now() -
-          lastM15Ms
+          Date.now() - lastM15Ms
         )
       : Infinity;
 
@@ -259,28 +212,21 @@ async function fetchMt5MarketFeed(symbol) {
     lastH1Ms
       ? Math.max(
           0,
-          Date.now() -
-          lastH1Ms
+          Date.now() - lastH1Ms
         )
       : Infinity;
 
   const live =
-    feedAgeMs <=
-      MT5_FEED_MAX_AGE_MS &&
-    m15AgeMs <=
-      M15_MAX_BAR_AGE_MS &&
-    h1AgeMs <=
-      H1_MAX_BAR_AGE_MS;
+    feedAgeMs <= MT5_FEED_MAX_AGE_MS &&
+    m15AgeMs <= M15_MAX_BAR_AGE_MS &&
+    h1AgeMs <= H1_MAX_BAR_AGE_MS;
 
   return {
     ok: true,
     live,
-
     row,
-
     m15,
     h1,
-
     feedAgeMs,
     m15AgeMs,
     h1AgeMs
@@ -291,8 +237,7 @@ function validateBarFreshness(
   m15Bars,
   h1Bars
 ) {
-  const now =
-    Date.now();
+  const now = Date.now();
 
   const lastM15 =
     m15Bars?.[
@@ -322,14 +267,11 @@ function validateBarFreshness(
 
   return {
     live:
-      m15AgeMs <=
-        M15_MAX_BAR_AGE_MS &&
-      h1AgeMs <=
-        H1_MAX_BAR_AGE_MS,
+      m15AgeMs <= M15_MAX_BAR_AGE_MS &&
+      h1AgeMs <= H1_MAX_BAR_AGE_MS,
 
     m15AgeMs,
     h1AgeMs,
-
     lastM15,
     lastH1
   };
@@ -340,48 +282,22 @@ function waitCombined(
   feedMeta = {}
 ) {
   return {
-    bias:
-      "NEUTRAL",
-
-    score:
-      0,
-
-    confidence:
-      0,
-
-    propDirection:
-      "WAIT",
-
-    signalStrength:
-      "INSUFFICIENT",
-
-    forecastDirection:
-      "WAIT",
-
-    forecastCondition:
-      "NO_LIVE_DATA",
-
-    horizon:
-      "0-3H",
+    bias: "NEUTRAL",
+    score: 0,
+    confidence: 0,
+    propDirection: "WAIT",
+    signalStrength: "INSUFFICIENT",
+    forecastDirection: "WAIT",
+    forecastCondition: "NO_LIVE_DATA",
+    horizon: "0-3H",
 
     agreement: {
-      agreeCount:
-        0,
-
-      conflictCount:
-        0,
-
-      session:
-        0,
-
-      rolling:
-        0,
-
-      blocks:
-        0,
-
-      micro:
-        0
+      agreeCount: 0,
+      conflictCount: 0,
+      session: 0,
+      rolling: 0,
+      blocks: 0,
+      micro: 0
     },
 
     reasons: [
@@ -389,15 +305,12 @@ function waitCombined(
       "Feed di mercato non sufficientemente fresco: segnale bloccato."
     ],
 
-    feedGuard:
-      feedMeta
+    feedGuard: feedMeta
   };
 }
 
 function ema(values, period) {
-  if (!values.length) {
-    return [];
-  }
+  if (!values.length) return [];
 
   const k =
     2 / (period + 1);
@@ -421,16 +334,14 @@ function ema(values, period) {
     i < period;
     i++
   ) {
-    seed +=
-      values[i];
+    seed += values[i];
   }
 
   let prev =
     seed / period;
 
-  out[
-    period - 1
-  ] = prev;
+  out[period - 1] =
+    prev;
 
   for (
     let i = period;
@@ -552,24 +463,16 @@ function atr(
     bars.map(
       (b, i) => {
         if (i === 0) {
-          return (
-            b.h - b.l
-          );
+          return b.h - b.l;
         }
 
         const pc =
-          bars[
-            i - 1
-          ].c;
+          bars[i - 1].c;
 
         return Math.max(
           b.h - b.l,
-          Math.abs(
-            b.h - pc
-          ),
-          Math.abs(
-            b.l - pc
-          )
+          Math.abs(b.h - pc),
+          Math.abs(b.l - pc)
         );
       }
     );
@@ -593,16 +496,14 @@ function atr(
     i < period;
     i++
   ) {
-    seed +=
-      tr[i];
+    seed += tr[i];
   }
 
   let prev =
     seed / period;
 
-  out[
-    period - 1
-  ] = prev;
+  out[period - 1] =
+    prev;
 
   for (
     let i = period;
@@ -644,14 +545,9 @@ function macd(
   const line =
     values.map(
       (_, i) =>
-        Number.isFinite(
-          ef[i]
-        ) &&
-        Number.isFinite(
-          es[i]
-        )
-          ? ef[i] -
-            es[i]
+        Number.isFinite(ef[i]) &&
+        Number.isFinite(es[i])
+          ? ef[i] - es[i]
           : null
     );
 
@@ -697,14 +593,9 @@ function macd(
   const histogram =
     values.map(
       (_, i) =>
-        Number.isFinite(
-          line[i]
-        ) &&
-        Number.isFinite(
-          signal[i]
-        )
-          ? line[i] -
-            signal[i]
+        Number.isFinite(line[i]) &&
+        Number.isFinite(signal[i])
+          ? line[i] - signal[i]
           : null
     );
 
@@ -752,15 +643,11 @@ function signLabel(
   v,
   threshold = 0
 ) {
-  if (
-    v > threshold
-  ) {
+  if (v > threshold) {
     return "BUY";
   }
 
-  if (
-    v < -threshold
-  ) {
+  if (v < -threshold) {
     return "SELL";
   }
 
@@ -772,26 +659,13 @@ function zonedParts(ts) {
     new Intl.DateTimeFormat(
       "en-CA",
       {
-        timeZone:
-          ENGINE_TZ,
-
-        year:
-          "numeric",
-
-        month:
-          "2-digit",
-
-        day:
-          "2-digit",
-
-        hour:
-          "2-digit",
-
-        minute:
-          "2-digit",
-
-        hourCycle:
-          "h23"
+        timeZone: ENGINE_TZ,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23"
       }
     ).formatToParts(
       new Date(ts)
@@ -816,14 +690,10 @@ function zonedParts(ts) {
       `${out.year}-${out.month}-${out.day}`,
 
     hour:
-      Number(
-        out.hour
-      ),
+      Number(out.hour),
 
     minute:
-      Number(
-        out.minute
-      )
+      Number(out.minute)
   };
 }
 
@@ -872,24 +742,15 @@ function rollingMoveFromM15(
   atrValue
 ) {
   if (
-    !Array.isArray(
-      bars
-    ) ||
+    !Array.isArray(bars) ||
     bars.length <
       barCount + 1
   ) {
     return {
-      dollars:
-        0,
-
-      pct:
-        0,
-
-      atr:
-        0,
-
-      direction:
-        "NEUTRAL"
+      dollars: 0,
+      pct: 0,
+      atr: 0,
+      direction: "NEUTRAL"
     };
   }
 
@@ -923,12 +784,8 @@ function rollingMoveFromM15(
 
   return {
     dollars,
-
-    pct:
-      movePct,
-
-    atr:
-      atrMove,
+    pct: movePct,
+    atr: atrMove,
 
     direction:
       signLabel(
@@ -946,13 +803,10 @@ function buildThreeHourBlocks(
     new Map();
 
   for (
-    const b of
-    m15Bars
+    const b of m15Bars
   ) {
     const zp =
-      zonedParts(
-        b.t
-      );
+      zonedParts(b.t);
 
     const blockIndex =
       Math.floor(
@@ -972,42 +826,23 @@ function buildThreeHourBlocks(
         key,
         {
           key,
-
-          dateKey:
-            zp.dateKey,
-
+          dateKey: zp.dateKey,
           startHour,
-
-          endHour:
-            startHour + 3,
-
-          open:
-            b.o,
-
-          high:
-            b.h,
-
-          low:
-            b.l,
-
-          close:
-            b.c,
-
-          firstTs:
-            b.t,
-
-          lastTs:
-            b.t,
-
-          bars:
-            1
+          endHour: startHour + 3,
+          open: b.o,
+          high: b.h,
+          low: b.l,
+          close: b.c,
+          firstTs: b.t,
+          lastTs: b.t,
+          bars: 1
         }
       );
-    } else {
+    }
+
+    else {
       const x =
-        byBlock.get(
-          key
-        );
+        byBlock.get(key);
 
       x.high =
         Math.max(
@@ -1027,8 +862,7 @@ function buildThreeHourBlocks(
       x.lastTs =
         b.t;
 
-      x.bars +=
-        1;
+      x.bars += 1;
     }
   }
 
@@ -1064,12 +898,10 @@ function buildThreeHourBlocks(
         ...x,
 
         label:
-          `${String(x.startHour).padStart(2,"0")}–${String(x.endHour).padStart(2,"0")}`,
+          `${String(x.startHour).padStart(2, "0")}–${String(x.endHour).padStart(2, "0")}`,
 
         move,
-
         movePct,
-
         atrMove,
 
         direction:
@@ -1129,8 +961,7 @@ function currentSessionStats(
     latest.c;
 
   const move =
-    current -
-    open;
+    current - open;
 
   const movePct =
     pct(
@@ -1216,10 +1047,8 @@ function currentSessionStats(
       );
 
     if (
-      newHigh >
-        oldHigh &&
-      newLow >
-        oldLow
+      newHigh > oldHigh &&
+      newLow > oldLow
     ) {
       structure =
         "HH_HL";
@@ -1229,10 +1058,8 @@ function currentSessionStats(
     }
 
     else if (
-      newHigh <
-        oldHigh &&
-      newLow <
-        oldLow
+      newHigh < oldHigh &&
+      newLow < oldLow
     ) {
       structure =
         "LH_LL";
@@ -1246,8 +1073,7 @@ function currentSessionStats(
 
   score +=
     clamp(
-      moveAtr /
-      3.0,
+      moveAtr / 3.0,
       -1,
       1
     ) * 42;
@@ -1257,8 +1083,7 @@ function currentSessionStats(
       (
         positionInRange -
         0.5
-      ) /
-      0.45,
+      ) / 0.45,
       -1,
       1
     ) * 24;
@@ -1326,21 +1151,13 @@ function currentSessionStats(
       currentDateKey,
 
     open,
-
     high,
-
     low,
-
     current,
-
     move,
-
     movePct,
-
     moveAtr,
-
     positionInRange,
-
     structure,
 
     score:
@@ -1463,23 +1280,17 @@ function analyzeCompactTimeframe(
       );
 
     if (
-      newHigh >
-        oldHigh &&
-      newLow >
-        oldLow
+      newHigh > oldHigh &&
+      newLow > oldLow
     ) {
-      priceAction +=
-        1;
+      priceAction += 1;
     }
 
     if (
-      newHigh <
-        oldHigh &&
-      newLow <
-        oldLow
+      newHigh < oldHigh &&
+      newLow < oldLow
     ) {
-      priceAction -=
-        1;
+      priceAction -= 1;
     }
   }
 
@@ -1508,8 +1319,7 @@ function analyzeCompactTimeframe(
 
     score +=
       clamp(
-        m /
-        2.0,
+        m / 2.0,
         -1,
         1
       ) * 42;
@@ -1520,9 +1330,7 @@ function analyzeCompactTimeframe(
     28;
 
   if (
-    Number.isFinite(
-      e20
-    )
+    Number.isFinite(e20)
   ) {
     score +=
       close > e20
@@ -1531,12 +1339,8 @@ function analyzeCompactTimeframe(
   }
 
   if (
-    Number.isFinite(
-      e20
-    ) &&
-    Number.isFinite(
-      e50
-    )
+    Number.isFinite(e20) &&
+    Number.isFinite(e50)
   ) {
     score +=
       e20 > e50
@@ -1551,25 +1355,20 @@ function analyzeCompactTimeframe(
       clamp(
         (
           r - 50
-        ) /
-        18,
+        ) / 18,
         -1,
         1
       ) * 8;
   }
 
   if (
-    Number.isFinite(
-      hist
-    )
+    Number.isFinite(hist)
   ) {
     score +=
       hist > 0
         ? 8
-
         : hist < 0
           ? -8
-
           : 0;
   }
 
@@ -1581,32 +1380,19 @@ function analyzeCompactTimeframe(
     );
 
   return {
-    timeframe:
-      name,
+    timeframe: name,
 
     timestamp:
       bars[
         bars.length - 1
       ]?.t || null,
 
-    lastClose:
-      close,
-
-    atr14:
-      a,
-
-    rsi14:
-      r,
-
-    ema20:
-      e20,
-
-    ema50:
-      e50,
-
-    macdHistogram:
-      hist,
-
+    lastClose: close,
+    atr14: a,
+    rsi14: r,
+    ema20: e20,
+    ema50: e50,
+    macdHistogram: hist,
     priceAction,
 
     score:
@@ -1685,7 +1471,6 @@ function fibonacciContext(
       .map(
         ([name, price]) => ({
           name,
-
           price,
 
           distance:
@@ -1720,8 +1505,7 @@ function fibonacciContext(
     levels,
 
     nearest:
-      nearest ||
-      null,
+      nearest || null,
 
     nearFib
   };
@@ -1742,129 +1526,217 @@ function buildForecast({
         session.dateKey
     );
 
-  const completedOrCurrent =
-    currentDayBlocks.slice(
-      -4
-    );
+  const recentBlocks =
+    currentDayBlocks.slice(-4);
 
-  const blockDirectional =
-    completedOrCurrent.reduce(
-      (
-        sum,
-        b
-      ) => {
-        return (
-          sum +
-          clamp(
-            b.atrMove /
-            1.6,
-            -1,
-            1
-          )
-        );
-      },
-      0
-    );
+  // Più peso ai blocchi 3H recenti.
+  let blockScore = 0;
 
-  const blockScore =
-    completedOrCurrent.length
-      ? clamp(
-          blockDirectional /
-          completedOrCurrent.length,
-          -1,
-          1
-        ) * 100
-      : 0;
+  if (
+    recentBlocks.length
+  ) {
+    const weights =
+      recentBlocks.length === 1
+        ? [1]
 
+        : recentBlocks.length === 2
+          ? [0.35, 0.65]
+
+          : recentBlocks.length === 3
+            ? [0.20, 0.30, 0.50]
+
+            : [0.10, 0.20, 0.30, 0.40];
+
+    blockScore =
+      recentBlocks.reduce(
+        (sum, b, i) => {
+          return (
+            sum +
+            clamp(
+              b.atrMove / 1.8,
+              -1,
+              1
+            ) *
+            weights[i]
+          );
+        },
+        0
+      ) * 100;
+  }
+
+  // Forecast 0–3H:
+  // 3H principale, 1H accelerazione,
+  // 6H contesto, 12H sfondo.
   const rollingScore =
     clamp(
-      (
-        clamp(
-          rolling.h1.atr /
-          1.2,
-          -1,
-          1
-        ) * 0.20 +
+      clamp(
+        rolling.h1.atr / 1.2,
+        -1,
+        1
+      ) * 0.25 +
 
-        clamp(
-          rolling.h3.atr /
-          2.0,
-          -1,
-          1
-        ) * 0.38 +
+      clamp(
+        rolling.h3.atr / 2.0,
+        -1,
+        1
+      ) * 0.40 +
 
-        clamp(
-          rolling.h6.atr /
-          3.0,
-          -1,
-          1
-        ) * 0.28 +
+      clamp(
+        rolling.h6.atr / 3.0,
+        -1,
+        1
+      ) * 0.25 +
 
-        clamp(
-          rolling.h12.atr /
-          4.5,
-          -1,
-          1
-        ) * 0.14
-      ),
+      clamp(
+        rolling.h12.atr / 4.5,
+        -1,
+        1
+      ) * 0.10,
+
       -1,
       1
     ) * 100;
 
+  // H1 leggermente più importante di M15.
   const microScore =
-    m15.score *
-      0.58 +
-    h1.score *
-      0.42;
+    m15.score * 0.45 +
+    h1.score * 0.55;
 
-  let raw =
-    session.score *
-      0.34 +
-
-    rollingScore *
-      0.28 +
-
-    blockScore *
-      0.20 +
-
-    microScore *
-      0.18;
+  const dayScore =
+    session.score;
 
   const daySign =
     Math.sign(
-      session.score
+      dayScore
     );
 
-  const rawSign =
-    Math.sign(raw);
+  const strongDay =
+    Math.abs(
+      dayScore
+    ) >= 55;
 
-  const reversalAgreement =
-    Math.sign(
-      rolling.h3.atr
-    ) === rawSign &&
+  const veryStrongDay =
+    Math.abs(
+      dayScore
+    ) >= 72;
 
-    Math.sign(
-      m15.score
-    ) === rawSign &&
+  // Il trend della giornata diventa la bussola.
+  let raw =
+    dayScore * 0.38 +
+    rollingScore * 0.27 +
+    microScore * 0.22 +
+    blockScore * 0.13;
 
-    Math.sign(
-      h1.score
-    ) === rawSign;
+  const components = [
+    {
+      name: "DAY",
+      value: dayScore
+    },
+
+    {
+      name: "ROLLING",
+      value: rollingScore
+    },
+
+    {
+      name: "MICRO",
+      value: microScore
+    },
+
+    {
+      name: "BLOCKS",
+      value: blockScore
+    }
+  ];
+
+  const bullishConfirmations =
+    components.filter(
+      x => x.value >= 18
+    ).length;
+
+  const bearishConfirmations =
+    components.filter(
+      x => x.value <= -18
+    ).length;
+
+  // Contro un trend forte servono
+  // 3 conferme indipendenti.
+  let reversalBlocked =
+    false;
+
+  let reversalConfirmed =
+    false;
 
   if (
-    Math.abs(
-      session.score
-    ) >= 50 &&
-
-    rawSign !== 0 &&
-
-    rawSign !==
-      daySign &&
-
-    !reversalAgreement
+    strongDay &&
+    daySign !== 0 &&
+    Math.sign(raw) !== 0 &&
+    Math.sign(raw) !== daySign
   ) {
-    raw *=
-      0.35;
+    const oppositeConfirmations =
+      daySign > 0
+        ? bearishConfirmations
+        : bullishConfirmations;
+
+    if (
+      oppositeConfirmations >= 3
+    ) {
+      reversalConfirmed =
+        true;
+    }
+
+    else {
+      reversalBlocked =
+        true;
+
+      raw *= 0.30;
+    }
+  }
+
+  // Protezione trend molto forte.
+  if (
+    veryStrongDay &&
+    !reversalConfirmed
+  ) {
+    const rollingSame =
+      Math.sign(
+        rollingScore
+      ) === daySign &&
+      Math.abs(
+        rollingScore
+      ) >= 12;
+
+    const microSame =
+      Math.sign(
+        microScore
+      ) === daySign &&
+      Math.abs(
+        microScore
+      ) >= 12;
+
+    if (
+      rollingSame ||
+      microSame
+    ) {
+      const minimumTrendScore =
+        daySign * 24;
+
+      if (
+        daySign > 0 &&
+        raw < minimumTrendScore
+      ) {
+        raw =
+          minimumTrendScore;
+      }
+
+      if (
+        daySign < 0 &&
+        raw > minimumTrendScore
+      ) {
+        raw =
+          minimumTrendScore;
+      }
+    }
   }
 
   raw =
@@ -1883,15 +1755,6 @@ function buildForecast({
 
         : "WAIT";
 
-  const familyValues = [
-    session.score,
-    rollingScore,
-    blockScore,
-    microScore
-  ].filter(
-    Number.isFinite
-  );
-
   const targetSign =
     direction === "BUY"
       ? 1
@@ -1901,87 +1764,184 @@ function buildForecast({
 
         : 0;
 
+  let condition =
+    "MIXED";
+
+  if (
+    direction !== "WAIT"
+  ) {
+    if (
+      targetSign ===
+      daySign
+    ) {
+      if (
+        Math.sign(
+          rollingScore
+        ) === targetSign &&
+
+        Math.sign(
+          microScore
+        ) === targetSign
+      ) {
+        condition =
+          "CONTINUATION";
+      }
+
+      else if (
+        Math.sign(
+          rollingScore
+        ) !== targetSign ||
+
+        Math.sign(
+          microScore
+        ) !== targetSign
+      ) {
+        condition =
+          "PULLBACK_IN_TREND";
+      }
+
+      else {
+        condition =
+          "TREND";
+      }
+    }
+
+    else {
+      condition =
+        reversalConfirmed
+          ? "REVERSAL_CONFIRMED"
+          : "COUNTERTREND";
+    }
+  }
+
+  else {
+    condition =
+      strongDay &&
+      Math.sign(
+        rollingScore
+      ) !== daySign
+        ? "TREND_SLOWDOWN"
+        : "WAIT";
+  }
+
   const agreeCount =
     targetSign === 0
       ? 0
 
-      : familyValues.filter(
-          v =>
-            Math.sign(v) ===
-            targetSign &&
-            Math.abs(v) >= 12
+      : components.filter(
+          x =>
+            Math.sign(
+              x.value
+            ) === targetSign &&
+            Math.abs(
+              x.value
+            ) >= 12
         ).length;
 
   const conflictCount =
     targetSign === 0
-      ? familyValues.filter(
-          v =>
-            Math.abs(v) >= 18
+      ? components.filter(
+          x =>
+            Math.abs(
+              x.value
+            ) >= 18
         ).length
 
-      : familyValues.filter(
-          v =>
-            Math.sign(v) ===
-            -targetSign &&
-            Math.abs(v) >= 18
+      : components.filter(
+          x =>
+            Math.sign(
+              x.value
+            ) === -targetSign &&
+            Math.abs(
+              x.value
+            ) >= 18
         ).length;
 
-  let confidence =
+  let confidence = 0;
+
+  if (
     direction === "WAIT"
-      ? Math.round(
-          Math.min(
-            39,
-            Math.abs(raw)
-          )
+  ) {
+    confidence =
+      Math.round(
+        clamp(
+          Math.abs(raw),
+          0,
+          39
         )
-
-      : Math.round(
-          clamp(
-            Math.abs(raw) *
-              0.55 +
-
-            agreeCount *
-              12 -
-
-            conflictCount *
-              10,
-            0,
-            100
-          )
-        );
-
-  if (
-    agreeCount < 3
-  ) {
-    confidence =
-      Math.min(
-        confidence,
-        69
       );
   }
 
-  if (
-    conflictCount >= 2
-  ) {
+  else {
     confidence =
-      Math.min(
-        confidence,
-        49
+      Math.round(
+        clamp(
+          35 +
+          Math.abs(raw) * 0.30 +
+          agreeCount * 9 -
+          conflictCount * 8,
+
+          0,
+          100
+        )
+      );
+
+    if (
+      agreeCount === 4
+    ) {
+      confidence += 7;
+    }
+
+    if (
+      strongDay &&
+      targetSign === daySign
+    ) {
+      confidence += 5;
+    }
+
+    if (
+      reversalConfirmed
+    ) {
+      confidence -= 8;
+    }
+
+    confidence =
+      Math.round(
+        clamp(
+          confidence,
+          0,
+          100
+        )
       );
   }
 
-  const signalStrength =
-    direction === "WAIT" ||
-    confidence < 40
-      ? "INSUFFICIENT"
+  let signalStrength =
+    "INSUFFICIENT";
 
-      : confidence < 55
-        ? "WEAK"
+  if (
+    direction !== "WAIT"
+  ) {
+    if (
+      confidence >= 75
+    ) {
+      signalStrength =
+        "STRONG";
+    }
 
-        : confidence < 70
-          ? "GOOD"
+    else if (
+      confidence >= 60
+    ) {
+      signalStrength =
+        "GOOD";
+    }
 
-          : "STRONG";
+    else if (
+      confidence >= 48
+    ) {
+      signalStrength =
+        "WEAK";
+    }
+  }
 
   const propDirection =
     direction === "BUY"
@@ -1991,41 +1951,6 @@ function buildForecast({
         ? "BUY"
 
         : "WAIT";
-
-  let condition =
-    "MIXED";
-
-  if (
-    direction !== "WAIT"
-  ) {
-    if (
-      Math.sign(
-        session.score
-      ) === targetSign &&
-
-      Math.sign(
-        rollingScore
-      ) === targetSign
-    ) {
-      condition =
-        "CONTINUATION";
-    }
-
-    else if (
-      Math.sign(
-        session.score
-      ) !== targetSign &&
-      agreeCount >= 3
-    ) {
-      condition =
-        "REVERSAL";
-    }
-
-    else {
-      condition =
-        "PULLBACK_OR_TRANSITION";
-    }
-  }
 
   const reasons = [];
 
@@ -2046,7 +1971,11 @@ function buildForecast({
   );
 
   reasons.push(
-    `Momentum rolling 3H ${
+    `Momentum rolling: 1H ${
+      rolling.h1.dollars >= 0
+        ? "+"
+        : ""
+    }${rolling.h1.dollars.toFixed(2)} • 3H ${
       rolling.h3.dollars >= 0
         ? "+"
         : ""
@@ -2057,12 +1986,16 @@ function buildForecast({
     }${rolling.h6.dollars.toFixed(2)}`
   );
 
+  reasons.push(
+    `Micro trend: M15 ${m15.bias} (${m15.score}) • H1 ${h1.bias} (${h1.score})`
+  );
+
   if (
-    completedOrCurrent.length
+    recentBlocks.length
   ) {
     reasons.push(
-      `Ultimi blocchi 3H: ${
-        completedOrCurrent
+      `Blocchi 3H: ${
+        recentBlocks
           .map(
             b =>
               `${b.label} ${
@@ -2073,6 +2006,22 @@ function buildForecast({
           )
           .join(" | ")
       }`
+    );
+  }
+
+  if (
+    reversalBlocked
+  ) {
+    reasons.push(
+      "⚠ Movimento contrario rilevato, ma conferme insufficienti per dichiarare inversione del trend."
+    );
+  }
+
+  if (
+    reversalConfirmed
+  ) {
+    reasons.push(
+      "⚠ Possibile inversione: rolling momentum, micro trend e blocchi 3H confermano il movimento contrario al regime giornaliero."
     );
   }
 
@@ -2097,23 +2046,20 @@ function buildForecast({
       ),
 
     direction,
-
     propDirection,
-
     confidence,
-
     signalStrength,
-
     condition,
+    reversalBlocked,
+    reversalConfirmed,
 
     agreement: {
       agreeCount,
-
       conflictCount,
 
       session:
         Number(
-          session.score.toFixed(1)
+          dayScore.toFixed(1)
         ),
 
       rolling:
@@ -2135,169 +2081,202 @@ function buildForecast({
     reasons
   };
 }
-
-export async function GET(
-  request
-) {
-  const {
-    searchParams
-  } =
-    new URL(
-      request.url
-    );
-
-  const symbol =
-    (
-      searchParams.get(
-        "symbol"
-      ) ||
-      "XAUUSD"
-    ).toUpperCase();
-
-  const force =
-    searchParams.get(
-      "force"
-    ) === "1";
-
-  if (
-    !SUPPORTED.has(
-      symbol
-    )
-  ) {
-    return Response.json(
-      {
-        error:
-          "Asset non supportato"
-      },
-      {
-        status:
-          400
-      }
-    );
-  }
-
-  const cacheKey =
-    symbol;
-
-  const cached =
-    globalThis
-      .__propMarketCache
-      .get(cacheKey);
-
-  if (
-    !force &&
-    cached &&
-    Date.now() -
-      cached.ts <
-      CACHE_TTL
-  ) {
-    return Response.json(
-      {
-        ...cached.data,
-
-        cache:
-          true,
-
-        cacheAgeMs:
-          Date.now() -
-          cached.ts
-      },
-      {
-        headers: {
-          "Cache-Control":
-            "no-store"
-        }
-      }
-    );
-  }
-
+export async function GET(request) {
   try {
+    const { searchParams } =
+      new URL(request.url);
+
+    const symbol =
+      (
+        searchParams.get("symbol") ||
+        "XAUUSD"
+      )
+        .toUpperCase()
+        .replace(/[^A-Z]/g, "");
+
+    const force =
+      searchParams.get("force") === "1";
+
+    if (
+      !SUPPORTED.has(symbol)
+    ) {
+      return Response.json(
+        {
+          ok: false,
+          error:
+            `Simbolo non supportato: ${symbol}`
+        },
+        {
+          status: 400
+        }
+      );
+    }
+
+    // ========================================================
+    // CACHE
+    // ========================================================
+
+    const cacheKey =
+      `market-v22-${symbol}`;
+
+    const cached =
+      globalThis.__propMarketCache.get(
+        cacheKey
+      );
+
+    if (
+      !force &&
+      cached &&
+      Date.now() -
+        cached.ts <
+        CACHE_TTL
+    ) {
+      return Response.json({
+        ...cached.data,
+        cache: true
+      });
+    }
+
+    // ========================================================
+    // 1. MT5 PRIMARY
+    // ========================================================
+
+    let source =
+      "MT5";
+
     let m15Bars = [];
     let h1Bars = [];
 
-    let source =
-      "NONE";
+    let feedMeta = {};
 
-    let sourceDetail =
-      {};
-
-    let apiCallsUsed =
-      0;
-
-    // ========================================================
-    // 1) PRIMA SCELTA: MT5 -> MarketFeedBridge -> Supabase
-    // ========================================================
-
-    const mt5Feed =
+    const mt5 =
       await fetchMt5MarketFeed(
         symbol
       );
 
     if (
-      mt5Feed.ok &&
-      mt5Feed.live
+      mt5.ok &&
+      mt5.live
     ) {
       m15Bars =
-        mt5Feed.m15;
+        mt5.m15;
 
       h1Bars =
-        mt5Feed.h1;
+        mt5.h1;
 
-      source =
-        "MT5";
+      feedMeta = {
+        source: "MT5",
+        status: "LIVE",
 
-      sourceDetail = {
-        status:
-          "LIVE",
+        feedAgeSeconds:
+          Number(
+            (
+              mt5.feedAgeMs /
+              1000
+            ).toFixed(1)
+          ),
+
+        m15AgeMinutes:
+          Number(
+            (
+              mt5.m15AgeMs /
+              60000
+            ).toFixed(1)
+          ),
+
+        h1AgeMinutes:
+          Number(
+            (
+              mt5.h1AgeMs /
+              60000
+            ).toFixed(1)
+          ),
 
         sourceSymbol:
-          mt5Feed.row?.source_symbol ||
+          mt5.row
+            ?.source_symbol ||
           symbol,
 
         accountLogin:
-          mt5Feed.row?.account_login ||
+          mt5.row
+            ?.account_login ||
           null,
 
         accountServer:
-          mt5Feed.row?.account_server ||
+          mt5.row
+            ?.account_server ||
           null,
 
         accountCompany:
-          mt5Feed.row?.account_company ||
+          mt5.row
+            ?.account_company ||
           null,
 
-        feedAgeSeconds:
-          Math.round(
-            mt5Feed.feedAgeMs /
-            1000
-          ),
+        terminalTime:
+          mt5.row
+            ?.terminal_time ||
+          null,
 
         lastM15:
-          new Date(
-            m15Bars[
-              m15Bars.length - 1
-            ].t
-          ).toISOString(),
+          m15Bars[
+            m15Bars.length - 1
+          ]?.t || null,
 
         lastH1:
-          new Date(
-            h1Bars[
-              h1Bars.length - 1
-            ].t
-          ).toISOString()
+          h1Bars[
+            h1Bars.length - 1
+          ]?.t || null
       };
     }
 
+    // ========================================================
+    // 2. MASSIVE FALLBACK
+    // ========================================================
+
     else {
-      // ======================================================
-      // 2) FALLBACK: MASSIVE SOLO SE FRESCO
-      // ======================================================
+      source =
+        "MASSIVE_FALLBACK";
 
       const apiKey =
-        process.env
-          .MASSIVE_API_KEY;
+        process.env.MASSIVE_API_KEY ||
+        process.env.POLYGON_API_KEY;
 
-      if (apiKey) {
+      if (!apiKey) {
+        const combined =
+          waitCombined(
+            "Feed MT5 non disponibile e MASSIVE_API_KEY assente: nessun segnale operativo.",
+            {
+              source:
+                "NO_LIVE_SOURCE",
+
+              mt5Reason:
+                mt5.reason ||
+                "MT5_NOT_LIVE"
+            }
+          );
+
+        const result = {
+          ok: true,
+          symbol,
+          generatedAt:
+            new Date()
+              .toISOString(),
+
+          engineVersion:
+            "V2.2-MT5-PRIMARY",
+
+          source:
+            "NO_LIVE_SOURCE",
+
+          combined
+        };
+
+        return Response.json(
+          result
+        );
+      }
+
+      try {
         const [
           massiveM15,
           massiveH1
@@ -2316,352 +2295,286 @@ export async function GET(
             )
           ]);
 
-        apiCallsUsed =
-          2;
-
-        const fresh =
+        const massiveFresh =
           validateBarFreshness(
             massiveM15,
             massiveH1
           );
 
         if (
-          fresh.live
+          !massiveFresh.live
         ) {
-          m15Bars =
-            massiveM15;
+          const combined =
+            waitCombined(
+              "MT5 non disponibile e fallback Massive non sufficientemente fresco: segnale bloccato.",
+              {
+                source:
+                  "MASSIVE_FALLBACK",
 
-          h1Bars =
-            massiveH1;
+                mt5Reason:
+                  mt5.reason ||
+                  "MT5_NOT_LIVE",
 
-          source =
-            "MASSIVE_FALLBACK";
-
-          sourceDetail = {
-            status:
-              "LIVE",
-
-            mt5UnavailableReason:
-              mt5Feed.reason ||
-              (
-                mt5Feed.ok
-                  ? "MT5_STALE"
-                  : "MT5_UNAVAILABLE"
-              ),
-
-            lastM15:
-              new Date(
-                fresh.lastM15
-              ).toISOString(),
-
-            lastH1:
-              new Date(
-                fresh.lastH1
-              ).toISOString(),
-
-            m15AgeMinutes:
-              Number(
-                (
-                  fresh.m15AgeMs /
-                  60000
-                ).toFixed(1)
-              ),
-
-            h1AgeMinutes:
-              Number(
-                (
-                  fresh.h1AgeMs /
-                  60000
-                ).toFixed(1)
-              )
-          };
-        }
-
-        else {
-          source =
-            "NO_LIVE_FEED";
-
-          sourceDetail = {
-            status:
-              "STALE",
-
-            mt5UnavailableReason:
-              mt5Feed.reason ||
-              (
-                mt5Feed.ok
-                  ? "MT5_STALE"
-                  : "MT5_UNAVAILABLE"
-              ),
-
-            mt5FeedAgeSeconds:
-              mt5Feed.ok &&
-              Number.isFinite(
-                mt5Feed.feedAgeMs
-              )
-                ? Math.round(
-                    mt5Feed.feedAgeMs /
-                    1000
-                  )
-                : null,
-
-            massiveLastM15:
-              fresh.lastM15
-                ? new Date(
-                    fresh.lastM15
-                  ).toISOString()
-                : null,
-
-            massiveLastH1:
-              fresh.lastH1
-                ? new Date(
-                    fresh.lastH1
-                  ).toISOString()
-                : null,
-
-            massiveM15AgeMinutes:
-              Number.isFinite(
-                fresh.m15AgeMs
-              )
-                ? Number(
+                massiveM15AgeMinutes:
+                  Number(
                     (
-                      fresh.m15AgeMs /
+                      massiveFresh.m15AgeMs /
+                      60000
+                    ).toFixed(1)
+                  ),
+
+                massiveH1AgeMinutes:
+                  Number(
+                    (
+                      massiveFresh.h1AgeMs /
                       60000
                     ).toFixed(1)
                   )
-                : null,
+              }
+            );
 
-            massiveH1AgeMinutes:
-              Number.isFinite(
-                fresh.h1AgeMs
-              )
-                ? Number(
-                    (
-                      fresh.h1AgeMs /
-                      60000
-                    ).toFixed(1)
-                  )
-                : null
+          const result = {
+            ok: true,
+            symbol,
+
+            generatedAt:
+              new Date()
+                .toISOString(),
+
+            engineVersion:
+              "V2.2-MT5-PRIMARY",
+
+            source:
+              "NO_LIVE_SOURCE",
+
+            combined
           };
+
+          return Response.json(
+            result
+          );
         }
-      }
 
-      else {
-        source =
-          "NO_LIVE_FEED";
+        m15Bars =
+          massiveM15;
 
-        sourceDetail = {
+        h1Bars =
+          massiveH1;
+
+        feedMeta = {
+          source:
+            "MASSIVE_FALLBACK",
+
           status:
-            "STALE",
+            "LIVE",
 
-          mt5UnavailableReason:
-            mt5Feed.reason ||
-            (
-              mt5Feed.ok
-                ? "MT5_STALE"
-                : "MT5_UNAVAILABLE"
+          mt5Reason:
+            mt5.reason ||
+            "MT5_NOT_LIVE",
+
+          m15AgeMinutes:
+            Number(
+              (
+                massiveFresh.m15AgeMs /
+                60000
+              ).toFixed(1)
             ),
 
-          massiveFallback:
-            "MASSIVE_API_KEY non configurata"
+          h1AgeMinutes:
+            Number(
+              (
+                massiveFresh.h1AgeMs /
+                60000
+              ).toFixed(1)
+            ),
+
+          lastM15:
+            massiveFresh.lastM15,
+
+          lastH1:
+            massiveFresh.lastH1
         };
+      }
+
+      catch (massiveError) {
+        const combined =
+          waitCombined(
+            "Nessuna fonte dati live disponibile: segnale operativo bloccato.",
+            {
+              source:
+                "NO_LIVE_SOURCE",
+
+              mt5Reason:
+                mt5.reason ||
+                "MT5_NOT_LIVE",
+
+              massiveError:
+                massiveError?.message ||
+                String(
+                  massiveError
+                )
+            }
+          );
+
+        const result = {
+          ok: true,
+          symbol,
+
+          generatedAt:
+            new Date()
+              .toISOString(),
+
+          engineVersion:
+            "V2.2-MT5-PRIMARY",
+
+          source:
+            "NO_LIVE_SOURCE",
+
+          combined
+        };
+
+        return Response.json(
+          result
+        );
       }
     }
 
     // ========================================================
-    // 3) BLOCCO SICUREZZA
+    // 3. ANALISI M15 / H1
     // ========================================================
 
+    const m15 =
+      analyzeCompactTimeframe(
+        m15Bars,
+        "M15"
+      );
+
+    const h1 =
+      analyzeCompactTimeframe(
+        h1Bars,
+        "H1"
+      );
+
+    const atrValue =
+      m15.atr14;
+
     if (
-      !m15Bars.length ||
-      !h1Bars.length
+      !Number.isFinite(
+        atrValue
+      ) ||
+      atrValue <= 0
     ) {
-      const data = {
-        ok:
-          true,
-
-        symbol,
-
-        generatedAt:
-          new Date()
-            .toISOString(),
-
-        engineVersion:
-          "V2.1-MT5-PRIMARY",
-
-        source,
-
-        sourceDetail,
-
-        apiCallsUsed,
-
-        note:
-          "Segnale bloccato: nessun feed M15/H1 sufficientemente fresco.",
-
-        combined:
-          waitCombined(
-            "⛔ Feed non live: Market Engine in WAIT. Nessuna direzione operativa.",
-            sourceDetail
-          ),
-
-        session:
-          null,
-
-        blocks3h:
-          [],
-
-        rolling:
-          null,
-
-        fib:
-          null,
-
-        timeframes:
-          null,
-
-        macro: {
-          status:
-            "NOT_CONFIGURED",
-
-          score:
-            0,
-
-          note:
-            "Modulo macro/news non collegato."
-        }
-      };
-
-      globalThis
-        .__propMarketCache
-        .set(
-          cacheKey,
-          {
-            ts:
-              Date.now(),
-
-            data
-          }
-        );
-
-      return Response.json(
-        data,
-        {
-          headers: {
-            "Cache-Control":
-              "no-store"
-          }
-        }
+      throw new Error(
+        "ATR M15 non valido."
       );
     }
 
     // ========================================================
-    // 4) ANALISI V2 SU DATI FRESCHI
+    // 4. SESSIONE GIORNALIERA
     // ========================================================
-
-    const m15Atr =
-      lastFinite(
-        atr(
-          m15Bars,
-          14
-        )
-      );
 
     const session =
       currentSessionStats(
         m15Bars,
-        m15Atr
+        atrValue
       );
 
-    const blocks3h =
+    // ========================================================
+    // 5. BLOCCHI 3H
+    // ========================================================
+
+    const blocks =
       buildThreeHourBlocks(
         m15Bars,
-        m15Atr
+        atrValue
       );
+
+    const currentDayBlocks =
+      blocks.filter(
+        b =>
+          b.dateKey ===
+          session.dateKey
+      );
+
+    // ========================================================
+    // 6. ROLLING MOMENTUM
+    // ========================================================
 
     const rolling = {
       h1:
         rollingMoveFromM15(
           m15Bars,
           4,
-          m15Atr
+          atrValue
         ),
 
       h3:
         rollingMoveFromM15(
           m15Bars,
           12,
-          m15Atr
+          atrValue
         ),
 
       h6:
         rollingMoveFromM15(
           m15Bars,
           24,
-          m15Atr
+          atrValue
         ),
 
       h12:
         rollingMoveFromM15(
           m15Bars,
           48,
-          m15Atr
-        )
-    };
-
-    const compact = {
-      M15:
-        analyzeCompactTimeframe(
-          m15Bars,
-          "M15"
+          atrValue
         ),
 
-      H1:
-        analyzeCompactTimeframe(
-          h1Bars,
-          "H1"
+      h24:
+        rollingMoveFromM15(
+          m15Bars,
+          96,
+          atrValue
         )
     };
+
+    // ========================================================
+    // 7. FIBONACCI
+    // ========================================================
 
     const fib =
       fibonacciContext(
         session,
         session.current,
-        m15Atr
+        atrValue
       );
+
+    // ========================================================
+    // 8. FORECAST V2.2
+    // ========================================================
 
     const forecast =
       buildForecast({
         session,
-
-        blocks:
-          blocks3h,
-
+        blocks,
         rolling,
-
-        m15:
-          compact.M15,
-
-        h1:
-          compact.H1,
-
+        m15,
+        h1,
         fib
       });
 
-    const currentDayBlocks =
-      blocks3h.filter(
-        b =>
-          b.dateKey ===
-          session.dateKey
-      );
+    // ========================================================
+    // 9. COMBINED
+    // ========================================================
 
     const combined = {
       bias:
         forecast.direction ===
         "BUY"
-          ? "BUY"
+          ? "BULLISH"
 
           : forecast.direction ===
             "SELL"
-            ? "SELL"
+            ? "BEARISH"
 
             : "NEUTRAL",
 
@@ -2686,23 +2599,28 @@ export async function GET(
       horizon:
         "0-3H",
 
+      reversalBlocked:
+        forecast.reversalBlocked,
+
+      reversalConfirmed:
+        forecast.reversalConfirmed,
+
       agreement:
         forecast.agreement,
 
       reasons:
         forecast.reasons,
 
-      feedGuard: {
-        allowed:
-          true,
-
-        source
-      }
+      feedGuard:
+        feedMeta
     };
 
-    const data = {
-      ok:
-        true,
+    // ========================================================
+    // 10. RISPOSTA
+    // ========================================================
+
+    const result = {
+      ok: true,
 
       symbol,
 
@@ -2710,92 +2628,356 @@ export async function GET(
         new Date()
           .toISOString(),
 
+      engineVersion:
+        "V2.2-MT5-PRIMARY",
+
       source,
 
-      sourceDetail,
+      feed:
+        feedMeta,
 
-      apiCallsUsed,
+      market: {
+        currentPrice:
+          session.current,
 
-      engineVersion:
-        "V2.1-MT5-PRIMARY",
+        sessionOpen:
+          session.open,
 
-      timezone:
-        ENGINE_TZ,
+        sessionHigh:
+          session.high,
 
-      note:
-        source === "MT5"
-          ? "Forecast calcolato sulle candele live provenienti direttamente da MT5."
-          : "MT5 non disponibile: forecast calcolato sul fallback Massive verificato fresco.",
+        sessionLow:
+          session.low,
+
+        moveFromOpen:
+          Number(
+            session.move.toFixed(4)
+          ),
+
+        moveFromOpenPct:
+          Number(
+            session.movePct.toFixed(4)
+          ),
+
+        atrM15:
+          Number(
+            atrValue.toFixed(4)
+          )
+      },
+
+      session: {
+        dateKey:
+          session.dateKey,
+
+        regime:
+          session.regime,
+
+        score:
+          session.score,
+
+        structure:
+          session.structure,
+
+        positionInRange:
+          Number(
+            session.positionInRange
+              .toFixed(4)
+          ),
+
+        moveAtr:
+          Number(
+            session.moveAtr
+              .toFixed(4)
+          )
+      },
+
+      rolling: {
+        h1:
+          {
+            dollars:
+              Number(
+                rolling.h1
+                  .dollars
+                  .toFixed(4)
+              ),
+
+            pct:
+              Number(
+                rolling.h1
+                  .pct
+                  .toFixed(4)
+              ),
+
+            atr:
+              Number(
+                rolling.h1
+                  .atr
+                  .toFixed(4)
+              ),
+
+            direction:
+              rolling.h1
+                .direction
+          },
+
+        h3:
+          {
+            dollars:
+              Number(
+                rolling.h3
+                  .dollars
+                  .toFixed(4)
+              ),
+
+            pct:
+              Number(
+                rolling.h3
+                  .pct
+                  .toFixed(4)
+              ),
+
+            atr:
+              Number(
+                rolling.h3
+                  .atr
+                  .toFixed(4)
+              ),
+
+            direction:
+              rolling.h3
+                .direction
+          },
+
+        h6:
+          {
+            dollars:
+              Number(
+                rolling.h6
+                  .dollars
+                  .toFixed(4)
+              ),
+
+            pct:
+              Number(
+                rolling.h6
+                  .pct
+                  .toFixed(4)
+              ),
+
+            atr:
+              Number(
+                rolling.h6
+                  .atr
+                  .toFixed(4)
+              ),
+
+            direction:
+              rolling.h6
+                .direction
+          },
+
+        h12:
+          {
+            dollars:
+              Number(
+                rolling.h12
+                  .dollars
+                  .toFixed(4)
+              ),
+
+            pct:
+              Number(
+                rolling.h12
+                  .pct
+                  .toFixed(4)
+              ),
+
+            atr:
+              Number(
+                rolling.h12
+                  .atr
+                  .toFixed(4)
+              ),
+
+            direction:
+              rolling.h12
+                .direction
+          },
+
+        h24:
+          {
+            dollars:
+              Number(
+                rolling.h24
+                  .dollars
+                  .toFixed(4)
+              ),
+
+            pct:
+              Number(
+                rolling.h24
+                  .pct
+                  .toFixed(4)
+              ),
+
+            atr:
+              Number(
+                rolling.h24
+                  .atr
+                  .toFixed(4)
+              ),
+
+            direction:
+              rolling.h24
+                .direction
+          }
+      },
+
+      timeframes: {
+        m15,
+        h1
+      },
+
+      blocks3h:
+        currentDayBlocks.map(
+          b => ({
+            label:
+              b.label,
+
+            open:
+              b.open,
+
+            high:
+              b.high,
+
+            low:
+              b.low,
+
+            close:
+              b.close,
+
+            move:
+              Number(
+                b.move.toFixed(4)
+              ),
+
+            movePct:
+              Number(
+                b.movePct
+                  .toFixed(4)
+              ),
+
+            atrMove:
+              Number(
+                b.atrMove
+                  .toFixed(4)
+              ),
+
+            direction:
+              b.direction,
+
+            complete:
+              b.complete,
+
+            bars:
+              b.bars
+          })
+        ),
+
+      fibonacci: {
+        impulse:
+          fib.impulse,
+
+        levels:
+          fib.levels,
+
+        nearest:
+          fib.nearest,
+
+        nearFib:
+          fib.nearFib
+      },
+
+      forecast: {
+        horizon:
+          "0-3H",
+
+        direction:
+          forecast.direction,
+
+        propDirection:
+          forecast.propDirection,
+
+        score:
+          forecast.score,
+
+        confidence:
+          forecast.confidence,
+
+        signalStrength:
+          forecast.signalStrength,
+
+        condition:
+          forecast.condition,
+
+        reversalBlocked:
+          forecast.reversalBlocked,
+
+        reversalConfirmed:
+          forecast.reversalConfirmed,
+
+        agreement:
+          forecast.agreement,
+
+        reasons:
+          forecast.reasons
+      },
 
       combined,
 
-      session,
-
-      blocks3h:
-        currentDayBlocks,
-
-      rolling,
-
-      fib,
-
-      timeframes:
-        compact,
-
-      macro: {
-        status:
-          "NOT_CONFIGURED",
-
-        score:
-          0,
-
-        note:
-          "Modulo macro/news non collegato: non influenza ancora il forecast."
-      }
+      cache: false
     };
 
-    globalThis
-      .__propMarketCache
-      .set(
-        cacheKey,
-        {
-          ts:
-            Date.now(),
+    // ========================================================
+    // 11. CACHE
+    // ========================================================
 
-          data
-        }
-      );
-
-    return Response.json(
-      data,
+    globalThis.__propMarketCache.set(
+      cacheKey,
       {
-        headers: {
-          "Cache-Control":
-            "no-store"
-        }
+        ts:
+          Date.now(),
+
+        data:
+          result
       }
     );
 
-  } catch (e) {
+    return Response.json(
+      result
+    );
+  }
+
+  catch (error) {
     console.error(
-      "Market analysis V2.1 error:",
-      e
+      "Market Engine V2.2 error:",
+      error
     );
 
     return Response.json(
       {
+        ok: false,
+
+        engineVersion:
+          "V2.2-MT5-PRIMARY",
+
         error:
-          e?.message ||
-          "Errore Market Engine",
-
-        symbol,
-
-        generatedAt:
-          new Date()
-            .toISOString()
+          error?.message ||
+          String(error)
       },
+
       {
-        status:
-          502
+        status: 500
       }
     );
   }
