@@ -3,7 +3,10 @@ export const revalidate = 0;
 
 import { createClient } from "@supabase/supabase-js";
 
-const BROKER_ACCOUNT = "62137292";
+
+// ============================================================
+// SUPABASE ADMIN
+// ============================================================
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -27,21 +30,143 @@ function getSupabaseAdmin() {
 
 
 // ============================================================
+// SICUREZZA BRIDGE
+//
+// MT5 dovrà inviare:
+// x-prop-bridge-key: <segreto>
+//
+// Il segreto resterà:
+// - in Vercel come Environment Variable
+// - nella configurazione locale dell'EA
+//
+// NON nel ProfitTracker client.
+// ============================================================
+
+function checkBridgeAuth(request) {
+  const expected = String(
+    process.env.PROP_BRIDGE_SECRET || ""
+  );
+
+  if (!expected) {
+    return {
+      ok: false,
+      status: 500,
+      error: "bridge_secret_not_configured"
+    };
+  }
+
+  const received = String(
+    request.headers.get("x-prop-bridge-key") || ""
+  );
+
+  if (!received || received !== expected) {
+    return {
+      ok: false,
+      status: 401,
+      error: "bridge_unauthorized"
+    };
+  }
+
+  return { ok: true };
+}
+
+
+// ============================================================
+// TROVA ACCOUNT BROKER CENSITO
+//
+// Identificazione forte:
+// LOGIN MT5 + SERVER MT5
+//
+// Deve inoltre essere ATTIVO.
+// ============================================================
+
+async function findBrokerAccount(
+  supabase,
+  account,
+  server
+) {
+  const { data, error } = await supabase
+    .from("prop_broker_accounts")
+    .select(`
+      id,
+      user_id,
+      alias,
+      broker,
+      mt5_login,
+      mt5_server,
+      account_type,
+      active
+    `)
+    .eq("mt5_login", account)
+    .eq("mt5_server", server)
+    .eq("active", true)
+    .limit(2);
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data || data.length === 0) {
+    return {
+      ok: false,
+      error: "broker_account_not_registered"
+    };
+  }
+
+  if (data.length > 1) {
+    return {
+      ok: false,
+      error: "broker_account_ambiguous"
+    };
+  }
+
+  return {
+    ok: true,
+    account: data[0]
+  };
+}
+
+
+// ============================================================
 // GET
 //
-// Restituisce il primo comando PENDING destinato
-// all'account Broker indicato.
+// Cerca il primo comando PENDING.
 //
 // MT5:
-// GET /api/prop-bridge?account=62137292
+// /api/prop-bridge
+// ?account=22538464
+// &server=UltimaMarkets-Live%201
 // ============================================================
 
 export async function GET(request) {
   try {
-    const { searchParams } = new URL(request.url);
+
+    // --------------------------------------------------------
+    // Autenticazione Bridge
+    // --------------------------------------------------------
+
+    const auth = checkBridgeAuth(request);
+
+    if (!auth.ok) {
+      return Response.json(
+        {
+          ok: false,
+          error: auth.error
+        },
+        { status: auth.status }
+      );
+    }
+
+
+    const { searchParams } =
+      new URL(request.url);
 
     const account = String(
       searchParams.get("account") || ""
+    ).trim();
+
+    const server = String(
+      searchParams.get("server") || ""
     ).trim();
 
 
@@ -56,19 +181,50 @@ export async function GET(request) {
     }
 
 
-    if (account !== BROKER_ACCOUNT) {
+    if (!server) {
       return Response.json(
         {
           ok: false,
-          error: "broker_account_not_allowed"
+          error: "mt5_server_missing"
         },
-        { status: 403 }
+        { status: 400 }
       );
     }
 
 
     const supabase = getSupabaseAdmin();
 
+
+    // --------------------------------------------------------
+    // Verifica account censito
+    // --------------------------------------------------------
+
+    const brokerCheck =
+      await findBrokerAccount(
+        supabase,
+        account,
+        server
+      );
+
+
+    if (!brokerCheck.ok) {
+      return Response.json(
+        {
+          ok: false,
+          error: brokerCheck.error
+        },
+        { status: 403 }
+      );
+    }
+
+
+    const broker =
+      brokerCheck.account;
+
+
+    // --------------------------------------------------------
+    // Cerca SOLO comandi del proprietario dell'account
+    // --------------------------------------------------------
 
     const { data, error } = await supabase
       .from("prop_bridge_commands")
@@ -86,9 +242,12 @@ export async function GET(request) {
         tp,
         status
       `)
+      .eq("user_id", broker.user_id)
       .eq("broker_account", account)
       .eq("status", "pending")
-      .order("created_at", { ascending: true })
+      .order("created_at", {
+        ascending: true
+      })
       .limit(1)
       .maybeSingle();
 
@@ -121,6 +280,14 @@ export async function GET(request) {
     return Response.json({
       ok: true,
 
+      broker: {
+        id: broker.id,
+        alias: broker.alias,
+        broker: broker.broker,
+        account: broker.mt5_login,
+        server: broker.mt5_server
+      },
+
       command: {
         id: data.id,
         challenge_id: data.challenge_id,
@@ -151,6 +318,7 @@ export async function GET(request) {
     });
 
   } catch (error) {
+
     console.error(
       "Prop Bridge GET fatal error:",
       error
@@ -172,28 +340,41 @@ export async function GET(request) {
 // ============================================================
 // POST
 //
-// Supporta:
-//
-// action = "claim"
-// pending -> processing
-//
-// action = "result"
-// processing -> executed
-// oppure
-// processing -> failed
-//
-// IMPORTANTE:
-// nessuna di queste funzioni apre trade.
+// ACTION:
+// claim
+// result
+// heartbeat
 // ============================================================
 
 export async function POST(request) {
   try {
-    const body = await request.json();
+
+    // --------------------------------------------------------
+    // Autenticazione Bridge
+    // --------------------------------------------------------
+
+    const auth = checkBridgeAuth(request);
+
+    if (!auth.ok) {
+      return Response.json(
+        {
+          ok: false,
+          error: auth.error
+        },
+        { status: auth.status }
+      );
+    }
+
+
+    const body =
+      await request.json();
 
 
     const action = String(
       body?.action || ""
-    ).trim();
+    )
+      .trim()
+      .toLowerCase();
 
 
     const account = String(
@@ -201,14 +382,14 @@ export async function POST(request) {
     ).trim();
 
 
-    const commandId = String(
-      body?.command_id || ""
+    const server = String(
+      body?.server || ""
     ).trim();
 
 
-    // ========================================================
-    // CONTROLLI COMUNI
-    // ========================================================
+    // --------------------------------------------------------
+    // Controlli comuni
+    // --------------------------------------------------------
 
     if (!action) {
       return Response.json(
@@ -232,15 +413,262 @@ export async function POST(request) {
     }
 
 
-    if (account !== BROKER_ACCOUNT) {
+    if (!server) {
       return Response.json(
         {
           ok: false,
-          error: "broker_account_not_allowed"
+          error: "mt5_server_missing"
+        },
+        { status: 400 }
+      );
+    }
+
+
+    const supabase =
+      getSupabaseAdmin();
+
+
+    // --------------------------------------------------------
+    // Account deve essere censito e ATTIVO
+    // --------------------------------------------------------
+
+    const brokerCheck =
+      await findBrokerAccount(
+        supabase,
+        account,
+        server
+      );
+
+
+    if (!brokerCheck.ok) {
+      return Response.json(
+        {
+          ok: false,
+          error: brokerCheck.error
         },
         { status: 403 }
       );
     }
+
+
+    const broker =
+      brokerCheck.account;
+
+
+    const now =
+      new Date().toISOString();
+
+
+    // ========================================================
+    // HEARTBEAT
+    //
+    // MT5 comunica:
+    // saldo
+    // equity
+    // margine
+    // free margin
+    // margin level
+    // connessione
+    // AlgoTrading
+    // ========================================================
+
+    if (action === "heartbeat") {
+
+      const balance =
+        Number(body?.balance);
+
+      const equity =
+        Number(body?.equity);
+
+      const margin =
+        Number(body?.margin);
+
+      const freeMargin =
+        Number(body?.free_margin);
+
+
+      const marginLevel =
+        body?.margin_level === null ||
+        body?.margin_level === undefined ||
+        body?.margin_level === ""
+          ? null
+          : Number(body.margin_level);
+
+
+      if (
+        !Number.isFinite(balance) ||
+        !Number.isFinite(equity) ||
+        !Number.isFinite(margin) ||
+        !Number.isFinite(freeMargin)
+      ) {
+        return Response.json(
+          {
+            ok: false,
+            error: "invalid_account_values"
+          },
+          { status: 400 }
+        );
+      }
+
+
+      if (
+        marginLevel !== null &&
+        !Number.isFinite(marginLevel)
+      ) {
+        return Response.json(
+          {
+            ok: false,
+            error: "invalid_margin_level"
+          },
+          { status: 400 }
+        );
+      }
+
+
+      const connected =
+        body?.connected === true;
+
+      const algoTrading =
+        body?.algo_trading === true;
+
+
+      const liveRow = {
+        broker_account_id:
+          broker.id,
+
+        user_id:
+          broker.user_id,
+
+        mt5_login:
+          broker.mt5_login,
+
+        mt5_server:
+          broker.mt5_server,
+
+        balance,
+        equity,
+
+        margin,
+
+        free_margin:
+          freeMargin,
+
+        margin_level:
+          marginLevel,
+
+        connected,
+
+        algo_trading:
+          algoTrading,
+
+        last_seen_at:
+          now,
+
+        updated_at:
+          now
+      };
+
+
+      const {
+        data,
+        error
+      } = await supabase
+        .from("prop_broker_live_state")
+        .upsert(
+          liveRow,
+          {
+            onConflict:
+              "broker_account_id"
+          }
+        )
+        .select(`
+          broker_account_id,
+          mt5_login,
+          mt5_server,
+          balance,
+          equity,
+          margin,
+          free_margin,
+          margin_level,
+          connected,
+          algo_trading,
+          last_seen_at
+        `)
+        .single();
+
+
+      if (error) {
+        console.error(
+          "Heartbeat Supabase error:",
+          error
+        );
+
+        return Response.json(
+          {
+            ok: false,
+            error: "database_error",
+            message: error.message
+          },
+          { status: 500 }
+        );
+      }
+
+
+      return Response.json({
+        ok: true,
+        heartbeat: true,
+
+        broker: {
+          id: broker.id,
+          alias: broker.alias,
+          broker: broker.broker
+        },
+
+        state: {
+          account:
+            data.mt5_login,
+
+          server:
+            data.mt5_server,
+
+          balance:
+            Number(data.balance),
+
+          equity:
+            Number(data.equity),
+
+          margin:
+            Number(data.margin),
+
+          free_margin:
+            Number(data.free_margin),
+
+          margin_level:
+            data.margin_level === null
+              ? null
+              : Number(data.margin_level),
+
+          connected:
+            data.connected,
+
+          algo_trading:
+            data.algo_trading,
+
+          last_seen_at:
+            data.last_seen_at
+        }
+      });
+    }
+
+
+    // ========================================================
+    // CLAIM / RESULT
+    // Da qui serve command_id.
+    // ========================================================
+
+    const commandId = String(
+      body?.command_id || ""
+    ).trim();
 
 
     if (!commandId) {
@@ -254,30 +682,39 @@ export async function POST(request) {
     }
 
 
-    const supabase = getSupabaseAdmin();
-
-    const now = new Date().toISOString();
-
-
     // ========================================================
-    // ACTION: CLAIM
+    // CLAIM
     //
     // pending -> processing
-    //
-    // L'UPDATE riesce SOLO se il comando è ancora pending.
     // ========================================================
 
     if (action === "claim") {
 
-      const { data, error } = await supabase
+      const {
+        data,
+        error
+      } = await supabase
         .from("prop_bridge_commands")
         .update({
           status: "processing",
           updated_at: now
         })
-        .eq("id", commandId)
-        .eq("broker_account", account)
-        .eq("status", "pending")
+        .eq(
+          "user_id",
+          broker.user_id
+        )
+        .eq(
+          "id",
+          commandId
+        )
+        .eq(
+          "broker_account",
+          account
+        )
+        .eq(
+          "status",
+          "pending"
+        )
         .select(`
           id,
           challenge_id,
@@ -298,7 +735,7 @@ export async function POST(request) {
 
       if (error) {
         console.error(
-          "Prop Bridge CLAIM Supabase error:",
+          "CLAIM Supabase error:",
           error
         );
 
@@ -318,7 +755,8 @@ export async function POST(request) {
           {
             ok: false,
             claimed: false,
-            error: "command_not_pending"
+            error:
+              "command_not_pending"
           },
           { status: 409 }
         );
@@ -331,17 +769,26 @@ export async function POST(request) {
 
         command: {
           id: data.id,
-          challenge_id: data.challenge_id,
-          prop_name: data.prop_name,
-          broker_account: data.broker_account,
-          symbol: data.symbol,
-          side: data.side,
-          volume: Number(data.volume),
+          challenge_id:
+            data.challenge_id,
+          prop_name:
+            data.prop_name,
+          broker_account:
+            data.broker_account,
+          symbol:
+            data.symbol,
+          side:
+            data.side,
+
+          volume:
+            Number(data.volume),
 
           entry_price:
             data.entry_price === null
               ? null
-              : Number(data.entry_price),
+              : Number(
+                  data.entry_price
+                ),
 
           sl:
             data.sl === null
@@ -353,18 +800,21 @@ export async function POST(request) {
               ? null
               : Number(data.tp),
 
-          status: data.status,
-          created_at: data.created_at,
-          updated_at: data.updated_at
+          status:
+            data.status,
+
+          created_at:
+            data.created_at,
+
+          updated_at:
+            data.updated_at
         }
       });
     }
 
 
     // ========================================================
-    // ACTION: RESULT
-    //
-    // Riceve il risultato dell'esecuzione MT5.
+    // RESULT
     //
     // processing -> executed
     // processing -> failed
@@ -386,23 +836,22 @@ export async function POST(request) {
         return Response.json(
           {
             ok: false,
-            error: "invalid_result_status"
+            error:
+              "invalid_result_status"
           },
           { status: 400 }
         );
       }
 
 
-      // ------------------------------------------------------
-      // DATI RISULTATO
-      // ------------------------------------------------------
-
       const mt5Order =
         body?.mt5_order === null ||
         body?.mt5_order === undefined ||
         body?.mt5_order === ""
           ? null
-          : String(body.mt5_order);
+          : String(
+              body.mt5_order
+            );
 
 
       const mt5Deal =
@@ -410,7 +859,9 @@ export async function POST(request) {
         body?.mt5_deal === undefined ||
         body?.mt5_deal === ""
           ? null
-          : String(body.mt5_deal);
+          : String(
+              body.mt5_deal
+            );
 
 
       const executionPrice =
@@ -418,7 +869,9 @@ export async function POST(request) {
         body?.execution_price === undefined ||
         body?.execution_price === ""
           ? null
-          : Number(body.execution_price);
+          : Number(
+              body.execution_price
+            );
 
 
       const errorCode =
@@ -426,7 +879,9 @@ export async function POST(request) {
         body?.error_code === undefined ||
         body?.error_code === ""
           ? null
-          : String(body.error_code);
+          : String(
+              body.error_code
+            );
 
 
       const errorMessage =
@@ -434,39 +889,37 @@ export async function POST(request) {
         body?.error_message === undefined ||
         body?.error_message === ""
           ? null
-          : String(body.error_message);
+          : String(
+              body.error_message
+            );
 
 
-      // ------------------------------------------------------
-      // VALIDAZIONE EXECUTED
-      // ------------------------------------------------------
-
-      if (resultStatus === "executed") {
-
-        if (
-          executionPrice !== null &&
-          !Number.isFinite(executionPrice)
-        ) {
-          return Response.json(
-            {
-              ok: false,
-              error: "invalid_execution_price"
-            },
-            { status: 400 }
-          );
-        }
+      if (
+        executionPrice !== null &&
+        !Number.isFinite(
+          executionPrice
+        )
+      ) {
+        return Response.json(
+          {
+            ok: false,
+            error:
+              "invalid_execution_price"
+          },
+          { status: 400 }
+        );
       }
 
 
-      // ------------------------------------------------------
-      // COSTRUZIONE UPDATE
-      // ------------------------------------------------------
-
       const updateData = {
-        status: resultStatus,
+        status:
+          resultStatus,
 
-        mt5_order: mt5Order,
-        mt5_deal: mt5Deal,
+        mt5_order:
+          mt5Order,
+
+        mt5_deal:
+          mt5Deal,
 
         execution_price:
           executionPrice,
@@ -481,30 +934,36 @@ export async function POST(request) {
             ? errorMessage
             : null,
 
-        processed_at: now,
-        updated_at: now
+        processed_at:
+          now,
+
+        updated_at:
+          now
       };
 
 
-      // ------------------------------------------------------
-      // UPDATE PROTETTO
-      //
-      // Viene aggiornato SOLO un comando:
-      //
-      // - con quell'ID
-      // - destinato a quell'account
-      // - attualmente PROCESSING
-      //
-      // Quindi un risultato ripetuto NON può riscrivere
-      // un comando già EXECUTED o FAILED.
-      // ------------------------------------------------------
-
-      const { data, error } = await supabase
+      const {
+        data,
+        error
+      } = await supabase
         .from("prop_bridge_commands")
         .update(updateData)
-        .eq("id", commandId)
-        .eq("broker_account", account)
-        .eq("status", "processing")
+        .eq(
+          "user_id",
+          broker.user_id
+        )
+        .eq(
+          "id",
+          commandId
+        )
+        .eq(
+          "broker_account",
+          account
+        )
+        .eq(
+          "status",
+          "processing"
+        )
         .select(`
           id,
           challenge_id,
@@ -526,7 +985,7 @@ export async function POST(request) {
 
       if (error) {
         console.error(
-          "Prop Bridge RESULT Supabase error:",
+          "RESULT Supabase error:",
           error
         );
 
@@ -541,55 +1000,65 @@ export async function POST(request) {
       }
 
 
-      // ------------------------------------------------------
-      // Se non abbiamo aggiornato nulla:
-      // il comando non era più PROCESSING.
-      // ------------------------------------------------------
-
       if (!data) {
         return Response.json(
           {
             ok: false,
             saved: false,
-            error: "command_not_processing"
+            error:
+              "command_not_processing"
           },
           { status: 409 }
         );
       }
 
 
-      // ------------------------------------------------------
-      // RISULTATO REGISTRATO
-      // ------------------------------------------------------
-
       return Response.json({
         ok: true,
         saved: true,
 
         command: {
-          id: data.id,
-          challenge_id: data.challenge_id,
-          broker_account: data.broker_account,
-          symbol: data.symbol,
-          side: data.side,
-          volume: Number(data.volume),
+          id:
+            data.id,
 
-          status: data.status,
+          challenge_id:
+            data.challenge_id,
+
+          broker_account:
+            data.broker_account,
+
+          symbol:
+            data.symbol,
+
+          side:
+            data.side,
+
+          volume:
+            Number(data.volume),
+
+          status:
+            data.status,
 
           mt5_order:
             data.mt5_order === null
               ? null
-              : String(data.mt5_order),
+              : String(
+                  data.mt5_order
+                ),
 
           mt5_deal:
             data.mt5_deal === null
               ? null
-              : String(data.mt5_deal),
+              : String(
+                  data.mt5_deal
+                ),
 
           execution_price:
             data.execution_price === null
               ? null
-              : Number(data.execution_price),
+              : Number(
+                  data.execution_price
+                ),
 
           error_code:
             data.error_code,
@@ -614,12 +1083,14 @@ export async function POST(request) {
     return Response.json(
       {
         ok: false,
-        error: "action_not_supported"
+        error:
+          "action_not_supported"
       },
       { status: 400 }
     );
 
   } catch (error) {
+
     console.error(
       "Prop Bridge POST fatal error:",
       error
@@ -630,7 +1101,8 @@ export async function POST(request) {
         ok: false,
         error: "internal_error",
         message:
-          error?.message || String(error)
+          error?.message ||
+          String(error)
       },
       { status: 500 }
     );
