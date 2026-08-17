@@ -1,4 +1,4 @@
-// Market Engine V2.2 — trend-day guard + MT5 PRIMARY + Massive fallback
+// Market Engine V2.3 — MT5 PRICE + FRED MACRO + TickAtlas EVENT RISK
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -898,7 +898,7 @@ function buildThreeHourBlocks(
         ...x,
 
         label:
-          `${String(x.startHour).padStart(2, "0")}–${String(x.endHour).padStart(2, "0")}`,
+                  `${String(x.startHour).padStart(2, "0")}–${String(x.endHour).padStart(2, "0")}`,
 
         move,
         movePct,
@@ -1511,6 +1511,696 @@ function fibonacciContext(
   };
 }
 
+/*
+============================================================
+V2.3 — MACRO CONNECTOR
+Legge le due route già operative:
+
+/api/market-fred
+/api/market-calendar
+
+Non chiama direttamente FRED/TickAtlas qui.
+Così teniamo i moduli separati e facili da testare.
+============================================================
+*/
+
+async function fetchJsonSafe(
+  url,
+  timeoutMs = 8000
+) {
+  const controller =
+    new AbortController();
+
+  const timer =
+    setTimeout(
+      () =>
+        controller.abort(),
+      timeoutMs
+    );
+
+  try {
+    const response =
+      await fetch(
+        url,
+        {
+          cache:
+            "no-store",
+
+          signal:
+            controller.signal,
+
+          headers: {
+            Accept:
+              "application/json"
+          }
+        }
+      );
+
+    const text =
+      await response.text();
+
+    let data =
+      null;
+
+    try {
+      data =
+        text
+          ? JSON.parse(text)
+          : null;
+    }
+
+    catch {
+      return {
+        ok: false,
+
+        error:
+          "Risposta non JSON",
+
+        status:
+          response.status
+      };
+    }
+
+    if (
+      !response.ok ||
+      data?.ok === false
+    ) {
+      return {
+        ok: false,
+
+        error:
+          data?.error ||
+          `HTTP ${response.status}`,
+
+        status:
+          response.status,
+
+        data
+      };
+    }
+
+    return {
+      ok: true,
+      data
+    };
+  }
+
+  catch (error) {
+    return {
+      ok: false,
+
+      error:
+        error?.name ===
+        "AbortError"
+          ? "TIMEOUT"
+          : error?.message ||
+            String(error)
+    };
+  }
+
+  finally {
+    clearTimeout(
+      timer
+    );
+  }
+}
+
+async function fetchMacroContext(
+  requestUrl
+) {
+  const origin =
+    new URL(
+      requestUrl
+    ).origin;
+
+  const fredUrl =
+    `${origin}/api/market-fred`;
+
+  /*
+    Per il motore operativo guardiamo
+    gli eventi USD HIGH impact.
+
+    Il calendario medium resta disponibile
+    nella route separata per analisi/manuale.
+  */
+
+  const calendarUrl =
+    `${origin}/api/market-calendar` +
+    `?hours=168` +
+    `&impact=high` +
+    `&currencies=USD`;
+
+  const [
+    fredResult,
+    calendarResult
+  ] =
+    await Promise.all([
+      fetchJsonSafe(
+        fredUrl
+      ),
+
+      fetchJsonSafe(
+        calendarUrl
+      )
+    ]);
+
+  const fred =
+    fredResult.ok
+      ? fredResult.data
+      : null;
+
+  const calendar =
+    calendarResult.ok
+      ? calendarResult.data
+      : null;
+
+  return {
+    fred,
+    calendar,
+
+    health: {
+      fred:
+        fredResult.ok
+          ? "OK"
+          : `ERROR: ${
+              fredResult.error
+            }`,
+
+      calendar:
+        calendarResult.ok
+          ? "OK"
+          : `ERROR: ${
+              calendarResult.error
+            }`
+    }
+  };
+}
+
+function signalStrengthFromConfidence(
+  direction,
+  confidence
+) {
+  if (
+    direction === "WAIT"
+  ) {
+    return "INSUFFICIENT";
+  }
+
+  if (
+    confidence >= 75
+  ) {
+    return "STRONG";
+  }
+
+  if (
+    confidence >= 60
+  ) {
+    return "GOOD";
+  }
+
+  if (
+    confidence >= 48
+  ) {
+    return "WEAK";
+  }
+
+  return "INSUFFICIENT";
+}
+
+/*
+============================================================
+MACRO OVERLAY
+
+PRICE ACTION resta dominante.
+
+FRED:
+- background lento
+- influenza poco lo score
+
+TickAtlas:
+- score surprise degli eventi già pubblicati
+- eventRisk protegge dalle news imminenti
+
+Regole rischio:
+
+VERY_HIGH:
+  blocca nuovi segnali -> WAIT
+
+HIGH:
+  non blocca completamente,
+  ma limita confidence <= 49
+
+MEDIUM:
+  -10 confidence
+
+LOW:
+  nessuna penalizzazione
+============================================================
+*/
+
+function applyMacroOverlay(
+  priceForecast,
+  macroContext
+) {
+  const fredScore =
+    Number(
+      macroContext
+        ?.fred
+        ?.macro
+        ?.score
+    );
+
+  const calendarScore =
+    Number(
+      macroContext
+        ?.calendar
+        ?.calendar
+        ?.score
+    );
+
+  const eventRisk =
+    macroContext
+      ?.calendar
+      ?.calendar
+      ?.eventRisk ||
+    "UNKNOWN";
+
+  const nextEvent =
+    macroContext
+      ?.calendar
+      ?.calendar
+      ?.nextHighImpact ||
+    null;
+
+  const safeFredScore =
+    Number.isFinite(
+      fredScore
+    )
+      ? fredScore
+      : 0;
+
+  const safeCalendarScore =
+    Number.isFinite(
+      calendarScore
+    )
+      ? calendarScore
+      : 0;
+
+  /*
+    FRED pesa meno perché è strutturale.
+    TickAtlas è più vicino al timing intraday.
+  */
+
+  const compositeMacro =
+    clamp(
+      safeFredScore *
+        0.70 +
+      safeCalendarScore *
+        1.00,
+
+      -65,
+      65
+    );
+
+  /*
+    La macro può spostare il price score
+    di MASSIMO 10 punti.
+
+    Quindi non può comandare da sola
+    la direzione del Market Engine.
+  */
+
+  const macroAdjustment =
+    clamp(
+      compositeMacro *
+        0.15,
+
+      -10,
+      10
+    );
+
+  const baseScore =
+    Number(
+      priceForecast.score
+    ) || 0;
+
+  let adjustedScore =
+    clamp(
+      baseScore +
+      macroAdjustment,
+
+      -100,
+      100
+    );
+
+  let direction =
+    adjustedScore >= 22
+      ? "BUY"
+
+      : adjustedScore <= -22
+        ? "SELL"
+
+        : "WAIT";
+
+  /*
+    Sicurezza importante:
+
+    la sola macro NON può capovolgere
+    direttamente BUY -> SELL
+    o SELL -> BUY.
+
+    Se l'overlay attraversa completamente
+    lo zero fino al lato opposto,
+    trasformiamo il segnale in WAIT.
+  */
+
+  if (
+    priceForecast.direction !==
+      "WAIT" &&
+    direction !==
+      "WAIT" &&
+    direction !==
+      priceForecast.direction
+  ) {
+    direction =
+      "WAIT";
+
+    adjustedScore =
+      0;
+  }
+
+  let confidence =
+    Number(
+      priceForecast.confidence
+    ) || 0;
+
+  const priceSign =
+    priceForecast.direction ===
+      "BUY"
+      ? 1
+
+      : priceForecast.direction ===
+        "SELL"
+        ? -1
+
+        : 0;
+
+  const macroSign =
+    Math.sign(
+      compositeMacro
+    );
+
+  /*
+    Macro allineata:
+    bonus massimo +7 confidence.
+
+    Macro contraria:
+    penalità massima -10.
+  */
+
+  if (
+    priceSign !== 0 &&
+    Math.abs(
+      compositeMacro
+    ) >= 15
+  ) {
+    if (
+      macroSign ===
+      priceSign
+    ) {
+      confidence +=
+        Math.min(
+          7,
+
+          Math.round(
+            Math.abs(
+              compositeMacro
+            ) / 8
+          )
+        );
+    }
+
+    else if (
+      macroSign ===
+      -priceSign
+    ) {
+      confidence -=
+        Math.min(
+          10,
+
+          Math.round(
+            Math.abs(
+              compositeMacro
+            ) / 6
+          )
+        );
+    }
+  }
+
+  let condition =
+    priceForecast.condition;
+
+  const reasons = [
+    ...(
+      Array.isArray(
+        priceForecast.reasons
+      )
+        ? priceForecast.reasons
+        : []
+    )
+  ];
+
+  if (
+    Number.isFinite(
+      fredScore
+    )
+  ) {
+    reasons.push(
+      `FRED background ${
+        safeFredScore >= 0
+          ? "+"
+          : ""
+      }${safeFredScore.toFixed(1)} • ${
+        macroContext
+          ?.fred
+          ?.macro
+          ?.bias ||
+        "NEUTRAL"
+      }`
+    );
+  }
+
+  else {
+    reasons.push(
+      "FRED background non disponibile: nessuna modifica macro strutturale."
+    );
+  }
+
+  if (
+    Number.isFinite(
+      calendarScore
+    )
+  ) {
+    reasons.push(
+      `TickAtlas event score ${
+        safeCalendarScore >= 0
+          ? "+"
+          : ""
+      }${safeCalendarScore.toFixed(1)} • rischio ${eventRisk}`
+    );
+  }
+
+  else {
+    reasons.push(
+      "TickAtlas calendar non disponibile: event risk non applicato."
+    );
+  }
+
+  /*
+    Event risk.
+  */
+
+  if (
+    eventRisk ===
+    "VERY_HIGH"
+  ) {
+    direction =
+      "WAIT";
+
+    adjustedScore =
+      0;
+
+    confidence =
+      0;
+
+    condition =
+      "EVENT_RISK_LOCK";
+
+    reasons.push(
+      `⛔ Evento USD HIGH impact imminente${
+        nextEvent?.event
+          ? `: ${nextEvent.event}`
+          : ""
+      }. Nuovi segnali bloccati.`
+    );
+  }
+
+  else if (
+    eventRisk ===
+    "HIGH"
+  ) {
+    confidence =
+      Math.min(
+        confidence,
+        49
+      );
+
+    reasons.push(
+      `⚠ Evento USD HIGH impact vicino${
+        nextEvent?.event
+          ? `: ${nextEvent.event}`
+          : ""
+      }. Confidence limitata.`
+    );
+  }
+
+  else if (
+    eventRisk ===
+    "MEDIUM"
+  ) {
+    confidence -=
+      10;
+
+    reasons.push(
+      `⚠ Evento USD HIGH impact nelle prossime ore${
+        nextEvent?.event
+          ? `: ${nextEvent.event}`
+          : ""
+      }. Confidence ridotta.`
+    );
+  }
+
+  confidence =
+    Math.round(
+      clamp(
+        confidence,
+        0,
+        100
+      )
+    );
+
+  const propDirection =
+    direction === "BUY"
+      ? "SELL"
+
+      : direction === "SELL"
+        ? "BUY"
+
+        : "WAIT";
+
+  const signalStrength =
+    signalStrengthFromConfidence(
+      direction,
+      confidence
+    );
+
+  return {
+    ...priceForecast,
+
+    priceScore:
+      baseScore,
+
+    score:
+      Number(
+        adjustedScore.toFixed(1)
+      ),
+
+    direction,
+    propDirection,
+    confidence,
+    signalStrength,
+    condition,
+
+    macro: {
+      fredScore:
+        Number.isFinite(
+          fredScore
+        )
+          ? Number(
+              safeFredScore
+                .toFixed(1)
+            )
+          : null,
+
+      fredBias:
+        macroContext
+          ?.fred
+          ?.macro
+          ?.bias ||
+        "UNAVAILABLE",
+
+      calendarScore:
+        Number.isFinite(
+          calendarScore
+        )
+          ? Number(
+              safeCalendarScore
+                .toFixed(1)
+            )
+          : null,
+
+      calendarBias:
+        macroContext
+          ?.calendar
+          ?.calendar
+          ?.bias ||
+        "UNAVAILABLE",
+
+      compositeScore:
+        Number(
+          compositeMacro
+            .toFixed(1)
+        ),
+
+      adjustment:
+        Number(
+          macroAdjustment
+            .toFixed(1)
+        ),
+
+      eventRisk,
+
+      nextHighImpact:
+        nextEvent,
+
+      health:
+        macroContext
+          ?.health ||
+        {}
+    },
+
+    agreement: {
+      ...priceForecast.agreement,
+
+      macro:
+        Number(
+          compositeMacro
+            .toFixed(1)
+        )
+    },
+
+    reasons
+  };
+}
+
+/*
+============================================================
+PRICE FORECAST V2.2
+La logica originale del tuo motore resta qui.
+L'overlay macro viene applicato DOPO.
+============================================================
+*/
+
 function buildForecast({
   session,
   blocks,
@@ -1567,6 +2257,7 @@ function buildForecast({
   // Forecast 0–3H:
   // 3H principale, 1H accelerazione,
   // 6H contesto, 12H sfondo.
+
   const rollingScore =
     clamp(
       clamp(
@@ -1598,6 +2289,7 @@ function buildForecast({
     ) * 100;
 
   // H1 leggermente più importante di M15.
+
   const microScore =
     m15.score * 0.45 +
     h1.score * 0.55;
@@ -1620,7 +2312,8 @@ function buildForecast({
       dayScore
     ) >= 72;
 
-  // Il trend della giornata diventa la bussola.
+  // Il trend della giornata è la bussola.
+
   let raw =
     dayScore * 0.38 +
     rollingScore * 0.27 +
@@ -1651,16 +2344,16 @@ function buildForecast({
 
   const bullishConfirmations =
     components.filter(
-      x => x.value >= 18
+      x =>
+        x.value >= 18
     ).length;
 
   const bearishConfirmations =
     components.filter(
-      x => x.value <= -18
+      x =>
+        x.value <= -18
     ).length;
 
-  // Contro un trend forte servono
-  // 3 conferme indipendenti.
   let reversalBlocked =
     false;
 
@@ -1689,11 +2382,13 @@ function buildForecast({
       reversalBlocked =
         true;
 
-      raw *= 0.30;
+      raw *=
+        0.30;
     }
   }
 
   // Protezione trend molto forte.
+
   if (
     veryStrongDay &&
     !reversalConfirmed
@@ -1857,7 +2552,8 @@ function buildForecast({
             ) >= 18
         ).length;
 
-  let confidence = 0;
+  let confidence =
+    0;
 
   if (
     direction === "WAIT"
@@ -1889,20 +2585,24 @@ function buildForecast({
     if (
       agreeCount === 4
     ) {
-      confidence += 7;
+      confidence +=
+        7;
     }
 
     if (
       strongDay &&
-      targetSign === daySign
+      targetSign ===
+      daySign
     ) {
-      confidence += 5;
+      confidence +=
+        5;
     }
 
     if (
       reversalConfirmed
     ) {
-      confidence -= 8;
+      confidence -=
+        8;
     }
 
     confidence =
@@ -1917,8 +2617,7 @@ function buildForecast({
 
   let signalStrength =
     "INSUFFICIENT";
-
-  if (
+    if (
     direction !== "WAIT"
   ) {
     if (
@@ -2081,31 +2780,55 @@ function buildForecast({
     reasons
   };
 }
-export async function GET(request) {
+
+/*
+============================================================
+GET — MARKET ENGINE V2.3
+============================================================
+*/
+
+export async function GET(
+  request
+) {
   try {
-    const { searchParams } =
-      new URL(request.url);
+    const {
+      searchParams
+    } =
+      new URL(
+        request.url
+      );
 
     const symbol =
       (
-        searchParams.get("symbol") ||
+        searchParams.get(
+          "symbol"
+        ) ||
         "XAUUSD"
       )
         .toUpperCase()
-        .replace(/[^A-Z]/g, "");
+        .replace(
+          /[^A-Z]/g,
+          ""
+        );
 
     const force =
-      searchParams.get("force") === "1";
+      searchParams.get(
+        "force"
+      ) === "1";
 
     if (
-      !SUPPORTED.has(symbol)
+      !SUPPORTED.has(
+        symbol
+      )
     ) {
       return Response.json(
         {
           ok: false,
+
           error:
             `Simbolo non supportato: ${symbol}`
         },
+
         {
           status: 400
         }
@@ -2113,11 +2836,11 @@ export async function GET(request) {
     }
 
     // ========================================================
-    // CACHE
+    // CACHE V2.3
     // ========================================================
 
     const cacheKey =
-      `market-v22-${symbol}`;
+      `market-v23-${symbol}`;
 
     const cached =
       globalThis.__propMarketCache.get(
@@ -2165,8 +2888,11 @@ export async function GET(request) {
         mt5.h1;
 
       feedMeta = {
-        source: "MT5",
-        status: "LIVE",
+        source:
+          "MT5",
+
+        status:
+          "LIVE",
 
         feedAgeSeconds:
           Number(
@@ -2220,12 +2946,14 @@ export async function GET(request) {
         lastM15:
           m15Bars[
             m15Bars.length - 1
-          ]?.t || null,
+          ]?.t ||
+          null,
 
         lastH1:
           h1Bars[
             h1Bars.length - 1
-          ]?.t || null
+          ]?.t ||
+          null
       };
     }
 
@@ -2241,7 +2969,9 @@ export async function GET(request) {
         process.env.MASSIVE_API_KEY ||
         process.env.POLYGON_API_KEY;
 
-      if (!apiKey) {
+      if (
+        !apiKey
+      ) {
         const combined =
           waitCombined(
             "Feed MT5 non disponibile e MASSIVE_API_KEY assente: nessun segnale operativo.",
@@ -2257,13 +2987,15 @@ export async function GET(request) {
 
         const result = {
           ok: true,
+
           symbol,
+
           generatedAt:
             new Date()
               .toISOString(),
 
           engineVersion:
-            "V2.2-MT5-PRIMARY",
+            "V2.3-MT5-MACRO",
 
           source:
             "NO_LIVE_SOURCE",
@@ -2318,7 +3050,8 @@ export async function GET(request) {
                 massiveM15AgeMinutes:
                   Number(
                     (
-                      massiveFresh.m15AgeMs /
+                      massiveFresh
+                        .m15AgeMs /
                       60000
                     ).toFixed(1)
                   ),
@@ -2326,7 +3059,8 @@ export async function GET(request) {
                 massiveH1AgeMinutes:
                   Number(
                     (
-                      massiveFresh.h1AgeMs /
+                      massiveFresh
+                        .h1AgeMs /
                       60000
                     ).toFixed(1)
                   )
@@ -2335,6 +3069,7 @@ export async function GET(request) {
 
           const result = {
             ok: true,
+
             symbol,
 
             generatedAt:
@@ -2342,7 +3077,7 @@ export async function GET(request) {
                 .toISOString(),
 
             engineVersion:
-              "V2.2-MT5-PRIMARY",
+              "V2.3-MT5-MACRO",
 
             source:
               "NO_LIVE_SOURCE",
@@ -2375,7 +3110,8 @@ export async function GET(request) {
           m15AgeMinutes:
             Number(
               (
-                massiveFresh.m15AgeMs /
+                massiveFresh
+                  .m15AgeMs /
                 60000
               ).toFixed(1)
             ),
@@ -2383,20 +3119,25 @@ export async function GET(request) {
           h1AgeMinutes:
             Number(
               (
-                massiveFresh.h1AgeMs /
+                massiveFresh
+                  .h1AgeMs /
                 60000
               ).toFixed(1)
             ),
 
           lastM15:
-            massiveFresh.lastM15,
+            massiveFresh
+              .lastM15,
 
           lastH1:
-            massiveFresh.lastH1
+            massiveFresh
+              .lastH1
         };
       }
 
-      catch (massiveError) {
+      catch (
+        massiveError
+      ) {
         const combined =
           waitCombined(
             "Nessuna fonte dati live disponibile: segnale operativo bloccato.",
@@ -2409,7 +3150,8 @@ export async function GET(request) {
                 "MT5_NOT_LIVE",
 
               massiveError:
-                massiveError?.message ||
+                massiveError
+                  ?.message ||
                 String(
                   massiveError
                 )
@@ -2418,6 +3160,7 @@ export async function GET(request) {
 
         const result = {
           ok: true,
+
           symbol,
 
           generatedAt:
@@ -2425,7 +3168,7 @@ export async function GET(request) {
               .toISOString(),
 
           engineVersion:
-            "V2.2-MT5-PRIMARY",
+            "V2.3-MT5-MACRO",
 
           source:
             "NO_LIVE_SOURCE",
@@ -2549,10 +3292,10 @@ export async function GET(request) {
       );
 
     // ========================================================
-    // 8. FORECAST V2.2
+    // 8. PRICE FORECAST V2.2
     // ========================================================
 
-    const forecast =
+    const priceForecast =
       buildForecast({
         session,
         blocks,
@@ -2563,7 +3306,26 @@ export async function GET(request) {
       });
 
     // ========================================================
-    // 9. COMBINED
+    // 9. MACRO CONTEXT
+    // ========================================================
+
+    const macroContext =
+      await fetchMacroContext(
+        request.url
+      );
+
+    // ========================================================
+    // 10. FORECAST FINALE V2.3
+    // ========================================================
+
+    const forecast =
+      applyMacroOverlay(
+        priceForecast,
+        macroContext
+      );
+
+    // ========================================================
+    // 11. COMBINED
     // ========================================================
 
     const combined = {
@@ -2580,6 +3342,9 @@ export async function GET(request) {
 
       score:
         forecast.score,
+
+      priceScore:
+        forecast.priceScore,
 
       confidence:
         forecast.confidence,
@@ -2608,6 +3373,9 @@ export async function GET(request) {
       agreement:
         forecast.agreement,
 
+      macro:
+        forecast.macro,
+
       reasons:
         forecast.reasons,
 
@@ -2616,7 +3384,7 @@ export async function GET(request) {
     };
 
     // ========================================================
-    // 10. RISPOSTA
+    // 12. RISPOSTA
     // ========================================================
 
     const result = {
@@ -2629,12 +3397,119 @@ export async function GET(request) {
           .toISOString(),
 
       engineVersion:
-        "V2.2-MT5-PRIMARY",
+        "V2.3-MT5-MACRO",
 
       source,
 
       feed:
         feedMeta,
+
+      /*
+      ---------------------------------------------------------
+      MACRO CONTEXT RAW
+      ---------------------------------------------------------
+      */
+
+      macroContext: {
+        fred:
+          macroContext.fred
+            ? {
+                ok:
+                  true,
+
+                score:
+                  macroContext
+                    .fred
+                    ?.macro
+                    ?.score ??
+                  null,
+
+                bias:
+                  macroContext
+                    .fred
+                    ?.macro
+                    ?.bias ??
+                  null,
+
+                strength:
+                  macroContext
+                    .fred
+                    ?.macro
+                    ?.strength ??
+                  null,
+
+                confidence:
+                  macroContext
+                    .fred
+                    ?.macro
+                    ?.confidence ??
+                  null,
+
+                reasons:
+                  macroContext
+                    .fred
+                    ?.macro
+                    ?.reasons ??
+                  []
+              }
+
+            : {
+                ok:
+                  false,
+
+                status:
+                  macroContext
+                    .health
+                    ?.fred ||
+                  "UNAVAILABLE"
+              },
+
+        calendar:
+          macroContext.calendar
+            ? {
+                ok:
+                  true,
+
+                score:
+                  macroContext
+                    .calendar
+                    ?.calendar
+                    ?.score ??
+                  null,
+
+                bias:
+                  macroContext
+                    .calendar
+                    ?.calendar
+                    ?.bias ??
+                  null,
+
+                eventRisk:
+                  macroContext
+                    .calendar
+                    ?.calendar
+                    ?.eventRisk ??
+                  "UNKNOWN",
+
+                nextHighImpact:
+                  macroContext
+                    .calendar
+                    ?.calendar
+                    ?.nextHighImpact ??
+                  null
+              }
+
+            : {
+                ok:
+                  false,
+
+                status:
+                  macroContext
+                    .health
+                    ?.calendar ||
+                  "UNAVAILABLE"
+              }
+      },
 
       market: {
         currentPrice:
@@ -2651,17 +3526,20 @@ export async function GET(request) {
 
         moveFromOpen:
           Number(
-            session.move.toFixed(4)
+            session.move
+              .toFixed(4)
           ),
 
         moveFromOpenPct:
           Number(
-            session.movePct.toFixed(4)
+            session.movePct
+              .toFixed(4)
           ),
 
         atrM15:
           Number(
-            atrValue.toFixed(4)
+            atrValue
+              .toFixed(4)
           )
       },
 
@@ -2692,145 +3570,139 @@ export async function GET(request) {
       },
 
       rolling: {
-        h1:
-          {
-            dollars:
-              Number(
-                rolling.h1
-                  .dollars
-                  .toFixed(4)
-              ),
-
-            pct:
-              Number(
-                rolling.h1
-                  .pct
-                  .toFixed(4)
-              ),
-
-            atr:
-              Number(
-                rolling.h1
-                  .atr
-                  .toFixed(4)
-              ),
-
-            direction:
+        h1: {
+          dollars:
+            Number(
               rolling.h1
-                .direction
-          },
+                .dollars
+                .toFixed(4)
+            ),
 
-        h3:
-          {
-            dollars:
-              Number(
-                rolling.h3
-                  .dollars
-                  .toFixed(4)
-              ),
+          pct:
+            Number(
+              rolling.h1
+                .pct
+                .toFixed(4)
+            ),
 
-            pct:
-              Number(
-                rolling.h3
-                  .pct
-                  .toFixed(4)
-              ),
+          atr:
+            Number(
+              rolling.h1
+                .atr
+                .toFixed(4)
+            ),
 
-            atr:
-              Number(
-                rolling.h3
-                  .atr
-                  .toFixed(4)
-              ),
+          direction:
+            rolling.h1
+              .direction
+        },
 
-            direction:
+        h3: {
+          dollars:
+            Number(
               rolling.h3
-                .direction
-          },
+                .dollars
+                .toFixed(4)
+            ),
 
-        h6:
-          {
-            dollars:
-              Number(
-                rolling.h6
-                  .dollars
-                  .toFixed(4)
-              ),
+          pct:
+            Number(
+              rolling.h3
+                .pct
+                .toFixed(4)
+            ),
 
-            pct:
-              Number(
-                rolling.h6
-                  .pct
-                  .toFixed(4)
-              ),
+          atr:
+            Number(
+              rolling.h3
+                .atr
+                .toFixed(4)
+            ),
 
-            atr:
-              Number(
-                rolling.h6
-                  .atr
-                  .toFixed(4)
-              ),
+          direction:
+            rolling.h3
+              .direction
+        },
 
-            direction:
+        h6: {
+          dollars:
+            Number(
               rolling.h6
-                .direction
-          },
+                .dollars
+                .toFixed(4)
+            ),
 
-        h12:
-          {
-            dollars:
-              Number(
-                rolling.h12
-                  .dollars
-                  .toFixed(4)
-              ),
+          pct:
+            Number(
+              rolling.h6
+                .pct
+                .toFixed(4)
+            ),
 
-            pct:
-              Number(
-                rolling.h12
-                  .pct
-                  .toFixed(4)
-              ),
+          atr:
+            Number(
+              rolling.h6
+                .atr
+                .toFixed(4)
+            ),
 
-            atr:
-              Number(
-                rolling.h12
-                  .atr
-                  .toFixed(4)
-              ),
-
-            direction:
+          direction:
+            rolling.h6
+              .direction
+        },
+                h12: {
+          dollars:
+            Number(
               rolling.h12
-                .direction
-          },
+                .dollars
+                .toFixed(4)
+            ),
 
-        h24:
-          {
-            dollars:
-              Number(
-                rolling.h24
-                  .dollars
-                  .toFixed(4)
-              ),
+          pct:
+            Number(
+              rolling.h12
+                .pct
+                .toFixed(4)
+            ),
 
-            pct:
-              Number(
-                rolling.h24
-                  .pct
-                  .toFixed(4)
-              ),
+          atr:
+            Number(
+              rolling.h12
+                .atr
+                .toFixed(4)
+            ),
 
-            atr:
-              Number(
-                rolling.h24
-                  .atr
-                  .toFixed(4)
-              ),
+          direction:
+            rolling.h12
+              .direction
+        },
 
-            direction:
+        h24: {
+          dollars:
+            Number(
               rolling.h24
-                .direction
-          }
+                .dollars
+                .toFixed(4)
+            ),
+
+          pct:
+            Number(
+              rolling.h24
+                .pct
+                .toFixed(4)
+            ),
+
+          atr:
+            Number(
+              rolling.h24
+                .atr
+                .toFixed(4)
+            ),
+
+          direction:
+            rolling.h24
+              .direction
+        }
       },
 
       timeframes: {
@@ -2858,7 +3730,8 @@ export async function GET(request) {
 
             move:
               Number(
-                b.move.toFixed(4)
+                b.move
+                  .toFixed(4)
               ),
 
             movePct:
@@ -2898,6 +3771,53 @@ export async function GET(request) {
           fib.nearFib
       },
 
+      /*
+      ---------------------------------------------------------
+      PRICE FORECAST PRIMA DELLA MACRO
+      ---------------------------------------------------------
+      */
+
+      priceForecast: {
+        horizon:
+          "0-3H",
+
+        direction:
+          priceForecast.direction,
+
+        propDirection:
+          priceForecast.propDirection,
+
+        score:
+          priceForecast.score,
+
+        confidence:
+          priceForecast.confidence,
+
+        signalStrength:
+          priceForecast.signalStrength,
+
+        condition:
+          priceForecast.condition,
+
+        reversalBlocked:
+          priceForecast.reversalBlocked,
+
+        reversalConfirmed:
+          priceForecast.reversalConfirmed,
+
+        agreement:
+          priceForecast.agreement,
+
+        reasons:
+          priceForecast.reasons
+      },
+
+      /*
+      ---------------------------------------------------------
+      FORECAST FINALE V2.3
+      ---------------------------------------------------------
+      */
+
       forecast: {
         horizon:
           "0-3H",
@@ -2907,6 +3827,9 @@ export async function GET(request) {
 
         propDirection:
           forecast.propDirection,
+
+        priceScore:
+          forecast.priceScore,
 
         score:
           forecast.score,
@@ -2929,17 +3852,21 @@ export async function GET(request) {
         agreement:
           forecast.agreement,
 
+        macro:
+          forecast.macro,
+
         reasons:
           forecast.reasons
       },
 
       combined,
 
-      cache: false
+      cache:
+        false
     };
 
     // ========================================================
-    // 11. CACHE
+    // 13. CACHE
     // ========================================================
 
     globalThis.__propMarketCache.set(
@@ -2960,16 +3887,17 @@ export async function GET(request) {
 
   catch (error) {
     console.error(
-      "Market Engine V2.2 error:",
+      "Market Engine V2.3 error:",
       error
     );
 
     return Response.json(
       {
-        ok: false,
+        ok:
+          false,
 
         engineVersion:
-          "V2.2-MT5-PRIMARY",
+          "V2.3-MT5-MACRO",
 
         error:
           error?.message ||
@@ -2977,7 +3905,8 @@ export async function GET(request) {
       },
 
       {
-        status: 500
+        status:
+          500
       }
     );
   }
