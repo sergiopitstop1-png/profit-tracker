@@ -1,5 +1,7 @@
 "use client";
 
+// PropHedgeTab v1.09 — storico broker per singolo account + P/L/uscita MT5 reali
+
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
 import MarketEnginePanel from "./MarketEnginePanel";
@@ -1327,6 +1329,12 @@ export default function PropHedgeTab() {
     const c = calcs[id];
     const hedgeEnabledAtEntry = ch?.hedgeEnabled !== false;
     const selectedBrokerAccount = brokerAccountById(ch?.brokerAccountId);
+    const selectedBrokerLiveState = selectedBrokerAccount
+      ? brokerLiveStateByAccountId[selectedBrokerAccount.id] || null
+      : null;
+    const selectedBrokerBalanceAtEntry = hedgeEnabledAtEntry && selectedBrokerLiveState
+      ? num(selectedBrokerLiveState.balance)
+      : num(brokerBalance);
 
     if (bridgeSubmitting[id]) return;
 
@@ -1469,7 +1477,7 @@ export default function PropHedgeTab() {
           brokerTP: c.brokerTP,
           brokerSL: c.brokerSL,
           propBalanceStart: num(ch.accountBalance),
-          brokerBalanceStart: num(brokerBalance),
+          brokerBalanceStart: selectedBrokerBalanceAtEntry,
           quoteToUsd: c.quoteToUsd,
           maxBrokerLossAtEntry: hedgeEnabledAtEntry ? c.maxBrokerLoss : 0,
           hedgeEnabledAtEntry,
@@ -1645,7 +1653,11 @@ export default function PropHedgeTab() {
         : (ch.closeBrokerPL === "" ? tracking.brokerPL : num(ch.closeBrokerPL));
 
       const newPropBalance = ch.active.propBalanceStart + propPLFinal;
-      const newBrokerRealizedBalance = num(brokerBalance) + brokerPLFinal;
+      // Storico multi-account: il saldo Broker della riga appartiene SOLO al conto assegnato alla Prop.
+      const brokerAccountBalanceStart = Number.isFinite(Number(ch.active.brokerBalanceStart))
+        ? Number(ch.active.brokerBalanceStart)
+        : num(brokerBalance);
+      const newBrokerRealizedBalance = brokerAccountBalanceStart + brokerPLFinal;
       const live = liveMap[ch.active.asset];
       const a = ASSETS[ch.active.asset];
 
@@ -1706,7 +1718,10 @@ export default function PropHedgeTab() {
           bridge_close_command_id: bridgeCloseCommandId,
           broker_position_ticket: ch.active.bridgePositionTicket || null,
           broker_close_execution_price: brokerExitPrice,
-          broker_pl_source: brokerPLFromMt5 !== null ? "mt5" : (ch.closeBrokerPL !== "" ? "manual" : "theoretical")
+          broker_account_id: ch.active.brokerAccountId || null,
+          broker_login: ch.active.brokerLogin || null,
+          broker_alias: ch.active.brokerAlias || null,
+          broker_pl_source: brokerPLFromMt5 !== null ? "mt5_realized" : (ch.closeBrokerPL !== "" ? "manual" : "theoretical")
         }
       };
 
@@ -1720,20 +1735,24 @@ export default function PropHedgeTab() {
 
       const insertedId = insertedRows?.[0]?.id || null;
 
-      try {
-        await saveBrokerBalance(newBrokerRealizedBalance);
-      } catch (balanceError) {
-        if (insertedId) {
-          await supabase
-            .from("prop_hedge_operations")
-            .delete()
-            .eq("id", insertedId);
+      // Con heartbeat MT5 live il saldo reale arriva direttamente dai singoli conti:
+      // non sovrascriviamo il vecchio saldo Broker globale con il saldo di un solo account.
+      if (!hasBrokerLiveData) {
+        try {
+          await saveBrokerBalance(newBrokerRealizedBalance);
+        } catch (balanceError) {
+          if (insertedId) {
+            await supabase
+              .from("prop_hedge_operations")
+              .delete()
+              .eq("id", insertedId);
+          }
+          throw balanceError;
         }
-        throw balanceError;
-      }
 
-      setBrokerBalance(String(Number(newBrokerRealizedBalance.toFixed(2))));
-      setBrokerBalanceUpdated(false);
+        setBrokerBalance(String(Number(newBrokerRealizedBalance.toFixed(2))));
+        setBrokerBalanceUpdated(false);
+      }
 
       setChallenges(prev => prev.map(row => {
         if (row.id !== id) return row;
