@@ -210,6 +210,8 @@ export async function GET(request) {
         entry_price,
         sl,
         tp,
+        command_type,
+        position_ticket,
         status
       `)
       .eq("user_id", broker.user_id)
@@ -282,6 +284,8 @@ export async function GET(request) {
             ? null
             : Number(data.tp),
 
+        command_type: data.command_type || "open",
+        position_ticket: data.position_ticket,
         status: data.status,
         created_at: data.created_at
       }
@@ -576,7 +580,7 @@ export async function POST(request) {
         heartbeat: true,
 
         broker: {
-          id: broker.id,
+          broker_account_id: broker.id,
           alias: broker.alias,
           broker: broker.broker
         },
@@ -684,6 +688,8 @@ export async function POST(request) {
           entry_price,
           sl,
           tp,
+          command_type,
+          position_ticket,
           status,
           created_at,
           updated_at
@@ -757,6 +763,12 @@ export async function POST(request) {
             data.tp === null
               ? null
               : Number(data.tp),
+
+          command_type:
+            data.command_type || "open",
+
+          position_ticket:
+            data.position_ticket,
 
           status:
             data.status,
@@ -850,6 +862,44 @@ export async function POST(request) {
             );
 
 
+      const positionTicket =
+        body?.position_ticket === null ||
+        body?.position_ticket === undefined ||
+        body?.position_ticket === ""
+          ? null
+          : String(body.position_ticket);
+
+
+      const closeDeal =
+        body?.close_deal === null ||
+        body?.close_deal === undefined ||
+        body?.close_deal === ""
+          ? null
+          : String(body.close_deal);
+
+
+      const realizedPl =
+        body?.realized_pl === null ||
+        body?.realized_pl === undefined ||
+        body?.realized_pl === ""
+          ? null
+          : Number(body.realized_pl);
+
+
+      if (
+        realizedPl !== null &&
+        !Number.isFinite(realizedPl)
+      ) {
+        return Response.json(
+          {
+            ok: false,
+            error: "invalid_realized_pl"
+          },
+          { status: 400 }
+        );
+      }
+
+
       if (
         executionPrice !== null &&
         !Number.isFinite(
@@ -879,6 +929,18 @@ export async function POST(request) {
 
         execution_price:
           executionPrice,
+
+        position_ticket:
+          positionTicket,
+
+        close_deal:
+          closeDeal,
+
+        realized_pl:
+          realizedPl,
+
+        closed_at:
+          closeDeal ? now : null,
 
         error_code:
           resultStatus === "failed"
@@ -927,10 +989,15 @@ export async function POST(request) {
           symbol,
           side,
           volume,
+          command_type,
+          position_ticket,
           status,
           mt5_order,
           mt5_deal,
           execution_price,
+          close_deal,
+          realized_pl,
+          closed_at,
           error_code,
           error_message,
           processed_at,
@@ -992,6 +1059,12 @@ export async function POST(request) {
           volume:
             Number(data.volume),
 
+          command_type:
+            data.command_type || "open",
+
+          position_ticket:
+            data.position_ticket,
+
           status:
             data.status,
 
@@ -1015,6 +1088,17 @@ export async function POST(request) {
               : Number(
                   data.execution_price
                 ),
+
+          close_deal:
+            data.close_deal,
+
+          realized_pl:
+            data.realized_pl === null
+              ? null
+              : Number(data.realized_pl),
+
+          closed_at:
+            data.closed_at,
 
           error_code:
             data.error_code,
