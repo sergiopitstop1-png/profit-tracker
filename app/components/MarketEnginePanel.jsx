@@ -4,8 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import TradingViewChart from "./TradingViewChart";
 import {
   panel, panelHeader, panelTitle, panelSubtitle, input,
-  primaryButtonBlue, secondaryButton, statCard, statLabel,
-  statValue, statSub, statsGrid, hintBox
+  primaryButtonBlue, secondaryButton
 } from "./styles";
 
 const ASSETS = {
@@ -40,12 +39,6 @@ function fmt(v, d = 2) {
   });
 }
 
-function priceDecimals(symbol) {
-  if (symbol.includes("JPY")) return 3;
-  if (symbol.startsWith("XAU")) return 3;
-  if (symbol.startsWith("XAG")) return 4;
-  return 5;
-}
 
 function biasTheme(bias) {
   if (bias === "BUY") {
@@ -178,8 +171,6 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
   }, [challenges, targetChallengeId]);
 
   const theme = biasTheme(data?.combined?.bias || "NEUTRAL");
-  const tfOrder = ["M15","H1","H4","D1"];
-
   const propDirection = data?.combined?.propDirection || "WAIT";
   const signalStrength = data?.combined?.signalStrength || "INSUFFICIENT";
 
@@ -205,19 +196,7 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
     onApplyDirection(targetChallengeId, direction);
   };
 
-  const formatBarTime = (ts) => {
-    if (!Number.isFinite(Number(ts))) return "—";
-    return new Date(Number(ts)).toLocaleString("it-IT");
-  };
 
-  const lagText = (ms) => {
-    if (!Number.isFinite(Number(ms))) return "";
-    const minutes = Math.round(Number(ms) / 60000);
-    if (minutes < 60) return `${minutes} min`;
-    const hours = Math.round(minutes / 60);
-    if (hours < 48) return `${hours} h`;
-    return `${Math.round(hours / 24)} gg`;
-  };
 
   return (
     <div style={{
@@ -566,163 +545,21 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
             <TradingViewChart symbol={symbol} />
           </div>
 
-          <div style={statsGrid}>
-            {tfOrder.map(tf => {
-              const x = data.timeframes?.[tf];
-              const fresh = data.combined?.freshness?.[tf];
-              const stale = !!fresh?.stale;
-              const t = biasTheme(x?.bias || "NEUTRAL");
-              return (
-                <div key={tf} style={{
-                  ...statCard,
-                  border: stale ? "1px solid rgba(245,158,11,.62)" : `1px solid ${t.border}`,
-                  opacity: stale ? .72 : 1
-                }}>
-                  <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"center"}}>
-                    <div style={statLabel}>{tf}</div>
-                    {stale && (
-                      <span style={{
-                        fontSize:9,fontWeight:900,color:"#fde68a",
-                        border:"1px solid rgba(245,158,11,.45)",
-                        background:"rgba(180,83,9,.12)",
-                        borderRadius:999,padding:"3px 6px"
-                      }}>
-                        ⚠️ OBSOLETO
-                      </span>
-                    )}
-                  </div>
-                  <div style={{...statValue,color:stale ? "#fde68a" : t.color,fontSize:24}}>
-                    {x?.bias || "—"} {Number.isFinite(Number(x?.score)) ? `(${fmt(x.score,0)})` : ""}
-                  </div>
-                  <div style={statSub}>
-                    RSI {fmt(x?.rsi14,1)} • ATR {fmt(x?.atrPct,3)}%
-                  </div>
-                  <div style={{fontSize:10,color:stale?"#fde68a":"#94a3b8",marginTop:5}}>
-                    Ultima candela: {formatBarTime(x?.timestamp)}
-                    {fresh?.lagMs ? ` • lag ${lagText(fresh.lagMs)}` : ""}
-                    {stale ? " • escluso dallo score" : ""}
-                  </div>
-                  <div style={{marginTop:8,fontSize:11,color:"#94a3b8",lineHeight:1.45}}>
-                    EMA20 {fmt(x?.ema20,priceDecimals(symbol))}<br/>
-                    EMA50 {fmt(x?.ema50,priceDecimals(symbol))}<br/>
-                    EMA200 {fmt(x?.ema200,priceDecimals(symbol))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div style={{
-            display:"grid",
-            gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",
-            gap:14,
-            marginTop:14
-          }}>
-            {tfOrder.map(tf => {
-              const x = data.timeframes?.[tf];
-              const t = biasTheme(x?.bias || "NEUTRAL");
-              return (
-                <div key={tf} style={{
-                  ...statCard,
-                  opacity:data.combined?.freshness?.[tf]?.stale ? .72 : 1
-                }}>
-                  <div style={{
-                    fontWeight:900,
-                    fontSize:16,
-                    color:data.combined?.freshness?.[tf]?.stale ? "#fde68a" : t.color,
-                    marginBottom:4
-                  }}>
-                    {tf} — {x?.bias}
-                    {data.combined?.freshness?.[tf]?.stale ? " ⚠️" : ""}
-                  </div>
-                  <div style={{
-                    fontSize:10,
-                    color:data.combined?.freshness?.[tf]?.stale ? "#fde68a" : "#94a3b8",
-                    marginBottom:8
-                  }}>
-                    {formatBarTime(x?.timestamp)}
-                    {data.combined?.freshness?.[tf]?.stale ? " • escluso dallo score" : ""}
-                  </div>
-
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:12}}>
-                    <div>
-                      <span style={{color:"#94a3b8"}}>Ultimo close</span>
-                      <div style={{fontWeight:850,color:"#f8fafc"}}>
-                        {fmt(x?.lastClose,priceDecimals(symbol))}
-                      </div>
-                    </div>
-                    <div>
-                      <span style={{color:"#94a3b8"}}>RSI 14</span>
-                      <div style={{fontWeight:850,color:"#f8fafc"}}>{fmt(x?.rsi14,1)}</div>
-                    </div>
-                    <div>
-                      <span style={{color:"#94a3b8"}}>MACD hist.</span>
-                      <div style={{fontWeight:850,color:Number(x?.macd?.histogram)>=0?"#5eead4":"#fca5a5"}}>
-                        {fmt(x?.macd?.histogram,6)}
-                      </div>
-                    </div>
-                    <div>
-                      <span style={{color:"#94a3b8"}}>ATR 14</span>
-                      <div style={{fontWeight:850,color:"#f8fafc"}}>{fmt(x?.atr14,priceDecimals(symbol))}</div>
-                    </div>
-                    <div>
-                      <span style={{color:"#94a3b8"}}>Supporto 20</span>
-                      <div style={{fontWeight:850,color:"#5eead4"}}>{fmt(x?.support20,priceDecimals(symbol))}</div>
-                    </div>
-                    <div>
-                      <span style={{color:"#94a3b8"}}>Resistenza 20</span>
-                      <div style={{fontWeight:850,color:"#fca5a5"}}>{fmt(x?.resistance20,priceDecimals(symbol))}</div>
-                    </div>
-                  </div>
-
-                  <div style={{
-                    marginTop:10,
-                    paddingTop:9,
-                    borderTop:"1px solid rgba(51,65,85,.65)",
-                    color:"#cbd5e1",
-                    fontSize:11,
-                    lineHeight:1.5
-                  }}>
-                    {(x?.reasons || []).map((r,i)=><div key={i}>• {r}</div>)}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div style={{
-            marginTop:14,
-            padding:"11px 13px",
-            borderRadius:14,
-            border:"1px solid rgba(71,85,105,.65)",
-            background:"rgba(2,6,23,.42)",
-            color:"#94a3b8",
-            fontSize:11
-          }}>
-            Allineamento utilizzato: BUY {data.combined?.alignment?.buy ?? 0} •
-            SELL {data.combined?.alignment?.sell ?? 0} •
-            NEUTRAL {data.combined?.alignment?.neutral ?? 0}
-            {" • "}
-            TF validi: {(data.combined?.usableTimeframes || []).join(", ") || "nessuno"}
-            {(data.combined?.staleTimeframes || []).length
-              ? ` • esclusi: ${(data.combined?.staleTimeframes || []).join(", ")}`
-              : ""}
-            {" • "}
-            Generata: {data.generatedAt ? new Date(data.generatedAt).toLocaleString("it-IT") : "—"}
-            {data.cache ? " • cache Vercel" : ""}
-            {Number.isFinite(Number(data.apiCallsUsed)) ? ` • ${data.apiCallsUsed} chiamate Massive` : ""}
-          </div>
         </>
       )}
 
-      <div style={hintBox}>
-        Market Engine sperimentale: combina trend EMA, RSI, MACD, ATR e struttura prezzi.
-        I timeframe anormalmente vecchi rispetto agli altri vengono marcati OBSOLETI ed esclusi dallo score.
-        La "Direzione Prop" è volutamente opposta al bias di mercato e richiede conferma manuale tramite pulsante.
-        Lo score è descrittivo e non costituisce previsione certa, segnale operativo o consulenza finanziaria.
-        La V10.2 usa solo 2 chiamate Massive per analisi: M15 + H1; H4 e D1 vengono aggregati localmente.
-        Cache 2 minuti, blocco anti-doppia richiesta e fallback sull'ultima analisi valida proteggono dal rate limit.
+      <div style={{
+        marginTop:12,
+        padding:"9px 11px",
+        borderRadius:12,
+        border:"1px solid rgba(71,85,105,.45)",
+        background:"rgba(2,6,23,.32)",
+        color:"#64748b",
+        fontSize:10
+      }}>
+        Analisi tecnica eseguita in background. La diagnostica M15/H1/H4/D1 è nascosta dalla plancia operativa.
       </div>
+
     </div>
   );
 }
