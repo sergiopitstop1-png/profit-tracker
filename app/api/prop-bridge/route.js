@@ -31,15 +31,6 @@ function getSupabaseAdmin() {
 
 // ============================================================
 // SICUREZZA BRIDGE
-//
-// MT5 dovrà inviare:
-// x-prop-bridge-key: <segreto>
-//
-// Il segreto resterà:
-// - in Vercel come Environment Variable
-// - nella configurazione locale dell'EA
-//
-// NON nel ProfitTracker client.
 // ============================================================
 
 function checkBridgeAuth(request) {
@@ -73,11 +64,6 @@ function checkBridgeAuth(request) {
 
 // ============================================================
 // TROVA ACCOUNT BROKER CENSITO
-//
-// Identificazione forte:
-// LOGIN MT5 + SERVER MT5
-//
-// Deve inoltre essere ATTIVO.
 // ============================================================
 
 async function findBrokerAccount(
@@ -130,20 +116,12 @@ async function findBrokerAccount(
 // ============================================================
 // GET
 //
-// Cerca il primo comando PENDING.
-//
-// MT5:
-// /api/prop-bridge
-// ?account=22538464
-// &server=UltimaMarkets-Live%201
+// Cerca il primo comando PENDING
+// per LOGIN + SERVER MT5.
 // ============================================================
 
 export async function GET(request) {
   try {
-
-    // --------------------------------------------------------
-    // Autenticazione Bridge
-    // --------------------------------------------------------
 
     const auth = checkBridgeAuth(request);
 
@@ -195,10 +173,6 @@ export async function GET(request) {
     const supabase = getSupabaseAdmin();
 
 
-    // --------------------------------------------------------
-    // Verifica account censito
-    // --------------------------------------------------------
-
     const brokerCheck =
       await findBrokerAccount(
         supabase,
@@ -221,10 +195,6 @@ export async function GET(request) {
     const broker =
       brokerCheck.account;
 
-
-    // --------------------------------------------------------
-    // Cerca SOLO comandi del proprietario dell'account
-    // --------------------------------------------------------
 
     const { data, error } = await supabase
       .from("prop_bridge_commands")
@@ -341,17 +311,13 @@ export async function GET(request) {
 // POST
 //
 // ACTION:
+// heartbeat
 // claim
 // result
-// heartbeat
 // ============================================================
 
 export async function POST(request) {
   try {
-
-    // --------------------------------------------------------
-    // Autenticazione Bridge
-    // --------------------------------------------------------
 
     const auth = checkBridgeAuth(request);
 
@@ -386,10 +352,6 @@ export async function POST(request) {
       body?.server || ""
     ).trim();
 
-
-    // --------------------------------------------------------
-    // Controlli comuni
-    // --------------------------------------------------------
 
     if (!action) {
       return Response.json(
@@ -428,10 +390,6 @@ export async function POST(request) {
       getSupabaseAdmin();
 
 
-    // --------------------------------------------------------
-    // Account deve essere censito e ATTIVO
-    // --------------------------------------------------------
-
     const brokerCheck =
       await findBrokerAccount(
         supabase,
@@ -461,21 +419,15 @@ export async function POST(request) {
 
     // ========================================================
     // HEARTBEAT
-    //
-    // MT5 comunica:
-    // saldo
-    // equity
-    // margine
-    // free margin
-    // margin level
-    // connessione
-    // AlgoTrading
     // ========================================================
 
     if (action === "heartbeat") {
 
       const balance =
         Number(body?.balance);
+
+      const credit =
+        Number(body?.credit ?? 0);
 
       const equity =
         Number(body?.equity);
@@ -497,6 +449,7 @@ export async function POST(request) {
 
       if (
         !Number.isFinite(balance) ||
+        !Number.isFinite(credit) ||
         !Number.isFinite(equity) ||
         !Number.isFinite(margin) ||
         !Number.isFinite(freeMargin)
@@ -546,6 +499,9 @@ export async function POST(request) {
           broker.mt5_server,
 
         balance,
+
+        credit,
+
         equity,
 
         margin,
@@ -586,6 +542,7 @@ export async function POST(request) {
           mt5_login,
           mt5_server,
           balance,
+          credit,
           equity,
           margin,
           free_margin,
@@ -634,6 +591,9 @@ export async function POST(request) {
           balance:
             Number(data.balance),
 
+          credit:
+            Number(data.credit || 0),
+
           equity:
             Number(data.equity),
 
@@ -663,7 +623,6 @@ export async function POST(request) {
 
     // ========================================================
     // CLAIM / RESULT
-    // Da qui serve command_id.
     // ========================================================
 
     const commandId = String(
@@ -684,7 +643,6 @@ export async function POST(request) {
 
     // ========================================================
     // CLAIM
-    //
     // pending -> processing
     // ========================================================
 
@@ -815,9 +773,7 @@ export async function POST(request) {
 
     // ========================================================
     // RESULT
-    //
-    // processing -> executed
-    // processing -> failed
+    // processing -> executed / failed
     // ========================================================
 
     if (action === "result") {
