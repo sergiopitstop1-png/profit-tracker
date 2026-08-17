@@ -359,6 +359,12 @@ export default function PropHedgeTab() {
     active: true
   });
 
+  // Stato live ricevuto dagli EA MT5 via heartbeat -> Vercel -> Supabase
+  const [brokerLiveStates, setBrokerLiveStates] = useState([]);
+  const [brokerLiveLoading, setBrokerLiveLoading] = useState(false);
+  const [brokerLiveError, setBrokerLiveError] = useState("");
+  const [brokerLiveUpdatedAt, setBrokerLiveUpdatedAt] = useState(null);
+
   const [mainView, setMainView] = useState("OPERATIVITA");
   const [historyFilters, setHistoryFilters] = useState({
     prop: "TUTTE",
@@ -869,6 +875,30 @@ export default function PropHedgeTab() {
 
   const brokerAccountById = (id) => brokerAccounts.find(x => x.id === id) || null;
 
+  const loadBrokerLiveStates = async ({ silent = false } = {}) => {
+    if (!silent) setBrokerLiveLoading(true);
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData?.user?.id;
+      if (!uid) throw new Error("Utente Supabase non autenticato");
+
+      const { data, error } = await supabase
+        .from("prop_broker_live_state")
+        .select("broker_account_id,user_id,mt5_login,mt5_server,balance,equity,margin,free_margin,margin_level,connected,algo_trading,last_seen_at,updated_at")
+        .eq("user_id", uid);
+
+      if (error) throw error;
+      setBrokerLiveStates(data || []);
+      setBrokerLiveError("");
+      setBrokerLiveUpdatedAt(new Date());
+    } catch (e) {
+      console.error("Errore stato live Broker:", e);
+      setBrokerLiveError(e?.message || "Stato live Broker non disponibile");
+    } finally {
+      if (!silent) setBrokerLiveLoading(false);
+    }
+  };
+
   const loadHistory = async () => {
     setHistoryLoading(true);
     setHistoryError("");
@@ -894,7 +924,15 @@ export default function PropHedgeTab() {
     loadBrokerState();
     loadBrokerAdjustments();
     loadBrokerAccounts();
+    loadBrokerLiveStates();
     loadActiveChallengesFromSupabase();
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      loadBrokerLiveStates({ silent: true });
+    }, 5000);
+    return () => clearInterval(id);
   }, []);
 
   useEffect(() => {
@@ -1196,7 +1234,48 @@ export default function PropHedgeTab() {
     0
   );
 
-  const brokerEquity = num(brokerBalance) + floatingBrokerPL;
+  const brokerLiveStateByAccountId = useMemo(() => {
+    const map = {};
+    for (const row of brokerLiveStates) map[row.broker_account_id] = row;
+    return map;
+  }, [brokerLiveStates]);
+
+  const brokerLiveSummary = useMemo(() => {
+    const now = Date.now();
+    const activeAccounts = brokerAccounts.filter(a => a.active);
+    const rows = activeAccounts.map(account => {
+      const live = brokerLiveStateByAccountId[account.id] || null;
+      const ageMs = live?.last_seen_at ? now - new Date(live.last_seen_at).getTime() : Infinity;
+      const online = !!live && live.connected === true && ageMs <= 30000;
+      return { account, live, ageMs, online };
+    });
+
+    const withState = rows.filter(x => x.live);
+    const balance = withState.reduce((sum, x) => sum + num(x.live.balance), 0);
+    const equity = withState.reduce((sum, x) => sum + num(x.live.equity), 0);
+    const margin = withState.reduce((sum, x) => sum + num(x.live.margin), 0);
+    const freeMargin = withState.reduce((sum, x) => sum + num(x.live.free_margin), 0);
+    const onlineCount = rows.filter(x => x.online).length;
+
+    return {
+      rows,
+      activeCount: activeAccounts.length,
+      withStateCount: withState.length,
+      onlineCount,
+      balance,
+      equity,
+      margin,
+      freeMargin,
+      allOnline: activeAccounts.length > 0 && onlineCount === activeAccounts.length
+    };
+  }, [brokerAccounts, brokerLiveStateByAccountId, brokerLiveStates]);
+
+  // Se esistono heartbeat reali, il Broker centrale usa i valori MT5 aggregati.
+  // Il vecchio saldo persistente resta come fallback per compatibilità con lo storico esistente.
+  const hasBrokerLiveData = brokerLiveSummary.withStateCount > 0;
+  const brokerBalanceCentral = hasBrokerLiveData ? brokerLiveSummary.balance : num(brokerBalance);
+  const brokerEquity = hasBrokerLiveData ? brokerLiveSummary.equity : num(brokerBalance) + floatingBrokerPL;
+  const brokerFloatingLiveReal = hasBrokerLiveData ? brokerLiveSummary.equity - brokerLiveSummary.balance : floatingBrokerPL;
 
   const activeRemainingExposure = activeChallenges.reduce(
     (sum, ch) => sum + (trackings[ch.id]?.remainingBrokerLoss || 0),
@@ -1724,39 +1803,51 @@ export default function PropHedgeTab() {
         <div style={panelHeader}>
           <div>
             <h3 style={panelTitle}>🏦 Broker centrale</h3>
-            <p style={panelSubtitle}>Il saldo è condiviso da tutte le coperture attive.</p>
+            <p style={panelSubtitle}>Somma automatica dei conti Broker MT5 attivi. Heartbeat live ogni 5 secondi.</p>
           </div>
-          <div style={{ color:"#5eead4", fontWeight:900 }}>
-            {activeChallenges.length} operazion{activeChallenges.length === 1 ? "e" : "i"} attiv{activeChallenges.length === 1 ? "a" : "e"}
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+            <span style={{ color:brokerLiveSummary.allOnline?"#5eead4":"#fde68a", fontWeight:900 }}>
+              {brokerLiveSummary.onlineCount}/{brokerLiveSummary.activeCount} MT5 online
+            </span>
+            <span style={{ color:"#5eead4", fontWeight:900 }}>
+              {activeChallenges.length} operazion{activeChallenges.length === 1 ? "e" : "i"} attiv{activeChallenges.length === 1 ? "a" : "e"}
+            </span>
+            <button style={secondaryButton} onClick={()=>loadBrokerLiveStates()} disabled={brokerLiveLoading}>
+              {brokerLiveLoading ? "Aggiorno…" : "↻ Aggiorna MT5"}
+            </button>
           </div>
         </div>
 
+        {brokerLiveError && (
+          <div style={{...hintBox,border:"1px solid rgba(239,68,68,.35)",color:"#fecaca",marginBottom:12}}>
+            ⚠️ {brokerLiveError}
+          </div>
+        )}
+
         <div style={grid2}>
-          <div style={{
-            ...statCard,
-            border:"1px solid rgba(34,211,238,.38)"
-          }}>
-            <div style={statLabel}>Saldo Broker realizzato</div>
-            <div style={statValue}>$ {fmt(num(brokerBalance),2)}</div>
+          <div style={{...statCard,border:"1px solid rgba(34,211,238,.38)"}}>
+            <div style={statLabel}>Saldo Broker totale</div>
+            <div style={statValue}>$ {fmt(brokerBalanceCentral,2)}</div>
             <div style={statSub}>
-              {brokerBalanceLoaded ? "Persistente su Supabase" : "Caricamento / fallback locale"}
+              {hasBrokerLiveData
+                ? `${brokerLiveSummary.withStateCount}/${brokerLiveSummary.activeCount} account con dato MT5${brokerLiveSummary.allOnline ? " • LIVE" : " • include ultimo dato noto"}`
+                : (brokerBalanceLoaded ? "Fallback saldo storico Supabase" : "Caricamento / fallback locale")}
             </div>
-            <button
-              style={{...secondaryButton,marginTop:10}}
-              onClick={() => setShowBrokerAdjust(v => !v)}
-            >
-              {showBrokerAdjust ? "Chiudi modifica saldo" : "✏️ Modifica saldo Broker"}
-            </button>
+            {!hasBrokerLiveData && (
+              <button style={{...secondaryButton,marginTop:10}} onClick={() => setShowBrokerAdjust(v => !v)}>
+                {showBrokerAdjust ? "Chiudi modifica saldo" : "✏️ Modifica saldo fallback"}
+              </button>
+            )}
           </div>
           <div style={statCard}>
-            <div style={statLabel}>Equity Broker live</div>
-            <div style={{...statValue,color:brokerEquity>=num(brokerBalance)?"#5eead4":"#fca5a5"}}>$ {fmt(brokerEquity,2)}</div>
-            <div style={statSub}>Saldo realizzato + P/L floating delle coperture.</div>
+            <div style={statLabel}>Equity Broker totale live</div>
+            <div style={{...statValue,color:brokerEquity>=brokerBalanceCentral?"#5eead4":"#fca5a5"}}>$ {fmt(brokerEquity,2)}</div>
+            <div style={statSub}>Somma equity MT5 degli account attivi con heartbeat disponibile.</div>
           </div>
           <div style={statCard}>
-            <div style={statLabel}>P/L Broker floating</div>
-            <div style={{...statValue,color:floatingBrokerPL>=0?"#5eead4":"#fca5a5"}}>{signedMoney(floatingBrokerPL)}</div>
-            <div style={statSub}>Somma delle sole gambe Broker attive.</div>
+            <div style={statLabel}>P/L Broker floating reale</div>
+            <div style={{...statValue,color:brokerFloatingLiveReal>=0?"#5eead4":"#fca5a5"}}>{signedMoney(brokerFloatingLiveReal)}</div>
+            <div style={statSub}>{hasBrokerLiveData ? "Equity MT5 − saldo MT5 aggregato." : "Fallback: stima delle gambe Broker attive."}</div>
           </div>
           <div style={statCard}>
             <div style={statLabel}>Esposizione residua conservativa</div>
@@ -1769,6 +1860,42 @@ export default function PropHedgeTab() {
             <div style={statSub}>Prop + Broker di tutte le operazioni attive.</div>
           </div>
         </div>
+
+        {brokerLiveSummary.rows.length > 0 && (
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:10,marginTop:14}}>
+            {brokerLiveSummary.rows.map(({account,live,ageMs,online}) => {
+              const seconds = Number.isFinite(ageMs) ? Math.max(0, Math.floor(ageMs / 1000)) : null;
+              return (
+                <div key={account.id} style={{
+                  padding:"12px 13px",borderRadius:14,
+                  border:online?"1px solid rgba(34,197,94,.38)":"1px solid rgba(245,158,11,.34)",
+                  background:online?"rgba(20,83,45,.10)":"rgba(120,53,15,.10)"
+                }}>
+                  <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"center"}}>
+                    <div style={{fontWeight:950,color:"#f8fafc"}}>{account.alias}</div>
+                    <div style={{fontSize:11,fontWeight:900,color:online?"#86efac":"#fde68a"}}>
+                      {online ? "🟢 ONLINE" : live ? "🟡 DATO NON LIVE" : "⚫ MAI CONNESSO"}
+                    </div>
+                  </div>
+                  <div style={{fontSize:11,color:"#94a3b8",marginTop:3}}>{account.broker} • {account.mt5_login} • {account.mt5_server}</div>
+                  {live ? (
+                    <>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10}}>
+                        <div><span style={{fontSize:10,color:"#94a3b8"}}>Saldo</span><div style={{fontWeight:900}}>$ {fmt(num(live.balance),2)}</div></div>
+                        <div><span style={{fontSize:10,color:"#94a3b8"}}>Equity</span><div style={{fontWeight:900,color:num(live.equity)>=num(live.balance)?"#5eead4":"#fca5a5"}}>$ {fmt(num(live.equity),2)}</div></div>
+                        <div><span style={{fontSize:10,color:"#94a3b8"}}>Margine libero</span><div style={{fontWeight:850}}>$ {fmt(num(live.free_margin),2)}</div></div>
+                        <div><span style={{fontSize:10,color:"#94a3b8"}}>Algo</span><div style={{fontWeight:850,color:live.algo_trading?"#86efac":"#fca5a5"}}>{live.algo_trading?"ON":"OFF"}</div></div>
+                      </div>
+                      <div style={{fontSize:10,color:"#94a3b8",marginTop:8}}>Ultimo heartbeat: {seconds !== null ? `${seconds}s fa` : "—"}</div>
+                    </>
+                  ) : (
+                    <div style={{fontSize:11,color:"#fde68a",marginTop:9}}>Avvia PropHedgeBridge su questa MT5 per ricevere i dati reali.</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {showBrokerAdjust && (
           <div style={{
@@ -2467,12 +2594,19 @@ export default function PropHedgeTab() {
             <div style={{display:"grid",gap:10}}>
               {brokerAccounts.map(a=>{
                 const assigned = challenges.filter(ch=>ch.brokerAccountId===a.id && !ch.archived);
+                const live = brokerLiveStateByAccountId[a.id] || null;
+                const ageMs = live?.last_seen_at ? Date.now() - new Date(live.last_seen_at).getTime() : Infinity;
+                const online = !!live && live.connected === true && ageMs <= 30000;
                 return (
                   <div key={a.id} style={{padding:"13px 14px",borderRadius:14,border:a.active?"1px solid rgba(34,197,94,.30)":"1px solid rgba(100,116,139,.35)",background:a.active?"rgba(20,83,45,.08)":"rgba(30,41,59,.34)"}}>
                     <div style={{display:"flex",justifyContent:"space-between",gap:12,flexWrap:"wrap",alignItems:"center"}}>
                       <div>
                         <div style={{fontSize:16,fontWeight:950,color:a.active?"#bbf7d0":"#cbd5e1"}}>{a.alias} <span style={{fontSize:11,color:"#94a3b8"}}>• {String(a.account_type||"real").toUpperCase()}</span></div>
                         <div style={{fontSize:12,color:"#cbd5e1",marginTop:4}}>{a.broker} • Login {a.mt5_login} • {a.mt5_server}</div>
+                        <div style={{fontSize:11,color:online?"#86efac":live?"#fde68a":"#94a3b8",marginTop:4,fontWeight:850}}>
+                          {online ? "🟢 MT5 ONLINE" : live ? "🟡 MT5 NON LIVE" : "⚫ MT5 MAI CONNESSA"}
+                          {live ? ` • Saldo $ ${fmt(num(live.balance),2)} • Equity $ ${fmt(num(live.equity),2)}` : ""}
+                        </div>
                         <div style={{fontSize:11,color:"#93c5fd",marginTop:4}}>Assegnato a: {assigned.length ? assigned.map(ch=>ch.name).join(", ") : "nessuna Prop"}</div>
                       </div>
                       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
