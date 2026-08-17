@@ -1590,7 +1590,7 @@ export default function PropHedgeTab() {
           prop_name: ch.name || "Prop",
           broker_account: String(ch.active.brokerLogin || ""),
           symbol: ch.active.asset,
-          side: "CLOSE",
+          side: ch.active.brokerDirection,
           volume: Number(ch.active.brokerLots),
           entry_price: Number(tracking.current),
           sl: null,
