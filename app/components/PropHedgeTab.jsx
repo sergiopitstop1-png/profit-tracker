@@ -884,7 +884,7 @@ export default function PropHedgeTab() {
 
       const { data, error } = await supabase
         .from("prop_broker_live_state")
-        .select("broker_account_id,user_id,mt5_login,mt5_server,balance,equity,margin,free_margin,margin_level,connected,algo_trading,last_seen_at,updated_at")
+        .select("broker_account_id,user_id,mt5_login,mt5_server,balance,credit,equity,margin,free_margin,margin_level,connected,algo_trading,last_seen_at,updated_at")
         .eq("user_id", uid);
 
       if (error) throw error;
@@ -1252,6 +1252,7 @@ export default function PropHedgeTab() {
 
     const withState = rows.filter(x => x.live);
     const balance = withState.reduce((sum, x) => sum + num(x.live.balance), 0);
+    const credit = withState.reduce((sum, x) => sum + num(x.live.credit), 0);
     const equity = withState.reduce((sum, x) => sum + num(x.live.equity), 0);
     const margin = withState.reduce((sum, x) => sum + num(x.live.margin), 0);
     const freeMargin = withState.reduce((sum, x) => sum + num(x.live.free_margin), 0);
@@ -1263,6 +1264,7 @@ export default function PropHedgeTab() {
       withStateCount: withState.length,
       onlineCount,
       balance,
+      credit,
       equity,
       margin,
       freeMargin,
@@ -1274,8 +1276,12 @@ export default function PropHedgeTab() {
   // Il vecchio saldo persistente resta come fallback per compatibilità con lo storico esistente.
   const hasBrokerLiveData = brokerLiveSummary.withStateCount > 0;
   const brokerBalanceCentral = hasBrokerLiveData ? brokerLiveSummary.balance : num(brokerBalance);
+  const brokerCreditCentral = hasBrokerLiveData ? brokerLiveSummary.credit : 0;
+  const brokerCapitalAvailable = brokerBalanceCentral + brokerCreditCentral;
   const brokerEquity = hasBrokerLiveData ? brokerLiveSummary.equity : num(brokerBalance) + floatingBrokerPL;
-  const brokerFloatingLiveReal = hasBrokerLiveData ? brokerLiveSummary.equity - brokerLiveSummary.balance : floatingBrokerPL;
+  const brokerFloatingLiveReal = hasBrokerLiveData
+    ? brokerLiveSummary.equity - brokerLiveSummary.balance - brokerLiveSummary.credit
+    : floatingBrokerPL;
 
   const activeRemainingExposure = activeChallenges.reduce(
     (sum, ch) => sum + (trackings[ch.id]?.remainingBrokerLoss || 0),
@@ -1840,14 +1846,24 @@ export default function PropHedgeTab() {
             )}
           </div>
           <div style={statCard}>
+            <div style={statLabel}>Credito / Bonus Broker</div>
+            <div style={{...statValue,color:brokerCreditCentral>0?"#c4b5fd":"#cbd5e1"}}>$ {fmt(brokerCreditCentral,2)}</div>
+            <div style={statSub}>{hasBrokerLiveData ? "Somma ACCOUNT_CREDIT degli account MT5 attivi." : "Nessun credito live disponibile."}</div>
+          </div>
+          <div style={statCard}>
+            <div style={statLabel}>Capitale Broker disponibile</div>
+            <div style={{...statValue,color:"#67e8f9"}}>$ {fmt(brokerCapitalAvailable,2)}</div>
+            <div style={statSub}>Saldo + credito/bonus Broker aggregato.</div>
+          </div>
+          <div style={statCard}>
             <div style={statLabel}>Equity Broker totale live</div>
-            <div style={{...statValue,color:brokerEquity>=brokerBalanceCentral?"#5eead4":"#fca5a5"}}>$ {fmt(brokerEquity,2)}</div>
+            <div style={{...statValue,color:brokerEquity>=brokerCapitalAvailable?"#5eead4":"#fca5a5"}}>$ {fmt(brokerEquity,2)}</div>
             <div style={statSub}>Somma equity MT5 degli account attivi con heartbeat disponibile.</div>
           </div>
           <div style={statCard}>
             <div style={statLabel}>P/L Broker floating reale</div>
             <div style={{...statValue,color:brokerFloatingLiveReal>=0?"#5eead4":"#fca5a5"}}>{signedMoney(brokerFloatingLiveReal)}</div>
-            <div style={statSub}>{hasBrokerLiveData ? "Equity MT5 − saldo MT5 aggregato." : "Fallback: stima delle gambe Broker attive."}</div>
+            <div style={statSub}>{hasBrokerLiveData ? "Equity MT5 − saldo MT5 − credito/bonus." : "Fallback: stima delle gambe Broker attive."}</div>
           </div>
           <div style={statCard}>
             <div style={statLabel}>Esposizione residua conservativa</div>
@@ -1882,7 +1898,9 @@ export default function PropHedgeTab() {
                     <>
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10}}>
                         <div><span style={{fontSize:10,color:"#94a3b8"}}>Saldo</span><div style={{fontWeight:900}}>$ {fmt(num(live.balance),2)}</div></div>
-                        <div><span style={{fontSize:10,color:"#94a3b8"}}>Equity</span><div style={{fontWeight:900,color:num(live.equity)>=num(live.balance)?"#5eead4":"#fca5a5"}}>$ {fmt(num(live.equity),2)}</div></div>
+                        <div><span style={{fontSize:10,color:"#94a3b8"}}>Credito / Bonus</span><div style={{fontWeight:900,color:num(live.credit)>0?"#c4b5fd":"#cbd5e1"}}>$ {fmt(num(live.credit),2)}</div></div>
+                        <div><span style={{fontSize:10,color:"#94a3b8"}}>Equity</span><div style={{fontWeight:900,color:num(live.equity)>=num(live.balance)+num(live.credit)?"#5eead4":"#fca5a5"}}>$ {fmt(num(live.equity),2)}</div></div>
+                        <div><span style={{fontSize:10,color:"#94a3b8"}}>Floating reale</span><div style={{fontWeight:900,color:(num(live.equity)-num(live.balance)-num(live.credit))>=0?"#5eead4":"#fca5a5"}}>{signedMoney(num(live.equity)-num(live.balance)-num(live.credit))}</div></div>
                         <div><span style={{fontSize:10,color:"#94a3b8"}}>Margine libero</span><div style={{fontWeight:850}}>$ {fmt(num(live.free_margin),2)}</div></div>
                         <div><span style={{fontSize:10,color:"#94a3b8"}}>Algo</span><div style={{fontWeight:850,color:live.algo_trading?"#86efac":"#fca5a5"}}>{live.algo_trading?"ON":"OFF"}</div></div>
                       </div>
@@ -2605,7 +2623,7 @@ export default function PropHedgeTab() {
                         <div style={{fontSize:12,color:"#cbd5e1",marginTop:4}}>{a.broker} • Login {a.mt5_login} • {a.mt5_server}</div>
                         <div style={{fontSize:11,color:online?"#86efac":live?"#fde68a":"#94a3b8",marginTop:4,fontWeight:850}}>
                           {online ? "🟢 MT5 ONLINE" : live ? "🟡 MT5 NON LIVE" : "⚫ MT5 MAI CONNESSA"}
-                          {live ? ` • Saldo $ ${fmt(num(live.balance),2)} • Equity $ ${fmt(num(live.equity),2)}` : ""}
+                          {live ? ` • Saldo $ ${fmt(num(live.balance),2)} • Bonus $ ${fmt(num(live.credit),2)} • Equity $ ${fmt(num(live.equity),2)}` : ""}
                         </div>
                         <div style={{fontSize:11,color:"#93c5fd",marginTop:4}}>Assegnato a: {assigned.length ? assigned.map(ch=>ch.name).join(", ") : "nessuna Prop"}</div>
                       </div>
