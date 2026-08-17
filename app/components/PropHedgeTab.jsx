@@ -367,6 +367,7 @@ export default function PropHedgeTab() {
 
   // Invio comando Prop Hedge -> Supabase -> EA MT5
   const [bridgeSubmitting, setBridgeSubmitting] = useState({});
+  const [bridgeClosing, setBridgeClosing] = useState({});
 
   const [mainView, setMainView] = useState("OPERATIVITA");
   const [historyFilters, setHistoryFilters] = useState({
@@ -1301,6 +1302,26 @@ export default function PropHedgeTab() {
     return net;
   }, [challenges]);
 
+  const waitForBridgeCommand = async (commandId, { timeoutMs = 30000, intervalMs = 1000 } = {}) => {
+    const started = Date.now();
+
+    while (Date.now() - started < timeoutMs) {
+      const { data, error } = await supabase
+        .from("prop_bridge_commands")
+        .select("id,status,command_type,position_ticket,mt5_order,mt5_deal,close_deal,execution_price,realized_pl,error_code,error_message,processed_at,closed_at")
+        .eq("id", commandId)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) throw new Error("Comando Bridge non trovato.");
+
+      if (data.status === "executed" || data.status === "failed") return data;
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
+    }
+
+    return { id: commandId, status: "timeout" };
+  };
+
   const placeTrade = async (id) => {
     const ch = challenges.find(x => x.id === id);
     const c = calcs[id];
@@ -1411,13 +1432,15 @@ export default function PropHedgeTab() {
           entry_price: Number(c.px),
           sl: Number(c.brokerSL),
           tp: Number(c.brokerTP),
+          command_type: "open",
+          position_ticket: null,
           status: "pending"
         };
 
         const { data: insertedCommand, error: commandError } = await supabase
           .from("prop_bridge_commands")
           .insert(commandPayload)
-          .select("id,status,broker_account,symbol,side,volume,sl,tp")
+          .select("id,status,command_type,broker_account,symbol,side,volume,sl,tp,position_ticket")
           .single();
 
         if (commandError) throw commandError;
@@ -1508,72 +1531,185 @@ export default function PropHedgeTab() {
     const ch = challenges.find(x => x.id === id);
     const tracking = trackings[id];
     if (!ch?.active || !tracking) return;
+    if (bridgeClosing[id]) return;
 
-    const propPLFinal = ch.closePropPL === "" ? tracking.propPL : num(ch.closePropPL);
-    const brokerPLFinal = ch.closeBrokerPL === "" ? tracking.brokerPL : num(ch.closeBrokerPL);
-
-    const newPropBalance = ch.active.propBalanceStart + propPLFinal;
-    const newBrokerRealizedBalance = num(brokerBalance) + brokerPLFinal;
-    const live = liveMap[ch.active.asset];
-    const a = ASSETS[ch.active.asset];
-
-    const historyRecord = {
-      challenge_id: ch.id,
-      prop_name: ch.name || "Prop",
-      asset: ch.active.asset,
-      prop_direction: ch.active.direction,
-      broker_direction: ch.active.brokerDirection,
-
-      opened_at: ch.active.placedAt,
-      closed_at: new Date().toISOString(),
-
-      account_size: num(ch.accountSize),
-      prop_balance_start: ch.active.propBalanceStart,
-      prop_balance_end: newPropBalance,
-      broker_balance_start: ch.active.brokerBalanceStart ?? num(brokerBalance),
-      broker_balance_end: newBrokerRealizedBalance,
-
-      prop_cost: num(ch.propCost),
-      final_profit_target: num(ch.finalProfitTarget),
-      risk_usd: num(ch.risk),
-      sl_distance: num(ch.slPoints),
-      tp_prop_usd: num(ch.tpProp),
-      dd_max_pct: num(ch.ddMax),
-      max_margin_pct: num(ch.maxMarginPct),
-      leverage: num(ch.leverage),
-      broker_exposure_start: challengeExposureMap[ch.id] ?? 0,
-
-      entry_price: ch.active.entry,
-      exit_price: tracking.current,
-
-      prop_lots: ch.active.propLots,
-      broker_lots: ch.active.brokerLots,
-
-      prop_tp_price: ch.active.propTP,
-      prop_sl_price: ch.active.propSL,
-      broker_tp_price: ch.active.brokerTP,
-      broker_sl_price: ch.active.brokerSL,
-
-      tp_broker_target_usd: calcChallenge({ ...ch, autoBrokerExposure: challengeExposureMap[ch.id] ?? 0 }, liveMap[ch.asset]).brokerTpDollars,
-      broker_profit_at_prop_sl: calcChallenge({ ...ch, autoBrokerExposure: challengeExposureMap[ch.id] ?? 0 }, liveMap[ch.asset]).brokerProfitAtPropSL,
-      broker_max_loss: ch.active.maxBrokerLossAtEntry ?? calcChallenge({ ...ch, autoBrokerExposure: challengeExposureMap[ch.id] ?? 0 }, liveMap[ch.asset]).maxBrokerLoss,
-
-      prop_pl: propPLFinal,
-      broker_pl: brokerPLFinal,
-      combined_pl: propPLFinal + brokerPLFinal,
-
-      used_manual_prop_pl: ch.closePropPL !== "",
-      used_manual_broker_pl: ch.closeBrokerPL !== "",
-
-      status: "closed",
-      metadata: {
-        quote_to_usd: tracking.quoteToUsd,
-        live_source: live?.source || "",
-        live_time: live?.time || null
-      }
-    };
+    setBridgeClosing(prev => ({ ...prev, [id]: true }));
 
     try {
+      let brokerPLFromMt5 = null;
+      let brokerExitPrice = tracking.current;
+      let bridgeCloseCommandId = null;
+
+      // Se la copertura Broker era attiva, PRIMA chiudiamo davvero la posizione MT5.
+      if (ch.active.hedgeEnabledAtEntry && num(ch.active.brokerLots) > 0) {
+        const { data: userData } = await supabase.auth.getUser();
+        const uid = userData?.user?.id;
+        if (!uid) throw new Error("Utente Supabase non autenticato");
+
+        if (!ch.active.bridgeCommandId) {
+          throw new Error("Manca il Command ID di apertura Broker: chiusura automatica bloccata.");
+        }
+
+        const { data: openCommand, error: openCommandError } = await supabase
+          .from("prop_bridge_commands")
+          .select("id,status,command_type,position_ticket,mt5_order,mt5_deal,execution_price,error_code,error_message")
+          .eq("user_id", uid)
+          .eq("id", ch.active.bridgeCommandId)
+          .maybeSingle();
+
+        if (openCommandError) throw openCommandError;
+        if (!openCommand) throw new Error("Comando di apertura Broker non trovato.");
+        if (openCommand.status !== "executed") {
+          throw new Error(
+            `La copertura Broker non risulta EXECUTED (stato: ${openCommand.status || "sconosciuto"}). ` +
+            `Non posso inviare una chiusura automatica sicura.`
+          );
+        }
+        if (!openCommand.position_ticket) {
+          throw new Error("MT5 non ha restituito il position ticket dell'apertura. Chiusura automatica bloccata.");
+        }
+
+        // Evita doppi CLOSE sulla stessa challenge.
+        const { data: existingClose, error: existingCloseError } = await supabase
+          .from("prop_bridge_commands")
+          .select("id,status")
+          .eq("user_id", uid)
+          .eq("challenge_id", ch.id)
+          .eq("command_type", "close")
+          .in("status", ["pending", "processing"])
+          .limit(1);
+
+        if (existingCloseError) throw existingCloseError;
+        if (Array.isArray(existingClose) && existingClose.length) {
+          throw new Error(`Esiste già un comando CLOSE ${existingClose[0].status} per questa challenge.`);
+        }
+
+        const closePayload = {
+          user_id: uid,
+          challenge_id: ch.id,
+          prop_name: ch.name || "Prop",
+          broker_account: String(ch.active.brokerLogin || ""),
+          symbol: ch.active.asset,
+          side: "CLOSE",
+          volume: Number(ch.active.brokerLots),
+          entry_price: Number(tracking.current),
+          sl: null,
+          tp: null,
+          command_type: "close",
+          position_ticket: String(openCommand.position_ticket),
+          status: "pending"
+        };
+
+        const { data: closeCommand, error: closeCommandError } = await supabase
+          .from("prop_bridge_commands")
+          .insert(closePayload)
+          .select("id,status,command_type,position_ticket")
+          .single();
+
+        if (closeCommandError) throw closeCommandError;
+        bridgeCloseCommandId = closeCommand?.id || null;
+        if (!bridgeCloseCommandId) throw new Error("Comando CLOSE creato senza ID.");
+
+        const closeResult = await waitForBridgeCommand(bridgeCloseCommandId, { timeoutMs: 30000, intervalMs: 1000 });
+
+        if (closeResult.status === "timeout") {
+          throw new Error(
+            "Timeout: MT5 non ha confermato la chiusura entro 30 secondi. " +
+            "La challenge resta aperta: controlla MT5 prima di riprovare."
+          );
+        }
+
+        if (closeResult.status === "failed") {
+          throw new Error(
+            `CHIUSURA BROKER FALLITA${closeResult.error_code ? ` [${closeResult.error_code}]` : ""}: ` +
+            `${closeResult.error_message || "errore MT5 non specificato"}`
+          );
+        }
+
+        if (closeResult.status !== "executed") {
+          throw new Error(`Stato chiusura Broker inatteso: ${closeResult.status}`);
+        }
+
+        if (Number.isFinite(Number(closeResult.realized_pl))) {
+          brokerPLFromMt5 = Number(closeResult.realized_pl);
+        }
+        if (Number.isFinite(Number(closeResult.execution_price))) {
+          brokerExitPrice = Number(closeResult.execution_price);
+        }
+      }
+
+      const propPLFinal = ch.closePropPL === "" ? tracking.propPL : num(ch.closePropPL);
+      // Se MT5 ha chiuso davvero, il P/L reale restituito dal broker ha priorità su stima/manuale.
+      const brokerPLFinal = brokerPLFromMt5 !== null
+        ? brokerPLFromMt5
+        : (ch.closeBrokerPL === "" ? tracking.brokerPL : num(ch.closeBrokerPL));
+
+      const newPropBalance = ch.active.propBalanceStart + propPLFinal;
+      const newBrokerRealizedBalance = num(brokerBalance) + brokerPLFinal;
+      const live = liveMap[ch.active.asset];
+      const a = ASSETS[ch.active.asset];
+
+      const historyRecord = {
+        challenge_id: ch.id,
+        prop_name: ch.name || "Prop",
+        asset: ch.active.asset,
+        prop_direction: ch.active.direction,
+        broker_direction: ch.active.brokerDirection,
+
+        opened_at: ch.active.placedAt,
+        closed_at: new Date().toISOString(),
+
+        account_size: num(ch.accountSize),
+        prop_balance_start: ch.active.propBalanceStart,
+        prop_balance_end: newPropBalance,
+        broker_balance_start: ch.active.brokerBalanceStart ?? num(brokerBalance),
+        broker_balance_end: newBrokerRealizedBalance,
+
+        prop_cost: num(ch.propCost),
+        final_profit_target: num(ch.finalProfitTarget),
+        risk_usd: num(ch.risk),
+        sl_distance: num(ch.slPoints),
+        tp_prop_usd: num(ch.tpProp),
+        dd_max_pct: num(ch.ddMax),
+        max_margin_pct: num(ch.maxMarginPct),
+        leverage: num(ch.leverage),
+        broker_exposure_start: challengeExposureMap[ch.id] ?? 0,
+
+        entry_price: ch.active.entry,
+        exit_price: brokerExitPrice,
+
+        prop_lots: ch.active.propLots,
+        broker_lots: ch.active.brokerLots,
+
+        prop_tp_price: ch.active.propTP,
+        prop_sl_price: ch.active.propSL,
+        broker_tp_price: ch.active.brokerTP,
+        broker_sl_price: ch.active.brokerSL,
+
+        tp_broker_target_usd: calcChallenge({ ...ch, autoBrokerExposure: challengeExposureMap[ch.id] ?? 0 }, liveMap[ch.asset]).brokerTpDollars,
+        broker_profit_at_prop_sl: calcChallenge({ ...ch, autoBrokerExposure: challengeExposureMap[ch.id] ?? 0 }, liveMap[ch.asset]).brokerProfitAtPropSL,
+        broker_max_loss: ch.active.maxBrokerLossAtEntry ?? calcChallenge({ ...ch, autoBrokerExposure: challengeExposureMap[ch.id] ?? 0 }, liveMap[ch.asset]).maxBrokerLoss,
+
+        prop_pl: propPLFinal,
+        broker_pl: brokerPLFinal,
+        combined_pl: propPLFinal + brokerPLFinal,
+
+        used_manual_prop_pl: ch.closePropPL !== "",
+        used_manual_broker_pl: brokerPLFromMt5 === null && ch.closeBrokerPL !== "",
+
+        status: "closed",
+        metadata: {
+          quote_to_usd: tracking.quoteToUsd,
+          live_source: live?.source || "",
+          live_time: live?.time || null,
+          bridge_open_command_id: ch.active.bridgeCommandId || null,
+          bridge_close_command_id: bridgeCloseCommandId,
+          broker_position_ticket: ch.active.bridgePositionTicket || null,
+          broker_close_execution_price: brokerExitPrice,
+          broker_pl_source: brokerPLFromMt5 !== null ? "mt5" : (ch.closeBrokerPL !== "" ? "manual" : "theoretical")
+        }
+      };
+
       const { data: insertedRows, error } = await supabase
         .from("prop_hedge_operations")
         .insert(historyRecord)
@@ -1595,40 +1731,51 @@ export default function PropHedgeTab() {
         }
         throw balanceError;
       }
+
+      setBrokerBalance(String(Number(newBrokerRealizedBalance.toFixed(2))));
+      setBrokerBalanceUpdated(false);
+
+      setChallenges(prev => prev.map(row => {
+        if (row.id !== id) return row;
+        return {
+          ...row,
+          accountBalance: String(Number(newPropBalance.toFixed(2))),
+          active: null,
+          closePropPL: "",
+          closeBrokerPL: "",
+          autoPrice: true,
+          operationalChecks: resetOperationalChecks(row),
+          entryPrice: Number.isFinite(Number(live?.price))
+            ? Number(live.price).toFixed(a.decimals)
+            : row.entryPrice
+        };
+      }));
+
+      await Promise.all([
+        loadHistory(),
+        loadBrokerState(),
+        loadBrokerAdjustments(),
+        loadBrokerLiveStates({ silent: true })
+      ]);
+
+      if (bridgeCloseCommandId) {
+        alert(
+          `✅ BROKER CHIUSO E SALDI AGGIORNATI\n\n` +
+          `Prop: ${ch.name}\n` +
+          `P/L Broker MT5: ${signedMoney(brokerPLFinal)}\n` +
+          `Close Command: ${bridgeCloseCommandId}`
+        );
+      }
     } catch (e) {
-      console.error("Errore salvataggio storico Prop Hedge:", e);
+      console.error("Errore chiusura Prop Hedge:", e);
       alert(
-        "❌ Non ho salvato l'operazione nello storico Supabase.\\n\\n" +
+        "❌ CHIUSURA / AGGIORNAMENTO NON COMPLETATO\n\n" +
         (e?.message || String(e)) +
-        "\\n\\nL'operazione resta aperta: puoi riprovare senza perdere i dati."
+        "\n\nLa challenge resta aperta. Controlla MT5 e riprova solo dopo aver verificato lo stato reale della posizione."
       );
-      return;
+    } finally {
+      setBridgeClosing(prev => ({ ...prev, [id]: false }));
     }
-
-    setBrokerBalance(String(Number(newBrokerRealizedBalance.toFixed(2))));
-    setBrokerBalanceUpdated(false);
-
-    setChallenges(prev => prev.map(row => {
-      if (row.id !== id) return row;
-      return {
-        ...row,
-        accountBalance: String(Number(newPropBalance.toFixed(2))),
-        active: null,
-        closePropPL: "",
-        closeBrokerPL: "",
-        autoPrice: true,
-        operationalChecks: resetOperationalChecks(row),
-        entryPrice: Number.isFinite(Number(live?.price))
-          ? Number(live.price).toFixed(a.decimals)
-          : row.entryPrice
-      };
-    }));
-
-    await Promise.all([
-      loadHistory(),
-      loadBrokerState(),
-      loadBrokerAdjustments()
-    ]);
   };
 
   const totalCombinedPL = activeChallenges.reduce(
@@ -2697,12 +2844,15 @@ export default function PropHedgeTab() {
                 <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:14}}>
                   <button
                     onClick={()=>closeAndUpdate(ch.id)}
+                    disabled={!!bridgeClosing[ch.id]}
                     style={{
-                      border:"none",borderRadius:14,padding:"12px 20px",cursor:"pointer",
+                      border:"none",borderRadius:14,padding:"12px 20px",
+                      cursor:bridgeClosing[ch.id] ? "wait" : "pointer",
+                      opacity:bridgeClosing[ch.id] ? .55 : 1,
                       fontWeight:900,color:"#052e16",background:"linear-gradient(135deg,#4ade80,#22c55e)"
                     }}
                   >
-                    ✅ CHIUDI E AGGIORNA SALDI
+                    {bridgeClosing[ch.id] ? "⏳ CHIUSURA BROKER IN CORSO…" : "✅ CHIUDI E AGGIORNA SALDI"}
                   </button>
                   <button
                     onClick={()=>cancelTrade(ch.id)}
