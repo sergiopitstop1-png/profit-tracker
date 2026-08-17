@@ -151,6 +151,16 @@ function clamp(
   );
 }
 
+async function sleep(ms) {
+  return new Promise(
+    resolve =>
+      setTimeout(
+        resolve,
+        ms
+      )
+  );
+}
+
 async function fetchFredSeries(
   seriesId,
   limit = 18
@@ -163,62 +173,117 @@ async function fetchFredSeries(
     `&sort_order=desc` +
     `&limit=${limit}`;
 
-  const response =
-    await fetch(
-      url,
-      {
-        cache:
-          "no-store"
-      }
-    );
-
-  const data =
-    await response.json();
-
-  if (!response.ok) {
-    throw new Error(
-      data?.error_message ||
-      `FRED HTTP ${response.status}`
-    );
-  }
-
-  const observations =
-    Array.isArray(
-      data?.observations
-    )
-      ? data.observations
-          .map(o => ({
-            date:
-              o.date,
-
-            value:
-              toNumber(
-                o.value
-              )
-          }))
-          .filter(
-            o =>
-              o.value !== null
-          )
-      : [];
-
-  if (
-    observations.length <
-    2
+  async function doRequest(
+    attempt = 1
   ) {
-    throw new Error(
-      `${seriesId}: osservazioni insufficienti`
-    );
+    const response =
+      await fetch(
+        url,
+        {
+          cache:
+            "no-store",
+
+          headers: {
+            Accept:
+              "application/json"
+          }
+        }
+      );
+
+    const text =
+      await response.text();
+
+    const contentType =
+      response.headers
+        .get(
+          "content-type"
+        ) ||
+      "";
+
+    if (
+      !contentType.includes(
+        "application/json"
+      )
+    ) {
+      if (
+        attempt < 2
+      ) {
+        await sleep(400);
+
+        return doRequest(
+          attempt + 1
+        );
+      }
+
+      throw new Error(
+        `${seriesId}: risposta non JSON da FRED (HTTP ${response.status})`
+      );
+    }
+
+    let data;
+
+    try {
+      data =
+        JSON.parse(text);
+    }
+
+    catch {
+      if (
+        attempt < 2
+      ) {
+        await sleep(400);
+
+        return doRequest(
+          attempt + 1
+        );
+      }
+
+      throw new Error(
+        `${seriesId}: JSON FRED non valido`
+      );
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        data?.error_message ||
+        `FRED HTTP ${response.status}`
+      );
+    }
+
+    const observations =
+      Array.isArray(
+        data?.observations
+      )
+        ? data.observations
+            .map(o => ({
+              date:
+                o.date,
+
+              value:
+                toNumber(
+                  o.value
+                )
+            }))
+            .filter(
+              o =>
+                o.value !== null
+            )
+        : [];
+
+    if (
+      observations.length <
+      2
+    ) {
+      throw new Error(
+        `${seriesId}: osservazioni insufficienti`
+      );
+    }
+
+    return observations;
   }
 
-  return observations;
+  return doRequest();
 }
-
-/*
-============================================================
-CALCOLI BASE
-============================================================
-*/
 
 function latestChange(
   observations
@@ -270,62 +335,6 @@ function latestChange(
       pct
   };
 }
-
-function changeAcross(
-  observations,
-  periodsBack
-) {
-  if (
-    observations.length <=
-    periodsBack
-  ) {
-    return null;
-  }
-
-  const latest =
-    observations[0];
-
-  const old =
-    observations[
-      periodsBack
-    ];
-
-  const absolute =
-    latest.value -
-    old.value;
-
-  const pct =
-    old.value !== 0
-      ? (
-          absolute /
-          Math.abs(
-            old.value
-          )
-        ) * 100
-      : 0;
-
-  return {
-    change:
-      absolute,
-
-    changePct:
-      pct
-  };
-}
-
-/*
-============================================================
-INFLAZIONE
-
-Le serie CPI/PCE sono indici.
-
-Per renderle leggibili calcoliamo:
-- MoM
-- circa YoY usando 12 osservazioni indietro
-
-Non usiamo il livello assoluto dell'indice come segnale.
-============================================================
-*/
 
 function inflationStats(
   observations
@@ -389,23 +398,6 @@ function inflationStats(
   };
 }
 
-/*
-============================================================
-SCORING XAUUSD
-
-Convenzione:
-
-score > 0
-=> contesto più favorevole all'oro
-
-score < 0
-=> contesto più sfavorevole all'oro
-
-È una EURISTICA prudente,
-non una probabilità statistica.
-============================================================
-*/
-
 function scoreYield(
   change,
   weight
@@ -413,17 +405,6 @@ function scoreYield(
   if (!change) {
     return 0;
   }
-
-  /*
-    Rendimenti in salita:
-    normalmente vento contrario per oro.
-
-    Rendimenti in discesa:
-    normalmente supporto all'oro.
-
-    Usiamo la variazione assoluta
-    in punti percentuali.
-  */
 
   const normalized =
     clamp(
@@ -447,14 +428,6 @@ function scoreFedFunds(
     return 0;
   }
 
-  /*
-    Fed Funds in aumento:
-    tendenzialmente negativo per oro.
-
-    In diminuzione:
-    tendenzialmente positivo.
-  */
-
   const normalized =
     clamp(
       change.change /
@@ -476,14 +449,6 @@ function scoreUnemployment(
   if (!change) {
     return 0;
   }
-
-  /*
-    Disoccupazione in aumento:
-    può aumentare aspettative dovish,
-    quindi modestamente positiva per oro.
-
-    Peso volutamente basso.
-  */
 
   const normalized =
     clamp(
@@ -509,20 +474,6 @@ function scorePayrolls(
   ) {
     return 0;
   }
-
-  /*
-    PAYEMS è il livello totale occupati,
-    non il headline NFP del singolo mese.
-
-    Calcoliamo quindi la variazione
-    dell'occupazione totale.
-
-    Accelerazione occupazionale:
-    leggermente negativa per oro.
-
-    Decelerazione:
-    leggermente positiva.
-  */
 
   const latestGain =
     observations[0].value -
@@ -569,21 +520,6 @@ function scoreInflationTrend(
     return 0;
   }
 
-  /*
-    Non diciamo:
-    "inflazione alta = oro BUY".
-
-    Per il nostro orizzonte,
-    inflazione che accelera può
-    aumentare aspettative sui tassi.
-
-    Quindi qui la trattiamo
-    molto prudentemente come
-    possibile vento contrario.
-
-    Peso basso.
-  */
-
   const latest =
     inflationStats(
       observations
@@ -620,12 +556,6 @@ function scoreInflationTrend(
     weight
   );
 }
-
-/*
-============================================================
-INTERPRETAZIONE SCORE
-============================================================
-*/
 
 function macroBias(
   score
@@ -672,12 +602,6 @@ function macroStrength(
   return "NEUTRAL";
 }
 
-/*
-============================================================
-GET
-============================================================
-*/
-
 export async function GET() {
   try {
     if (!FRED_API_KEY) {
@@ -691,12 +615,6 @@ export async function GET() {
         500
       );
     }
-
-    /*
-    ----------------------------------------------------------
-    Recupero serie in parallelo
-    ----------------------------------------------------------
-    */
 
     const results =
       await Promise.allSettled(
@@ -763,17 +681,7 @@ export async function GET() {
       }
     );
 
-    /*
-    ----------------------------------------------------------
-    Componenti score
-    ----------------------------------------------------------
-    */
-
     const components = [];
-
-    /*
-    TREASURY 10Y
-    */
 
     if (
       loaded.US10Y
@@ -818,10 +726,6 @@ export async function GET() {
       });
     }
 
-    /*
-    TREASURY 2Y
-    */
-
     if (
       loaded.US2Y
     ) {
@@ -864,10 +768,6 @@ export async function GET() {
           change?.latestDate
       });
     }
-
-    /*
-    FED FUNDS
-    */
 
     if (
       loaded.FED_FUNDS
@@ -912,10 +812,6 @@ export async function GET() {
           change?.latestDate
       });
     }
-
-    /*
-    UNEMPLOYMENT
-    */
 
     if (
       loaded.UNEMPLOYMENT
@@ -962,10 +858,6 @@ export async function GET() {
       });
     }
 
-    /*
-    PAYROLLS
-    */
-
     if (
       loaded.PAYROLLS
     ) {
@@ -1009,10 +901,6 @@ export async function GET() {
           change?.latestDate
       });
     }
-
-    /*
-    INFLATION SERIES
-    */
 
     const inflationKeys = [
       "CPI",
@@ -1109,18 +997,6 @@ export async function GET() {
       });
     }
 
-    /*
-    ----------------------------------------------------------
-    SCORE FINALE
-
-    Manteniamo FRED deliberatamente prudente.
-
-    Anche con tutte le componenti allineate,
-    questo modulo non deve dominare
-    il Market Engine intraday.
-    ----------------------------------------------------------
-    */
-
     const rawScore =
       components.reduce(
         (
@@ -1152,12 +1028,6 @@ export async function GET() {
       macroStrength(
         score
       );
-
-    /*
-    ----------------------------------------------------------
-    YIELD CURVE
-    ----------------------------------------------------------
-    */
 
     let yieldCurve =
       null;
@@ -1201,12 +1071,6 @@ export async function GET() {
       };
     }
 
-    /*
-    ----------------------------------------------------------
-    SPIEGAZIONE LEGGIBILE
-    ----------------------------------------------------------
-    */
-
     const reasons =
       components
         .filter(
@@ -1243,12 +1107,6 @@ export async function GET() {
           }
         );
 
-    /*
-    ----------------------------------------------------------
-    RISPOSTA
-    ----------------------------------------------------------
-    */
-
     return json({
       ok: true,
 
@@ -1260,7 +1118,7 @@ export async function GET() {
           .toISOString(),
 
       engineVersion:
-        "FRED-MACRO-V1",
+        "FRED-MACRO-V1.1",
 
       macro: {
         score:
@@ -1286,11 +1144,6 @@ export async function GET() {
               80
             )
           ),
-
-        /*
-        Mai 100 perché FRED da solo
-        non contiene surprise vs consensus.
-        */
 
         role:
           "BACKGROUND",
@@ -1349,7 +1202,7 @@ export async function GET() {
         SERIES.length,
 
       note:
-        "FRED Macro Background: contesto strutturale per XAUUSD. Non rappresenta un segnale operativo autonomo e non contiene consensus di mercato."
+        "FRED Macro Background V1.1: contesto strutturale per XAUUSD. Non rappresenta un segnale operativo autonomo e non contiene consensus di mercato."
     });
   }
 
@@ -1365,6 +1218,9 @@ export async function GET() {
 
         source:
           "FRED",
+
+        engineVersion:
+          "FRED-MACRO-V1.1",
 
         error:
           error?.message ||
