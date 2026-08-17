@@ -1,6 +1,6 @@
 "use client";
 
-// PropHedgeTab v1.09 — storico broker per singolo account + P/L/uscita MT5 reali
+// PropHedgeTab v1.11 — launcher in Operatività + blocco piazzata se MT5 selezionata non ONLINE
 
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
@@ -1037,6 +1037,24 @@ export default function PropHedgeTab() {
     });
   }, [mt5LauncherStatuses, launcherPcOnline]);
 
+
+  const launcherStatusForBrokerAccount = (account) => {
+    if (!account) return null;
+
+    // Convenzione attuale: l'Alias account Broker coincide con il broker_id
+    // del launcher (es. ULTIMA-1 / ULTIMA-2).
+    const candidates = [
+      account.alias,
+      account.broker
+    ]
+      .map(v => String(v || "").trim().toUpperCase())
+      .filter(Boolean);
+
+    return launcherMt5Rows.find(row =>
+      candidates.includes(String(row?.broker_id || "").trim().toUpperCase())
+    ) || null;
+  };
+
   const loadHistory = async () => {
     setHistoryLoading(true);
     setHistoryError("");
@@ -1483,6 +1501,35 @@ export default function PropHedgeTab() {
     }
 
     if (hedgeEnabledAtEntry) {
+      if (!launcherPcOnline) {
+        alert(
+          "⛔ PC / LAUNCHER OFFLINE\n\n" +
+          "Non posso verificare o avviare la MT5 selezionata.\n" +
+          "La PIAZZATA è bloccata per sicurezza."
+        );
+        return;
+      }
+
+      const selectedLauncherMt5 = launcherStatusForBrokerAccount(selectedBrokerAccount);
+
+      if (!selectedLauncherMt5) {
+        alert(
+          `⛔ MT5 NON ASSOCIATA AL LAUNCHER — ${selectedBrokerAccount.alias || selectedBrokerAccount.broker}\n\n` +
+          "Non trovo una MT5 autorizzata con lo stesso broker_id / Alias account.\n" +
+          "La PIAZZATA è bloccata per sicurezza."
+        );
+        return;
+      }
+
+      if (selectedLauncherMt5.displayStatus !== "ONLINE") {
+        alert(
+          `⛔ MT5 SPENTA — ${selectedLauncherMt5.broker_id}\n\n` +
+          "Accendi la MT5 dal pulsante AVVIA MT5 OPERATIVE o dalla sezione ACCOUNT BROKER.\n\n" +
+          "La PIAZZATA è bloccata finché la MT5 scelta non risulta ONLINE."
+        );
+        return;
+      }
+
       const safety = safetyFor(id);
       if (!safety || safety.reason === "NO_ACCOUNT") {
         alert("Seleziona un conto Broker MT5 valido prima di piazzare.");
@@ -2142,6 +2189,22 @@ export default function PropHedgeTab() {
             color:mainView===key?"#dbeafe":"#94a3b8"
           }}>{label}</button>
         ))}
+
+        <button
+          style={{
+            ...primaryButtonBlue,
+            marginLeft:"auto",
+            opacity:(!launcherPcOnline || launcherCommandBusy.ALL) ? .45 : 1,
+            cursor:(!launcherPcOnline || launcherCommandBusy.ALL) ? "not-allowed" : "pointer"
+          }}
+          disabled={!launcherPcOnline || !!launcherCommandBusy.ALL}
+          onClick={()=>sendLauncherCommand("START_ALL")}
+          title={launcherPcOnline
+            ? "Avvia tutte le MT5 operative autorizzate sul PC"
+            : "PC / Launcher offline"}
+        >
+          {launcherCommandBusy.ALL ? "⏳ AVVIO MT5…" : "🚀 AVVIA MT5 OPERATIVE"}
+        </button>
       </div>
 
       {mainView === "OPERATIVITA" && (<>
