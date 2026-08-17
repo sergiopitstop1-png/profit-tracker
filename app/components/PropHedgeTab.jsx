@@ -371,6 +371,13 @@ export default function PropHedgeTab() {
   const [bridgeSubmitting, setBridgeSubmitting] = useState({});
   const [bridgeClosing, setBridgeClosing] = useState({});
 
+  // Launcher Windows -> Supabase -> avvio MT5
+  const [launcherStatus, setLauncherStatus] = useState(null);
+  const [mt5LauncherStatuses, setMt5LauncherStatuses] = useState([]);
+  const [launcherLoading, setLauncherLoading] = useState(false);
+  const [launcherCommandBusy, setLauncherCommandBusy] = useState({});
+  const [launcherCommandMessage, setLauncherCommandMessage] = useState("");
+
   const [mainView, setMainView] = useState("OPERATIVITA");
   const [historyFilters, setHistoryFilters] = useState({
     prop: "TUTTE",
@@ -905,6 +912,131 @@ export default function PropHedgeTab() {
     }
   };
 
+  const loadLauncherControlStatus = async ({ silent = false } = {}) => {
+    if (!silent) setLauncherLoading(true);
+
+    try {
+      const [{ data: launcherRows, error: launcherError }, { data: mt5Rows, error: mt5Error }] = await Promise.all([
+        supabase
+          .from("prop_launcher_status")
+          .select("launcher_id,last_seen,pc_status,updated_at")
+          .eq("launcher_id", "MAIN-PC")
+          .limit(1),
+        supabase
+          .from("prop_mt5_status")
+          .select("broker_id,launcher_id,mt5_status,pid,terminal_path,last_seen,updated_at")
+          .eq("launcher_id", "MAIN-PC")
+          .order("broker_id", { ascending: true })
+      ]);
+
+      if (launcherError) throw launcherError;
+      if (mt5Error) throw mt5Error;
+
+      setLauncherStatus(Array.isArray(launcherRows) && launcherRows.length ? launcherRows[0] : null);
+      setMt5LauncherStatuses(Array.isArray(mt5Rows) ? mt5Rows : []);
+    } catch (e) {
+      console.error("Errore stato Launcher MT5:", e);
+      if (!silent) setLauncherCommandMessage("❌ Stato launcher non disponibile: " + (e?.message || String(e)));
+    } finally {
+      if (!silent) setLauncherLoading(false);
+    }
+  };
+
+  const waitForLauncherCommand = async (commandId, { timeoutMs = 20000, intervalMs = 700 } = {}) => {
+    const started = Date.now();
+
+    while (Date.now() - started < timeoutMs) {
+      const { data, error } = await supabase
+        .from("prop_launcher_commands")
+        .select("id,status,result,processed_at")
+        .eq("id", commandId)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) throw new Error("Comando Launcher non trovato.");
+
+      if (data.status === "DONE" || data.status === "ERROR") return data;
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
+    }
+
+    return { id: commandId, status: "TIMEOUT", result: "Nessuna risposta dal launcher entro il tempo previsto." };
+  };
+
+  const sendLauncherCommand = async (command, brokerId = null) => {
+    const busyKey = brokerId || "ALL";
+    if (launcherCommandBusy[busyKey]) return;
+
+    setLauncherCommandBusy(prev => ({ ...prev, [busyKey]: true }));
+    setLauncherCommandMessage(
+      brokerId ? `⏳ Invio avvio ${brokerId}…` : "⏳ Invio AVVIA MT5 OPERATIVE…"
+    );
+
+    try {
+      const payload = {
+        command,
+        broker_id: brokerId,
+        status: "PENDING"
+      };
+
+      const { data, error } = await supabase
+        .from("prop_launcher_commands")
+        .insert(payload)
+        .select("id")
+        .single();
+
+      if (error) throw error;
+      if (!data?.id) throw new Error("Supabase non ha restituito l'ID del comando.");
+
+      const result = await waitForLauncherCommand(data.id);
+
+      if (result.status === "DONE") {
+        setLauncherCommandMessage(`✅ ${result.result || "Comando eseguito"}`);
+      } else if (result.status === "ERROR") {
+        setLauncherCommandMessage(`❌ ${result.result || "Errore launcher"}`);
+      } else {
+        setLauncherCommandMessage("⚠️ Comando inviato, ma il launcher non ha risposto in tempo.");
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      await loadLauncherControlStatus({ silent: true });
+    } catch (e) {
+      console.error("Errore comando Launcher:", e);
+      setLauncherCommandMessage("❌ " + (e?.message || "Errore invio comando Launcher"));
+    } finally {
+      setLauncherCommandBusy(prev => ({ ...prev, [busyKey]: false }));
+    }
+  };
+
+  const launcherHeartbeatAgeMs = launcherStatus?.last_seen
+    ? Date.now() - new Date(launcherStatus.last_seen).getTime()
+    : Infinity;
+
+  const launcherPcOnline =
+    !!launcherStatus &&
+    launcherStatus.pc_status === "ONLINE" &&
+    launcherHeartbeatAgeMs <= 15000;
+
+  const launcherMt5Rows = useMemo(() => {
+    const now = Date.now();
+
+    return mt5LauncherStatuses.map(row => {
+      const ageMs = row?.last_seen ? now - new Date(row.last_seen).getTime() : Infinity;
+      const fresh = ageMs <= 15000;
+
+      let displayStatus = "PC OFFLINE";
+      if (launcherPcOnline) {
+        displayStatus = row.mt5_status === "ONLINE" && fresh ? "ONLINE" : "MT5 SPENTA";
+      }
+
+      return {
+        ...row,
+        ageMs,
+        fresh,
+        displayStatus
+      };
+    });
+  }, [mt5LauncherStatuses, launcherPcOnline]);
+
   const loadHistory = async () => {
     setHistoryLoading(true);
     setHistoryError("");
@@ -931,12 +1063,14 @@ export default function PropHedgeTab() {
     loadBrokerAdjustments();
     loadBrokerAccounts();
     loadBrokerLiveStates();
+    loadLauncherControlStatus();
     loadActiveChallengesFromSupabase();
   }, []);
 
   useEffect(() => {
     const id = setInterval(() => {
       loadBrokerLiveStates({ silent: true });
+      loadLauncherControlStatus({ silent: true });
     }, 5000);
     return () => clearInterval(id);
   }, []);
@@ -2898,7 +3032,111 @@ export default function PropHedgeTab() {
               <h3 style={panelTitle}>⚙️ Account Broker MT5</h3>
               <p style={panelSubtitle}>Censimento multi-account. Ogni Prop può scegliere un conto diverso. Nessuna password viene salvata qui.</p>
             </div>
-            <button style={secondaryButton} onClick={loadBrokerAccounts}>{brokerAccountsLoading ? "Aggiorno…" : "↻ Aggiorna"}</button>
+            <button style={secondaryButton} onClick={()=>{ loadBrokerAccounts(); loadLauncherControlStatus(); }}>
+              {(brokerAccountsLoading || launcherLoading) ? "Aggiorno…" : "↻ Aggiorna"}
+            </button>
+          </div>
+
+          <div style={{
+            marginBottom:20,
+            padding:"15px",
+            borderRadius:16,
+            border:launcherPcOnline ? "1px solid rgba(34,197,94,.34)" : "1px solid rgba(248,113,113,.36)",
+            background:launcherPcOnline ? "rgba(20,83,45,.08)" : "rgba(127,29,29,.10)"
+          }}>
+            <div style={{display:"flex",justifyContent:"space-between",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+              <div>
+                <div style={{fontSize:15,fontWeight:950,color:"#f8fafc"}}>🖥️ Controllo Launcher Windows</div>
+                <div style={{fontSize:12,color:launcherPcOnline?"#86efac":"#fca5a5",fontWeight:900,marginTop:4}}>
+                  {launcherPcOnline ? "🟢 PC ONLINE" : "🔴 PC OFFLINE"}
+                  {launcherStatus?.last_seen
+                    ? ` • ultimo heartbeat ${Math.max(0, Math.floor(launcherHeartbeatAgeMs / 1000))}s fa`
+                    : " • heartbeat mai ricevuto"}
+                </div>
+              </div>
+
+              <button
+                style={{
+                  ...primaryButtonBlue,
+                  opacity:(!launcherPcOnline || launcherCommandBusy.ALL) ? .45 : 1,
+                  cursor:(!launcherPcOnline || launcherCommandBusy.ALL) ? "not-allowed" : "pointer"
+                }}
+                disabled={!launcherPcOnline || !!launcherCommandBusy.ALL}
+                onClick={()=>sendLauncherCommand("START_ALL")}
+              >
+                {launcherCommandBusy.ALL ? "⏳ AVVIO…" : "🚀 AVVIA MT5 OPERATIVE"}
+              </button>
+            </div>
+
+            {launcherCommandMessage && (
+              <div style={{
+                marginTop:10,
+                padding:"8px 10px",
+                borderRadius:10,
+                background:"rgba(15,23,42,.48)",
+                color:"#cbd5e1",
+                fontSize:11,
+                fontWeight:800
+              }}>
+                {launcherCommandMessage}
+              </div>
+            )}
+
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(250px,1fr))",gap:10,marginTop:13}}>
+              {launcherMt5Rows.length === 0 ? (
+                <div style={{...hintBox,gridColumn:"1 / -1"}}>
+                  Nessuna MT5 autorizzata ancora pubblicata dal launcher.
+                </div>
+              ) : launcherMt5Rows.map(row => {
+                const online = row.displayStatus === "ONLINE";
+                const pcOffline = row.displayStatus === "PC OFFLINE";
+                const statusColor = online ? "#86efac" : pcOffline ? "#fca5a5" : "#fde68a";
+                const statusIcon = online ? "🟢" : pcOffline ? "🔴" : "🟡";
+
+                return (
+                  <div key={row.broker_id} style={{
+                    padding:"12px 13px",
+                    borderRadius:14,
+                    border:online
+                      ? "1px solid rgba(34,197,94,.36)"
+                      : pcOffline
+                        ? "1px solid rgba(248,113,113,.34)"
+                        : "1px solid rgba(245,158,11,.34)",
+                    background:online
+                      ? "rgba(20,83,45,.10)"
+                      : pcOffline
+                        ? "rgba(127,29,29,.10)"
+                        : "rgba(120,53,15,.10)"
+                  }}>
+                    <div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                      <div>
+                        <div style={{fontSize:15,fontWeight:950,color:"#f8fafc"}}>{row.broker_id}</div>
+                        <div style={{fontSize:11,fontWeight:900,color:statusColor,marginTop:4}}>
+                          {statusIcon} {row.displayStatus}
+                          {online && row.pid ? ` • PID ${row.pid}` : ""}
+                        </div>
+                      </div>
+
+                      <button
+                        style={{
+                          ...secondaryButton,
+                          opacity:(!launcherPcOnline || online || launcherCommandBusy[row.broker_id]) ? .45 : 1,
+                          cursor:(!launcherPcOnline || online || launcherCommandBusy[row.broker_id]) ? "not-allowed" : "pointer"
+                        }}
+                        disabled={!launcherPcOnline || online || !!launcherCommandBusy[row.broker_id]}
+                        onClick={()=>sendLauncherCommand("START", row.broker_id)}
+                      >
+                        {launcherCommandBusy[row.broker_id] ? "⏳ AVVIO…" : online ? "✓ ATTIVA" : `▶ AVVIA ${row.broker_id}`}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{fontSize:10,color:"#64748b",marginTop:10}}>
+              PC OFFLINE = heartbeat launcher oltre 15 secondi. Le MT5 vengono mostrate automaticamente dalla configurazione del launcher.
+            </div>
           </div>
 
           <div style={{...grid2,marginBottom:18}}>
