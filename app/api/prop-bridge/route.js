@@ -251,7 +251,7 @@ export async function GET(request) {
       ok: true,
 
       broker: {
-        id: broker.id,
+        broker_account_id: broker.id,
         alias: broker.alias,
         broker: broker.broker,
         account: broker.mt5_login,
