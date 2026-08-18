@@ -1,6 +1,6 @@
 "use client";
 
-// PropHedgeTab v1.17 — TRADING session Supabase + MT5 auto-start Windows
+// PropHedgeTab v1.18 — TRADING session + MT5 live stability
 
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
@@ -33,6 +33,8 @@ const ASSETS = {
   CHFJPY: { label: "CHF/JPY", base: "CHF", quote: "JPY", contract: 100000, point: 0.01, decimals: 3, lotStep: 0.01 },
   NZDJPY: { label: "NZD/JPY", base: "NZD", quote: "JPY", contract: 100000, point: 0.01, decimals: 3, lotStep: 0.01 },
 };
+
+const MT5_LIVE_MAX_AGE_MS = 90000; // heartbeat 30s: margine anti-jitter
 
 const fieldLabel = { display: "block", color: "#93c5fd", fontSize: 13, marginBottom: 6 };
 const grid2 = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px,1fr))", gap: 12 };
@@ -1370,7 +1372,7 @@ export default function PropHedgeTab() {
     const rows = activeAccounts.map(account => {
       const live = brokerLiveStateByAccountId[account.id] || null;
       const ageMs = live?.last_seen_at ? now - new Date(live.last_seen_at).getTime() : Infinity;
-      const online = !!live && live.connected === true && ageMs <= 30000;
+      const online = !!live && live.connected === true && ageMs <= MT5_LIVE_MAX_AGE_MS;
       return { account, live, ageMs, online };
     });
 
@@ -1957,8 +1959,11 @@ export default function PropHedgeTab() {
 
     const live = brokerLiveStateByAccountId[account.id] || null;
     const ageMs = live?.last_seen_at ? Date.now() - new Date(live.last_seen_at).getTime() : Infinity;
-    const online = !!live && live.connected === true && ageMs <= 30000;
-    const accountEquity = online ? num(live.equity) : 0;
+    const hasSnapshot = !!live;
+    const online = hasSnapshot && live.connected === true && ageMs <= MT5_LIVE_MAX_AGE_MS;
+    // Mai trasformare un dato momentaneamente vecchio in equity zero.
+    // Manteniamo l'ultimo snapshot reale e segnaliamo STALE.
+    const accountEquity = hasSnapshot ? num(live.equity) : 0;
 
     // Somma soltanto il rischio residuo delle operazioni già attive SULLO STESSO conto MT5.
     const currentExposure = activeChallenges.reduce((sum, activeCh) => {
@@ -1970,19 +1975,32 @@ export default function PropHedgeTab() {
     const requiredWithBuffer = projectedExposure * 1.20;
 
     let level = "red";
-    if (online && accountEquity >= requiredWithBuffer) level = "green";
-    else if (online && accountEquity >= projectedExposure) level = "yellow";
+    let reason = "OK";
+
+    if (!hasSnapshot) {
+      level = "stale";
+      reason = "NO_LIVE_DATA";
+    } else if (!online) {
+      level = "stale";
+      reason = "STALE";
+    } else if (accountEquity >= requiredWithBuffer) {
+      level = "green";
+    } else if (accountEquity >= projectedExposure) {
+      level = "yellow";
+    }
 
     return {
       level,
-      reason: online ? "OK" : "OFFLINE",
+      reason,
       brokerAlias: account.alias || account.broker || "Broker",
       brokerEquity: accountEquity,
       currentExposure,
       projectedExposure,
       requiredWithBuffer,
       projectedResidual: accountEquity - projectedExposure,
-      online
+      online,
+      ageMs,
+      hasSnapshot
     };
   };
 
@@ -2051,7 +2069,8 @@ export default function PropHedgeTab() {
   const safetyStyle = {
     green: { icon:"🟢", title:"CAPITALE SUFFICIENTE", bg:"rgba(34,197,94,.12)", border:"rgba(34,197,94,.45)", color:"#86efac" },
     yellow:{ icon:"🟡", title:"ATTENZIONE — BUFFER RIDOTTO", bg:"rgba(245,158,11,.12)", border:"rgba(245,158,11,.48)", color:"#fde68a" },
-    red:   { icon:"🔴", title:"CAPITALE INSUFFICIENTE", bg:"rgba(239,68,68,.12)", border:"rgba(239,68,68,.48)", color:"#fca5a5" }
+    red:   { icon:"🔴", title:"CAPITALE INSUFFICIENTE", bg:"rgba(239,68,68,.12)", border:"rgba(239,68,68,.48)", color:"#fca5a5" },
+    stale: { icon:"⚪", title:"DATI MT5 TEMPORANEAMENTE NON AGGIORNATI", bg:"rgba(100,116,139,.12)", border:"rgba(148,163,184,.42)", color:"#cbd5e1" }
   };
 
   return (
@@ -2990,6 +3009,8 @@ export default function PropHedgeTab() {
                     <div style={{fontSize:12,fontWeight:600,marginTop:5}}>
                       Conto: {safetyInfo.brokerAlias}
                       {" • "}equity conto $ {fmt(safetyInfo.brokerEquity,2)}
+                      {safetyInfo.reason === "STALE" ? ` • ultimo dato valido ${Math.max(0, Math.round((safetyInfo.ageMs || 0) / 1000))}s fa` : ""}
+                      {safetyInfo.reason === "NO_LIVE_DATA" ? " • nessuno snapshot MT5 disponibile" : ""}
                       {" • "}esposizione già attiva sul conto $ {fmt(safetyInfo.currentExposure,2)}
                       {" • "}esposizione dopo {ch.name} $ {fmt(safetyInfo.projectedExposure,2)}
                       {" • "}buffer $ {fmt(safetyInfo.projectedResidual,2)}
@@ -3025,16 +3046,18 @@ export default function PropHedgeTab() {
                 <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:14}}>
                   <button
                     onClick={()=>placeTrade(ch.id)}
-                    disabled={!tradingEnabled || bridgeSubmitting[ch.id] || (ch.hedgeEnabled !== false && safetyInfo?.level === "red")}
+                    disabled={!tradingEnabled || bridgeSubmitting[ch.id] || (ch.hedgeEnabled !== false && (safetyInfo?.level === "red" || safetyInfo?.level === "stale"))}
                     style={{
                       border:"none",borderRadius:14,padding:"12px 20px",
-                      cursor:(!tradingEnabled || bridgeSubmitting[ch.id] || (ch.hedgeEnabled !== false && safetyInfo?.level === "red")) ? "not-allowed" : "pointer",
-                      opacity:(!tradingEnabled || bridgeSubmitting[ch.id] || (ch.hedgeEnabled !== false && safetyInfo?.level === "red")) ? .45 : 1,
+                      cursor:(!tradingEnabled || bridgeSubmitting[ch.id] || (ch.hedgeEnabled !== false && (safetyInfo?.level === "red" || safetyInfo?.level === "stale"))) ? "not-allowed" : "pointer",
+                      opacity:(!tradingEnabled || bridgeSubmitting[ch.id] || (ch.hedgeEnabled !== false && (safetyInfo?.level === "red" || safetyInfo?.level === "stale"))) ? .45 : 1,
                       fontWeight:900,color:"#052e16",background:"linear-gradient(135deg,#4ade80,#22c55e)"
                     }}
                     title={!tradingEnabled
                       ? "Premi AVVIA TRADING per abilitare nuove operazioni."
-                      : (ch.hedgeEnabled === false ? "Avvia il trade sulla Prop senza aprire una nuova copertura Broker." : "")}
+                      : safetyInfo?.level === "stale"
+                        ? "Attendo un dato MT5 recente prima di abilitare l'ordine."
+                        : (ch.hedgeEnabled === false ? "Avvia il trade sulla Prop senza aprire una nuova copertura Broker." : "")}
                   >
                     {!tradingEnabled
                       ? "🔒 AVVIA TRADING PER OPERARE"
@@ -3218,7 +3241,7 @@ export default function PropHedgeTab() {
                 const assigned = challenges.filter(ch=>ch.brokerAccountId===a.id && !ch.archived);
                 const live = brokerLiveStateByAccountId[a.id] || null;
                 const ageMs = live?.last_seen_at ? Date.now() - new Date(live.last_seen_at).getTime() : Infinity;
-                const online = !!live && live.connected === true && ageMs <= 30000;
+                const online = !!live && live.connected === true && ageMs <= MT5_LIVE_MAX_AGE_MS;
                 return (
                   <div key={a.id} style={{padding:"13px 14px",borderRadius:14,border:a.active?"1px solid rgba(34,197,94,.30)":"1px solid rgba(100,116,139,.35)",background:a.active?"rgba(20,83,45,.08)":"rgba(30,41,59,.34)"}}>
                     <div style={{display:"flex",justifyContent:"space-between",gap:12,flexWrap:"wrap",alignItems:"center"}}>
