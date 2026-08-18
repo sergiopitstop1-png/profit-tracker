@@ -1,6 +1,6 @@
 "use client";
 
-// PropHedgeTab v1.15 — prezzi live manuali + launcher 15 min ottimizzato
+// PropHedgeTab v1.16 — modalità AVVIA/STOP TRADING + MT5 auto-start Windows
 
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
@@ -326,7 +326,7 @@ export default function PropHedgeTab() {
   const [brokerAdjustSaving, setBrokerAdjustSaving] = useState(false);
   const [brokerAdjustments, setBrokerAdjustments] = useState([]);
   const [liveMap, setLiveMap] = useState({});
-  const [pricesLiveEnabled, setPricesLiveEnabled] = useState(false);
+  const [tradingEnabled, setTradingEnabled] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
   // Storico Supabase
@@ -371,13 +371,6 @@ export default function PropHedgeTab() {
   // Invio comando Prop Hedge -> Supabase -> EA MT5
   const [bridgeSubmitting, setBridgeSubmitting] = useState({});
   const [bridgeClosing, setBridgeClosing] = useState({});
-
-  // Launcher Windows -> Supabase -> avvio MT5
-  const [launcherStatus, setLauncherStatus] = useState(null);
-  const [mt5LauncherStatuses, setMt5LauncherStatuses] = useState([]);
-  const [launcherLoading, setLauncherLoading] = useState(false);
-  const [launcherCommandBusy, setLauncherCommandBusy] = useState({});
-  const [launcherCommandMessage, setLauncherCommandMessage] = useState("");
 
   const [mainView, setMainView] = useState("OPERATIVITA");
   const [historyFilters, setHistoryFilters] = useState({
@@ -446,6 +439,12 @@ export default function PropHedgeTab() {
     () => [...new Set(challenges.map(c => c.asset))].sort().join("|"),
     [challenges]
   );
+
+  // Modalità operativa centrale:
+  // - tradingEnabled = sessione manualmente attivata dall'utente
+  // - hasActiveTrade = mantiene vivo il monitoraggio essenziale anche dopo STOP TRADING
+  const hasActiveTrade = useMemo(() => challenges.some(ch => !!ch.active), [challenges]);
+  const tradingRuntimeActive = tradingEnabled || hasActiveTrade;
 
   const initializeExistingChallenge = async () => {
     const ch = challenges.find(x => x.id === existingInitChallengeId);
@@ -913,122 +912,6 @@ export default function PropHedgeTab() {
     }
   };
 
-  const loadLauncherControlStatus = async ({ silent = false } = {}) => {
-    if (!silent) setLauncherLoading(true);
-
-    try {
-      const [{ data: launcherRows, error: launcherError }, { data: mt5Rows, error: mt5Error }] = await Promise.all([
-        supabase
-          .from("prop_launcher_status")
-          .select("launcher_id,last_seen,pc_status,updated_at")
-          .eq("launcher_id", "MAIN-PC")
-          .limit(1),
-        supabase
-          .from("prop_mt5_status")
-          .select("broker_id,launcher_id,mt5_status,pid,terminal_path,last_seen,updated_at")
-          .eq("launcher_id", "MAIN-PC")
-          .order("broker_id", { ascending: true })
-      ]);
-
-      if (launcherError) throw launcherError;
-      if (mt5Error) throw mt5Error;
-
-      setLauncherStatus(Array.isArray(launcherRows) && launcherRows.length ? launcherRows[0] : null);
-      setMt5LauncherStatuses(Array.isArray(mt5Rows) ? mt5Rows : []);
-    } catch (e) {
-      console.error("Errore stato Launcher MT5:", e);
-      if (!silent) setLauncherCommandMessage("❌ Stato launcher non disponibile: " + (e?.message || String(e)));
-    } finally {
-      if (!silent) setLauncherLoading(false);
-    }
-  };
-
-  const sendLauncherCommand = async (command, brokerId = null) => {
-    const busyKey = brokerId || "ALL";
-    if (launcherCommandBusy[busyKey]) return;
-
-    setLauncherCommandBusy(prev => ({ ...prev, [busyKey]: true }));
-    setLauncherCommandMessage(
-      brokerId ? `⏳ Invio avvio ${brokerId}…` : "⏳ Invio AVVIA MT5 OPERATIVE…"
-    );
-
-    try {
-      const payload = {
-        command,
-        broker_id: brokerId,
-        status: "PENDING"
-      };
-
-      const { data, error } = await supabase
-        .from("prop_launcher_commands")
-        .insert(payload)
-        .select("id")
-        .single();
-
-      if (error) throw error;
-      if (!data?.id) throw new Error("Supabase non ha restituito l'ID del comando.");
-
-      setLauncherCommandMessage(
-        brokerId
-          ? `✅ Avvio ${brokerId} accodato. Il launcher lo eseguirà al prossimo controllo (entro 15 minuti).`
-          : "✅ Avvio MT5 operative accodato. Il launcher lo eseguirà al prossimo controllo (entro 15 minuti)."
-      );
-    } catch (e) {
-      console.error("Errore comando Launcher:", e);
-      setLauncherCommandMessage("❌ " + (e?.message || "Errore invio comando Launcher"));
-    } finally {
-      setLauncherCommandBusy(prev => ({ ...prev, [busyKey]: false }));
-    }
-  };
-
-  const launcherHeartbeatAgeMs = launcherStatus?.last_seen
-    ? Date.now() - new Date(launcherStatus.last_seen).getTime()
-    : Infinity;
-
-  const launcherPcOnline =
-    !!launcherStatus &&
-    launcherStatus.pc_status === "ONLINE" &&
-    launcherHeartbeatAgeMs <= 1200000;
-
-  const launcherMt5Rows = useMemo(() => {
-    const now = Date.now();
-
-    return mt5LauncherStatuses.map(row => {
-      const ageMs = row?.last_seen ? now - new Date(row.last_seen).getTime() : Infinity;
-      const fresh = ageMs <= 1200000;
-
-      let displayStatus = "PC OFFLINE";
-      if (launcherPcOnline) {
-        displayStatus = row.mt5_status === "ONLINE" && fresh ? "ONLINE" : "MT5 SPENTA";
-      }
-
-      return {
-        ...row,
-        ageMs,
-        fresh,
-        displayStatus
-      };
-    });
-  }, [mt5LauncherStatuses, launcherPcOnline]);
-
-
-  const launcherStatusForBrokerAccount = (account) => {
-    if (!account) return null;
-
-    // Convenzione attuale: l'Alias account Broker coincide con il broker_id
-    // del launcher (es. ULTIMA-1 / ULTIMA-2).
-    const candidates = [
-      account.alias,
-      account.broker
-    ]
-      .map(v => String(v || "").trim().toUpperCase())
-      .filter(Boolean);
-
-    return launcherMt5Rows.find(row =>
-      candidates.includes(String(row?.broker_id || "").trim().toUpperCase())
-    ) || null;
-  };
-
   const loadHistory = async () => {
     setHistoryLoading(true);
     setHistoryError("");
@@ -1055,23 +938,20 @@ export default function PropHedgeTab() {
     loadBrokerAdjustments();
     loadBrokerAccounts();
     loadBrokerLiveStates();
-    loadLauncherControlStatus();
     loadActiveChallengesFromSupabase();
   }, []);
 
   useEffect(() => {
+    if (!tradingRuntimeActive) return;
+
+    // Durante TRADING ON (o finché esiste un trade aperto) aggiorniamo lo stato MT5.
+    // A riposo non c'è polling continuo verso Supabase.
+    loadBrokerLiveStates({ silent: true });
     const id = setInterval(() => {
       loadBrokerLiveStates({ silent: true });
     }, 15000);
     return () => clearInterval(id);
-  }, []);
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      loadLauncherControlStatus({ silent: true });
-    }, 300000);
-    return () => clearInterval(id);
-  }, []);
+  }, [tradingRuntimeActive]);
 
   useEffect(() => {
     if (!hydrated || !activeSyncLoaded) return;
@@ -1136,8 +1016,9 @@ export default function PropHedgeTab() {
   };
 
   useEffect(() => {
-    if (!pricesLiveEnabled) return;
+    if (!tradingRuntimeActive) return;
 
+    // Prezzi live soltanto durante la sessione Trading o mentre un trade resta aperto.
     const symbols = symbolsKey ? symbolsKey.split("|") : [];
     symbols.forEach(refreshSymbol);
 
@@ -1146,7 +1027,7 @@ export default function PropHedgeTab() {
     }, 5000);
 
     return () => clearInterval(id);
-  }, [symbolsKey, pricesLiveEnabled]);
+  }, [symbolsKey, tradingRuntimeActive]);
 
   const setChallenge = (id, patch) => {
     setChallenges(prev => prev.map(ch => ch.id === id ? { ...ch, ...patch } : ch));
@@ -1477,6 +1358,11 @@ export default function PropHedgeTab() {
 
     if (bridgeSubmitting[id]) return;
 
+    if (!tradingEnabled) {
+      alert("⛔ TRADING NON ATTIVO\n\nPremi AVVIA TRADING prima di piazzare una nuova operazione.");
+      return;
+    }
+
     if (hedgeEnabledAtEntry && !selectedBrokerAccount) {
       alert("Seleziona il conto Broker MT5 da usare per questa Prop.");
       return;
@@ -1488,31 +1374,20 @@ export default function PropHedgeTab() {
     }
 
     if (hedgeEnabledAtEntry) {
-      if (!launcherPcOnline) {
+      // Le MT5 vengono avviate automaticamente con Windows: niente più launcher remoto.
+      // Per sicurezza verifichiamo direttamente l'heartbeat dell'EA del conto selezionato.
+      const liveAgeMs = selectedBrokerLiveState?.last_seen_at
+        ? Date.now() - new Date(selectedBrokerLiveState.last_seen_at).getTime()
+        : Infinity;
+      const selectedMt5Online = !!selectedBrokerLiveState &&
+        selectedBrokerLiveState.connected === true &&
+        liveAgeMs <= 30000;
+
+      if (!selectedMt5Online) {
         alert(
-          "⛔ PC / LAUNCHER OFFLINE\n\n" +
-          "Non posso verificare o avviare la MT5 selezionata.\n" +
+          `⛔ MT5 NON LIVE — ${selectedBrokerAccount.alias || selectedBrokerAccount.broker}\n\n` +
+          "La MT5 deve essere aperta, connessa e con l'EA operativo.\n" +
           "La PIAZZATA è bloccata per sicurezza."
-        );
-        return;
-      }
-
-      const selectedLauncherMt5 = launcherStatusForBrokerAccount(selectedBrokerAccount);
-
-      if (!selectedLauncherMt5) {
-        alert(
-          `⛔ MT5 NON ASSOCIATA AL LAUNCHER — ${selectedBrokerAccount.alias || selectedBrokerAccount.broker}\n\n` +
-          "Non trovo una MT5 autorizzata con lo stesso broker_id / Alias account.\n" +
-          "La PIAZZATA è bloccata per sicurezza."
-        );
-        return;
-      }
-
-      if (selectedLauncherMt5.displayStatus !== "ONLINE") {
-        alert(
-          `⛔ MT5 SPENTA — ${selectedLauncherMt5.broker_id}\n\n` +
-          "Accendi la MT5 dal pulsante AVVIA MT5 OPERATIVE o dalla sezione ACCOUNT BROKER.\n\n" +
-          "La PIAZZATA è bloccata finché la MT5 scelta non risulta ONLINE."
         );
         return;
       }
@@ -2190,23 +2065,40 @@ export default function PropHedgeTab() {
 
           <button
             style={{
-              ...secondaryButton,
-              border: pricesLiveEnabled ? "1px solid rgba(34,197,94,.65)" : "1px solid rgba(100,116,139,.58)",
-              background: pricesLiveEnabled ? "rgba(22,163,74,.18)" : "rgba(15,23,42,.48)",
-              color: pricesLiveEnabled ? "#bbf7d0" : "#cbd5e1"
+              ...primaryButtonBlue,
+              border: tradingEnabled ? "1px solid rgba(248,113,113,.72)" : "1px solid rgba(34,197,94,.72)",
+              background: tradingEnabled
+                ? "linear-gradient(135deg,#991b1b,#dc2626)"
+                : "linear-gradient(135deg,#166534,#16a34a)",
+              color:"#ffffff",
+              minWidth:170
             }}
-            onClick={()=>setPricesLiveEnabled(v=>!v)}
-            title="Attiva/disattiva l'aggiornamento automatico dei prezzi degli asset usati nelle challenge"
+            onClick={()=>{
+              if (tradingEnabled) {
+                if (hasActiveTrade) {
+                  const ok = window.confirm(
+                    "Ci sono operazioni ancora aperte.\n\nSTOP TRADING spegnerà Market Engine e impedirà nuove aperture, ma prezzi e monitoraggio resteranno attivi fino alla chiusura dell'ultimo trade.\n\nProcedere?"
+                  );
+                  if (!ok) return;
+                }
+                setTradingEnabled(false);
+              } else {
+                setTradingEnabled(true);
+                refreshAllSymbols();
+                loadBrokerLiveStates({ silent:true });
+              }
+            }}
+            title={tradingEnabled ? "Ferma la sessione di trading" : "Attiva Market Engine, prezzi live e operatività"}
           >
-            {pricesLiveEnabled ? "🟢 PREZZI LIVE ON" : "⚫ PREZZI LIVE OFF"}
+            {tradingEnabled ? "🔴 STOP TRADING" : "🟢 AVVIA TRADING"}
           </button>
 
           <button
             style={secondaryButton}
             onClick={refreshAllSymbols}
-            title="Aggiorna una sola volta i prezzi degli asset usati nelle challenge"
+            title="Aggiorna una sola volta i prezzi senza avviare la sessione"
           >
-            ↻ Aggiorna prezzi ora
+            ↻ Prezzi ora
           </button>
 
           <button style={primaryButtonBlue} onClick={addChallenge}>+ Aggiungi Challenge</button>
@@ -2223,21 +2115,22 @@ export default function PropHedgeTab() {
           }}>{label}</button>
         ))}
 
-        <button
-          style={{
-            ...primaryButtonBlue,
-            marginLeft:"auto",
-            opacity:(!launcherPcOnline || launcherCommandBusy.ALL) ? .45 : 1,
-            cursor:(!launcherPcOnline || launcherCommandBusy.ALL) ? "not-allowed" : "pointer"
-          }}
-          disabled={!launcherPcOnline || !!launcherCommandBusy.ALL}
-          onClick={()=>sendLauncherCommand("START_ALL")}
-          title={launcherPcOnline
-            ? "Avvia tutte le MT5 operative autorizzate sul PC"
-            : "PC / Launcher offline"}
-        >
-          {launcherCommandBusy.ALL ? "⏳ AVVIO MT5…" : "🚀 AVVIA MT5 OPERATIVE"}
-        </button>
+        <div style={{
+          marginLeft:"auto",
+          padding:"9px 12px",
+          borderRadius:12,
+          border: tradingRuntimeActive ? "1px solid rgba(34,197,94,.38)" : "1px solid rgba(100,116,139,.45)",
+          background: tradingRuntimeActive ? "rgba(22,163,74,.10)" : "rgba(15,23,42,.48)",
+          color: tradingRuntimeActive ? "#86efac" : "#94a3b8",
+          fontSize:11,
+          fontWeight:900
+        }}>
+          {tradingEnabled
+            ? "🟢 SESSIONE TRADING ATTIVA"
+            : hasActiveTrade
+              ? "🟠 SOLO MONITORAGGIO TRADE"
+              : "⚫ TRADING IN PAUSA"}
+        </div>
       </div>
 
       {mainView === "OPERATIVITA" && (<>
@@ -2365,15 +2258,31 @@ export default function PropHedgeTab() {
         </div>
       )}
 
-      <MarketEnginePanel
-        defaultAsset="XAUUSD"
-        challenges={challenges}
-        onApplyDirection={(challengeId, suggestedDirection) => {
-          // Anche con STOP HEDGE il Market Engine può impostare la direzione della Prop.
-          // Lo stop riguarda esclusivamente la nuova gamba Broker.
-          setChallenge(challengeId, { direction: suggestedDirection });
-        }}
-      />
+      {tradingEnabled ? (
+        <MarketEnginePanel
+          defaultAsset="XAUUSD"
+          challenges={challenges}
+          onApplyDirection={(challengeId, suggestedDirection) => {
+            // Anche con STOP HEDGE il Market Engine può impostare la direzione della Prop.
+            // Lo stop riguarda esclusivamente la nuova gamba Broker.
+            setChallenge(challengeId, { direction: suggestedDirection });
+          }}
+        />
+      ) : (
+        <div style={{
+          ...panel,
+          border:"1px solid rgba(100,116,139,.38)",
+          background:"rgba(15,23,42,.52)",
+          color:"#94a3b8",
+          padding:"16px 18px"
+        }}>
+          <div style={{fontSize:16,fontWeight:950,color:"#cbd5e1"}}>⚫ Market Engine in pausa</div>
+          <div style={{fontSize:12,marginTop:5}}>
+            Premi <b style={{color:"#86efac"}}>AVVIA TRADING</b> per attivare motore, prezzi live e operatività.
+            {hasActiveTrade ? " Il monitoraggio del trade aperto resta comunque attivo." : ""}
+          </div>
+        </div>
+      )}
 
       <div style={{
         ...panel,
@@ -2383,7 +2292,7 @@ export default function PropHedgeTab() {
         <div style={panelHeader}>
           <div>
             <h3 style={panelTitle}>🏦 Broker centrale</h3>
-            <p style={panelSubtitle}>Somma automatica dei conti Broker MT5 attivi. Heartbeat live ogni 5 secondi.</p>
+            <p style={panelSubtitle}>Somma automatica dei conti Broker MT5 attivi. Aggiornamento rapido solo durante Trading/monitoraggio.</p>
           </div>
           <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
             <span style={{ color:brokerLiveSummary.allOnline?"#5eead4":"#fde68a", fontWeight:900 }}>
@@ -3027,18 +2936,22 @@ export default function PropHedgeTab() {
                 <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:14}}>
                   <button
                     onClick={()=>placeTrade(ch.id)}
-                    disabled={bridgeSubmitting[ch.id] || (ch.hedgeEnabled !== false && safetyInfo?.level === "red")}
+                    disabled={!tradingEnabled || bridgeSubmitting[ch.id] || (ch.hedgeEnabled !== false && safetyInfo?.level === "red")}
                     style={{
                       border:"none",borderRadius:14,padding:"12px 20px",
-                      cursor:(bridgeSubmitting[ch.id] || (ch.hedgeEnabled !== false && safetyInfo?.level === "red")) ? "not-allowed" : "pointer",
-                      opacity:(bridgeSubmitting[ch.id] || (ch.hedgeEnabled !== false && safetyInfo?.level === "red")) ? .45 : 1,
+                      cursor:(!tradingEnabled || bridgeSubmitting[ch.id] || (ch.hedgeEnabled !== false && safetyInfo?.level === "red")) ? "not-allowed" : "pointer",
+                      opacity:(!tradingEnabled || bridgeSubmitting[ch.id] || (ch.hedgeEnabled !== false && safetyInfo?.level === "red")) ? .45 : 1,
                       fontWeight:900,color:"#052e16",background:"linear-gradient(135deg,#4ade80,#22c55e)"
                     }}
-                    title={ch.hedgeEnabled === false ? "Avvia il trade sulla Prop senza aprire una nuova copertura Broker." : ""}
+                    title={!tradingEnabled
+                      ? "Premi AVVIA TRADING per abilitare nuove operazioni."
+                      : (ch.hedgeEnabled === false ? "Avvia il trade sulla Prop senza aprire una nuova copertura Broker." : "")}
                   >
-                    {bridgeSubmitting[ch.id]
-                      ? "⏳ CREAZIONE COMANDO…"
-                      : (ch.hedgeEnabled === false ? "✅ PIAZZATA PROP — SENZA HEDGE" : "✅ PIAZZATA — INVIA AL BRIDGE")}
+                    {!tradingEnabled
+                      ? "🔒 AVVIA TRADING PER OPERARE"
+                      : bridgeSubmitting[ch.id]
+                        ? "⏳ CREAZIONE COMANDO…"
+                        : (ch.hedgeEnabled === false ? "✅ PIAZZATA PROP — SENZA HEDGE" : "✅ PIAZZATA — INVIA AL BRIDGE")}
                   </button>
                   <button style={secondaryButton} onClick={()=>refreshSymbol(ch.asset)}>Aggiorna prezzo</button>
                 </div>
@@ -3175,8 +3088,8 @@ export default function PropHedgeTab() {
               <h3 style={panelTitle}>⚙️ Account Broker MT5</h3>
               <p style={panelSubtitle}>Censimento multi-account. Ogni Prop può scegliere un conto diverso. Nessuna password viene salvata qui.</p>
             </div>
-            <button style={secondaryButton} onClick={()=>{ loadBrokerAccounts(); loadLauncherControlStatus(); }}>
-              {(brokerAccountsLoading || launcherLoading) ? "Aggiorno…" : "↻ Aggiorna"}
+            <button style={secondaryButton} onClick={()=>{ loadBrokerAccounts(); loadBrokerLiveStates(); }}>
+              {(brokerAccountsLoading || brokerLiveLoading) ? "Aggiorno…" : "↻ Aggiorna"}
             </button>
           </div>
 
@@ -3184,101 +3097,13 @@ export default function PropHedgeTab() {
             marginBottom:20,
             padding:"15px",
             borderRadius:16,
-            border:launcherPcOnline ? "1px solid rgba(34,197,94,.34)" : "1px solid rgba(248,113,113,.36)",
-            background:launcherPcOnline ? "rgba(20,83,45,.08)" : "rgba(127,29,29,.10)"
+            border:"1px solid rgba(56,189,248,.30)",
+            background:"rgba(8,145,178,.06)"
           }}>
-            <div style={{display:"flex",justifyContent:"space-between",gap:12,alignItems:"center",flexWrap:"wrap"}}>
-              <div>
-                <div style={{fontSize:15,fontWeight:950,color:"#f8fafc"}}>🖥️ Controllo Launcher Windows</div>
-                <div style={{fontSize:12,color:launcherPcOnline?"#86efac":"#fca5a5",fontWeight:900,marginTop:4}}>
-                  {launcherPcOnline ? "🟢 PC ONLINE" : "🔴 PC OFFLINE"}
-                  {launcherStatus?.last_seen
-                    ? ` • ultimo heartbeat ${Math.max(0, Math.floor(launcherHeartbeatAgeMs / 1000))}s fa`
-                    : " • heartbeat mai ricevuto"}
-                </div>
-              </div>
-
-              <button
-                style={{
-                  ...primaryButtonBlue,
-                  opacity:(!launcherPcOnline || launcherCommandBusy.ALL) ? .45 : 1,
-                  cursor:(!launcherPcOnline || launcherCommandBusy.ALL) ? "not-allowed" : "pointer"
-                }}
-                disabled={!launcherPcOnline || !!launcherCommandBusy.ALL}
-                onClick={()=>sendLauncherCommand("START_ALL")}
-              >
-                {launcherCommandBusy.ALL ? "⏳ AVVIO…" : "🚀 AVVIA MT5 OPERATIVE"}
-              </button>
-            </div>
-
-            {launcherCommandMessage && (
-              <div style={{
-                marginTop:10,
-                padding:"8px 10px",
-                borderRadius:10,
-                background:"rgba(15,23,42,.48)",
-                color:"#cbd5e1",
-                fontSize:11,
-                fontWeight:800
-              }}>
-                {launcherCommandMessage}
-              </div>
-            )}
-
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(250px,1fr))",gap:10,marginTop:13}}>
-              {launcherMt5Rows.length === 0 ? (
-                <div style={{...hintBox,gridColumn:"1 / -1"}}>
-                  Nessuna MT5 autorizzata ancora pubblicata dal launcher.
-                </div>
-              ) : launcherMt5Rows.map(row => {
-                const online = row.displayStatus === "ONLINE";
-                const pcOffline = row.displayStatus === "PC OFFLINE";
-                const statusColor = online ? "#86efac" : pcOffline ? "#fca5a5" : "#fde68a";
-                const statusIcon = online ? "🟢" : pcOffline ? "🔴" : "🟡";
-
-                return (
-                  <div key={row.broker_id} style={{
-                    padding:"12px 13px",
-                    borderRadius:14,
-                    border:online
-                      ? "1px solid rgba(34,197,94,.36)"
-                      : pcOffline
-                        ? "1px solid rgba(248,113,113,.34)"
-                        : "1px solid rgba(245,158,11,.34)",
-                    background:online
-                      ? "rgba(20,83,45,.10)"
-                      : pcOffline
-                        ? "rgba(127,29,29,.10)"
-                        : "rgba(120,53,15,.10)"
-                  }}>
-                    <div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-                      <div>
-                        <div style={{fontSize:15,fontWeight:950,color:"#f8fafc"}}>{row.broker_id}</div>
-                        <div style={{fontSize:11,fontWeight:900,color:statusColor,marginTop:4}}>
-                          {statusIcon} {row.displayStatus}
-                          {online && row.pid ? ` • PID ${row.pid}` : ""}
-                        </div>
-                      </div>
-
-                      <button
-                        style={{
-                          ...secondaryButton,
-                          opacity:(!launcherPcOnline || online || launcherCommandBusy[row.broker_id]) ? .45 : 1,
-                          cursor:(!launcherPcOnline || online || launcherCommandBusy[row.broker_id]) ? "not-allowed" : "pointer"
-                        }}
-                        disabled={!launcherPcOnline || online || !!launcherCommandBusy[row.broker_id]}
-                        onClick={()=>sendLauncherCommand("START", row.broker_id)}
-                      >
-                        {launcherCommandBusy[row.broker_id] ? "⏳ AVVIO…" : online ? "✓ ATTIVA" : `▶ AVVIA ${row.broker_id}`}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div style={{fontSize:10,color:"#64748b",marginTop:10}}>
-              PC OFFLINE = heartbeat launcher oltre 20 minuti. Il launcher controlla i comandi ogni 15 minuti per ridurre il traffico su Supabase.
+            <div style={{fontSize:15,fontWeight:950,color:"#e2e8f0"}}>🖥️ MT5 avviate automaticamente con Windows</div>
+            <div style={{fontSize:12,color:"#94a3b8",marginTop:5}}>
+              Il vecchio Launcher remoto non è più usato. Lo stato operativo viene verificato direttamente dagli heartbeat degli EA MT5.
+              Durante TRADING OFF non viene eseguito polling continuo dal ProfitTracker.
             </div>
           </div>
 
