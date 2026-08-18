@@ -1,6 +1,6 @@
 "use client";
 
-// PropHedgeTab v1.14 — navigatore rapido Prop + launcher/safety MT5
+// PropHedgeTab v1.15 — prezzi live manuali + launcher 15 min ottimizzato
 
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
@@ -326,6 +326,7 @@ export default function PropHedgeTab() {
   const [brokerAdjustSaving, setBrokerAdjustSaving] = useState(false);
   const [brokerAdjustments, setBrokerAdjustments] = useState([]);
   const [liveMap, setLiveMap] = useState({});
+  const [pricesLiveEnabled, setPricesLiveEnabled] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
   // Storico Supabase
@@ -942,26 +943,6 @@ export default function PropHedgeTab() {
     }
   };
 
-  const waitForLauncherCommand = async (commandId, { timeoutMs = 20000, intervalMs = 700 } = {}) => {
-    const started = Date.now();
-
-    while (Date.now() - started < timeoutMs) {
-      const { data, error } = await supabase
-        .from("prop_launcher_commands")
-        .select("id,status,result,processed_at")
-        .eq("id", commandId)
-        .maybeSingle();
-
-      if (error) throw error;
-      if (!data) throw new Error("Comando Launcher non trovato.");
-
-      if (data.status === "DONE" || data.status === "ERROR") return data;
-      await new Promise(resolve => setTimeout(resolve, intervalMs));
-    }
-
-    return { id: commandId, status: "TIMEOUT", result: "Nessuna risposta dal launcher entro il tempo previsto." };
-  };
-
   const sendLauncherCommand = async (command, brokerId = null) => {
     const busyKey = brokerId || "ALL";
     if (launcherCommandBusy[busyKey]) return;
@@ -987,18 +968,11 @@ export default function PropHedgeTab() {
       if (error) throw error;
       if (!data?.id) throw new Error("Supabase non ha restituito l'ID del comando.");
 
-      const result = await waitForLauncherCommand(data.id);
-
-      if (result.status === "DONE") {
-        setLauncherCommandMessage(`✅ ${result.result || "Comando eseguito"}`);
-      } else if (result.status === "ERROR") {
-        setLauncherCommandMessage(`❌ ${result.result || "Errore launcher"}`);
-      } else {
-        setLauncherCommandMessage("⚠️ Comando inviato, ma il launcher non ha risposto in tempo.");
-      }
-
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      await loadLauncherControlStatus({ silent: true });
+      setLauncherCommandMessage(
+        brokerId
+          ? `✅ Avvio ${brokerId} accodato. Il launcher lo eseguirà al prossimo controllo (entro 15 minuti).`
+          : "✅ Avvio MT5 operative accodato. Il launcher lo eseguirà al prossimo controllo (entro 15 minuti)."
+      );
     } catch (e) {
       console.error("Errore comando Launcher:", e);
       setLauncherCommandMessage("❌ " + (e?.message || "Errore invio comando Launcher"));
@@ -1014,14 +988,14 @@ export default function PropHedgeTab() {
   const launcherPcOnline =
     !!launcherStatus &&
     launcherStatus.pc_status === "ONLINE" &&
-    launcherHeartbeatAgeMs <= 15000;
+    launcherHeartbeatAgeMs <= 1200000;
 
   const launcherMt5Rows = useMemo(() => {
     const now = Date.now();
 
     return mt5LauncherStatuses.map(row => {
       const ageMs = row?.last_seen ? now - new Date(row.last_seen).getTime() : Infinity;
-      const fresh = ageMs <= 15000;
+      const fresh = ageMs <= 1200000;
 
       let displayStatus = "PC OFFLINE";
       if (launcherPcOnline) {
@@ -1088,8 +1062,14 @@ export default function PropHedgeTab() {
   useEffect(() => {
     const id = setInterval(() => {
       loadBrokerLiveStates({ silent: true });
+    }, 15000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(() => {
       loadLauncherControlStatus({ silent: true });
-    }, 5000);
+    }, 300000);
     return () => clearInterval(id);
   }, []);
 
@@ -1150,16 +1130,23 @@ export default function PropHedgeTab() {
     }
   };
 
+  const refreshAllSymbols = () => {
+    const symbols = symbolsKey ? symbolsKey.split("|") : [];
+    symbols.forEach(refreshSymbol);
+  };
+
   useEffect(() => {
+    if (!pricesLiveEnabled) return;
+
     const symbols = symbolsKey ? symbolsKey.split("|") : [];
     symbols.forEach(refreshSymbol);
 
     const id = setInterval(() => {
       symbols.forEach(refreshSymbol);
-    }, 2000);
+    }, 5000);
 
     return () => clearInterval(id);
-  }, [symbolsKey]);
+  }, [symbolsKey, pricesLiveEnabled]);
 
   const setChallenge = (id, patch) => {
     setChallenges(prev => prev.map(ch => ch.id === id ? { ...ch, ...patch } : ch));
@@ -2199,6 +2186,27 @@ export default function PropHedgeTab() {
             onClick={()=>syncActiveChallengesToSupabase({ silent:false })}
           >
             {activeSyncLoading ? "☁️ Sincronizzo…" : "☁️ Sincronizza ora"}
+          </button>
+
+          <button
+            style={{
+              ...secondaryButton,
+              border: pricesLiveEnabled ? "1px solid rgba(34,197,94,.65)" : "1px solid rgba(100,116,139,.58)",
+              background: pricesLiveEnabled ? "rgba(22,163,74,.18)" : "rgba(15,23,42,.48)",
+              color: pricesLiveEnabled ? "#bbf7d0" : "#cbd5e1"
+            }}
+            onClick={()=>setPricesLiveEnabled(v=>!v)}
+            title="Attiva/disattiva l'aggiornamento automatico dei prezzi degli asset usati nelle challenge"
+          >
+            {pricesLiveEnabled ? "🟢 PREZZI LIVE ON" : "⚫ PREZZI LIVE OFF"}
+          </button>
+
+          <button
+            style={secondaryButton}
+            onClick={refreshAllSymbols}
+            title="Aggiorna una sola volta i prezzi degli asset usati nelle challenge"
+          >
+            ↻ Aggiorna prezzi ora
           </button>
 
           <button style={primaryButtonBlue} onClick={addChallenge}>+ Aggiungi Challenge</button>
@@ -3270,7 +3278,7 @@ export default function PropHedgeTab() {
             </div>
 
             <div style={{fontSize:10,color:"#64748b",marginTop:10}}>
-              PC OFFLINE = heartbeat launcher oltre 15 secondi. Le MT5 vengono mostrate automaticamente dalla configurazione del launcher.
+              PC OFFLINE = heartbeat launcher oltre 20 minuti. Il launcher controlla i comandi ogni 15 minuti per ridurre il traffico su Supabase.
             </div>
           </div>
 
