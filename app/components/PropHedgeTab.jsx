@@ -1,6 +1,6 @@
 "use client";
 
-// PropHedgeTab v1.16 — modalità AVVIA/STOP TRADING + MT5 auto-start Windows
+// PropHedgeTab v1.17 — TRADING session Supabase + MT5 auto-start Windows
 
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
@@ -327,6 +327,8 @@ export default function PropHedgeTab() {
   const [brokerAdjustments, setBrokerAdjustments] = useState([]);
   const [liveMap, setLiveMap] = useState({});
   const [tradingEnabled, setTradingEnabled] = useState(false);
+  const [tradingSyncing, setTradingSyncing] = useState(false);
+  const [tradingSessionLoaded, setTradingSessionLoaded] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
   // Storico Supabase
@@ -445,6 +447,101 @@ export default function PropHedgeTab() {
   // - hasActiveTrade = mantiene vivo il monitoraggio essenziale anche dopo STOP TRADING
   const hasActiveTrade = useMemo(() => challenges.some(ch => !!ch.active), [challenges]);
   const tradingRuntimeActive = tradingEnabled || hasActiveTrade;
+
+  const loadTradingSession = async () => {
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData?.user?.id;
+      if (!uid) throw new Error("Utente Supabase non autenticato");
+
+      const { data, error } = await supabase
+        .from("prop_trading_session")
+        .select("trading_enabled,mode,active_account,active_symbol,started_at,stopped_at,updated_at")
+        .eq("user_id", uid)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      setTradingEnabled(data?.trading_enabled === true);
+      setTradingSessionLoaded(true);
+      return data || null;
+    } catch (e) {
+      console.error("Errore caricamento sessione Trading:", e);
+      setTradingEnabled(false);
+      setTradingSessionLoaded(true);
+      return null;
+    }
+  };
+
+  const saveTradingSession = async ({ enabled, mode, activeAccount = null, activeSymbol = null }) => {
+    const { data: userData } = await supabase.auth.getUser();
+    const uid = userData?.user?.id;
+    if (!uid) throw new Error("Utente Supabase non autenticato");
+
+    const now = new Date().toISOString();
+    const payload = {
+      user_id: uid,
+      trading_enabled: enabled === true,
+      mode: mode || (enabled ? "READY" : "OFF"),
+      active_account: activeAccount || null,
+      active_symbol: activeSymbol || null,
+      updated_at: now
+    };
+
+    if (enabled) {
+      payload.started_at = now;
+      payload.stopped_at = null;
+    } else {
+      payload.stopped_at = now;
+    }
+
+    const { error } = await supabase
+      .from("prop_trading_session")
+      .upsert(payload, { onConflict: "user_id" });
+
+    if (error) throw error;
+    return true;
+  };
+
+  const toggleTrading = async () => {
+    if (tradingSyncing) return;
+
+    if (tradingEnabled && hasActiveTrade) {
+      const ok = window.confirm(
+        "Ci sono operazioni ancora aperte.\n\nSTOP TRADING spegnerà Market Engine e impedirà nuove aperture, ma prezzi e monitoraggio resteranno attivi fino alla chiusura dell'ultimo trade.\n\nProcedere?"
+      );
+      if (!ok) return;
+    }
+
+    const nextEnabled = !tradingEnabled;
+    const nextMode = nextEnabled
+      ? (hasActiveTrade ? "ACTIVE_TRADE" : "READY")
+      : (hasActiveTrade ? "ACTIVE_TRADE" : "OFF");
+
+    setTradingSyncing(true);
+
+    try {
+      await saveTradingSession({
+        enabled: nextEnabled,
+        mode: nextMode
+      });
+
+      setTradingEnabled(nextEnabled);
+
+      if (nextEnabled) {
+        refreshAllSymbols();
+        loadBrokerLiveStates({ silent: true });
+      }
+    } catch (e) {
+      console.error("Errore cambio stato Trading:", e);
+      alert(
+        "❌ IMPOSSIBILE CAMBIARE STATO TRADING\n\n" +
+        (e?.message || String(e))
+      );
+    } finally {
+      setTradingSyncing(false);
+    }
+  };
 
   const initializeExistingChallenge = async () => {
     const ch = challenges.find(x => x.id === existingInitChallengeId);
@@ -939,6 +1036,7 @@ export default function PropHedgeTab() {
     loadBrokerAccounts();
     loadBrokerLiveStates();
     loadActiveChallengesFromSupabase();
+    loadTradingSession();
   }, []);
 
   useEffect(() => {
@@ -2073,24 +2171,15 @@ export default function PropHedgeTab() {
               color:"#ffffff",
               minWidth:170
             }}
-            onClick={()=>{
-              if (tradingEnabled) {
-                if (hasActiveTrade) {
-                  const ok = window.confirm(
-                    "Ci sono operazioni ancora aperte.\n\nSTOP TRADING spegnerà Market Engine e impedirà nuove aperture, ma prezzi e monitoraggio resteranno attivi fino alla chiusura dell'ultimo trade.\n\nProcedere?"
-                  );
-                  if (!ok) return;
-                }
-                setTradingEnabled(false);
-              } else {
-                setTradingEnabled(true);
-                refreshAllSymbols();
-                loadBrokerLiveStates({ silent:true });
-              }
-            }}
+            disabled={tradingSyncing || !tradingSessionLoaded}
+            onClick={toggleTrading}
             title={tradingEnabled ? "Ferma la sessione di trading" : "Attiva Market Engine, prezzi live e operatività"}
           >
-            {tradingEnabled ? "🔴 STOP TRADING" : "🟢 AVVIA TRADING"}
+            {tradingSyncing
+              ? "⏳ AGGIORNO TRADING…"
+              : tradingEnabled
+                ? "🔴 STOP TRADING"
+                : "🟢 AVVIA TRADING"}
           </button>
 
           <button
