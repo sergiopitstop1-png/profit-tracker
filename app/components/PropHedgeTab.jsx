@@ -1,6 +1,6 @@
 "use client";
 
-// PropHedgeTab v1.18 — TRADING session + MT5 live stability
+// PropHedgeTab v1.19 — TRADING session + MT5 live stability
 
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
@@ -1000,7 +1000,31 @@ export default function PropHedgeTab() {
         .eq("user_id", uid);
 
       if (error) throw error;
-      setBrokerLiveStates(data || []);
+
+      // v1.19 — CACHE STABILE DEGLI SNAPSHOT MT5
+      // Una lettura temporaneamente vuota/incompleta NON deve cancellare
+      // l'ultimo snapshot valido già ricevuto dal broker.
+      // Aggiorniamo quindi solo i conti realmente presenti nella risposta.
+      const incoming = Array.isArray(data) ? data : [];
+      setBrokerLiveStates(prev => {
+        const byId = new Map((prev || []).map(row => [row.broker_account_id, row]));
+
+        for (const row of incoming) {
+          if (!row?.broker_account_id) continue;
+          const oldRow = byId.get(row.broker_account_id) || {};
+
+          // Manteniamo l'ultimo valore noto se un singolo campo arriva null/undefined.
+          // Lo zero vero, invece, resta zero: non viene scambiato per dato mancante.
+          const merged = { ...oldRow, ...row };
+          for (const key of ["balance","credit","equity","margin","free_margin","margin_level","connected","algo_trading","last_seen_at","updated_at"]) {
+            if (row[key] === null || row[key] === undefined) merged[key] = oldRow[key] ?? row[key];
+          }
+          byId.set(row.broker_account_id, merged);
+        }
+
+        return Array.from(byId.values());
+      });
+
       setBrokerLiveError("");
       setBrokerLiveUpdatedAt(new Date());
     } catch (e) {
