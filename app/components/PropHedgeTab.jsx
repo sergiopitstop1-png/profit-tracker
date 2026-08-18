@@ -1,6 +1,6 @@
 "use client";
 
-// PropHedgeTab v1.19 — TRADING session + MT5 live stability
+// PropHedgeTab v1.20 — TRADING session + MT5 live stability + avviso avvio
 
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
@@ -533,6 +533,12 @@ export default function PropHedgeTab() {
       if (nextEnabled) {
         refreshAllSymbols();
         loadBrokerLiveStates({ silent: true });
+
+        alert(
+          "✅ TRADING AVVIATO\n\n" +
+          "Attendi circa 60 secondi prima di piazzare un’operazione, " +
+          "per permettere alle MT5 e al Market Feed di entrare in modalità operativa."
+        );
       }
     } catch (e) {
       console.error("Errore cambio stato Trading:", e);
