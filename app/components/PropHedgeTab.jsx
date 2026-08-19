@@ -1,6 +1,6 @@
 "use client";
 
-// PropHedgeTab v1.20 — TRADING session + MT5 live stability + avviso avvio
+// PropHedgeTab v1.21 — TRADING session + MT5 live stability + avviso avvio
 
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
@@ -2399,7 +2399,7 @@ export default function PropHedgeTab() {
       {tradingEnabled ? (
         <MarketEnginePanel
           defaultAsset="XAUUSD"
-          challenges={challenges}
+          challenges={challenges.filter(ch => !ch.archived)}
           onApplyDirection={(challengeId, suggestedDirection) => {
             // Anche con STOP HEDGE il Market Engine può impostare la direzione della Prop.
             // Lo stop riguarda esclusivamente la nuova gamba Broker.
@@ -2407,19 +2407,31 @@ export default function PropHedgeTab() {
           }}
         />
       ) : (
-        <div style={{
-          ...panel,
-          border:"1px solid rgba(100,116,139,.38)",
-          background:"rgba(15,23,42,.52)",
-          color:"#94a3b8",
-          padding:"16px 18px"
-        }}>
-          <div style={{fontSize:16,fontWeight:950,color:"#cbd5e1"}}>⚫ Market Engine in pausa</div>
-          <div style={{fontSize:12,marginTop:5}}>
-            Premi <b style={{color:"#86efac"}}>AVVIA TRADING</b> per attivare motore, prezzi live e operatività.
-            {hasActiveTrade ? " Il monitoraggio del trade aperto resta comunque attivo." : ""}
+        <>
+          <div style={{
+            ...panel,
+            border:"1px solid rgba(100,116,139,.38)",
+            background:"rgba(15,23,42,.52)",
+            color:"#94a3b8",
+            padding:"16px 18px"
+          }}>
+            <div style={{fontSize:16,fontWeight:950,color:"#cbd5e1"}}>⚫ Market Engine operativo in pausa</div>
+            <div style={{fontSize:12,marginTop:5}}>
+              Premi <b style={{color:"#86efac"}}>AVVIA TRADING</b> per riattivare War Room, prezzi live e operatività.
+              {hasActiveTrade ? " Il monitoraggio del trade aperto resta comunque attivo." : ""}
+            </div>
+            <div style={{fontSize:11,marginTop:6,color:"#c4b5fd"}}>
+              🧪 Il Market Engine Lab continua invece a raccogliere e validare i segnali automaticamente.
+            </div>
           </div>
-        </div>
+
+          <MarketEnginePanel
+            defaultAsset="XAUUSD"
+            challenges={[]}
+            onApplyDirection={null}
+            labOnly={true}
+          />
+        </>
       )}
 
       <div style={{
