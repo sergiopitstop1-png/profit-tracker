@@ -175,12 +175,7 @@ export const tableLarge = { width: '100%', borderCollapse: 'collapse', minWidth:
 export const th = { textAlign: 'left', padding: '14px 14px', fontSize: 12, color: '#94a3b8', background: '#0b1220', borderBottom: '1px solid rgba(51,65,85,0.85)', textTransform: 'uppercase', letterSpacing: 0.7 }
 export const thActions = {
   ...th,
-  minWidth: 140,
-  position: 'sticky',
-  right: 0,
-  background: '#0b1220',
-  zIndex: 3,
-  boxShadow: '-8px 0 12px rgba(2,6,23,0.35)'
+  minWidth: 140
 }
 export const tr = { borderBottom: '1px solid rgba(30,41,59,0.9)' }
 export const td = { padding: '14px 14px', color: '#e2e8f0', verticalAlign: 'top', fontSize: 14 }
@@ -189,12 +184,7 @@ export const tdNote = { ...td, minWidth: 250 }
 export const tdNoteText = { ...td, minWidth: 280 }
 export const tdActions = { 
   ...td, 
-  minWidth: 140,
-  position: 'sticky',
-  right: 0,
-  background: '#0b1220',
-  zIndex: 2,
-  boxShadow: '-8px 0 12px rgba(2,6,23,0.35)'
+  minWidth: 140
 }
 export const noteTextarea = { width: '100%', maxWidth: '340px', background: '#0b1220', color: '#f8fafc', border: '1px solid rgba(51,65,85,0.9)', borderRadius: 10, padding: '8px 10px', minHeight: 52, resize: 'vertical', boxSizing: 'border-box', overflow: 'hidden' }
 export const stackList = { display: 'flex', flexDirection: 'column', gap: 12 }
