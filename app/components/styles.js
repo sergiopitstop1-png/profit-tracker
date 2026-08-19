@@ -14,7 +14,7 @@ export const statsGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fi
 export const statsGridCompact = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))', gap: 14 }
 export const stimeMonthsGrid = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(min(340px, 100%), 1fr))',
   gap: 16,
   alignItems: 'start'
 }
@@ -59,12 +59,12 @@ export const stimeMonthBody = {
 
 export const stimeRow = {
   display: 'grid',
-  gridTemplateColumns: '170px 95px minmax(0, 1fr)',
+  gridTemplateColumns: 'clamp(128px, 42vw, 170px) clamp(72px, 24vw, 95px) minmax(0, 1fr)',
   gap: 8,
   alignItems: 'center'
 }
 
-export const stimeDoneCol = { minWidth: 170 }
+export const stimeDoneCol = { minWidth: 0 }
 
 export const stimeStatusButtons = {
   display: 'grid',
