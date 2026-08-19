@@ -75,7 +75,7 @@ function biasTheme(bias) {
   };
 }
 
-export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges = [], onApplyDirection = null }) {
+export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges = [], onApplyDirection = null, labOnly = false }) {
   const [symbol, setSymbol] = useState(defaultAsset);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -171,18 +171,21 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
   };
 
   useEffect(() => {
-    // Cambio asset: cancella subito il vecchio segnale e analizza il nuovo simbolo.
+    // Cambio asset: cancella subito il vecchio segnale.
+    // In modalità labOnly NON richiamiamo market-analysis: il Lab legge solo lo storico.
     activeSymbolRef.current = symbol;
     lastRequestAtRef.current = 0;
     setData(null);
     setError("");
     setUsingFallback(false);
 
+    if (labOnly) return;
+
     analyze(false, symbol);
 
     const id = setInterval(() => analyze(false, symbol), 120000);
     return () => clearInterval(id);
-  }, [symbol]);
+  }, [symbol, labOnly]);
 
   useEffect(() => {
     if (!targetChallengeId && challenges.length) {
@@ -233,6 +236,88 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
     if (v === false) return { label:"❌ LOSS", color:"#fb7185" };
     return { label:"—", color:"#94a3b8" };
   };
+
+  const renderLabPanel = () => (
+<div style={{
+        marginTop:14,
+        border:"1px solid rgba(168,85,247,.32)",
+        borderRadius:16,
+        background:"rgba(2,6,23,.42)",
+        overflow:"hidden"
+      }}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap",padding:"13px 14px",borderBottom:labOpen?"1px solid rgba(71,85,105,.38)":"none"}}>
+          <div>
+            <div style={{fontSize:15,fontWeight:1000,color:"#f3e8ff"}}>🧪 MARKET ENGINE LAB — Validazione segnali</div>
+            <div style={{fontSize:10,color:"#94a3b8",marginTop:3}}>Storico automatico 1H / 2H / 3H. La direzione validata è il forecast di mercato, non la direzione Prop.</div>
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <button style={secondaryButton} onClick={()=>loadLab(symbol)} disabled={labLoading}>{labLoading?"Aggiorno…":"↻ Aggiorna Lab"}</button>
+            <button style={secondaryButton} onClick={()=>setLabOpen(v=>!v)}>{labOpen?"Nascondi":"Mostra"}</button>
+          </div>
+        </div>
+
+        {labOpen && (
+          <div style={{padding:14}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:8,marginBottom:12}}>
+              {[
+                ["SEGNALI",labStats.total,"#e2e8f0"],
+                ["IN VALUTAZIONE",labStats.pending,"#fde68a"],
+                ["COMPLETATI",labStats.completed,"#c4b5fd"],
+                ["WIN RATE 1H",labStats.wr1==null?"—":`${fmt(labStats.wr1,1)}%`,"#5eead4"],
+                ["WIN RATE 2H",labStats.wr2==null?"—":`${fmt(labStats.wr2,1)}%`,"#5eead4"],
+                ["WIN RATE 3H",labStats.wr3==null?"—":`${fmt(labStats.wr3,1)}%`,"#4ade80"]
+              ].map(([lab,val,color])=>(
+                <div key={lab} style={{padding:"10px 11px",borderRadius:12,border:"1px solid rgba(71,85,105,.42)",background:"rgba(15,23,42,.55)"}}>
+                  <div style={{fontSize:9,fontWeight:900,color:"#64748b"}}>{lab}</div>
+                  <div style={{fontSize:20,fontWeight:1000,color,marginTop:3}}>{val}</div>
+                </div>
+              ))}
+            </div>
+
+            {labError && <div style={{padding:"10px 12px",marginBottom:10,borderRadius:12,border:"1px solid rgba(248,113,113,.35)",color:"#fecaca",background:"rgba(127,29,29,.15)"}}>❌ {labError}</div>}
+
+            <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch",border:"1px solid rgba(71,85,105,.35)",borderRadius:12}}>
+              <table style={{width:"100%",minWidth:980,borderCollapse:"collapse",fontSize:10}}>
+                <thead>
+                  <tr style={{background:"rgba(15,23,42,.92)",color:"#94a3b8",textAlign:"left"}}>
+                    {["ORA M15","FORECAST","CONF.","SCORE","ENTRY","1H","2H","3H","MFE 3H","MAE 3H","STATO"].map(h=><th key={h} style={{padding:"9px 8px",borderBottom:"1px solid rgba(71,85,105,.45)",whiteSpace:"nowrap"}}>{h}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {labRows.map(row=>{
+                    const dir=String(row?.forecast_direction||"WAIT").toUpperCase();
+                    const b1=resultBadge(row,1), b2=resultBadge(row,2), b3=resultBadge(row,3);
+                    return (
+                      <tr key={row.id} style={{borderBottom:"1px solid rgba(51,65,85,.35)",color:"#cbd5e1"}}>
+                        <td style={{padding:"8px",whiteSpace:"nowrap"}}>{row?.signal_m15_time ? new Date(row.signal_m15_time).toLocaleString("it-IT",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : "—"}</td>
+                        <td style={{padding:"8px",fontWeight:1000,color:dir==="BUY"?"#5eead4":dir==="SELL"?"#fb7185":"#fde68a"}}>{dir}</td>
+                        <td style={{padding:"8px"}}>{fmt(row?.confidence_raw,0)}</td>
+                        <td style={{padding:"8px"}}>{fmt(row?.price_score,1)}</td>
+                        <td style={{padding:"8px"}}>{fmt(row?.entry_price,priceDecimals(symbol))}</td>
+                        <td style={{padding:"8px",fontWeight:900,color:b1.color,whiteSpace:"nowrap"}}>{b1.label}</td>
+                        <td style={{padding:"8px",fontWeight:900,color:b2.color,whiteSpace:"nowrap"}}>{b2.label}</td>
+                        <td style={{padding:"8px",fontWeight:900,color:b3.color,whiteSpace:"nowrap"}}>{b3.label}</td>
+                        <td style={{padding:"8px",color:Number(row?.mfe_atr_3h)>=0?"#4ade80":"#cbd5e1"}}>{row?.mfe_atr_3h==null?"—":`${fmt(row.mfe_atr_3h,2)} ATR`}</td>
+                        <td style={{padding:"8px",color:Number(row?.mae_atr_3h)<0?"#fb7185":"#cbd5e1"}}>{row?.mae_atr_3h==null?"—":`${fmt(row.mae_atr_3h,2)} ATR`}</td>
+                        <td style={{padding:"8px",fontWeight:900,color:row?.evaluation_status==="COMPLETED"?"#4ade80":"#fde68a"}}>{row?.evaluation_status||"PENDING"}</td>
+                      </tr>
+                    );
+                  })}
+                  {!labLoading && labRows.length===0 && <tr><td colSpan={11} style={{padding:18,textAlign:"center",color:"#64748b"}}>Nessun segnale archiviato per {symbol}.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            <div style={{fontSize:9,color:"#64748b",marginTop:8}}>Nota: la win-rate diventerà significativa solo con un campione ampio. MFE/MAE in ATR ci diranno anche quanto il segnale si muove a favore o contro, non solo se chiude sopra/sotto l'entry.</div>
+          </div>
+        )}
+      </div>
+  );
+
+  // Con Trading OFF il parent può renderizzare soltanto il Lab.
+  // Nessuna analisi live viene richiesta in questa modalità.
+  if (labOnly) {
+    return renderLabPanel();
+  }
 
   const theme = biasTheme(data?.combined?.bias || "NEUTRAL");
   const propDirection = data?.combined?.propDirection || "WAIT";
@@ -745,79 +830,7 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
         </>
       )}
 
-      <div style={{
-        marginTop:14,
-        border:"1px solid rgba(168,85,247,.32)",
-        borderRadius:16,
-        background:"rgba(2,6,23,.42)",
-        overflow:"hidden"
-      }}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap",padding:"13px 14px",borderBottom:labOpen?"1px solid rgba(71,85,105,.38)":"none"}}>
-          <div>
-            <div style={{fontSize:15,fontWeight:1000,color:"#f3e8ff"}}>🧪 MARKET ENGINE LAB — Validazione segnali</div>
-            <div style={{fontSize:10,color:"#94a3b8",marginTop:3}}>Storico automatico 1H / 2H / 3H. La direzione validata è il forecast di mercato, non la direzione Prop.</div>
-          </div>
-          <div style={{display:"flex",gap:8}}>
-            <button style={secondaryButton} onClick={()=>loadLab(symbol)} disabled={labLoading}>{labLoading?"Aggiorno…":"↻ Aggiorna Lab"}</button>
-            <button style={secondaryButton} onClick={()=>setLabOpen(v=>!v)}>{labOpen?"Nascondi":"Mostra"}</button>
-          </div>
-        </div>
-
-        {labOpen && (
-          <div style={{padding:14}}>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:8,marginBottom:12}}>
-              {[
-                ["SEGNALI",labStats.total,"#e2e8f0"],
-                ["IN VALUTAZIONE",labStats.pending,"#fde68a"],
-                ["COMPLETATI",labStats.completed,"#c4b5fd"],
-                ["WIN RATE 1H",labStats.wr1==null?"—":`${fmt(labStats.wr1,1)}%`,"#5eead4"],
-                ["WIN RATE 2H",labStats.wr2==null?"—":`${fmt(labStats.wr2,1)}%`,"#5eead4"],
-                ["WIN RATE 3H",labStats.wr3==null?"—":`${fmt(labStats.wr3,1)}%`,"#4ade80"]
-              ].map(([lab,val,color])=>(
-                <div key={lab} style={{padding:"10px 11px",borderRadius:12,border:"1px solid rgba(71,85,105,.42)",background:"rgba(15,23,42,.55)"}}>
-                  <div style={{fontSize:9,fontWeight:900,color:"#64748b"}}>{lab}</div>
-                  <div style={{fontSize:20,fontWeight:1000,color,marginTop:3}}>{val}</div>
-                </div>
-              ))}
-            </div>
-
-            {labError && <div style={{padding:"10px 12px",marginBottom:10,borderRadius:12,border:"1px solid rgba(248,113,113,.35)",color:"#fecaca",background:"rgba(127,29,29,.15)"}}>❌ {labError}</div>}
-
-            <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch",border:"1px solid rgba(71,85,105,.35)",borderRadius:12}}>
-              <table style={{width:"100%",minWidth:980,borderCollapse:"collapse",fontSize:10}}>
-                <thead>
-                  <tr style={{background:"rgba(15,23,42,.92)",color:"#94a3b8",textAlign:"left"}}>
-                    {["ORA M15","FORECAST","CONF.","SCORE","ENTRY","1H","2H","3H","MFE 3H","MAE 3H","STATO"].map(h=><th key={h} style={{padding:"9px 8px",borderBottom:"1px solid rgba(71,85,105,.45)",whiteSpace:"nowrap"}}>{h}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {labRows.map(row=>{
-                    const dir=String(row?.forecast_direction||"WAIT").toUpperCase();
-                    const b1=resultBadge(row,1), b2=resultBadge(row,2), b3=resultBadge(row,3);
-                    return (
-                      <tr key={row.id} style={{borderBottom:"1px solid rgba(51,65,85,.35)",color:"#cbd5e1"}}>
-                        <td style={{padding:"8px",whiteSpace:"nowrap"}}>{row?.signal_m15_time ? new Date(row.signal_m15_time).toLocaleString("it-IT",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : "—"}</td>
-                        <td style={{padding:"8px",fontWeight:1000,color:dir==="BUY"?"#5eead4":dir==="SELL"?"#fb7185":"#fde68a"}}>{dir}</td>
-                        <td style={{padding:"8px"}}>{fmt(row?.confidence_raw,0)}</td>
-                        <td style={{padding:"8px"}}>{fmt(row?.price_score,1)}</td>
-                        <td style={{padding:"8px"}}>{fmt(row?.entry_price,priceDecimals(symbol))}</td>
-                        <td style={{padding:"8px",fontWeight:900,color:b1.color,whiteSpace:"nowrap"}}>{b1.label}</td>
-                        <td style={{padding:"8px",fontWeight:900,color:b2.color,whiteSpace:"nowrap"}}>{b2.label}</td>
-                        <td style={{padding:"8px",fontWeight:900,color:b3.color,whiteSpace:"nowrap"}}>{b3.label}</td>
-                        <td style={{padding:"8px",color:Number(row?.mfe_atr_3h)>=0?"#4ade80":"#cbd5e1"}}>{row?.mfe_atr_3h==null?"—":`${fmt(row.mfe_atr_3h,2)} ATR`}</td>
-                        <td style={{padding:"8px",color:Number(row?.mae_atr_3h)<0?"#fb7185":"#cbd5e1"}}>{row?.mae_atr_3h==null?"—":`${fmt(row.mae_atr_3h,2)} ATR`}</td>
-                        <td style={{padding:"8px",fontWeight:900,color:row?.evaluation_status==="COMPLETED"?"#4ade80":"#fde68a"}}>{row?.evaluation_status||"PENDING"}</td>
-                      </tr>
-                    );
-                  })}
-                  {!labLoading && labRows.length===0 && <tr><td colSpan={11} style={{padding:18,textAlign:"center",color:"#64748b"}}>Nessun segnale archiviato per {symbol}.</td></tr>}
-                </tbody>
-              </table>
-            </div>
-            <div style={{fontSize:9,color:"#64748b",marginTop:8}}>Nota: la win-rate diventerà significativa solo con un campione ampio. MFE/MAE in ATR ci diranno anche quanto il segnale si muove a favore o contro, non solo se chiude sopra/sotto l'entry.</div>
-          </div>
-        )}
-      </div>
+      {renderLabPanel()}
 
       <div style={{
         marginTop:12,
