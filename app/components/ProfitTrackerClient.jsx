@@ -27,7 +27,7 @@ import {
   tdStrong, tdNote, tdNoteText, tdActions, noteTextarea, stackList, miniRowTitle,
   miniRowSub, rankRow, rankBadge, rankMain, rankValue, modalOverlay, modalCard,
   modalHeader, modalTitle, modalSubtitle, modalClose, modalActions, loadingScreen,
-  loadingCard, hintBox, responsiveCss
+  loadingCard, hintBox
 } from './styles'
 const BASE_CASSA_MESE = 57229.62
 
@@ -3353,7 +3353,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
  return (
     <div style={container}>
      {message && (
-  <div className='pt-toast-mobile' style={{
+  <div style={{
     position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)',
     background: 'rgba(15,23,42,0.97)', border: '1px solid rgba(56,189,248,0.4)',
     color: '#f8fafc', padding: '10px 24px', borderRadius: 12, zIndex: 9999,
@@ -3362,7 +3362,6 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
   }}>{message}</div>
 )} 
       <style>{`
-        ${responsiveCss}
         @keyframes blinkBorder {
           0%, 100% { border-color: #ef4444; }
           50% { border-color: transparent; }
@@ -3373,16 +3372,16 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 }
         }
       `}</style>
-      <div className='pt-mobile-full' style={pageWrap}>
-        <header className='pt-flex-stack' style={header}>
-          <div className='pt-mobile-full' style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+      <div style={pageWrap}>
+        <header style={header}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <img src="/WhatsApp Image 2026-05-23 at 22.05.05.jpeg" alt="SGM Logo" style={{ width: 80, height: 80, borderRadius: 14, objectFit: 'cover' }} />
             <div>
               <h1 style={title}>Profit Tracker - La scalata al SUCCESSO</h1>
               <p style={subtitle}>books · wallets · transactions</p>
             </div>
           </div>
-          <div className='pt-mobile-actions' style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <a href="/" style={{
               display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
               borderRadius: 10, border: '1px solid rgba(255,255,255,0.15)',
@@ -3405,7 +3404,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           </div>
         </header>
 
-        <div className='pt-flex-stack' style={{ display: 'flex', alignItems: 'stretch', gap: 10, marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'stretch', gap: 10, marginBottom: 12 }}>
           {guadagnoCorrente >= mediaMensileResidua && mediaMensileResidua > 0 && (
             <div style={{ flex: 1, background: 'linear-gradient(135deg, rgba(34,197,94,0.15), rgba(16,185,129,0.10))', border: '2px solid rgba(34,197,94,0.5)', borderRadius: 14, padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, animation: 'blinkPrevisto 2s ease-in-out infinite' }}>
               <span style={{ fontSize: 28 }}>🏆</span>
@@ -3415,7 +3414,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               </div>
             </div>
           )}
-          <div className='pt-mobile-full' style={{ flex: '0 1 260px', minWidth: 0, border: `1px solid ${targetRaggiunto ? 'rgba(34,197,94,0.5)' : 'rgba(168,85,247,0.5)'}`, background: targetRaggiunto ? 'rgba(34,197,94,0.08)' : 'rgba(168,85,247,0.06)', color: '#f8fafc', padding: '10px 16px', borderRadius: 14 }}>
+          <div style={{ flex: '0 0 260px', border: `1px solid ${targetRaggiunto ? 'rgba(34,197,94,0.5)' : 'rgba(168,85,247,0.5)'}`, background: targetRaggiunto ? 'rgba(34,197,94,0.08)' : 'rgba(168,85,247,0.06)', color: '#f8fafc', padding: '10px 16px', borderRadius: 14 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: targetRaggiunto ? '#22c55e' : '#a855f7', marginBottom: 6, letterSpacing: 1 }}>🎯 TARGET CASSA</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <input
@@ -3524,7 +3523,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         })()}
         {errorMessage && <div style={errorBox}>{errorMessage}</div>}
 
-        <nav className='pt-tabs-scroll' style={tabsBar}>
+        <nav style={tabsBar}>
           <button style={activeTab === 'dashboard' ? activeTabButton : tabButton} onClick={() => handleTabChange('dashboard')}>Dashboard</button>
           <button style={activeTab === 'books' ? activeTabButton : tabButton} onClick={() => handleTabChange('books')}>Books</button>
           <button style={activeTab === 'wallets' ? activeTabButton : tabButton} onClick={() => handleTabChange('wallets')}>Wallets</button>
@@ -4148,7 +4147,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           {books.map(b => <option key={b.id} value={b.id}>{b.nome} — {b.intestatario}</option>)}
         </select>
         {!credenzialeForm.book_id && (
-          <div className='pt-mobile-modal-row' style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8 }}>
             <input value={credenzialeForm.bookmaker_manuale} onChange={(e) => setCredenzialeForm({ ...credenzialeForm, bookmaker_manuale: e.target.value })} placeholder='Bookmaker (a mano) *' style={{ ...input, flex: 1 }} required={!credenzialeForm.book_id} />
             <input value={credenzialeForm.intestatario_manuale} onChange={(e) => setCredenzialeForm({ ...credenzialeForm, intestatario_manuale: e.target.value })} placeholder='Intestatario (a mano) *' style={{ ...input, flex: 1 }} required={!credenzialeForm.book_id} />
           </div>
