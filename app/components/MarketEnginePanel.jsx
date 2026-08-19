@@ -87,6 +87,15 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
   const [usingFallback, setUsingFallback] = useState(false);
   const activeSymbolRef = useRef(symbol);
 
+  // Rileva schermi stretti (mobile) per passare le griglie a colonne fisse a 1 colonna impilata
+  const [isNarrow, setIsNarrow] = useState(false);
+  useEffect(() => {
+    const check = () => setIsNarrow(window.innerWidth < 640);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
   const analyze = async (force = false, requestedSymbol = symbol) => {
     const now = Date.now();
 
@@ -256,7 +265,7 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
 
       <div style={{
         display:"grid",
-        gridTemplateColumns:"minmax(220px,.8fr) minmax(260px,1.1fr) minmax(310px,1.25fr) minmax(290px,1.1fr)",
+        gridTemplateColumns: isNarrow ? "1fr" : "minmax(220px,.8fr) minmax(260px,1.1fr) minmax(310px,1.25fr) minmax(290px,1.1fr)",
         gap:12,
         alignItems:"stretch",
         marginBottom:14
@@ -409,7 +418,7 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
       {challenges.length > 0 && (
         <div style={{
           display:"grid",
-          gridTemplateColumns:"minmax(180px,320px) auto",
+          gridTemplateColumns: isNarrow ? "1fr" : "minmax(180px,320px) auto",
           gap:8,
           alignItems:"end",
           marginBottom:14
@@ -431,7 +440,7 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
             </select>
           </div>
 
-          <div style={{display:"grid",gridTemplateColumns:"minmax(230px,1fr) auto auto",gap:8,alignItems:"stretch"}}>
+          <div style={{display:"grid",gridTemplateColumns: isNarrow ? "1fr" : "minmax(230px,1fr) auto auto",gap:8,alignItems:"stretch"}}>
             <button
               style={{
                 ...primaryButtonBlue,
@@ -515,7 +524,7 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
         <>
           <div style={{
             display:"grid",
-            gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",
+            gridTemplateColumns:"repeat(auto-fit,minmax(min(220px,100%),1fr))",
             gap:10,
             marginBottom:12
           }}>
