@@ -280,7 +280,7 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
               <table style={{width:"100%",minWidth:980,borderCollapse:"collapse",fontSize:10}}>
                 <thead>
                   <tr style={{background:"rgba(15,23,42,.92)",color:"#94a3b8",textAlign:"left"}}>
-                    {["ORA M15","FORECAST","CONF.","SCORE","ENTRY","1H","2H","3H","MFE 3H","MAE 3H","STATO"].map(h=><th key={h} style={{padding:"9px 8px",borderBottom:"1px solid rgba(71,85,105,.45)",whiteSpace:"nowrap"}}>{h}</th>)}
+                    {["CHIUSURA M15","FORECAST","CONF.","SCORE","ENTRY","1H","2H","3H","MFE 3H","MAE 3H","STATO"].map(h=><th key={h} style={{padding:"9px 8px",borderBottom:"1px solid rgba(71,85,105,.45)",whiteSpace:"nowrap"}}>{h}</th>)}
                   </tr>
                 </thead>
                 <tbody>
@@ -289,7 +289,7 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
                     const b1=resultBadge(row,1), b2=resultBadge(row,2), b3=resultBadge(row,3);
                     return (
                       <tr key={row.id} style={{borderBottom:"1px solid rgba(51,65,85,.35)",color:"#cbd5e1"}}>
-                        <td style={{padding:"8px",whiteSpace:"nowrap"}}>{row?.signal_m15_time ? new Date(row.signal_m15_time).toLocaleString("it-IT",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : "—"}</td>
+                        <td style={{padding:"8px",whiteSpace:"nowrap"}}>{row?.signal_m15_time ? new Date(new Date(row.signal_m15_time).getTime() + 15 * 60 * 1000).toLocaleString("it-IT",{timeZone:"Europe/Rome",day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}) : "—"}</td>
                         <td style={{padding:"8px",fontWeight:1000,color:dir==="BUY"?"#5eead4":dir==="SELL"?"#fb7185":"#fde68a"}}>{dir}</td>
                         <td style={{padding:"8px"}}>{fmt(row?.confidence_raw,0)}</td>
                         <td style={{padding:"8px"}}>{fmt(row?.price_score,1)}</td>
