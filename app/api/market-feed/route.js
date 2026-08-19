@@ -3,7 +3,8 @@ export const revalidate = 0;
 
 /*
 ============================================================
-MARKET FEED API v1.1
+MARKET FEED API v1.2
++ MARKET ENGINE SIGNAL LOGGER TRIGGER
 
 Riceve da MarketFeedBridge MT5:
 - M15
@@ -15,16 +16,24 @@ Salva tutto su Supabase nella tabella:
 
 prop_market_feed
 
-NON esegue trading.
+NOVITÀ v1.2:
+- rileva la chiusura di una NUOVA M15
+- quando cambia last_m15_time richiama automaticamente:
+  /api/market-signal-log
+- il Signal Logger NON può bloccare il feed MT5
+- nessun trading
 ============================================================
 */
+
 
 const SUPABASE_URL =
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
   process.env.SUPABASE_URL;
 
+
 const SUPABASE_SERVICE_ROLE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY;
+
 
 const MARKET_FEED_SECRET =
   process.env.MARKET_FEED_SECRET;
@@ -37,6 +46,7 @@ CONFIG
 */
 
 const LIVE_MAX_AGE_SECONDS = 90;
+
 
 const SUPPORTED = new Set([
   "XAUUSD",
@@ -461,6 +471,181 @@ async function upsertFeed(
 
 /*
 ============================================================
+SIGNAL LOGGER TRIGGER
+============================================================
+
+Questa funzione viene chiamata SOLO quando market-feed
+ha rilevato una nuova candela M15 chiusa.
+
+IMPORTANTE:
+eventuali errori qui NON devono mai propagarsi
+al MarketFeedBridge / MT5.
+============================================================
+*/
+
+async function triggerSignalLogger(
+  requestUrl,
+  marketKey
+) {
+  try {
+    const origin =
+      new URL(
+        requestUrl
+      ).origin;
+
+    const loggerUrl =
+      `${origin}/api/market-signal-log`;
+
+    const response =
+      await fetch(
+        loggerUrl,
+        {
+          method:
+            "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+
+            Accept:
+              "application/json"
+          },
+
+          body:
+            JSON.stringify({
+              symbol:
+                marketKey
+            }),
+
+          cache:
+            "no-store"
+        }
+      );
+
+    const text =
+      await response.text();
+
+    let data =
+      null;
+
+    try {
+      data =
+        text
+          ? JSON.parse(text)
+          : null;
+    }
+
+    catch {
+      data = {
+        raw:
+          text
+      };
+    }
+
+
+    if (
+      !response.ok
+    ) {
+      console.error(
+        "Market Signal Logger HTTP error:",
+        response.status,
+        data
+      );
+
+      return {
+        ok:
+          false,
+
+        status:
+          "ERROR",
+
+        http:
+          response.status,
+
+        error:
+          data?.error ||
+          `HTTP ${response.status}`
+      };
+    }
+
+
+    console.log(
+      "Market Signal Logger:",
+      marketKey,
+      data?.inserted
+        ? "INSERTED"
+        : data?.duplicate
+          ? "DUPLICATE"
+          : data?.skipped
+            ? "SKIPPED"
+            : "OK",
+      "| M15:",
+      data?.signal?.m15Time ||
+      "-"
+    );
+
+
+    return {
+      ok:
+        true,
+
+      status:
+        data?.inserted
+          ? "INSERTED"
+          : data?.duplicate
+            ? "DUPLICATE"
+            : data?.skipped
+              ? "SKIPPED"
+              : "OK",
+
+      inserted:
+        Boolean(
+          data?.inserted
+        ),
+
+      duplicate:
+        Boolean(
+          data?.duplicate
+        ),
+
+      skipped:
+        Boolean(
+          data?.skipped
+        ),
+
+      reason:
+        data?.reason ||
+        null,
+
+      signal:
+        data?.signal ||
+        null
+    };
+  }
+
+  catch (error) {
+    console.error(
+      "Market Signal Logger trigger error:",
+      error
+    );
+
+    return {
+      ok:
+        false,
+
+      status:
+        "ERROR",
+
+      error:
+        error?.message ||
+        String(error)
+    };
+  }
+}
+
+
+/*
+============================================================
 GET
 
 Esempio:
@@ -636,7 +821,9 @@ export async function POST(
       );
     }
 
+
     let body;
+
 
     try {
       body =
@@ -699,6 +886,7 @@ export async function POST(
         body?.market_key
       );
 
+
     if (!marketKey) {
       return json(
         {
@@ -710,6 +898,7 @@ export async function POST(
         400
       );
     }
+
 
     if (
       !SUPPORTED.has(
@@ -739,10 +928,12 @@ export async function POST(
         body?.m15
       );
 
+
     const h1 =
       normalizeBars(
         body?.h1
       );
+
 
     if (
       m15.length < 20
@@ -757,6 +948,7 @@ export async function POST(
         400
       );
     }
+
 
     if (
       h1.length < 20
@@ -784,20 +976,95 @@ export async function POST(
         m15.length - 1
       ];
 
+
     const lastH1 =
       h1[
         h1.length - 1
       ];
+
 
     const lastM15Time =
       timestampToIso(
         lastM15?.t
       );
 
+
     const lastH1Time =
       timestampToIso(
         lastH1?.t
       );
+
+
+    if (
+      !lastM15Time
+    ) {
+      return json(
+        {
+          ok:
+            false,
+
+          error:
+            "Timestamp ultima M15 non valido."
+        },
+        400
+      );
+    }
+
+
+    if (
+      !lastH1Time
+    ) {
+      return json(
+        {
+          ok:
+            false,
+
+          error:
+            "Timestamp ultima H1 non valido."
+        },
+        400
+      );
+    }
+
+
+    /*
+    ------------------------------------------------------------
+    STATO PRECEDENTE
+
+    Lo leggiamo PRIMA dell'upsert.
+
+    È questo confronto che ci permette di sapere
+    se è nata una nuova M15.
+    ------------------------------------------------------------
+    */
+
+    const previousRow =
+      await getFeedRow(
+        marketKey
+      );
+
+
+    const previousM15Time =
+      previousRow
+        ?.last_m15_time ||
+      null;
+
+
+    /*
+      È nuova quando:
+
+      1. non esisteva ancora un feed precedente
+
+      OPPURE
+
+      2. il timestamp M15 appena ricevuto
+         è diverso da quello già salvato.
+    */
+
+    const isNewM15 =
+      !previousM15Time ||
+      previousM15Time !==
+        lastM15Time;
 
 
     /*
@@ -823,15 +1090,18 @@ export async function POST(
         body?.account_login
       );
 
+
     const accountServer =
       cleanString(
         body?.account_server
       );
 
+
     const accountCompany =
       cleanString(
         body?.account_company
       );
+
 
     const sourceSymbol =
       cleanString(
@@ -849,6 +1119,7 @@ export async function POST(
     const nowIso =
       new Date()
         .toISOString();
+
 
     const row = {
       market_key:
@@ -886,7 +1157,15 @@ export async function POST(
 
     /*
     ------------------------------------------------------------
-    UPSERT
+    UPSERT FEED
+
+    PRIMA salviamo il feed.
+
+    Solo DOPO eventualmente facciamo partire
+    il Market Engine Logger.
+
+    In questo modo market-analysis leggerà
+    già la NUOVA candela M15 da Supabase.
     ------------------------------------------------------------
     */
 
@@ -894,6 +1173,76 @@ export async function POST(
       await upsertFeed(
         row
       );
+
+
+    /*
+    ------------------------------------------------------------
+    SIGNAL LOGGER
+    ------------------------------------------------------------
+
+    IMPORTANTISSIMO:
+
+    Il feed MT5 è prioritario.
+
+    Se il logger fallisce:
+    - il feed resta salvato
+    - MT5 riceve comunque HTTP 200
+    - l'errore viene solamente segnalato
+
+    Questo evita che il laboratorio statistico
+    possa rompere il MarketFeedBridge.
+    ------------------------------------------------------------
+    */
+
+    let signalLogger = {
+      triggered:
+        false,
+
+      status:
+        "NOT_NEW_M15",
+
+      previous_m15_time:
+        previousM15Time,
+
+      current_m15_time:
+        lastM15Time
+    };
+
+
+    if (
+      isNewM15
+    ) {
+      console.log(
+        "Market Feed: NUOVA M15 |",
+        marketKey,
+        "| precedente:",
+        previousM15Time ||
+        "NONE",
+        "| nuova:",
+        lastM15Time
+      );
+
+
+      const loggerResult =
+        await triggerSignalLogger(
+          request.url,
+          marketKey
+        );
+
+
+      signalLogger = {
+        triggered:
+          true,
+
+        previous_m15_time:
+          previousM15Time,
+
+        current_m15_time:
+          lastM15Time,
+
+        ...loggerResult
+      };
+    }
 
 
     /*
@@ -938,6 +1287,20 @@ export async function POST(
       h1_bars:
         h1.length,
 
+      /*
+        Diagnostica nuova v1.2.
+
+        Non serve all'EA per funzionare,
+        ma ci permette di vedere subito
+        se il logger è scattato.
+      */
+
+      new_m15:
+        isNewM15,
+
+      signal_logger:
+        signalLogger,
+
       updated_at:
         saved?.updated_at ||
         nowIso
@@ -949,6 +1312,7 @@ export async function POST(
       "Market Feed POST error:",
       error
     );
+
 
     return json(
       {
