@@ -5,13 +5,13 @@ export const title = { margin: 0, fontSize: 'clamp(28px, 4vw, 42px)', lineHeight
 export const subtitle = { margin: '8px 0 0', color: '#94a3b8', fontSize: 15 }
 export const copyrightBox = { border: '1px solid rgba(148,163,184,0.18)', background: 'rgba(15,23,42,0.72)', color: '#cbd5e1', padding: '12px 16px', borderRadius: 16, fontSize: 13, fontWeight: 700 }
 export const tabsBar = { display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 18 }
-export const tabButton = { background: 'rgba(15,23,42,0.82)', color: '#cbd5e1', border: '1px solid rgba(51,65,85,0.95)', borderRadius: 14, padding: '10px 14px', cursor: 'pointer', fontWeight: 700 }
+export const tabButton = { background: 'rgba(15,23,42,0.82)', color: '#cbd5e1', border: '1px solid rgba(51,65,85,0.95)', borderRadius: 14, padding: 'clamp(7px,2.2vw,10px) clamp(9px,2.8vw,14px)', fontSize: 'clamp(12px,3vw,14px)', cursor: 'pointer', fontWeight: 700 }
 export const activeTabButton = { ...tabButton, background: 'linear-gradient(135deg, rgba(59,130,246,0.22), rgba(56,189,248,0.16))', color: '#f8fafc', border: '1px solid rgba(56,189,248,0.5)', boxShadow: '0 0 0 1px rgba(56,189,248,0.08) inset' }
 export const successBox = { background: 'rgba(34,197,94,0.14)', border: '1px solid rgba(34,197,94,0.35)', color: '#bbf7d0', padding: '12px 14px', borderRadius: 14, marginBottom: 16, fontWeight: 700 }
 export const errorBox = { background: 'rgba(239,68,68,0.14)', border: '1px solid rgba(239,68,68,0.35)', color: '#fecaca', padding: '12px 14px', borderRadius: 14, marginBottom: 16, fontWeight: 700 }
 export const tabContent = { display: 'flex', flexDirection: 'column', gap: 16 }
-export const statsGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }
-export const statsGridCompact = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }
+export const statsGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))', gap: 14 }
+export const statsGridCompact = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))', gap: 14 }
 export const stimeMonthsGrid = {
   display: 'grid',
   gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
@@ -121,12 +121,12 @@ export const statCard = { background: 'linear-gradient(180deg, rgba(15,23,42,0.9
 export const statLabel = { fontSize: 13, color: '#94a3b8', marginBottom: 8, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.6 }
 export const statValue = { fontSize: 28, color: '#f8fafc', fontWeight: 900, lineHeight: 1.05 }
 export const statSub = { marginTop: 8, color: '#aab8ce', fontSize: 13 }
-export const heroGrid = { display: 'grid', gridTemplateColumns: 'minmax(420px, 1.25fr) minmax(280px, 0.75fr)', gap: 16 }
+export const heroGrid = { display: 'grid', gridTemplateColumns: 'minmax(min(420px, 100%), 1.25fr) minmax(min(280px, 100%), 0.75fr)', gap: 16 }
 export const heroSideGrid = { display: 'grid', gridTemplateColumns: '1fr', gap: 14, alignContent: 'start' }
-export const dashboardGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16 }
-export const transactionsLayout = { display: 'grid', gridTemplateColumns: 'minmax(320px, 420px) minmax(0, 1fr)', gap: 16 }
+export const dashboardGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(360px, 100%), 1fr))', gap: 16 }
+export const transactionsLayout = { display: 'grid', gridTemplateColumns: 'minmax(min(320px, 100%), 420px) minmax(0, 1fr)', gap: 16 }
 export const panel = { background: 'linear-gradient(180deg, rgba(15,23,42,0.94), rgba(2,6,23,0.99))', border: '1px solid rgba(51,65,85,0.95)', borderRadius: 22, padding: 18, boxShadow: '0 20px 48px rgba(0,0,0,0.26)', overflow: 'hidden' }
-export const panelForm = { ...panel, minWidth: 320 }
+export const panelForm = { ...panel, minWidth: 'min(320px, 100%)' }
 export const heroCard = {
   background: 'linear-gradient(135deg, rgba(34,197,94,0.12), rgba(56,189,248,0.08), rgba(15,23,42,0.96))',
   border: '1px solid rgba(56,189,248,0.22)',
