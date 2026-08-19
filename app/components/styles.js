@@ -14,7 +14,7 @@ export const statsGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fi
 export const statsGridCompact = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))', gap: 14 }
 export const stimeMonthsGrid = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(min(340px, 100%), 1fr))',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(min(480px, 100%), 1fr))',
   gap: 16,
   alignItems: 'start'
 }
