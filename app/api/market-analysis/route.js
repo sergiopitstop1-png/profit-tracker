@@ -216,8 +216,10 @@ async function fetchMt5MarketFeed(symbol) {
         )
       : Infinity;
 
+  // La validità operativa dipende dalla freschezza delle barre.
+  // updated_at resta diagnostico, ma non invalida da solo il feed:
+  // il MarketFeedBridge invia principalmente alla chiusura delle nuove barre.
   const live =
-    feedAgeMs <= MT5_FEED_MAX_AGE_MS &&
     m15AgeMs <= M15_MAX_BAR_AGE_MS &&
     h1AgeMs <= H1_MAX_BAR_AGE_MS;
 
@@ -898,7 +900,7 @@ function buildThreeHourBlocks(
         ...x,
 
         label:
-                  `${String(x.startHour).padStart(2, "0")}–${String(x.endHour).padStart(2, "0")}`,
+          `${String(x.startHour).padStart(2, "0")}–${String(x.endHour).padStart(2, "0")}`,
 
         move,
         movePct,
@@ -2617,7 +2619,8 @@ function buildForecast({
 
   let signalStrength =
     "INSUFFICIENT";
-    if (
+
+  if (
     direction !== "WAIT"
   ) {
     if (
@@ -3650,7 +3653,8 @@ export async function GET(
             rolling.h6
               .direction
         },
-                h12: {
+
+        h12: {
           dollars:
             Number(
               rolling.h12
