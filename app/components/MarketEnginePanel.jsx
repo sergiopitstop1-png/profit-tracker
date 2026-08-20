@@ -1167,6 +1167,68 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
         ))}
       </div>
 
+      {/* Finestra mobile 24H: 8 blocchi consecutivi da 3H. L'ultimo è il blocco corrente. */}
+      <div style={{
+        marginBottom:14,
+        padding:"10px 12px",
+        borderRadius:14,
+        border:"1px solid rgba(71,85,105,.50)",
+        background:"rgba(2,6,23,.38)"
+      }}>
+        <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:8}}>
+          <div style={{fontSize:10,fontWeight:950,color:"#94a3b8",letterSpacing:.5}}>
+            MOVIMENTO ULTIME 24 ORE — BLOCCHI DA 3H
+          </div>
+          <div style={{fontSize:8.5,color:"#64748b"}}>
+            ← 24H FA &nbsp;•&nbsp; ADESSO →
+          </div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:isNarrow?"repeat(2,minmax(0,1fr))":"repeat(8,minmax(80px,1fr))",gap:7}}>
+          {(data?.blocks3h || []).slice(-8).map((b,i,arr)=>{
+            const isCurrent = i === arr.length - 1 && b?.complete !== true;
+            const move = Number(b?.move) || 0;
+            const moveColor = move > 0 ? "#5eead4" : move < 0 ? "#fca5a5" : "#cbd5e1";
+            return (
+              <div key={b.key || i} style={{
+                padding:"7px 9px",
+                borderRadius:10,
+                border:isCurrent
+                  ? "1px solid rgba(250,204,21,.72)"
+                  : move>0
+                    ? "1px solid rgba(45,212,191,.30)"
+                    : move<0
+                      ? "1px solid rgba(248,113,113,.30)"
+                      : "1px solid rgba(148,163,184,.25)",
+                background:isCurrent
+                  ? "linear-gradient(135deg,rgba(202,138,4,.18),rgba(30,41,59,.34))"
+                  : move>0
+                    ? "rgba(13,148,136,.08)"
+                    : move<0
+                      ? "rgba(153,27,27,.08)"
+                      : "rgba(30,41,59,.22)",
+                boxShadow:isCurrent ? "inset 0 0 0 1px rgba(250,204,21,.10)" : "none"
+              }}>
+                <div style={{display:"flex",justifyContent:"space-between",gap:4,alignItems:"center"}}>
+                  <div style={{fontSize:9,color:isCurrent?"#fde68a":"#94a3b8",fontWeight:900}}>{b.label}</div>
+                  {isCurrent && <div style={{fontSize:7.5,fontWeight:1000,color:"#facc15"}}>IN CORSO</div>}
+                </div>
+                <div style={{fontSize:13,fontWeight:1000,color:moveColor,marginTop:2}}>
+                  {move>=0?"+":""}{fmt(move,1)}
+                </div>
+                <div style={{fontSize:7.5,color:isCurrent?"#facc15":"#64748b",marginTop:2}}>
+                  {isCurrent ? `${b?.bars || 0}/12 M15` : "COMPLETO"}
+                </div>
+              </div>
+            );
+          })}
+          {(!data?.blocks3h || data.blocks3h.length===0) && (
+            <div style={{gridColumn:"1 / -1",fontSize:10,color:"#64748b",padding:"4px 1px"}}>
+              In attesa dei blocchi M15 per costruire la finestra mobile delle ultime 24 ore.
+            </div>
+          )}
+        </div>
+      </div>
+
       <div style={{
         marginBottom:14,padding:"15px",borderRadius:17,
         border:"1px solid rgba(34,211,238,.38)",
