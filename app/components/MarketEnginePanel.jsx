@@ -88,7 +88,7 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
   const activeSymbolRef = useRef(symbol);
 
   // Market Engine Lab — storico e validazione segnali
-  const [labOpen, setLabOpen] = useState(true);
+  const [labOpen, setLabOpen] = useState(false);
   const [labRows, setLabRows] = useState([]);
   const [labLoading, setLabLoading] = useState(false);
   const [labError, setLabError] = useState("");
@@ -111,6 +111,15 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
   const [ftData, setFtData] = useState(null);
   const [ftLoading, setFtLoading] = useState(false);
   const [ftError, setFtError] = useState("");
+  const [detailsOpen, setDetailsOpen] = useState(false);
+
+  // Operational Decision Engine — traduce target monetario + lotti in un piano operativo
+  const [opTargetUsd, setOpTargetUsd] = useState(5000);
+  const [opLots, setOpLots] = useState(1);
+  const [opSlPoints, setOpSlPoints] = useState(1000);
+  const [opData, setOpData] = useState({});
+  const [opLoading, setOpLoading] = useState(false);
+  const [opError, setOpError] = useState("");
 
   // Rileva schermi stretti (mobile) per passare le griglie a colonne fisse a 1 colonna impilata
   const [isNarrow, setIsNarrow] = useState(false);
@@ -309,6 +318,56 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
   useEffect(() => {
     loadFirstTouch(symbol, 1, 1000, 1000);
   }, [symbol]);
+
+  const operationalTarget = useMemo(() => {
+    const targetUsd = Math.max(0, Number(opTargetUsd) || 0);
+    const lots = Math.max(0, Number(opLots) || 0);
+    if (!targetUsd || !lots) return null;
+
+    // XAUUSD: contract size 100 oz; P/L = movimento prezzo × 100 × lotti.
+    // 1 punto MT5 = 0,01 di prezzo. Quindi, su oro, targetPoints = targetUsd / lots.
+    const priceDistance = targetUsd / (100 * lots);
+    const targetPoints = Math.round(priceDistance / 0.01);
+    return { targetUsd, lots, priceDistance, targetPoints };
+  }, [opTargetUsd, opLots]);
+
+  const loadOperationalPlan = async () => {
+    if (symbol !== "XAUUSD") {
+      setOpData({});
+      setOpError("Operational Decision Engine v1 è calibrato per XAUUSD.");
+      return;
+    }
+    if (!operationalTarget) {
+      setOpData({});
+      setOpError("Inserisci guadagno Prop e lotti maggiori di zero.");
+      return;
+    }
+
+    setOpLoading(true);
+    setOpError("");
+    try {
+      const sl = Math.max(1, Number(opSlPoints) || 1000);
+      const calls = [1,2,3].map(async h => {
+        const r = await fetch(`/api/market-signal-first-touch?symbol=XAUUSD&hours=${h}&tp=${operationalTarget.targetPoints}&sl=${sl}&pointSize=0.01`, { cache:"no-store" });
+        const j = await r.json();
+        if (!r.ok || !j?.ok) throw new Error(j?.error || `First Touch ${h}H non disponibile`);
+        return [h, j];
+      });
+      const entries = await Promise.all(calls);
+      setOpData(Object.fromEntries(entries));
+    } catch (e) {
+      setOpData({});
+      setOpError(e?.message || "Errore Operational Decision Engine");
+    } finally {
+      setOpLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (labOnly || symbol !== "XAUUSD" || !operationalTarget) return;
+    const id = window.setTimeout(() => loadOperationalPlan(), 450);
+    return () => window.clearTimeout(id);
+  }, [labOnly, symbol, operationalTarget?.targetPoints, opSlPoints]);
 
   const fallbackLabStats = useMemo(() => {
     const directional = labRows.filter(r => ["BUY","SELL"].includes(String(r?.forecast_direction || "").toUpperCase()));
@@ -832,6 +891,51 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
   const propDirection = data?.combined?.propDirection || "WAIT";
   const signalStrength = data?.combined?.signalStrength || "INSUFFICIENT";
 
+  const forecastDirection = data?.combined?.forecastDirection || "WAIT";
+  const brokerDirection = forecastDirection;
+  const opHorizons = [1,2,3].map(h => {
+    const bucket = opData?.[h]?.summary?.total || null;
+    if (!bucket) return { h, bucket:null, resolvedRate:null, propEdge:null };
+    const resolved = Number(bucket.tp || 0) + Number(bucket.sl || 0);
+    const propEdge = resolved > 0 ? (100 * Number(bucket.tp || 0) / resolved) : null;
+    return { h, bucket, resolvedRate: bucket.signals ? 100 * resolved / bucket.signals : null, propEdge };
+  });
+  const validEdges = opHorizons.filter(x => Number.isFinite(x.propEdge));
+  const historicalEdge = validEdges.length
+    ? validEdges.reduce((a,x)=>a+x.propEdge,0) / validEdges.length
+    : null;
+  const forecastConfidence = Number(data?.combined?.confidence);
+  const counterForecastScore = Number.isFinite(forecastConfidence) ? 100 - forecastConfidence : 50;
+  const operationalScore = historicalEdge == null ? null : Math.max(0, Math.min(100, historicalEdge * .75 + counterForecastScore * .25));
+
+  const recentDirectional = labRows
+    .filter(r => ["BUY","SELL"].includes(String(r?.forecast_direction || "").toUpperCase()))
+    .slice(0,4)
+    .map(r => String(r.forecast_direction).toUpperCase());
+  const stability = recentDirectional.length < 2
+    ? "DATI INSUFFIC."
+    : new Set(recentDirectional).size === 1
+      ? "ALTA"
+      : recentDirectional[0] === recentDirectional[1]
+        ? "MEDIA"
+        : "BASSA";
+
+  const opLabel = operationalScore == null
+    ? { text:"IN ATTESA DATI", color:"#94a3b8", icon:"⚪" }
+    : operationalScore >= 65
+      ? { text:"PROP FAVORITA", color:"#4ade80", icon:"🟢" }
+      : operationalScore >= 52
+        ? { text:"PROP MODERATAMENTE FAVORITA", color:"#a3e635", icon:"🟢" }
+        : operationalScore >= 42
+          ? { text:"EQUILIBRIO — ATTENDI CONFERMA", color:"#fde68a", icon:"🟡" }
+          : operationalScore >= 30
+            ? { text:"BROKER FAVORITO", color:"#fb923c", icon:"🟠" }
+            : { text:"FORTE RISCHIO PROP", color:"#fb7185", icon:"🔴" };
+
+  const bestHorizon = opHorizons
+    .filter(x => x.bucket && Number.isFinite(x.propEdge))
+    .sort((a,b) => (b.propEdge || 0) - (a.propEdge || 0))[0] || null;
+
   const signalUi = {
     INSUFFICIENT: { label:"INSUFFICIENTE", color:"#fbbf24", bg:"rgba(180,83,9,.15)", border:"rgba(245,158,11,.50)", min:0, max:29 },
     WEAK: { label:"DEBOLE", color:"#fb923c", bg:"rgba(194,65,12,.14)", border:"rgba(251,146,60,.50)", min:30, max:49 },
@@ -885,6 +989,49 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
           >
             Forza nuova analisi
           </button>
+        </div>
+      </div>
+
+      <div style={{
+        marginBottom:14,padding:"15px",borderRadius:17,
+        border:"1px solid rgba(34,211,238,.38)",
+        background:"linear-gradient(135deg,rgba(8,145,178,.10),rgba(30,41,59,.72))"
+      }}>
+        <div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"flex-start",flexWrap:"wrap",marginBottom:12}}>
+          <div>
+            <div style={{fontSize:17,fontWeight:1000,color:"#cffafe"}}>🧭 OPERATIONAL DECISION ENGINE</div>
+            <div style={{fontSize:10,color:"#94a3b8",marginTop:3}}>Inserisci il profitto che vuoi ottenere sulla Prop e i lotti: il motore traduce il target in movimento XAUUSD e confronta TP/SL con lo storico reale dei path M15.</div>
+          </div>
+          <button style={{...secondaryButton,padding:"7px 10px"}} onClick={()=>setDetailsOpen(v=>!v)}>{detailsOpen?"Nascondi sviluppi":"Mostra sviluppi"}</button>
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:isNarrow?"1fr":"repeat(3,minmax(150px,1fr)) auto",gap:8,alignItems:"end"}}>
+          <div><label style={{fontSize:9,color:"#94a3b8",display:"block",marginBottom:4}}>Guadagno desiderato Prop ($)</label><input type="number" min="1" step="100" value={opTargetUsd} onChange={e=>setOpTargetUsd(e.target.value)} style={{...input,marginBottom:0}} /></div>
+          <div><label style={{fontSize:9,color:"#94a3b8",display:"block",marginBottom:4}}>Lotti Prop</label><input type="number" min="0.01" step="0.01" value={opLots} onChange={e=>setOpLots(e.target.value)} style={{...input,marginBottom:0}} /></div>
+          <div><label style={{fontSize:9,color:"#94a3b8",display:"block",marginBottom:4}}>SL distance (punti MT5)</label><input type="number" min="1" step="50" value={opSlPoints} onChange={e=>setOpSlPoints(e.target.value)} style={{...input,marginBottom:0}} /></div>
+          <button style={{...primaryButtonBlue,padding:"9px 12px",opacity:opLoading?.6:1}} disabled={opLoading} onClick={loadOperationalPlan}>{opLoading?"Calcolo…":"↻ Calcola piano"}</button>
+        </div>
+
+        {operationalTarget && <div style={{fontSize:10,color:"#cbd5e1",marginTop:9}}>Target <b style={{color:"#4ade80"}}>+${fmt(operationalTarget.targetUsd,0)}</b> con <b>{fmt(operationalTarget.lots,2)} lotti</b> = movimento prezzo <b style={{color:"#67e8f9"}}>${fmt(operationalTarget.priceDistance,2)}</b> = <b>{operationalTarget.targetPoints} punti</b>. SL {Math.max(1,Number(opSlPoints)||1000)} pt = <b style={{color:"#fb7185"}}>${fmt((Math.max(1,Number(opSlPoints)||1000))*0.01,2)}</b> di prezzo.</div>}
+        {opError && <div style={{marginTop:9,color:"#fecaca",fontSize:10}}>⚠️ {opError}</div>}
+
+        <div style={{display:"grid",gridTemplateColumns:isNarrow?"1fr":"repeat(4,minmax(160px,1fr))",gap:8,marginTop:12}}>
+          <div style={{padding:"11px",borderRadius:12,border:"1px solid rgba(71,85,105,.4)",background:"rgba(2,6,23,.38)"}}><div style={{fontSize:9,color:"#64748b",fontWeight:950}}>DIREZIONE PROP</div><div style={{fontSize:25,fontWeight:1000,color:propDirection==="BUY"?"#5eead4":propDirection==="SELL"?"#fb7185":"#fde68a",marginTop:3}}>{propDirection==="WAIT"?"ATTENDI":propDirection}</div><div style={{fontSize:9,color:"#64748b"}}>Opposta al forecast {forecastDirection}</div></div>
+          <div style={{padding:"11px",borderRadius:12,border:"1px solid rgba(71,85,105,.4)",background:"rgba(2,6,23,.38)"}}><div style={{fontSize:9,color:"#64748b",fontWeight:950}}>DIREZIONE BROKER</div><div style={{fontSize:25,fontWeight:1000,color:brokerDirection==="BUY"?"#5eead4":brokerDirection==="SELL"?"#fb7185":"#fde68a",marginTop:3}}>{brokerDirection==="WAIT"?"ATTENDI":brokerDirection}</div><div style={{fontSize:9,color:"#64748b"}}>Stessa direzione del forecast</div></div>
+          <div style={{padding:"11px",borderRadius:12,border:`1px solid ${opLabel.color}55`,background:"rgba(2,6,23,.38)"}}><div style={{fontSize:9,color:"#64748b",fontWeight:950}}>INDICAZIONE OPERATIVA</div><div style={{fontSize:16,fontWeight:1000,color:opLabel.color,marginTop:5}}>{opLabel.icon} {opLabel.text}</div><div style={{fontSize:9,color:"#64748b",marginTop:3}}>Indice orientativo, non certezza di mercato</div></div>
+          <div style={{padding:"11px",borderRadius:12,border:"1px solid rgba(71,85,105,.4)",background:"rgba(2,6,23,.38)"}}><div style={{fontSize:9,color:"#64748b",fontWeight:950}}>SCORE / STABILITÀ</div><div style={{fontSize:22,fontWeight:1000,color:"#e2e8f0",marginTop:3}}>{operationalScore==null?"—":`${fmt(operationalScore,0)}/100`}</div><div style={{fontSize:9,color:"#94a3b8"}}>Stabilità segnale: <b>{stability}</b>{bestHorizon?` • miglior finestra ${bestHorizon.h}H`:""}</div></div>
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:isNarrow?"1fr":"repeat(3,minmax(190px,1fr))",gap:8,marginTop:9}}>
+          {opHorizons.map(({h,bucket}) => <div key={h} style={{padding:"10px 11px",borderRadius:12,border:"1px solid rgba(56,189,248,.22)",background:"rgba(2,6,23,.32)"}}>
+            <div style={{fontSize:11,fontWeight:1000,color:"#bae6fd"}}>ENTRO {h}H</div>
+            {!bucket ? <div style={{fontSize:10,color:"#64748b",marginTop:7}}>{opLoading?"Calcolo…":"—"}</div> : <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginTop:7}}>
+              <div><div style={{fontSize:8,color:"#64748b"}}>TP PROP</div><b style={{color:"#4ade80"}}>{fmt(bucket.tpPct,1)}%</b></div>
+              <div><div style={{fontSize:8,color:"#64748b"}}>SL PROP</div><b style={{color:"#fb7185"}}>{fmt(bucket.slPct,1)}%</b></div>
+              <div><div style={{fontSize:8,color:"#64748b"}}>APERTA</div><b style={{color:"#fde68a"}}>{fmt(bucket.nonePct,1)}%</b></div>
+            </div>}
+            {bucket && <div style={{fontSize:8,color:"#64748b",marginTop:6}}>Campione {bucket.signals || 0} • first-touch sul path M15</div>}
+          </div>)}
         </div>
       </div>
 
@@ -1162,7 +1309,7 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
         </div>
       )}
 
-      {data && (
+      {detailsOpen && data && (
         <>
           <div style={{
             display:"grid",
@@ -1339,7 +1486,8 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
         </>
       )}
 
-      {renderLabPanel()}
+      <div style={{display:"flex",justifyContent:"flex-end",marginTop:4}}><button style={secondaryButton} onClick={()=>setLabOpen(v=>!v)}>{labOpen?"Nascondi Market Engine Lab":"Mostra Market Engine Lab"}</button></div>
+      {labOpen && renderLabPanel()}
 
       <div style={{
         marginTop:12,
