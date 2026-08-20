@@ -1136,6 +1136,37 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
         </div>
       </div>
 
+      {/* Statistiche principali sempre visibili: non dipendono dall'apertura del Lab */}
+      <div style={{
+        display:"grid",
+        gridTemplateColumns:isNarrow?"repeat(2,minmax(0,1fr))":"repeat(6,minmax(110px,1fr))",
+        gap:8,
+        marginBottom:14
+      }}>
+        {[
+          ["SEGNALI STORICI",labStats.total,"#e2e8f0"],
+          ["IN VALUTAZIONE",labStats.pending,"#fde68a"],
+          ["COMPLETATI",labStats.completed,"#c4b5fd"],
+          ["WIN RATE 1H",labStats.wr1==null?"—":`${fmt(labStats.wr1,1)}%`,"#5eead4"],
+          ["WIN RATE 2H",labStats.wr2==null?"—":`${fmt(labStats.wr2,1)}%`,"#5eead4"],
+          ["WIN RATE 3H",labStats.wr3==null?"—":`${fmt(labStats.wr3,1)}%`,"#4ade80"]
+        ].map(([lab,val,color]) => (
+          <div
+            key={lab}
+            style={{
+              padding:"10px 11px",
+              borderRadius:12,
+              border:"1px solid rgba(71,85,105,.42)",
+              background:"rgba(15,23,42,.60)",
+              boxShadow:"inset 0 1px 0 rgba(255,255,255,.02)"
+            }}
+          >
+            <div style={{fontSize:8.5,fontWeight:950,color:"#64748b",letterSpacing:.35}}>{lab}</div>
+            <div style={{fontSize:20,fontWeight:1000,color,marginTop:3}}>{val}</div>
+          </div>
+        ))}
+      </div>
+
       <div style={{
         marginBottom:14,padding:"15px",borderRadius:17,
         border:"1px solid rgba(34,211,238,.38)",
