@@ -75,7 +75,7 @@ function biasTheme(bias) {
   };
 }
 
-export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges = [], onApplyDirection = null, labOnly = false }) {
+export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges = [], onApplyDirection = null, onSignalUpdate = null, labOnly = false }) {
   const [symbol, setSymbol] = useState(defaultAsset);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -890,6 +890,31 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
   const theme = biasTheme(data?.combined?.bias || "NEUTRAL");
   const propDirection = data?.combined?.propDirection || "WAIT";
   const signalStrength = data?.combined?.signalStrength || "INSUFFICIENT";
+
+  useEffect(() => {
+    if (typeof onSignalUpdate !== "function") return;
+
+    const forecastDirection = String(data?.combined?.forecastDirection || "WAIT").toUpperCase();
+    const nextPropDirection = String(propDirection || "WAIT").toUpperCase();
+
+    onSignalUpdate({
+      symbol,
+      forecastDirection,
+      propDirection: nextPropDirection,
+      score: Number(data?.combined?.score),
+      confidence: Number(data?.combined?.confidence),
+      signalStrength,
+      analyzedAt: data ? new Date().toISOString() : null
+    });
+  }, [
+    onSignalUpdate,
+    symbol,
+    data?.combined?.forecastDirection,
+    data?.combined?.score,
+    data?.combined?.confidence,
+    propDirection,
+    signalStrength
+  ]);
 
   const forecastDirection = data?.combined?.forecastDirection || "WAIT";
   const brokerDirection = forecastDirection;
