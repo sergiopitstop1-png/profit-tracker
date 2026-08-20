@@ -317,6 +317,217 @@ function TextNumberField({
   );
 }
 
+
+function ActivePropRolling3H({ symbol = "XAUUSD" }) {
+  const [roll, setRoll] = useState({ blocks: [], loading: true, error: "" });
+
+  useEffect(() => {
+    let alive = true;
+
+    const load = async () => {
+      try {
+        const r = await fetch(
+          `/api/market-analysis?symbol=${encodeURIComponent(symbol)}`,
+          { cache: "no-store" }
+        );
+        const j = await r.json();
+
+        if (!r.ok || !j?.ok) {
+          throw new Error(j?.error || "Dati 24H non disponibili");
+        }
+
+        const raw = Array.isArray(j?.blocks3h) ? j.blocks3h : [];
+        const blocks = raw.slice(-8);
+
+        if (alive) {
+          setRoll({ blocks, loading: false, error: "" });
+        }
+      } catch (e) {
+        if (alive) {
+          setRoll(prev => ({
+            ...prev,
+            loading: false,
+            error: e?.message || "Errore rolling 24H"
+          }));
+        }
+      }
+    };
+
+    load();
+    const timer = window.setInterval(load, 60_000);
+
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [symbol]);
+
+  const blocks = Array.isArray(roll.blocks) ? roll.blocks : [];
+
+  const getMove = (b) => {
+    const candidates = [
+      b?.move,
+      b?.delta,
+      b?.priceMove,
+      b?.change,
+      b?.netMove,
+      b?.close != null && b?.open != null ? Number(b.close) - Number(b.open) : null
+    ];
+    for (const v of candidates) {
+      const n = Number(v);
+      if (Number.isFinite(n)) return n;
+    }
+    return 0;
+  };
+
+  const getBars = (b) => {
+    const candidates = [b?.bars, b?.barCount, b?.count, b?.m15Count];
+    for (const v of candidates) {
+      const n = Number(v);
+      if (Number.isFinite(n)) return n;
+    }
+    return null;
+  };
+
+  return (
+    <div style={{
+      marginBottom: 12,
+      padding: "10px 12px",
+      borderRadius: 13,
+      border: "1px solid rgba(99,102,241,.30)",
+      background: "rgba(30,41,59,.28)"
+    }}>
+      <div style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 8,
+        flexWrap: "wrap",
+        marginBottom: 8
+      }}>
+        <div>
+          <div style={{fontSize:10,fontWeight:1000,color:"#c7d2fe"}}>
+            🕒 MOVIMENTO 24H — BLOCCHI DA 3 ORE
+          </div>
+          <div style={{fontSize:8.5,color:"#64748b",marginTop:2}}>
+            Più vecchio a sinistra · blocco corrente a destra
+          </div>
+        </div>
+        <div style={{fontSize:8,color:"#64748b"}}>← 24H FA · ADESSO →</div>
+      </div>
+
+      {roll.error && (
+        <div style={{fontSize:8.5,color:"#fca5a5",marginBottom:7}}>
+          ⚠️ {roll.error}
+        </div>
+      )}
+
+      <div style={{
+        display:"grid",
+        gridTemplateColumns:"repeat(8,minmax(78px,1fr))",
+        gap:6,
+        overflowX:"auto",
+        WebkitOverflowScrolling:"touch"
+      }}>
+        {blocks.map((b, i) => {
+          const move = getMove(b);
+          const bars = getBars(b);
+          const isLast = i === blocks.length - 1;
+
+          // Se la route espone complete=false lo rispettiamo.
+          // In alternativa, l'ultimo blocco con meno di 12 M15 è quello in corso.
+          const isCurrent =
+            isLast &&
+            (
+              b?.complete === false ||
+              (b?.complete == null && bars != null && bars < 12)
+            );
+
+          const color =
+            move > 0 ? "#5eead4" :
+            move < 0 ? "#fb7185" :
+            "#cbd5e1";
+
+          return (
+            <div
+              key={`${b?.label || b?.start || i}-${i}`}
+              style={{
+                minWidth:78,
+                padding:"7px 8px",
+                borderRadius:10,
+                border:isCurrent
+                  ? "1px solid rgba(250,204,21,.85)"
+                  : move > 0
+                    ? "1px solid rgba(45,212,191,.28)"
+                    : move < 0
+                      ? "1px solid rgba(248,113,113,.28)"
+                      : "1px solid rgba(100,116,139,.25)",
+                background:isCurrent
+                  ? "rgba(161,98,7,.16)"
+                  : "rgba(15,23,42,.36)"
+              }}
+            >
+              <div style={{
+                display:"flex",
+                justifyContent:"space-between",
+                alignItems:"center",
+                gap:4
+              }}>
+                <span style={{
+                  fontSize:8,
+                  fontWeight:900,
+                  color:isCurrent ? "#fde68a" : "#94a3b8",
+                  whiteSpace:"nowrap"
+                }}>
+                  {b?.label || b?.window || `B${i+1}`}
+                </span>
+
+                {isCurrent && (
+                  <span style={{fontSize:6.7,fontWeight:1000,color:"#facc15"}}>
+                    LIVE
+                  </span>
+                )}
+              </div>
+
+              <div style={{
+                fontSize:13,
+                fontWeight:1000,
+                color,
+                marginTop:3
+              }}>
+                {move >= 0 ? "+" : ""}{move.toFixed(1)}
+              </div>
+
+              <div style={{
+                fontSize:7,
+                color:isCurrent ? "#facc15" : "#64748b",
+                marginTop:2
+              }}>
+                {isCurrent
+                  ? (bars != null ? `${bars}/12 M15` : "IN CORSO")
+                  : "COMPLETO"}
+              </div>
+            </div>
+          );
+        })}
+
+        {!blocks.length && (
+          <div style={{
+            gridColumn:"1 / -1",
+            fontSize:9,
+            color:"#64748b",
+            padding:"5px 2px"
+          }}>
+            {roll.loading
+              ? "Carico movimento ultime 24 ore…"
+              : "Nessun blocco disponibile."}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function PropHedgeTab() {
   const [challenges, setChallenges] = useState(DEFAULT_CHALLENGES);
   const [brokerBalance, setBrokerBalance] = useState("5000");
@@ -3397,6 +3608,11 @@ export default function PropHedgeTab() {
                     Alert: <b>M15 $4 / $8</b> · <b>1° WAIT / 2° WAIT</b> · <b>inversione</b> · <b>TP / SL</b> · <b>chiusura manuale</b>
                   </div>
                 </div>
+
+                <ActivePropRolling3H
+                  symbol={String(ch?.active?.asset || ch?.asset || "XAUUSD").toUpperCase()}
+                />
+
                 <div style={statsGrid}>
                   <div style={statCard}>
                     <div style={statLabel}>Prezzo ingresso</div>
