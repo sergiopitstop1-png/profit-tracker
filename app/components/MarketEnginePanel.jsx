@@ -92,6 +92,10 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
   const [labRows, setLabRows] = useState([]);
   const [labLoading, setLabLoading] = useState(false);
   const [labError, setLabError] = useState("");
+  const [labLimit, setLabLimit] = useState(25);
+  const [labStatsData, setLabStatsData] = useState(null);
+  const [labStatsLoading, setLabStatsLoading] = useState(false);
+  const [labStatsError, setLabStatsError] = useState("");
 
   // Rileva schermi stretti (mobile) per passare le griglie a colonne fisse a 1 colonna impilata
   const [isNarrow, setIsNarrow] = useState(false);
@@ -195,38 +199,71 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
     }
   }, [challenges, targetChallengeId]);
 
-  const loadLab = async (requestedSymbol = symbol) => {
+  const loadLab = async (requestedSymbol = symbol, requestedLimit = labLimit) => {
     setLabLoading(true);
+    setLabStatsLoading(true);
     setLabError("");
+    setLabStatsError("");
+
     try {
-      const r = await fetch(`/api/market-signal-log?mode=recent&symbol=${encodeURIComponent(requestedSymbol)}`, { cache:"no-store" });
+      const limitValue = requestedLimit === "ALL" ? "ALL" : Number(requestedLimit || 25);
+      const r = await fetch(
+        `/api/market-signal-stats?symbol=${encodeURIComponent(requestedSymbol)}&include_rows=1&limit=${encodeURIComponent(limitValue)}`,
+        { cache:"no-store" }
+      );
       const j = await r.json();
-      if (!r.ok || !j?.ok) throw new Error(j?.error || "Storico segnali non disponibile");
+      if (!r.ok || !j?.ok) throw new Error(j?.error || "Market Engine Lab non disponibile");
+
+      setLabStatsData(j);
       setLabRows(Array.isArray(j?.rows) ? j.rows : []);
     } catch (e) {
-      setLabError(e?.message || "Errore Market Engine Lab");
+      const message = e?.message || "Errore Market Engine Lab";
+      setLabError(message);
+      setLabStatsError(message);
     } finally {
       setLabLoading(false);
+      setLabStatsLoading(false);
     }
   };
 
   useEffect(() => {
-    loadLab(symbol);
-    const id = setInterval(() => loadLab(symbol), 60_000);
-    return () => clearInterval(id);
-  }, [symbol]);
+    loadLab(symbol, labLimit);
 
-  const labStats = useMemo(() => {
+    // Un'unica lettura leggera al minuto:
+    // - poche righe aggregate dalla view Supabase
+    // - solo le righe della tabella richieste dall'utente
+    const id = setInterval(() => loadLab(symbol, labLimit), 60_000);
+
+    return () => clearInterval(id);
+  }, [symbol, labLimit]);
+
+  const fallbackLabStats = useMemo(() => {
     const directional = labRows.filter(r => ["BUY","SELL"].includes(String(r?.forecast_direction || "").toUpperCase()));
     const completed = directional.filter(r => r?.direction_correct_3h === true || r?.direction_correct_3h === false);
-    const wins = completed.filter(r => r?.direction_correct_3h === true).length;
     const pct = (field) => {
       const x = directional.filter(r => r?.[field] === true || r?.[field] === false);
       if (!x.length) return null;
       return 100 * x.filter(r => r?.[field] === true).length / x.length;
     };
-    return { total:labRows.length, pending:labRows.filter(r => r?.evaluation_status !== "COMPLETED").length, completed:completed.length, wins, wr1:pct("direction_correct_1h"), wr2:pct("direction_correct_2h"), wr3:pct("direction_correct_3h") };
+    return {
+      total:labRows.length,
+      pending:labRows.filter(r => r?.evaluation_status !== "COMPLETED").length,
+      completed:completed.length,
+      wr1:pct("direction_correct_1h"),
+      wr2:pct("direction_correct_2h"),
+      wr3:pct("direction_correct_3h")
+    };
   }, [labRows]);
+
+  const globalSummary = labStatsData?.summary || null;
+  const labStats = globalSummary ? {
+    total: globalSummary.total ?? 0,
+    pending: (globalSummary.pending ?? 0) + (globalSummary.partial ?? 0),
+    completed: globalSummary.completed ?? 0,
+    wr1: globalSummary.winRate1h,
+    wr2: globalSummary.winRate2h,
+    wr3: globalSummary.winRate3h
+  } : fallbackLabStats;
 
   const resultBadge = (row, h) => {
     const v = row?.[`direction_correct_${h}h`];
@@ -237,80 +274,179 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
     return { label:"—", color:"#94a3b8" };
   };
 
+  const confidenceBands = Array.isArray(labStatsData?.confidenceBands)
+    ? labStatsData.confidenceBands
+    : [];
+
+  const buyStats = labStatsData?.byDirection?.BUY || null;
+  const sellStats = labStatsData?.byDirection?.SELL || null;
+  const waitStats = labStatsData?.byDirection?.WAIT || null;
+
   const renderLabPanel = () => (
-<div style={{
-        marginTop:14,
-        border:"1px solid rgba(168,85,247,.32)",
-        borderRadius:16,
-        background:"rgba(2,6,23,.42)",
-        overflow:"hidden"
-      }}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap",padding:"13px 14px",borderBottom:labOpen?"1px solid rgba(71,85,105,.38)":"none"}}>
-          <div>
-            <div style={{fontSize:15,fontWeight:1000,color:"#f3e8ff"}}>🧪 MARKET ENGINE LAB — Validazione segnali</div>
-            <div style={{fontSize:10,color:"#94a3b8",marginTop:3}}>Storico automatico 1H / 2H / 3H. La direzione validata è il forecast di mercato, non la direzione Prop.</div>
+    <div style={{
+      marginTop:14,
+      border:"1px solid rgba(168,85,247,.32)",
+      borderRadius:16,
+      background:"rgba(2,6,23,.42)",
+      overflow:"hidden"
+    }}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap",padding:"13px 14px",borderBottom:labOpen?"1px solid rgba(71,85,105,.38)":"none"}}>
+        <div>
+          <div style={{fontSize:15,fontWeight:1000,color:"#f3e8ff"}}>🧪 MARKET ENGINE LAB — Validazione segnali</div>
+          <div style={{fontSize:10,color:"#94a3b8",marginTop:3}}>
+            Statistiche globali sull'intero storico. La tabella sotto mostra solo la finestra selezionata.
           </div>
-          <div style={{display:"flex",gap:8}}>
-            <button style={secondaryButton} onClick={()=>loadLab(symbol)} disabled={labLoading}>{labLoading?"Aggiorno…":"↻ Aggiorna Lab"}</button>
-            <button style={secondaryButton} onClick={()=>setLabOpen(v=>!v)}>{labOpen?"Nascondi":"Mostra"}</button>
-          </div>
+          {labStatsData?.engineVersion && (
+            <div style={{fontSize:9,color:"#64748b",marginTop:3}}>
+              Baseline statistica: {labStatsData.engineVersion}
+            </div>
+          )}
         </div>
 
-        {labOpen && (
-          <div style={{padding:14}}>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:8,marginBottom:12}}>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+          <select
+            value={String(labLimit)}
+            onChange={e=>setLabLimit(e.target.value === "ALL" ? "ALL" : Number(e.target.value))}
+            style={{...input,marginBottom:0,padding:"8px 10px",minWidth:135}}
+            title="Numero di righe mostrate nella tabella"
+          >
+            <option value="25">Ultimi 25</option>
+            <option value="100">Ultimi 100</option>
+            <option value="500">Ultimi 500</option>
+            <option value="ALL">Tutti (max 5000)</option>
+          </select>
+
+          <button
+            style={secondaryButton}
+            onClick={()=>loadLab(symbol, labLimit)}
+            disabled={labLoading || labStatsLoading}
+          >
+            {(labLoading || labStatsLoading) ? "Aggiorno…" : "↻ Aggiorna Lab"}
+          </button>
+
+          <button style={secondaryButton} onClick={()=>setLabOpen(v=>!v)}>
+            {labOpen?"Nascondi":"Mostra"}
+          </button>
+        </div>
+      </div>
+
+      {labOpen && (
+        <div style={{padding:14}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:8,marginBottom:10}}>
+            {[
+              ["SEGNALI STORICI",labStats.total,"#e2e8f0"],
+              ["IN VALUTAZIONE",labStats.pending,"#fde68a"],
+              ["COMPLETATI",labStats.completed,"#c4b5fd"],
+              ["WIN RATE 1H",labStats.wr1==null?"—":`${fmt(labStats.wr1,1)}%`,"#5eead4"],
+              ["WIN RATE 2H",labStats.wr2==null?"—":`${fmt(labStats.wr2,1)}%`,"#5eead4"],
+              ["WIN RATE 3H",labStats.wr3==null?"—":`${fmt(labStats.wr3,1)}%`,"#4ade80"]
+            ].map(([lab,val,color])=>(
+              <div key={lab} style={{padding:"10px 11px",borderRadius:12,border:"1px solid rgba(71,85,105,.42)",background:"rgba(15,23,42,.55)"}}>
+                <div style={{fontSize:9,fontWeight:900,color:"#64748b"}}>{lab}</div>
+                <div style={{fontSize:20,fontWeight:1000,color,marginTop:3}}>{val}</div>
+              </div>
+            ))}
+          </div>
+
+          {globalSummary && (
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(135px,1fr))",gap:8,marginBottom:12}}>
               {[
-                ["SEGNALI",labStats.total,"#e2e8f0"],
-                ["IN VALUTAZIONE",labStats.pending,"#fde68a"],
-                ["COMPLETATI",labStats.completed,"#c4b5fd"],
-                ["WIN RATE 1H",labStats.wr1==null?"—":`${fmt(labStats.wr1,1)}%`,"#5eead4"],
-                ["WIN RATE 2H",labStats.wr2==null?"—":`${fmt(labStats.wr2,1)}%`,"#5eead4"],
-                ["WIN RATE 3H",labStats.wr3==null?"—":`${fmt(labStats.wr3,1)}%`,"#4ade80"]
-              ].map(([lab,val,color])=>(
-                <div key={lab} style={{padding:"10px 11px",borderRadius:12,border:"1px solid rgba(71,85,105,.42)",background:"rgba(15,23,42,.55)"}}>
+                ["🟢 BUY",globalSummary.buy ?? 0,buyStats?.winRate3h,"#5eead4"],
+                ["🔴 SELL",globalSummary.sell ?? 0,sellStats?.winRate3h,"#fb7185"],
+                ["🟡 WAIT",globalSummary.wait ?? 0,null,"#fde68a"],
+                ["MFE MEDIO 3H",globalSummary.avgMfeAtr3h == null ? "—" : `${fmt(globalSummary.avgMfeAtr3h,2)} ATR`,null,"#4ade80"],
+                ["MAE MEDIO 3H",globalSummary.avgMaeAtr3h == null ? "—" : `${fmt(globalSummary.avgMaeAtr3h,2)} ATR`,null,"#fb7185"]
+              ].map(([lab,val,wr,color])=>(
+                <div key={lab} style={{padding:"9px 10px",borderRadius:11,border:"1px solid rgba(71,85,105,.34)",background:"rgba(15,23,42,.38)"}}>
                   <div style={{fontSize:9,fontWeight:900,color:"#64748b"}}>{lab}</div>
-                  <div style={{fontSize:20,fontWeight:1000,color,marginTop:3}}>{val}</div>
+                  <div style={{fontSize:17,fontWeight:1000,color,marginTop:3}}>{val}</div>
+                  {wr != null && <div style={{fontSize:9,color:"#94a3b8",marginTop:2}}>WR 3H {fmt(wr,1)}%</div>}
                 </div>
               ))}
             </div>
+          )}
 
-            {labError && <div style={{padding:"10px 12px",marginBottom:10,borderRadius:12,border:"1px solid rgba(248,113,113,.35)",color:"#fecaca",background:"rgba(127,29,29,.15)"}}>❌ {labError}</div>}
-
-            <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch",border:"1px solid rgba(71,85,105,.35)",borderRadius:12}}>
-              <table style={{width:"100%",minWidth:980,borderCollapse:"collapse",fontSize:10}}>
-                <thead>
-                  <tr style={{background:"rgba(15,23,42,.92)",color:"#94a3b8",textAlign:"left"}}>
-                    {["CHIUSURA M15","FORECAST","CONF.","SCORE","ENTRY","1H","2H","3H","MFE 3H","MAE 3H","STATO"].map(h=><th key={h} style={{padding:"9px 8px",borderBottom:"1px solid rgba(71,85,105,.45)",whiteSpace:"nowrap"}}>{h}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {labRows.map(row=>{
-                    const dir=String(row?.forecast_direction||"WAIT").toUpperCase();
-                    const b1=resultBadge(row,1), b2=resultBadge(row,2), b3=resultBadge(row,3);
-                    return (
-                      <tr key={row.id} style={{borderBottom:"1px solid rgba(51,65,85,.35)",color:"#cbd5e1"}}>
-                        <td style={{padding:"8px",whiteSpace:"nowrap"}}>{row?.signal_m15_time ? new Date(new Date(row.signal_m15_time).getTime() + 15 * 60 * 1000).toLocaleString("it-IT",{timeZone:"Europe/Rome",day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}) : "—"}</td>
-                        <td style={{padding:"8px",fontWeight:1000,color:dir==="BUY"?"#5eead4":dir==="SELL"?"#fb7185":"#fde68a"}}>{dir}</td>
-                        <td style={{padding:"8px"}}>{fmt(row?.confidence_raw,0)}</td>
-                        <td style={{padding:"8px"}}>{fmt(row?.price_score,1)}</td>
-                        <td style={{padding:"8px"}}>{fmt(row?.entry_price,priceDecimals(symbol))}</td>
-                        <td style={{padding:"8px",fontWeight:900,color:b1.color,whiteSpace:"nowrap"}}>{b1.label}</td>
-                        <td style={{padding:"8px",fontWeight:900,color:b2.color,whiteSpace:"nowrap"}}>{b2.label}</td>
-                        <td style={{padding:"8px",fontWeight:900,color:b3.color,whiteSpace:"nowrap"}}>{b3.label}</td>
-                        <td style={{padding:"8px",color:Number(row?.mfe_atr_3h)>=0?"#4ade80":"#cbd5e1"}}>{row?.mfe_atr_3h==null?"—":`${fmt(row.mfe_atr_3h,2)} ATR`}</td>
-                        <td style={{padding:"8px",color:Number(row?.mae_atr_3h)<0?"#fb7185":"#cbd5e1"}}>{row?.mae_atr_3h==null?"—":`${fmt(row.mae_atr_3h,2)} ATR`}</td>
-                        <td style={{padding:"8px",fontWeight:900,color:row?.evaluation_status==="COMPLETED"?"#4ade80":"#fde68a"}}>{row?.evaluation_status||"PENDING"}</td>
-                      </tr>
-                    );
-                  })}
-                  {!labLoading && labRows.length===0 && <tr><td colSpan={11} style={{padding:18,textAlign:"center",color:"#64748b"}}>Nessun segnale archiviato per {symbol}.</td></tr>}
-                </tbody>
-              </table>
+          {confidenceBands.length > 0 && (
+            <div style={{marginBottom:12,padding:"10px 11px",borderRadius:12,border:"1px solid rgba(56,189,248,.20)",background:"rgba(14,116,144,.05)"}}>
+              <div style={{fontSize:10,fontWeight:950,color:"#93c5fd",marginBottom:8}}>AFFIDABILITÀ PER FASCIA DI CONFIDENCE — SOLO BUY/SELL</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(135px,1fr))",gap:7}}>
+                {confidenceBands.map(b=>(
+                  <div key={b.band} style={{padding:"8px 9px",borderRadius:10,border:"1px solid rgba(71,85,105,.34)",background:"rgba(2,6,23,.34)"}}>
+                    <div style={{fontSize:11,fontWeight:1000,color:"#e2e8f0"}}>CONF. {b.band}</div>
+                    <div style={{fontSize:9,color:"#64748b",marginTop:2}}>Segnali {b.total}</div>
+                    <div style={{fontSize:11,color:"#cbd5e1",marginTop:5}}>
+                      1H <b style={{color:"#5eead4"}}>{b.winRate1h==null?"—":`${fmt(b.winRate1h,1)}%`}</b>
+                      {" • "}2H <b style={{color:"#5eead4"}}>{b.winRate2h==null?"—":`${fmt(b.winRate2h,1)}%`}</b>
+                    </div>
+                    <div style={{fontSize:12,color:"#cbd5e1",marginTop:3}}>
+                      3H <b style={{color:"#4ade80"}}>{b.winRate3h==null?"—":`${fmt(b.winRate3h,1)}%`}</b>
+                      <span style={{fontSize:9,color:"#64748b"}}> ({b.evaluated3h || 0} valutati)</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-            <div style={{fontSize:9,color:"#64748b",marginTop:8}}>Nota: la win-rate diventerà significativa solo con un campione ampio. MFE/MAE in ATR ci diranno anche quanto il segnale si muove a favore o contro, non solo se chiude sopra/sotto l'entry.</div>
+          )}
+
+          {labStatsError && (
+            <div style={{padding:"10px 12px",marginBottom:10,borderRadius:12,border:"1px solid rgba(245,158,11,.35)",color:"#fde68a",background:"rgba(120,53,15,.12)"}}>
+              ⚠️ Statistiche globali non disponibili: {labStatsError}. Mostro temporaneamente i calcoli sulla tabella caricata.
+            </div>
+          )}
+
+          {labError && (
+            <div style={{padding:"10px 12px",marginBottom:10,borderRadius:12,border:"1px solid rgba(248,113,113,.35)",color:"#fecaca",background:"rgba(127,29,29,.15)"}}>
+              ❌ {labError}
+            </div>
+          )}
+
+          <div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"center",flexWrap:"wrap",marginBottom:7}}>
+            <div style={{fontSize:10,color:"#94a3b8",fontWeight:900}}>
+              STORICO VISIBILE — {labRows.length} righe
+            </div>
+            <div style={{fontSize:9,color:"#64748b"}}>
+              Le statistiche sopra non dipendono dal numero di righe mostrate qui.
+            </div>
           </div>
-        )}
-      </div>
+
+          <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch",border:"1px solid rgba(71,85,105,.35)",borderRadius:12}}>
+            <table style={{width:"100%",minWidth:980,borderCollapse:"collapse",fontSize:10}}>
+              <thead>
+                <tr style={{background:"rgba(15,23,42,.92)",color:"#94a3b8",textAlign:"left"}}>
+                  {["CHIUSURA M15","FORECAST","CONF.","SCORE","ENTRY","1H","2H","3H","MFE 3H","MAE 3H","STATO"].map(h=><th key={h} style={{padding:"9px 8px",borderBottom:"1px solid rgba(71,85,105,.45)",whiteSpace:"nowrap"}}>{h}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {labRows.map(row=>{
+                  const dir=String(row?.forecast_direction||"WAIT").toUpperCase();
+                  const b1=resultBadge(row,1), b2=resultBadge(row,2), b3=resultBadge(row,3);
+                  return (
+                    <tr key={row.id} style={{borderBottom:"1px solid rgba(51,65,85,.35)",color:"#cbd5e1"}}>
+                      <td style={{padding:"8px",whiteSpace:"nowrap"}}>{row?.signal_m15_time ? new Date(new Date(row.signal_m15_time).getTime() + 15 * 60 * 1000).toLocaleString("it-IT",{timeZone:"Europe/Rome",day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}) : "—"}</td>
+                      <td style={{padding:"8px",fontWeight:1000,color:dir==="BUY"?"#5eead4":dir==="SELL"?"#fb7185":"#fde68a"}}>{dir}</td>
+                      <td style={{padding:"8px"}}>{fmt(row?.confidence_raw,0)}</td>
+                      <td style={{padding:"8px"}}>{fmt(row?.price_score,1)}</td>
+                      <td style={{padding:"8px"}}>{fmt(row?.entry_price,priceDecimals(symbol))}</td>
+                      <td style={{padding:"8px",fontWeight:900,color:b1.color,whiteSpace:"nowrap"}}>{b1.label}</td>
+                      <td style={{padding:"8px",fontWeight:900,color:b2.color,whiteSpace:"nowrap"}}>{b2.label}</td>
+                      <td style={{padding:"8px",fontWeight:900,color:b3.color,whiteSpace:"nowrap"}}>{b3.label}</td>
+                      <td style={{padding:"8px",color:Number(row?.mfe_atr_3h)>=0?"#4ade80":"#cbd5e1"}}>{row?.mfe_atr_3h==null?"—":`${fmt(row.mfe_atr_3h,2)} ATR`}</td>
+                      <td style={{padding:"8px",color:Number(row?.mae_atr_3h)<0?"#fb7185":"#cbd5e1"}}>{row?.mae_atr_3h==null?"—":`${fmt(row.mae_atr_3h,2)} ATR`}</td>
+                      <td style={{padding:"8px",fontWeight:900,color:row?.evaluation_status==="COMPLETED"?"#4ade80":"#fde68a"}}>{row?.evaluation_status||"PENDING"}</td>
+                    </tr>
+                  );
+                })}
+                {!labLoading && labRows.length===0 && <tr><td colSpan={11} style={{padding:18,textAlign:"center",color:"#64748b"}}>Nessun segnale archiviato per {symbol}.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{fontSize:9,color:"#64748b",marginTop:8}}>
+            WAIT è escluso dalla win-rate BUY/SELL. Le statistiche globali arrivano dalla view aggregata Supabase; la tabella può restare corta senza perdere lo storico.
+          </div>
+        </div>
+      )}
+    </div>
   );
 
   // Con Trading OFF il parent può renderizzare soltanto il Lab.
