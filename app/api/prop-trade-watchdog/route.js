@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 /*
-  PROP TRADE WATCHDOG v1.00
+  PROP TRADE WATCHDOG v1.01
 
   Monitora tutte le challenge con state.active presente.
   Funziona anche per operazioni aperte ESTERNAMENTE.
@@ -21,8 +21,8 @@ export const revalidate = 0;
 
   ENV Vercel:
   PROP_WATCHDOG_SECRET
-  TELEGRAM_BOT_TOKEN
-  TELEGRAM_CHAT_ID
+  PROP_WATCHDOG_TELEGRAM_BOT_TOKEN
+  PROP_WATCHDOG_TELEGRAM_CHAT_ID
   NEXT_PUBLIC_SUPABASE_URL (o SUPABASE_URL)
   SUPABASE_SERVICE_ROLE_KEY
 */
@@ -30,8 +30,8 @@ export const revalidate = 0;
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const WATCHDOG_SECRET = process.env.PROP_WATCHDOG_SECRET;
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const TELEGRAM_BOT_TOKEN = process.env.PROP_WATCHDOG_TELEGRAM_BOT_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.PROP_WATCHDOG_TELEGRAM_CHAT_ID;
 
 const ACTIVE_TABLE = "prop_hedge_active_challenges";
 const SIGNAL_TABLE = "prop_market_signal_log";
@@ -363,7 +363,7 @@ async function run(){
     try{ results.push(await processChallenge(row)); }
     catch(e){ results.push({challenge:row.challenge_id,status:"ERROR",error:e?.message||String(e)}); }
   }
-  return {ok:true,version:"1.00",checked:active.length,results};
+  return {ok:true,version:"1.01",checked:active.length,results};
 }
 
 export async function POST(request){
