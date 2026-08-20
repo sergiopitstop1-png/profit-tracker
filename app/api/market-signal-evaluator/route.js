@@ -3,21 +3,38 @@ export const revalidate = 0;
 
 /*
 ============================================================
-MARKET SIGNAL EVALUATOR v1.20
-+ FORECAST EVALUATION 1H / 2H / 3H
+MARKET SIGNAL EVALUATOR v1.30
 + PROP / BROKER PATH ANALYSIS
-+ FIRST TOUCH RECORDER — path_m15_3h
++ FIRST TOUCH RECORDER 24H (path_m15_24h)
 + BACKFILL STORICO
 
-NON crea segnali.
-NON esegue trading.
+Valuta i segnali salvati in:
+public.prop_market_signal_log
 
-NOVITA' v1.20:
-- salva nel record del segnale le M15 successive all'entry
-- conserva fino a 3 ore di percorso
-- path_m15_3h diventa la base permanente per simulazioni
-  TP/SL FIRST TOUCH con parametri modificabili
-- backfill dei percorsi ancora recuperabili dalle 300 M15
+Usa le M15 presenti in:
+public.prop_market_feed
+
+Mantiene INVARIATA la logica WIN/LOSS esistente:
+- 1H
+- 2H
+- 3H
+- MFE / MAE
+- MFE / MAE in ATR
+
+Aggiunge:
+- massima escursione favorevole PROP a 1H / 2H / 3H
+- massima escursione favorevole BROKER a 1H / 2H / 3H
+- primo raggiungimento di +20/+30/+40/+50/+60/+70 USD
+  per PROP e BROKER
+- salva progressivamente in path_m15_24h le M15 successive al segnale fino a 24H
+- mantiene path_m15_3h per compatibilita con lo storico esistente
+- modalità BACKFILL per compilare anche i segnali già COMPLETED
+- il percorso salvato permette simulazioni First Touch TP/SL future senza dipendere dal feed corrente
+
+IMPORTANTE:
+- NON crea segnali
+- NON esegue trading
+- WAIT resta escluso dalla Path Analysis direzionale
 ============================================================
 */
 
@@ -36,7 +53,7 @@ const PATH_LEVELS = [20, 30, 40, 50, 60, 70];
 
 
 // ============================================================
-// UTILITY
+// RESPONSE / UTILITY
 // ============================================================
 
 function json(data, status = 200) {
@@ -127,13 +144,10 @@ async function getFeed(symbol) {
   const text = await response.text();
 
   let data;
-
   try {
     data = text ? JSON.parse(text) : [];
   } catch {
-    throw new Error(
-      `Feed Supabase non JSON: ${text.slice(0, 300)}`
-    );
+    throw new Error(`Feed Supabase non JSON: ${text.slice(0, 300)}`);
   }
 
   if (!response.ok) {
@@ -144,12 +158,11 @@ async function getFeed(symbol) {
     );
   }
 
-  const row =
-    Array.isArray(data)
-      ? data[0] || null
-      : null;
+  const row = Array.isArray(data) ? data[0] || null : null;
 
-  if (!row) return null;
+  if (!row) {
+    return null;
+  }
 
   return {
     ...row,
@@ -159,7 +172,7 @@ async function getFeed(symbol) {
 
 
 // ============================================================
-// SIGNAL SELECT
+// SELECT SIGNALS
 // ============================================================
 
 const SIGNAL_SELECT = [
@@ -179,6 +192,8 @@ const SIGNAL_SELECT = [
   "direction_correct_3h",
 
   "evaluation_status",
+  "path_m15_3h",
+  "path_m15_24h",
 
   "prop_max_delta_1h",
   "prop_max_delta_2h",
@@ -200,31 +215,42 @@ const SIGNAL_SELECT = [
   "broker_hit_40_at",
   "broker_hit_50_at",
   "broker_hit_60_at",
-  "broker_hit_70_at",
-
-  "path_m15_3h"
+  "broker_hit_70_at"
 ].join(",");
 
 
 // ============================================================
-// GET OPEN SIGNALS
+// OPEN SIGNALS
 // ============================================================
 
 async function getOpenSignals(symbol, limit = 200) {
+  assertEnv();
+
   const safeLimit = Math.max(
     1,
     Math.min(Number(limit) || 200, 500)
   );
 
+  // Dopo le 3H il forecast e' COMPLETED, ma il path operativo deve continuare fino a 24H.
+  // Leggiamo quindi i segnali delle ultime 26 ore, inclusi i COMPLETED.
+  const recentFromIso = new Date(
+    Date.now() -
+    26 *
+    60 *
+    60 *
+    1000
+  ).toISOString();
+
   const url =
     `${SUPABASE_URL}/rest/v1/${SIGNAL_TABLE}` +
     `?symbol=eq.${encodeURIComponent(symbol)}` +
-    `&evaluation_status=in.(PENDING,PARTIAL)` +
+    `&signal_m15_time=gte.${encodeURIComponent(recentFromIso)}` +
     `&select=${SIGNAL_SELECT}` +
     `&order=signal_m15_time.asc` +
     `&limit=${safeLimit}`;
 
   const response = await fetch(url, {
+    method: "GET",
     headers: supabaseHeaders(),
     cache: "no-store"
   });
@@ -249,15 +275,19 @@ async function getOpenSignals(symbol, limit = 200) {
     );
   }
 
-  return Array.isArray(data) ? data : [];
+  return Array.isArray(data)
+    ? data
+    : [];
 }
 
 
 // ============================================================
-// GET BACKFILL SIGNALS
+// BACKFILL SIGNALS
 // ============================================================
 
 async function getBackfillSignals(symbol, limit = 500) {
+  assertEnv();
+
   const safeLimit = Math.max(
     1,
     Math.min(Number(limit) || 500, 1000)
@@ -267,10 +297,11 @@ async function getBackfillSignals(symbol, limit = 500) {
     `${SUPABASE_URL}/rest/v1/${SIGNAL_TABLE}` +
     `?symbol=eq.${encodeURIComponent(symbol)}` +
     `&select=${SIGNAL_SELECT}` +
-    `&order=signal_m15_time.asc` +
+    `&order=signal_m15_time.desc` +
     `&limit=${safeLimit}`;
 
   const response = await fetch(url, {
+    method: "GET",
     headers: supabaseHeaders(),
     cache: "no-store"
   });
@@ -301,39 +332,43 @@ async function getBackfillSignals(symbol, limit = 500) {
       : [];
 
   return rows.filter(row => {
-    const direction = String(
-      row?.forecast_direction || "WAIT"
-    )
-      .toUpperCase()
-      .trim();
+    const direction =
+      String(
+        row?.forecast_direction ||
+        "WAIT"
+      )
+        .toUpperCase()
+        .trim();
 
-    if (!["BUY", "SELL"].includes(direction)) {
+    if (
+      !["BUY", "SELL"].includes(direction)
+    ) {
       return false;
     }
-
-    const savedPath =
-      normalizeBars(row?.path_m15_3h);
 
     return (
       row.prop_max_delta_1h == null ||
       row.prop_max_delta_2h == null ||
       row.prop_max_delta_3h == null ||
-
       row.broker_max_delta_1h == null ||
       row.broker_max_delta_2h == null ||
       row.broker_max_delta_3h == null ||
-
-      savedPath.length < 12
+      !Array.isArray(row.path_m15_3h) ||
+      row.path_m15_3h.length < 12 ||
+      !Array.isArray(row.path_m15_24h) ||
+      row.path_m15_24h.length < 96
     );
   });
 }
 
 
 // ============================================================
-// PATCH SIGNAL
+// PATCH
 // ============================================================
 
 async function patchSignal(id, patch) {
+  assertEnv();
+
   const url =
     `${SUPABASE_URL}/rest/v1/${SIGNAL_TABLE}` +
     `?id=eq.${encodeURIComponent(id)}`;
@@ -341,16 +376,21 @@ async function patchSignal(id, patch) {
   const response = await fetch(url, {
     method: "PATCH",
 
-    headers: supabaseHeaders({
-      Prefer: "return=representation"
-    }),
+    headers:
+      supabaseHeaders({
+        Prefer:
+          "return=representation"
+      }),
 
-    body: JSON.stringify(patch),
+    body:
+      JSON.stringify(patch),
 
-    cache: "no-store"
+    cache:
+      "no-store"
   });
 
-  const text = await response.text();
+  const text =
+    await response.text();
 
   let data;
 
@@ -380,66 +420,117 @@ async function patchSignal(id, patch) {
 
 
 // ============================================================
-// PATH M15 RECORDER
+// FIRST TOUCH RECORDER — M15 FINO A 24H
 // ============================================================
 
-function buildStoredPath(
+function compactPathBar(bar) {
+  return {
+    t: bar.t,
+    o: bar.o,
+    h: bar.h,
+    l: bar.l,
+    c: bar.c,
+    v: bar.v ?? 0
+  };
+}
+
+function buildAvailablePathM15(
   signalMs,
   bars,
-  nowMs = Date.now()
+  nowMs = Date.now(),
+  maxHours = 24
 ) {
-  if (!Number.isFinite(signalMs)) {
-    return [];
-  }
+  const safeHours =
+    Math.max(
+      1,
+      Math.min(
+        Number(maxHours) || 24,
+        24
+      )
+    );
 
-  const target3h =
+  const endMs =
     signalMs +
-    3 * 60 * 60 * 1000;
+    safeHours *
+    60 *
+    60 *
+    1000;
 
   const effectiveEnd =
     Math.min(
-      target3h,
-      nowMs
+      nowMs,
+      endMs
     );
+
+  const maxBars =
+    safeHours *
+    4;
 
   return bars
     .filter(bar =>
       bar.t > signalMs &&
       bar.t <= effectiveEnd
     )
-    .map(bar => ({
-      t: bar.t,
-      o: bar.o,
-      h: bar.h,
-      l: bar.l,
-      c: bar.c,
-      v: bar.v ?? 0
-    }))
-    .sort((a, b) => a.t - b.t);
+    .slice(
+      0,
+      maxBars
+    )
+    .map(
+      compactPathBar
+    );
 }
 
 
-function sameStoredPath(a, b) {
-  const aa = normalizeBars(a);
-  const bb = normalizeBars(b);
+function pathChanged(
+  oldPath,
+  newPath
+) {
+  const oldBars =
+    Array.isArray(oldPath)
+      ? oldPath
+      : [];
 
-  if (aa.length !== bb.length) {
+  const newBars =
+    Array.isArray(newPath)
+      ? newPath
+      : [];
+
+  if (
+    oldBars.length !==
+    newBars.length
+  ) {
+    return true;
+  }
+
+  if (
+    !newBars.length
+  ) {
     return false;
   }
 
-  for (let i = 0; i < aa.length; i++) {
+  for (
+    let i = 0;
+    i < newBars.length;
+    i++
+  ) {
+    const a =
+      oldBars[i] || {};
+
+    const b =
+      newBars[i] || {};
+
     if (
-      aa[i].t !== bb[i].t ||
-      aa[i].o !== bb[i].o ||
-      aa[i].h !== bb[i].h ||
-      aa[i].l !== bb[i].l ||
-      aa[i].c !== bb[i].c
+      Number(a.t) !== Number(b.t) ||
+      Number(a.o) !== Number(b.o) ||
+      Number(a.h) !== Number(b.h) ||
+      Number(a.l) !== Number(b.l) ||
+      Number(a.c) !== Number(b.c)
     ) {
-      return false;
+      return true;
     }
   }
 
-  return true;
+  return false;
 }
 
 
@@ -460,12 +551,15 @@ function getWindowBars(
     1000;
 
   const windowBars =
-    bars.filter(bar =>
-      bar.t > signalMs &&
-      bar.t <= endMs
+    bars.filter(
+      bar =>
+        bar.t > signalMs &&
+        bar.t <= endMs
     );
 
-  if (!windowBars.length) {
+  if (
+    !windowBars.length
+  ) {
     return null;
   }
 
@@ -474,20 +568,24 @@ function getWindowBars(
       windowBars.length - 1
     ];
 
-  if (lastBar.t < endMs) {
+  if (
+    lastBar.t <
+    endMs
+  ) {
     return null;
   }
 
   return {
     endMs,
-    bars: windowBars,
+    bars:
+      windowBars,
     lastBar
   };
 }
 
 
 // ============================================================
-// FORECAST EVALUATION
+// VALUTAZIONE FORECAST
 // ============================================================
 
 function evaluateWindow({
@@ -505,7 +603,9 @@ function evaluateWindow({
       bars
     );
 
-  if (!w) return null;
+  if (!w) {
+    return null;
+  }
 
   const {
     endMs,
@@ -515,22 +615,36 @@ function evaluateWindow({
 
   const high =
     Math.max(
-      ...windowBars.map(b => b.h)
+      ...windowBars.map(
+        b =>
+          b.h
+      )
     );
 
   const low =
     Math.min(
-      ...windowBars.map(b => b.l)
+      ...windowBars.map(
+        b =>
+          b.l
+      )
     );
 
   const finalPrice =
     lastBar.c;
 
-  let mfe = null;
-  let mae = null;
-  let directionCorrect = null;
+  let mfe =
+    null;
 
-  if (direction === "BUY") {
+  let mae =
+    null;
+
+  let directionCorrect =
+    null;
+
+  if (
+    direction ===
+    "BUY"
+  ) {
     mfe =
       high -
       entryPrice;
@@ -544,7 +658,10 @@ function evaluateWindow({
       entryPrice;
   }
 
-  else if (direction === "SELL") {
+  else if (
+    direction ===
+    "SELL"
+  ) {
     mfe =
       entryPrice -
       low;
@@ -558,28 +675,38 @@ function evaluateWindow({
       entryPrice;
   }
 
-  let mfeAtr = null;
-  let maeAtr = null;
+  let mfeAtr =
+    null;
+
+  let maeAtr =
+    null;
 
   if (
     atr !== null &&
     atr > 0
   ) {
-    if (mfe !== null) {
+    if (
+      mfe !== null
+    ) {
       mfeAtr =
-        mfe / atr;
+        mfe /
+        atr;
     }
 
-    if (mae !== null) {
+    if (
+      mae !== null
+    ) {
       maeAtr =
-        mae / atr;
+        mae /
+        atr;
     }
   }
 
   return {
     evaluatedAt:
-      new Date(endMs)
-        .toISOString(),
+      new Date(
+        endMs
+      ).toISOString(),
 
     price:
       finalPrice,
@@ -602,7 +729,8 @@ function evaluateWindow({
         ? (
             finalPrice -
             entryPrice
-          ) / atr
+          ) /
+          atr
         : null
   };
 }
@@ -616,15 +744,24 @@ function buildResult3h(
   direction,
   directionCorrect
 ) {
-  if (direction === "WAIT") {
+  if (
+    direction ===
+    "WAIT"
+  ) {
     return "WAIT";
   }
 
-  if (directionCorrect === true) {
+  if (
+    directionCorrect ===
+    true
+  ) {
     return "WIN";
   }
 
-  if (directionCorrect === false) {
+  if (
+    directionCorrect ===
+    false
+  ) {
     return "LOSS";
   }
 
@@ -642,17 +779,25 @@ function directionalDelta(
   high,
   low
 ) {
-  if (direction === "BUY") {
+  if (
+    direction ===
+    "BUY"
+  ) {
     return Math.max(
       0,
-      high - entryPrice
+      high -
+      entryPrice
     );
   }
 
-  if (direction === "SELL") {
+  if (
+    direction ===
+    "SELL"
+  ) {
     return Math.max(
       0,
-      entryPrice - low
+      entryPrice -
+      low
     );
   }
 
@@ -660,12 +805,20 @@ function directionalDelta(
 }
 
 
-function oppositeDirection(direction) {
-  if (direction === "BUY") {
+function oppositeDirection(
+  direction
+) {
+  if (
+    direction ===
+    "BUY"
+  ) {
     return "SELL";
   }
 
-  if (direction === "SELL") {
+  if (
+    direction ===
+    "SELL"
+  ) {
     return "BUY";
   }
 
@@ -679,23 +832,35 @@ function levelHitInBar(
   level,
   bar
 ) {
-  if (direction === "BUY") {
+  if (
+    direction ===
+    "BUY"
+  ) {
     return (
       bar.h >=
-      entryPrice + level
+      entryPrice +
+      level
     );
   }
 
-  if (direction === "SELL") {
+  if (
+    direction ===
+    "SELL"
+  ) {
     return (
       bar.l <=
-      entryPrice - level
+      entryPrice -
+      level
     );
   }
 
   return false;
 }
 
+
+// ============================================================
+// PATH ANALYSIS
+// ============================================================
 
 function analyzePathWindow({
   forecastDirection,
@@ -719,19 +884,27 @@ function analyzePathWindow({
       bars
     );
 
-  if (!w) return null;
+  if (!w) {
+    return null;
+  }
 
   const windowBars =
     w.bars;
 
   const high =
     Math.max(
-      ...windowBars.map(b => b.h)
+      ...windowBars.map(
+        b =>
+          b.h
+      )
     );
 
   const low =
     Math.min(
-      ...windowBars.map(b => b.l)
+      ...windowBars.map(
+        b =>
+          b.l
+      )
     );
 
   const brokerDirection =
@@ -742,31 +915,33 @@ function analyzePathWindow({
       forecastDirection
     );
 
+  const brokerMaxDelta =
+    directionalDelta(
+      brokerDirection,
+      entryPrice,
+      high,
+      low
+    );
+
+  const propMaxDelta =
+    directionalDelta(
+      propDirection,
+      entryPrice,
+      high,
+      low
+    );
+
   return {
     propDirection,
     brokerDirection,
-
-    propMaxDelta:
-      directionalDelta(
-        propDirection,
-        entryPrice,
-        high,
-        low
-      ),
-
-    brokerMaxDelta:
-      directionalDelta(
-        brokerDirection,
-        entryPrice,
-        high,
-        low
-      )
+    propMaxDelta,
+    brokerMaxDelta
   };
 }
 
 
 // ============================================================
-// FIRST HITS LEGACY
+// FIRST HITS
 // ============================================================
 
 function findFirstHits({
@@ -794,7 +969,9 @@ function findFirstHits({
       bars
     );
 
-  if (!w) return null;
+  if (!w) {
+    return null;
+  }
 
   const propDirection =
     oppositeDirection(
@@ -807,13 +984,25 @@ function findFirstHits({
   const prop = {};
   const broker = {};
 
-  for (const level of PATH_LEVELS) {
-    prop[level] = null;
-    broker[level] = null;
+  for (
+    const level
+    of PATH_LEVELS
+  ) {
+    prop[level] =
+      null;
+
+    broker[level] =
+      null;
   }
 
-  for (const bar of w.bars) {
-    for (const level of PATH_LEVELS) {
+  for (
+    const bar
+    of w.bars
+  ) {
+    for (
+      const level
+      of PATH_LEVELS
+    ) {
       if (
         !prop[level] &&
         levelHitInBar(
@@ -824,8 +1013,9 @@ function findFirstHits({
         )
       ) {
         prop[level] =
-          new Date(bar.t)
-            .toISOString();
+          new Date(
+            bar.t
+          ).toISOString();
       }
 
       if (
@@ -838,8 +1028,9 @@ function findFirstHits({
         )
       ) {
         broker[level] =
-          new Date(bar.t)
-            .toISOString();
+          new Date(
+            bar.t
+          ).toISOString();
       }
     }
   }
@@ -851,14 +1042,23 @@ function findFirstHits({
 }
 
 
+// ============================================================
+// APPEND HITS
+// ============================================================
+
 function appendPathHits(
   patch,
   signal,
   hits
 ) {
-  if (!hits) return;
+  if (!hits) {
+    return;
+  }
 
-  for (const level of PATH_LEVELS) {
+  for (
+    const level
+    of PATH_LEVELS
+  ) {
     const propKey =
       `prop_hit_${level}_at`;
 
@@ -866,7 +1066,8 @@ function appendPathHits(
       `broker_hit_${level}_at`;
 
     if (
-      signal?.[propKey] == null &&
+      signal?.[propKey] ==
+        null &&
       hits.prop?.[level]
     ) {
       patch[propKey] =
@@ -874,7 +1075,8 @@ function appendPathHits(
     }
 
     if (
-      signal?.[brokerKey] == null &&
+      signal?.[brokerKey] ==
+        null &&
       hits.broker?.[level]
     ) {
       patch[brokerKey] =
@@ -885,7 +1087,7 @@ function appendPathHits(
 
 
 // ============================================================
-// EVALUATE OPEN SIGNAL
+// EVALUATE SIGNAL
 // ============================================================
 
 async function evaluateSignal(
@@ -917,59 +1119,102 @@ async function evaluateSignal(
       .trim();
 
   if (
-    signalMs === null ||
-    entryPrice === null
+    signalMs ===
+      null ||
+    entryPrice ===
+      null
   ) {
     return {
-      id: signal.id,
-      updated: false,
-      reason: "INVALID_SIGNAL_DATA"
+      id:
+        signal.id,
+
+      updated:
+        false,
+
+      reason:
+        "INVALID_SIGNAL_DATA"
     };
   }
 
-  const patch = {};
-  let changed = false;
+  const patch =
+    {};
 
-  const target1h =
-    signalMs +
-    60 * 60 * 1000;
-
-  const target2h =
-    signalMs +
-    2 * 60 * 60 * 1000;
-
-  const target3h =
-    signalMs +
-    3 * 60 * 60 * 1000;
+  let changed =
+    false;
 
 
   // ==========================================================
-  // FIRST TOUCH RECORDER
+  // PATH M15 24H
   // ==========================================================
 
   if (
-    ["BUY", "SELL"].includes(direction)
+    ["BUY", "SELL"].includes(
+      direction
+    )
   ) {
-    const storedPath =
-      buildStoredPath(
+    const path24 =
+      buildAvailablePathM15(
         signalMs,
         bars,
-        nowMs
+        nowMs,
+        24
+      );
+
+    const path3 =
+      path24.slice(
+        0,
+        12
       );
 
     if (
-      storedPath.length > 0 &&
-      !sameStoredPath(
+      path24.length > 0 &&
+      pathChanged(
+        signal.path_m15_24h,
+        path24
+      )
+    ) {
+      patch.path_m15_24h =
+        path24;
+
+      changed =
+        true;
+    }
+
+    if (
+      path3.length > 0 &&
+      pathChanged(
         signal.path_m15_3h,
-        storedPath
+        path3
       )
     ) {
       patch.path_m15_3h =
-        storedPath;
+        path3;
 
-      changed = true;
+      changed =
+        true;
     }
   }
+
+
+  const target1h =
+    signalMs +
+    60 *
+    60 *
+    1000;
+
+  const target2h =
+    signalMs +
+    2 *
+    60 *
+    60 *
+    1000;
+
+  const target3h =
+    signalMs +
+    3 *
+    60 *
+    60 *
+    1000;
 
 
   // ==========================================================
@@ -978,7 +1223,8 @@ async function evaluateSignal(
 
   if (
     !signal.evaluated_1h_at &&
-    nowMs >= target1h
+    nowMs >=
+      target1h
   ) {
     const e1 =
       evaluateWindow({
@@ -1024,8 +1270,12 @@ async function evaluateSignal(
             direction,
 
           entryPrice,
+
           signalMs,
-          hours: 1,
+
+          hours:
+            1,
+
           bars
         });
 
@@ -1037,7 +1287,8 @@ async function evaluateSignal(
           p1.brokerMaxDelta;
       }
 
-      changed = true;
+      changed =
+        true;
     }
   }
 
@@ -1048,7 +1299,8 @@ async function evaluateSignal(
 
   if (
     !signal.evaluated_2h_at &&
-    nowMs >= target2h
+    nowMs >=
+      target2h
   ) {
     const e2 =
       evaluateWindow({
@@ -1094,8 +1346,12 @@ async function evaluateSignal(
             direction,
 
           entryPrice,
+
           signalMs,
-          hours: 2,
+
+          hours:
+            2,
+
           bars
         });
 
@@ -1107,7 +1363,8 @@ async function evaluateSignal(
           p2.brokerMaxDelta;
       }
 
-      changed = true;
+      changed =
+        true;
     }
   }
 
@@ -1116,11 +1373,13 @@ async function evaluateSignal(
   // 3H
   // ==========================================================
 
-  let evaluated3hNow = false;
+  let evaluated3hNow =
+    false;
 
   if (
     !signal.evaluated_3h_at &&
-    nowMs >= target3h
+    nowMs >=
+      target3h
   ) {
     const e3 =
       evaluateWindow({
@@ -1178,8 +1437,12 @@ async function evaluateSignal(
             direction,
 
           entryPrice,
+
           signalMs,
-          hours: 3,
+
+          hours:
+            3,
+
           bars
         });
 
@@ -1197,9 +1460,13 @@ async function evaluateSignal(
             direction,
 
           entryPrice,
+
           signalMs,
+
           bars,
-          hours: 3
+
+          hours:
+            3
         });
 
       appendPathHits(
@@ -1208,71 +1475,74 @@ async function evaluateSignal(
         hits
       );
 
-      /*
-      Al completamento delle 3H salviamo anche
-      il percorso definitivo.
-      */
+      evaluated3hNow =
+        true;
 
-      if (
-        ["BUY", "SELL"].includes(direction)
-      ) {
-        const finalStoredPath =
-          buildStoredPath(
-            signalMs,
-            bars,
-            target3h
-          );
-
-        if (
-          finalStoredPath.length > 0
-        ) {
-          patch.path_m15_3h =
-            finalStoredPath;
-        }
-      }
-
-      evaluated3hNow = true;
-      changed = true;
+      changed =
+        true;
     }
   }
 
 
   // ==========================================================
-  // LEGACY PATH HITS PROGRESSIVI
+  // PATH HIT PROGRESSIVO 1H / 2H / 3H
   // ==========================================================
 
   if (
-    ["BUY", "SELL"].includes(direction)
+    ["BUY", "SELL"].includes(
+      direction
+    )
   ) {
-    let availableHours = 0;
+    let availableHours =
+      0;
 
-    if (nowMs >= target3h) {
-      availableHours = 3;
+    if (
+      nowMs >=
+      target3h
+    ) {
+      availableHours =
+        3;
     }
 
-    else if (nowMs >= target2h) {
-      availableHours = 2;
+    else if (
+      nowMs >=
+      target2h
+    ) {
+      availableHours =
+        2;
     }
 
-    else if (nowMs >= target1h) {
-      availableHours = 1;
+    else if (
+      nowMs >=
+      target1h
+    ) {
+      availableHours =
+        1;
     }
 
-    if (availableHours > 0) {
+    if (
+      availableHours >
+      0
+    ) {
       const hits =
         findFirstHits({
           forecastDirection:
             direction,
 
           entryPrice,
+
           signalMs,
+
           bars,
-          hours: availableHours
+
+          hours:
+            availableHours
         });
 
       const beforeCount =
-        Object.keys(patch)
-          .length;
+        Object.keys(
+          patch
+        ).length;
 
       appendPathHits(
         patch,
@@ -1281,10 +1551,13 @@ async function evaluateSignal(
       );
 
       if (
-        Object.keys(patch).length >
+        Object.keys(
+          patch
+        ).length >
         beforeCount
       ) {
-        changed = true;
+        changed =
+          true;
       }
     }
   }
@@ -1293,6 +1566,18 @@ async function evaluateSignal(
   // ==========================================================
   // STATUS
   // ==========================================================
+
+  /*
+    ATTENZIONE:
+
+    evaluation_status continua ad indicare SOLO
+    la valutazione forecast 1H / 2H / 3H.
+
+    Dopo le 3H può quindi diventare COMPLETED,
+    mentre path_m15_24h continua comunque a crescere
+    perché getOpenSignals() recupera anche i segnali
+    COMPLETED delle ultime 26 ore.
+  */
 
   if (
     evaluated3hNow ||
@@ -1323,9 +1608,14 @@ async function evaluateSignal(
       signal.evaluation_status
   ) {
     return {
-      id: signal.id,
-      updated: false,
-      reason: "NOTHING_DUE"
+      id:
+        signal.id,
+
+      updated:
+        false,
+
+      reason:
+        "NOTHING_DUE"
     };
   }
 
@@ -1338,9 +1628,11 @@ async function evaluateSignal(
 
 
   return {
-    id: signal.id,
+    id:
+      signal.id,
 
-    updated: true,
+    updated:
+      true,
 
     status:
       patch.evaluation_status,
@@ -1360,19 +1652,34 @@ async function evaluateSignal(
         patch.evaluated_3h_at
       ),
 
-    pathRecorderUpdated:
-      Array.isArray(
-        patch.path_m15_3h
-      ),
-
-    pathBars:
-      Array.isArray(
-        patch.path_m15_3h
+    pathUpdated:
+      Object.keys(
+        patch
       )
-        ? patch.path_m15_3h.length
-        : normalizeBars(
-            signal.path_m15_3h
-          ).length,
+        .some(
+          k =>
+            k.startsWith(
+              "prop_"
+            ) ||
+            k.startsWith(
+              "broker_"
+            ) ||
+            k ===
+              "path_m15_3h" ||
+            k ===
+              "path_m15_24h"
+        ),
+
+    pathM15Bars:
+      Array.isArray(
+        patch.path_m15_24h
+      )
+        ? patch.path_m15_24h.length
+        : Array.isArray(
+            signal.path_m15_24h
+          )
+          ? signal.path_m15_24h.length
+          : 0,
 
     result3h:
       patch.result_3h ??
@@ -1383,7 +1690,7 @@ async function evaluateSignal(
 
 
 // ============================================================
-// BACKFILL
+// BACKFILL PATH ONLY
 // ============================================================
 
 async function backfillPathSignal(
@@ -1409,61 +1716,102 @@ async function backfillPathSignal(
       .trim();
 
   if (
-    signalMs === null ||
-    entryPrice === null ||
-    !["BUY", "SELL"].includes(direction)
+    signalMs ===
+      null ||
+    entryPrice ===
+      null ||
+    !["BUY", "SELL"].includes(
+      direction
+    )
   ) {
     return {
-      id: signal.id,
-      updated: false,
-      reason: "NOT_DIRECTIONAL"
+      id:
+        signal.id,
+
+      updated:
+        false,
+
+      reason:
+        "NOT_DIRECTIONAL"
     };
   }
 
-  const patch = {};
+  const patch =
+    {};
 
 
   // ==========================================================
-  // BACKFILL PATH M15 3H
+  // RECUPERO PATH FINO A 24H
   // ==========================================================
 
-  const reconstructedPath =
-    buildStoredPath(
+  const path24 =
+    buildAvailablePathM15(
       signalMs,
       bars,
       signalMs +
-      3 * 60 * 60 * 1000
+        24 *
+        60 *
+        60 *
+        1000,
+      24
+    );
+
+  const path3 =
+    path24.slice(
+      0,
+      12
     );
 
   if (
-    reconstructedPath.length > 0 &&
-    !sameStoredPath(
+    path24.length >
+      0 &&
+    pathChanged(
+      signal.path_m15_24h,
+      path24
+    )
+  ) {
+    patch.path_m15_24h =
+      path24;
+  }
+
+  if (
+    path3.length >
+      0 &&
+    pathChanged(
       signal.path_m15_3h,
-      reconstructedPath
+      path3
     )
   ) {
     patch.path_m15_3h =
-      reconstructedPath;
+      path3;
   }
 
 
   // ==========================================================
-  // BACKFILL DELTA
+  // RECUPERO PATH ANALYSIS 1H / 2H / 3H
   // ==========================================================
 
-  for (const hours of [1, 2, 3]) {
+  for (
+    const hours
+    of [1, 2, 3]
+  ) {
     const path =
       analyzePathWindow({
         forecastDirection:
           direction,
 
         entryPrice,
+
         signalMs,
+
         hours,
+
         bars
       });
 
-    if (!path) continue;
+    if (!path) {
+      continue;
+    }
 
     const propKey =
       `prop_max_delta_${hours}h`;
@@ -1472,14 +1820,16 @@ async function backfillPathSignal(
       `broker_max_delta_${hours}h`;
 
     if (
-      signal?.[propKey] == null
+      signal?.[propKey] ==
+      null
     ) {
       patch[propKey] =
         path.propMaxDelta;
     }
 
     if (
-      signal?.[brokerKey] == null
+      signal?.[brokerKey] ==
+      null
     ) {
       patch[brokerKey] =
         path.brokerMaxDelta;
@@ -1487,19 +1837,19 @@ async function backfillPathSignal(
   }
 
 
-  // ==========================================================
-  // BACKFILL LEGACY HITS
-  // ==========================================================
-
   const hits =
     findFirstHits({
       forecastDirection:
         direction,
 
       entryPrice,
+
       signalMs,
+
       bars,
-      hours: 3
+
+      hours:
+        3
     });
 
   appendPathHits(
@@ -1510,11 +1860,18 @@ async function backfillPathSignal(
 
 
   if (
-    Object.keys(patch).length === 0
+    Object.keys(
+      patch
+    ).length ===
+    0
   ) {
     return {
-      id: signal.id,
-      updated: false,
+      id:
+        signal.id,
+
+      updated:
+        false,
+
       reason:
         "ALREADY_FILLED_OR_OUTSIDE_FEED"
     };
@@ -1528,26 +1885,16 @@ async function backfillPathSignal(
 
 
   return {
-    id: signal.id,
+    id:
+      signal.id,
 
-    updated: true,
-
-    pathRecorded:
-      Array.isArray(
-        patch.path_m15_3h
-      ),
-
-    pathBars:
-      Array.isArray(
-        patch.path_m15_3h
-      )
-        ? patch.path_m15_3h.length
-        : normalizeBars(
-            signal.path_m15_3h
-          ).length,
+    updated:
+      true,
 
     patchedFields:
-      Object.keys(patch)
+      Object.keys(
+        patch
+      )
   };
 }
 
@@ -1556,43 +1903,74 @@ async function backfillPathSignal(
 // RUN NORMAL
 // ============================================================
 
-async function runEvaluator(symbol) {
+async function runEvaluator(
+  symbol
+) {
   const feed =
-    await getFeed(symbol);
+    await getFeed(
+      symbol
+    );
 
   if (!feed) {
     return {
-      ok: true,
+      ok:
+        true,
+
       symbol,
-      status: "NO_FEED",
-      checked: 0,
-      updated: 0
+
+      status:
+        "NO_FEED",
+
+      checked:
+        0,
+
+      updated:
+        0
     };
   }
 
   const bars =
     feed.m15;
 
-  if (bars.length < 20) {
+  if (
+    bars.length <
+    20
+  ) {
     return {
-      ok: true,
+      ok:
+        true,
+
       symbol,
-      status: "BARS_INSUFFICIENT",
-      checked: 0,
-      updated: 0,
-      m15Bars: bars.length
+
+      status:
+        "BARS_INSUFFICIENT",
+
+      checked:
+        0,
+
+      updated:
+        0,
+
+      m15Bars:
+        bars.length
     };
   }
 
   const signals =
-    await getOpenSignals(symbol);
+    await getOpenSignals(
+      symbol
+    );
 
   const nowMs =
     Date.now();
 
-  const results = [];
+  const results =
+    [];
 
-  for (const signal of signals) {
+  for (
+    const signal
+    of signals
+  ) {
     try {
       const result =
         await evaluateSignal(
@@ -1601,13 +1979,19 @@ async function runEvaluator(symbol) {
           nowMs
         );
 
-      results.push(result);
+      results.push(
+        result
+      );
     }
 
     catch (error) {
       results.push({
-        id: signal.id,
-        updated: false,
+        id:
+          signal.id,
+
+        updated:
+          false,
+
         error:
           error?.message ||
           String(error)
@@ -1617,21 +2001,21 @@ async function runEvaluator(symbol) {
 
   const updated =
     results.filter(
-      x => x.updated
-    ).length;
-
-  const pathRecorderUpdated =
-    results.filter(
       x =>
-        x.pathRecorderUpdated
+        x.updated
     ).length;
 
   return {
-    ok: true,
+    ok:
+      true,
+
     symbol,
-    status: "DONE",
-    mode: "NORMAL",
-    version: "1.20",
+
+    status:
+      "DONE",
+
+    mode:
+      "NORMAL",
 
     m15Bars:
       bars.length,
@@ -1643,8 +2027,6 @@ async function runEvaluator(symbol) {
       results.length,
 
     updated,
-
-    pathRecorderUpdated,
 
     results
   };
@@ -1660,33 +2042,58 @@ async function runBackfill(
   limit = 500
 ) {
   const feed =
-    await getFeed(symbol);
+    await getFeed(
+      symbol
+    );
 
   if (!feed) {
     return {
-      ok: true,
+      ok:
+        true,
+
       symbol,
-      status: "NO_FEED",
-      mode: "BACKFILL",
-      version: "1.20",
-      checked: 0,
-      updated: 0
+
+      status:
+        "NO_FEED",
+
+      mode:
+        "BACKFILL",
+
+      checked:
+        0,
+
+      updated:
+        0
     };
   }
 
   const bars =
     feed.m15;
 
-  if (bars.length < 20) {
+  if (
+    bars.length <
+    20
+  ) {
     return {
-      ok: true,
+      ok:
+        true,
+
       symbol,
-      status: "BARS_INSUFFICIENT",
-      mode: "BACKFILL",
-      version: "1.20",
-      checked: 0,
-      updated: 0,
-      m15Bars: bars.length
+
+      status:
+        "BARS_INSUFFICIENT",
+
+      mode:
+        "BACKFILL",
+
+      checked:
+        0,
+
+      updated:
+        0,
+
+      m15Bars:
+        bars.length
     };
   }
 
@@ -1696,9 +2103,13 @@ async function runBackfill(
       limit
     );
 
-  const results = [];
+  const results =
+    [];
 
-  for (const signal of signals) {
+  for (
+    const signal
+    of signals
+  ) {
     try {
       const result =
         await backfillPathSignal(
@@ -1706,13 +2117,19 @@ async function runBackfill(
           bars
         );
 
-      results.push(result);
+      results.push(
+        result
+      );
     }
 
     catch (error) {
       results.push({
-        id: signal.id,
-        updated: false,
+        id:
+          signal.id,
+
+        updated:
+          false,
+
         error:
           error?.message ||
           String(error)
@@ -1722,20 +2139,21 @@ async function runBackfill(
 
   const updated =
     results.filter(
-      x => x.updated
-    ).length;
-
-  const pathRecorded =
-    results.filter(
-      x => x.pathRecorded
+      x =>
+        x.updated
     ).length;
 
   return {
-    ok: true,
+    ok:
+      true,
+
     symbol,
-    status: "DONE",
-    mode: "BACKFILL",
-    version: "1.20",
+
+    status:
+      "DONE",
+
+    mode:
+      "BACKFILL",
 
     m15Bars:
       bars.length,
@@ -1748,8 +2166,6 @@ async function runBackfill(
 
     updated,
 
-    pathRecorded,
-
     results
   };
 }
@@ -1759,14 +2175,18 @@ async function runBackfill(
 // GET
 // ============================================================
 
-export async function GET(request) {
+export async function GET(
+  request
+) {
   try {
     assertEnv();
 
     const {
       searchParams
     } =
-      new URL(request.url);
+      new URL(
+        request.url
+      );
 
     const symbol =
       normalizeSymbol(
@@ -1786,7 +2206,10 @@ export async function GET(request) {
         .toLowerCase()
         .trim();
 
-    if (mode === "backfill") {
+    if (
+      mode ===
+      "backfill"
+    ) {
       const limit =
         Number(
           searchParams.get(
@@ -1804,7 +2227,9 @@ export async function GET(request) {
     }
 
     return json(
-      await runEvaluator(symbol)
+      await runEvaluator(
+        symbol
+      )
     );
   }
 
@@ -1816,7 +2241,9 @@ export async function GET(request) {
 
     return json(
       {
-        ok: false,
+        ok:
+          false,
+
         error:
           error?.message ||
           String(error)
@@ -1831,11 +2258,14 @@ export async function GET(request) {
 // POST
 // ============================================================
 
-export async function POST(request) {
+export async function POST(
+  request
+) {
   try {
     assertEnv();
 
-    let body = {};
+    let body =
+      {};
 
     try {
       body =
@@ -1843,7 +2273,8 @@ export async function POST(request) {
     }
 
     catch {
-      body = {};
+      body =
+        {};
     }
 
     const symbol =
@@ -1860,7 +2291,10 @@ export async function POST(request) {
         .toLowerCase()
         .trim();
 
-    if (mode === "backfill") {
+    if (
+      mode ===
+      "backfill"
+    ) {
       return json(
         await runBackfill(
           symbol,
@@ -1873,7 +2307,9 @@ export async function POST(request) {
     }
 
     return json(
-      await runEvaluator(symbol)
+      await runEvaluator(
+        symbol
+      )
     );
   }
 
@@ -1885,7 +2321,9 @@ export async function POST(request) {
 
     return json(
       {
-        ok: false,
+        ok:
+          false,
+
         error:
           error?.message ||
           String(error)
