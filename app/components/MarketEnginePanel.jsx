@@ -104,6 +104,14 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
   const [pathLoading, setPathLoading] = useState(false);
   const [pathError, setPathError] = useState("");
 
+  // First Touch Simulator — simula TP/SL reali della Prop sui percorsi M15 salvati
+  const [ftHours, setFtHours] = useState(1);
+  const [ftTpPoints, setFtTpPoints] = useState(1000);
+  const [ftSlPoints, setFtSlPoints] = useState(1000);
+  const [ftData, setFtData] = useState(null);
+  const [ftLoading, setFtLoading] = useState(false);
+  const [ftError, setFtError] = useState("");
+
   // Rileva schermi stretti (mobile) per passare le griglie a colonne fisse a 1 colonna impilata
   const [isNarrow, setIsNarrow] = useState(false);
   useEffect(() => {
@@ -271,6 +279,37 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
     return () => clearInterval(id);
   }, [symbol, pathHours]);
 
+  const loadFirstTouch = async (
+    requestedSymbol = symbol,
+    requestedHours = ftHours,
+    requestedTp = ftTpPoints,
+    requestedSl = ftSlPoints
+  ) => {
+    setFtLoading(true);
+    setFtError("");
+
+    try {
+      const tp = Math.max(1, Number(requestedTp) || 1000);
+      const sl = Math.max(1, Number(requestedSl) || 1000);
+      const r = await fetch(
+        `/api/market-signal-first-touch?symbol=${encodeURIComponent(requestedSymbol)}&hours=${encodeURIComponent(requestedHours)}&tp=${encodeURIComponent(tp)}&sl=${encodeURIComponent(sl)}&pointSize=0.01`,
+        { cache:"no-store" }
+      );
+      const j = await r.json();
+      if (!r.ok || !j?.ok) throw new Error(j?.error || "First Touch Simulator non disponibile");
+      setFtData(j);
+    } catch (e) {
+      setFtData(null);
+      setFtError(e?.message || "Errore First Touch Simulator");
+    } finally {
+      setFtLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadFirstTouch(symbol, 1, 1000, 1000);
+  }, [symbol]);
+
   const fallbackLabStats = useMemo(() => {
     const directional = labRows.filter(r => ["BUY","SELL"].includes(String(r?.forecast_direction || "").toUpperCase()));
     const completed = directional.filter(r => r?.direction_correct_3h === true || r?.direction_correct_3h === false);
@@ -321,6 +360,35 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
   const pathSequence = Array.isArray(pathData?.sequenceByLevel) ? pathData.sequenceByLevel : [];
   const pathRecoveryRows = Array.isArray(pathData?.recoveryByPropTarget) ? pathData.recoveryByPropTarget : [];
   const selectedRecovery = pathRecoveryRows.find(x => Number(x?.propTarget) === Number(pathPropTarget)) || null;
+
+  const ftSummary = ftData?.summary || null;
+  const ftConfig = ftData?.configuration || null;
+
+  const renderFirstTouchBucket = (title, bucket, accent, subtitle = "") => {
+    if (!bucket) return null;
+
+    return (
+      <div style={{padding:"10px 11px",borderRadius:12,border:`1px solid ${accent}55`,background:"rgba(2,6,23,.32)"}}>
+        <div style={{fontSize:10,fontWeight:1000,color:accent}}>{title}</div>
+        {subtitle && <div style={{fontSize:8.5,color:"#64748b",marginTop:2}}>{subtitle}</div>}
+        <div style={{fontSize:9,color:"#94a3b8",marginTop:4}}>Campione: <b style={{color:"#e2e8f0"}}>{bucket.signals ?? 0}</b></div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:6,marginTop:7}}>
+          {[
+            ["✅ TP PROP",bucket.tp,bucket.tpPct,"#4ade80"],
+            ["❌ SL PROP",bucket.sl,bucket.slPct,"#fb7185"],
+            ["⏳ NESSUNO",bucket.none,bucket.nonePct,"#fde68a"],
+            ["⚠️ AMBIGUO",bucket.ambiguous,bucket.ambiguousPct,"#c4b5fd"]
+          ].map(([lab,count,pctVal,color])=>(
+            <div key={lab} style={{padding:"7px 8px",borderRadius:9,border:"1px solid rgba(71,85,105,.30)",background:"rgba(15,23,42,.38)"}}>
+              <div style={{fontSize:8.5,fontWeight:950,color:"#94a3b8"}}>{lab}</div>
+              <div style={{fontSize:15,fontWeight:1000,color,marginTop:2}}>{pctVal==null?"—":`${fmt(pctVal,1)}%`}</div>
+              <div style={{fontSize:8,color:"#64748b"}}>{count ?? 0}/{bucket.signals ?? 0}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
 
   const renderLabPanel = () => (
     <div style={{
@@ -569,6 +637,125 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
                   “LOSS” resta il giudizio statistico sul forecast. Qui misuriamo separatamente se quel LOSS avrebbe favorito la Prop,
                   se avrebbe lasciato l'operazione aperta e quale escursione avrebbe poi offerto il Broker. I tocchi nella stessa M15
                   sono marcati come ambigui: con OHLC M15 non possiamo conoscere l'ordine intrabar.
+                </div>
+              </>
+            )}
+          </div>
+
+          <div style={{
+            marginBottom:12,
+            padding:"11px 12px",
+            borderRadius:13,
+            border:"1px solid rgba(34,197,94,.28)",
+            background:"linear-gradient(135deg,rgba(20,83,45,.07),rgba(2,6,23,.48))"
+          }}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,flexWrap:"wrap",marginBottom:10}}>
+              <div>
+                <div style={{fontSize:11,fontWeight:1000,color:"#bbf7d0"}}>
+                  🎯 FIRST TOUCH SIMULATOR — TP / SL PROP
+                </div>
+                <div style={{fontSize:9,color:"#94a3b8",marginTop:3,lineHeight:1.45}}>
+                  Ricostruisce il percorso M15 di TUTTI i forecast BUY/SELL e stabilisce quale livello della Prop viene toccato per primo.
+                  Forecast BUY = Prop SELL; Forecast SELL = Prop BUY.
+                </div>
+              </div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                {[1,2,3].map(h=>(
+                  <button
+                    key={h}
+                    onClick={()=>setFtHours(h)}
+                    style={{
+                      ...secondaryButton,
+                      padding:"7px 11px",
+                      opacity:ftHours===h?1:.65,
+                      border:ftHours===h?"1px solid rgba(74,222,128,.58)":"1px solid rgba(71,85,105,.45)",
+                      background:ftHours===h?"rgba(22,101,52,.18)":"rgba(15,23,42,.45)",
+                      color:ftHours===h?"#bbf7d0":"#94a3b8"
+                    }}
+                  >
+                    {h}H
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{display:"grid",gridTemplateColumns:isNarrow?"1fr":"repeat(3,minmax(150px,1fr)) auto",gap:8,alignItems:"end",marginBottom:10}}>
+              <div>
+                <label style={{fontSize:9,color:"#94a3b8",display:"block",marginBottom:4}}>TP Prop — punti MT5</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="50"
+                  value={ftTpPoints}
+                  onChange={e=>setFtTpPoints(e.target.value)}
+                  style={{...input,marginBottom:0,padding:"8px 9px"}}
+                />
+              </div>
+
+              <div>
+                <label style={{fontSize:9,color:"#94a3b8",display:"block",marginBottom:4}}>SL Prop — punti MT5</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="50"
+                  value={ftSlPoints}
+                  onChange={e=>setFtSlPoints(e.target.value)}
+                  style={{...input,marginBottom:0,padding:"8px 9px"}}
+                />
+              </div>
+
+              <div>
+                <label style={{fontSize:9,color:"#94a3b8",display:"block",marginBottom:4}}>Preset rapidi</label>
+                <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                  {[500,750,1000,1250,1500].map(v=>(
+                    <button
+                      key={v}
+                      onClick={()=>{setFtTpPoints(v);setFtSlPoints(v);}}
+                      style={{...secondaryButton,padding:"7px 8px",fontSize:9}}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                style={{...primaryButtonBlue,padding:"9px 13px",whiteSpace:"nowrap",opacity:ftLoading?.6:1}}
+                disabled={ftLoading}
+                onClick={()=>loadFirstTouch(symbol,ftHours,ftTpPoints,ftSlPoints)}
+              >
+                {ftLoading?"Simulo…":"▶ Simula"}
+              </button>
+            </div>
+
+            <div style={{fontSize:8.5,color:"#64748b",marginBottom:9}}>
+              Su XAUUSD il simulatore usa <b style={{color:"#cbd5e1"}}>1 punto = 0,01</b> di prezzo.
+              {ftConfig && <> Configurazione calcolata: TP <b style={{color:"#4ade80"}}>{fmt(ftConfig.tpPriceDistance,2)}$</b> · SL <b style={{color:"#fb7185"}}>{fmt(ftConfig.slPriceDistance,2)}$</b> · {ftConfig.hours}H.</>}
+            </div>
+
+            {ftError && (
+              <div style={{padding:"9px 10px",marginBottom:9,borderRadius:10,border:"1px solid rgba(248,113,113,.35)",background:"rgba(127,29,29,.12)",color:"#fecaca",fontSize:10}}>
+                ❌ {ftError}
+              </div>
+            )}
+
+            {ftSummary && (
+              <>
+                <div style={{display:"grid",gridTemplateColumns:isNarrow?"1fr":"repeat(3,minmax(190px,1fr))",gap:8}}>
+                  {renderFirstTouchBucket("TUTTI I SEGNALI",ftSummary.total,"#93c5fd","Risultato operativo Prop indipendentemente dal WIN/LOSS del forecast")}
+                  {renderFirstTouchBucket("FORECAST WIN",ftSummary.forecastWin,"#4ade80","Il motore aveva ragione all'orizzonte selezionato")}
+                  {renderFirstTouchBucket("FORECAST LOSS",ftSummary.forecastLoss,"#fb7185","Il motore aveva torto all'orizzonte selezionato")}
+                </div>
+
+                <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:9,fontSize:8.5,color:"#64748b"}}>
+                  <span>Segnali con path: <b style={{color:"#cbd5e1"}}>{ftData?.sourceSignals ?? 0}</b></span>
+                  <span>Analizzati: <b style={{color:"#cbd5e1"}}>{ftData?.analyzedSignals ?? 0}</b></span>
+                  <span>Pending esclusi: <b style={{color:"#cbd5e1"}}>{ftData?.skipped?.pending ?? 0}</b></span>
+                  <span>Path mancanti: <b style={{color:"#cbd5e1"}}>{ftData?.skipped?.noPath ?? 0}</b></span>
+                </div>
+
+                <div style={{fontSize:8.5,color:"#64748b",marginTop:7,lineHeight:1.45}}>
+                  TP/SL vengono controllati candela per candela e la simulazione si ferma al primo evento. Se TP e SL sono entrambi attraversati nella stessa M15, il caso è AMBIGUO perché l'OHLC non permette di conoscere l'ordine intrabar.
                 </div>
               </>
             )}
