@@ -2,7 +2,7 @@
 
 // PropHedgeTab v1.21 — TRADING session + MT5 live stability + avviso avvio
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
 import MarketEnginePanel from "./MarketEnginePanel";
 import TradingViewChart from "./TradingViewChart";
@@ -317,6 +317,198 @@ function TextNumberField({
   );
 }
 
+
+function ActiveRolling24Strip({ symbol = "XAUUSD", enabled = true }) {
+  const [state, setState] = useState({ blocks: [], error: "", loading: true });
+
+  useEffect(() => {
+    if (!enabled) return;
+
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const r = await fetch(
+          `/api/market-analysis?symbol=${encodeURIComponent(symbol)}`,
+          { cache:"no-store" }
+        );
+        const j = await r.json();
+
+        if (!r.ok || !j?.ok) {
+          throw new Error(j?.error || "Rolling 24H non disponibile");
+        }
+
+        if (!cancelled) {
+          setState({
+            blocks: Array.isArray(j?.blocks3h) ? j.blocks3h.slice(-8) : [],
+            error: "",
+            loading: false
+          });
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setState(prev => ({
+            ...prev,
+            error: e?.message || "Errore Rolling 24H",
+            loading: false
+          }));
+        }
+      }
+    };
+
+    load();
+    const id = window.setInterval(load, 60_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [symbol, enabled]);
+
+  const blocks = Array.isArray(state.blocks) ? state.blocks : [];
+
+  return (
+    <div style={{
+      marginBottom:12,
+      padding:"10px 12px",
+      borderRadius:13,
+      border:"1px solid rgba(99,102,241,.32)",
+      background:"linear-gradient(135deg,rgba(49,46,129,.09),rgba(2,6,23,.38))"
+    }}>
+      <div style={{
+        display:"flex",
+        justifyContent:"space-between",
+        alignItems:"center",
+        gap:8,
+        flexWrap:"wrap",
+        marginBottom:8
+      }}>
+        <div>
+          <div style={{fontSize:10,fontWeight:1000,color:"#c7d2fe"}}>
+            🕒 MOVIMENTO ULTIME 24 ORE — {symbol}
+          </div>
+          <div style={{fontSize:8.5,color:"#64748b",marginTop:2}}>
+            8 blocchi mobili da 3H · il riquadro più a destra è quello corrente
+          </div>
+        </div>
+        <div style={{fontSize:8,color:"#64748b"}}>← 24H FA · ADESSO →</div>
+      </div>
+
+      {state.error && (
+        <div style={{fontSize:8.5,color:"#fca5a5",marginBottom:6}}>
+          ⚠️ {state.error}
+        </div>
+      )}
+
+      <div style={{
+        display:"grid",
+        gridTemplateColumns:"repeat(8,minmax(72px,1fr))",
+        gap:6,
+        overflowX:"auto",
+        WebkitOverflowScrolling:"touch"
+      }}>
+        {blocks.map((b,i,arr)=>{
+          const isLast = i === arr.length - 1;
+          const bars = Number(b?.bars ?? b?.barCount ?? b?.count ?? 0);
+          const explicitComplete = b?.complete;
+          const isCurrent = isLast && (
+            explicitComplete === false ||
+            (explicitComplete == null && bars > 0 && bars < 12)
+          );
+
+          const moveRaw = b?.move ?? b?.delta ?? b?.priceMove ?? b?.change ?? 0;
+          const move = Number(moveRaw);
+          const safeMove = Number.isFinite(move) ? move : 0;
+
+          const moveColor =
+            safeMove > 0 ? "#5eead4" :
+            safeMove < 0 ? "#fca5a5" :
+            "#cbd5e1";
+
+          return (
+            <div
+              key={`${b?.label || b?.start || i}-${i}`}
+              style={{
+                minWidth:72,
+                padding:"7px 8px",
+                borderRadius:10,
+                border:isCurrent
+                  ? "1px solid rgba(250,204,21,.78)"
+                  : safeMove > 0
+                    ? "1px solid rgba(45,212,191,.30)"
+                    : safeMove < 0
+                      ? "1px solid rgba(248,113,113,.30)"
+                      : "1px solid rgba(148,163,184,.22)",
+                background:isCurrent
+                  ? "linear-gradient(135deg,rgba(202,138,4,.20),rgba(30,41,59,.35))"
+                  : safeMove > 0
+                    ? "rgba(13,148,136,.08)"
+                    : safeMove < 0
+                      ? "rgba(153,27,27,.08)"
+                      : "rgba(30,41,59,.20)"
+              }}
+            >
+              <div style={{
+                display:"flex",
+                justifyContent:"space-between",
+                alignItems:"center",
+                gap:3
+              }}>
+                <span style={{
+                  fontSize:8.5,
+                  color:isCurrent ? "#fde68a" : "#94a3b8",
+                  fontWeight:900,
+                  whiteSpace:"nowrap"
+                }}>
+                  {b?.label || b?.window || `B${i+1}`}
+                </span>
+
+                {isCurrent && (
+                  <span style={{fontSize:6.8,color:"#facc15",fontWeight:1000}}>
+                    LIVE
+                  </span>
+                )}
+              </div>
+
+              <div style={{
+                fontSize:12.5,
+                fontWeight:1000,
+                color:moveColor,
+                marginTop:3
+              }}>
+                {safeMove >= 0 ? "+" : ""}{safeMove.toFixed(1)}
+              </div>
+
+              <div style={{
+                fontSize:7,
+                color:isCurrent ? "#facc15" : "#64748b",
+                marginTop:2
+              }}>
+                {isCurrent
+                  ? `${bars || "?"}/12 M15`
+                  : "COMPLETO"}
+              </div>
+            </div>
+          );
+        })}
+
+        {!blocks.length && (
+          <div style={{
+            gridColumn:"1 / -1",
+            fontSize:9,
+            color:"#64748b",
+            padding:"5px 2px"
+          }}>
+            {state.loading
+              ? "Carico i blocchi mobili delle ultime 24 ore…"
+              : "Nessun blocco 24H disponibile."}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function PropHedgeTab() {
   const [challenges, setChallenges] = useState(DEFAULT_CHALLENGES);
   const [brokerBalance, setBrokerBalance] = useState("5000");
@@ -380,9 +572,6 @@ export default function PropHedgeTab() {
 
   const [mainView, setMainView] = useState("OPERATIVITA");
   const [chartSymbol, setChartSymbol] = useState("XAUUSD");
-  const [rolling24BySymbol, setRolling24BySymbol] = useState({});
-  const rolling24InFlightRef = useRef({});
-
   const [enginePropDirection, setEnginePropDirection] = useState(() => {
     if (typeof window === "undefined") return "WAIT";
     try {
@@ -405,223 +594,6 @@ export default function PropHedgeTab() {
     confidence: null,
     analyzedAt: null
   });
-
-  const loadRolling24ForSymbol = async (symbol) => {
-    const key = String(symbol || "XAUUSD").toUpperCase();
-    if (rolling24InFlightRef.current[key]) return;
-
-    rolling24InFlightRef.current[key] = true;
-    try {
-      const r = await fetch(
-        `/api/market-analysis?symbol=${encodeURIComponent(key)}`,
-        { cache:"no-store" }
-      );
-      const j = await r.json();
-
-      if (!r.ok || !j?.ok) {
-        throw new Error(j?.error || "Rolling 24H non disponibile");
-      }
-
-      setRolling24BySymbol(prev => ({
-        ...prev,
-        [key]: {
-          blocks: Array.isArray(j?.blocks3h) ? j.blocks3h.slice(-8) : [],
-          updatedAt: new Date().toISOString(),
-          error: ""
-        }
-      }));
-    } catch (e) {
-      setRolling24BySymbol(prev => ({
-        ...prev,
-        [key]: {
-          ...(prev[key] || {}),
-          error: e?.message || "Errore Rolling 24H"
-        }
-      }));
-    } finally {
-      rolling24InFlightRef.current[key] = false;
-    }
-  };
-
-  useEffect(() => {
-    if (!tradingEnabled) return;
-
-    const symbols = Array.from(new Set(
-      challenges
-        .filter(ch => ch?.active)
-        .map(ch => String(ch?.active?.asset || ch?.asset || "XAUUSD").toUpperCase())
-    ));
-
-    if (!symbols.length) return;
-
-    symbols.forEach(loadRolling24ForSymbol);
-
-    // Le M15 sono il dato di base: 60 secondi dà una UI "viva"
-    // senza martellare l'API. Il blocco corrente si aggiorna al nuovo feed.
-    const id = window.setInterval(() => {
-      symbols.forEach(loadRolling24ForSymbol);
-    }, 60_000);
-
-    return () => window.clearInterval(id);
-  }, [
-    tradingEnabled,
-    challenges
-      .filter(ch => ch?.active)
-      .map(ch => `${ch.id}:${ch?.active?.asset || ch?.asset || "XAUUSD"}`)
-      .join("|")
-  ]);
-
-  const renderActiveRolling24 = (ch) => {
-    const symbol = String(ch?.active?.asset || ch?.asset || "XAUUSD").toUpperCase();
-    const state = rolling24BySymbol[symbol] || {};
-    const blocks = Array.isArray(state.blocks) ? state.blocks.slice(-8) : [];
-
-    return (
-      <div style={{
-        marginBottom:12,
-        padding:"10px 12px",
-        borderRadius:13,
-        border:"1px solid rgba(99,102,241,.32)",
-        background:"linear-gradient(135deg,rgba(49,46,129,.09),rgba(2,6,23,.38))"
-      }}>
-        <div style={{
-          display:"flex",
-          justifyContent:"space-between",
-          alignItems:"center",
-          gap:8,
-          flexWrap:"wrap",
-          marginBottom:8
-        }}>
-          <div>
-            <div style={{fontSize:10,fontWeight:1000,color:"#c7d2fe"}}>
-              🕒 MOVIMENTO ULTIME 24 ORE — {symbol}
-            </div>
-            <div style={{fontSize:8.5,color:"#64748b",marginTop:2}}>
-              8 blocchi mobili da 3H · il riquadro più a destra è il blocco corrente
-            </div>
-          </div>
-
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <div style={{fontSize:8,color:"#64748b"}}>← 24H FA · ADESSO →</div>
-            <button
-              onClick={()=>loadRolling24ForSymbol(symbol)}
-              style={{
-                ...secondaryButton,
-                padding:"5px 8px",
-                fontSize:8.5
-              }}
-            >
-              ↻
-            </button>
-          </div>
-        </div>
-
-        {state.error && (
-          <div style={{fontSize:8.5,color:"#fca5a5",marginBottom:6}}>
-            ⚠️ {state.error}
-          </div>
-        )}
-
-        <div style={{
-          display:"grid",
-          gridTemplateColumns:"repeat(8,minmax(72px,1fr))",
-          gap:6,
-          overflowX:"auto",
-          WebkitOverflowScrolling:"touch"
-        }}>
-          {blocks.map((b,i,arr)=>{
-            const isCurrent = i === arr.length - 1 && b?.complete !== true;
-            const move = Number(b?.move) || 0;
-            const moveColor =
-              move > 0 ? "#5eead4" :
-              move < 0 ? "#fca5a5" :
-              "#cbd5e1";
-
-            return (
-              <div
-                key={`${b?.label || i}-${i}`}
-                style={{
-                  minWidth:72,
-                  padding:"7px 8px",
-                  borderRadius:10,
-                  border:isCurrent
-                    ? "1px solid rgba(250,204,21,.78)"
-                    : move > 0
-                      ? "1px solid rgba(45,212,191,.30)"
-                      : move < 0
-                        ? "1px solid rgba(248,113,113,.30)"
-                        : "1px solid rgba(148,163,184,.22)",
-                  background:isCurrent
-                    ? "linear-gradient(135deg,rgba(202,138,4,.20),rgba(30,41,59,.35))"
-                    : move > 0
-                      ? "rgba(13,148,136,.08)"
-                      : move < 0
-                        ? "rgba(153,27,27,.08)"
-                        : "rgba(30,41,59,.20)"
-                }}
-              >
-                <div style={{
-                  display:"flex",
-                  justifyContent:"space-between",
-                  gap:3,
-                  alignItems:"center"
-                }}>
-                  <span style={{
-                    fontSize:8.5,
-                    color:isCurrent ? "#fde68a" : "#94a3b8",
-                    fontWeight:900,
-                    whiteSpace:"nowrap"
-                  }}>
-                    {b?.label || `B${i+1}`}
-                  </span>
-
-                  {isCurrent && (
-                    <span style={{
-                      fontSize:6.8,
-                      color:"#facc15",
-                      fontWeight:1000
-                    }}>
-                      LIVE
-                    </span>
-                  )}
-                </div>
-
-                <div style={{
-                  fontSize:12.5,
-                  fontWeight:1000,
-                  color:moveColor,
-                  marginTop:3
-                }}>
-                  {move >= 0 ? "+" : ""}{fmt(move,1)}
-                </div>
-
-                <div style={{
-                  fontSize:7,
-                  color:isCurrent ? "#facc15" : "#64748b",
-                  marginTop:2
-                }}>
-                  {isCurrent
-                    ? `${Number(b?.bars || 0)}/12 M15`
-                    : "COMPLETO"}
-                </div>
-              </div>
-            );
-          })}
-
-          {!blocks.length && (
-            <div style={{
-              gridColumn:"1 / -1",
-              fontSize:9,
-              color:"#64748b",
-              padding:"5px 2px"
-            }}>
-              Carico i blocchi mobili delle ultime 24 ore…
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
 
   const [historyFilters, setHistoryFilters] = useState({
     prop: "TUTTE",
@@ -3634,7 +3606,10 @@ export default function PropHedgeTab() {
                   </div>
                 </div>
 
-                {renderActiveRolling24(ch)}
+                <ActiveRolling24Strip
+                  symbol={String(ch?.active?.asset || ch?.asset || "XAUUSD").toUpperCase()}
+                  enabled={tradingEnabled}
+                />
 
                 <div style={statsGrid}>
                   <div style={statCard}>
