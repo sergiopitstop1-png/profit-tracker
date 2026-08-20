@@ -1646,6 +1646,9 @@ export default function PropHedgeTab() {
       closeBrokerPL: ""
     });
 
+    const telegramStart=await callWatchdogTelegram("monitor_started",{...ch,active:{asset:ch.asset,direction:ch.direction,brokerDirection:c.brokerDirection,executionSource:"external"}});
+    if(!telegramStart.ok) alert(`⚠️ TELEGRAM NON INVIATO\n\nErrore: ${telegramStart.error||"sconosciuto"}\nHTTP: ${telegramStart.status||"—"}`);
+
     alert(
       `✅ MONITORAGGIO ATTIVATO\\n\\n` +
       `${ch.name} · ${ch.asset}\\n` +
@@ -1872,6 +1875,16 @@ export default function PropHedgeTab() {
     }
   };
 
+  const callWatchdogTelegram = async (action, ch = null) => {
+    try {
+      const {data}=await supabase.auth.getSession(); const token=data?.session?.access_token;
+      if(!token) return {ok:false,error:"NO_SUPABASE_SESSION"};
+      const r=await fetch("/api/prop-trade-watchdog",{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${token}`},body:JSON.stringify({action,propName:ch?.name||"ProfitTracker",symbol:ch?.active?.asset||ch?.asset||"XAUUSD",executionSource:ch?.active?.executionSource||"profittracker",propDirection:ch?.active?.direction||ch?.direction||"—",brokerDirection:ch?.active?.brokerDirection||(ch?.direction==="BUY"?"SELL":ch?.direction==="SELL"?"BUY":"—")})});
+      const p=await r.json().catch(()=>null); return r.ok&&p?.ok!==false?{ok:true,status:r.status}:{ok:false,status:r.status,error:p?.error||"WATCHDOG_REQUEST_FAILED"};
+    } catch(e){return {ok:false,error:e?.message||String(e)};}
+  };
+  const testWatchdogTelegram = async () => { const x=await callWatchdogTelegram("test_telegram"); alert(x.ok?"✅ TEST TELEGRAM INVIATO\n\nControlla il telefono.":`❌ TEST TELEGRAM FALLITO\n\nErrore: ${x.error||"sconosciuto"}\nHTTP: ${x.status||"—"}`); };
+
   const notifyManualCloseTelegram = async ({
     ch,
     propPL,
@@ -1916,9 +1929,11 @@ export default function PropHedgeTab() {
     }
   };
 
-  const cancelTrade = (id) => {
-    const live = liveMap[challenges.find(c => c.id === id)?.asset];
-    const a = ASSETS[challenges.find(c => c.id === id)?.asset] || ASSETS.XAUUSD;
+  const cancelTrade = async (id) => {
+    const currentChallenge=challenges.find(c=>c.id===id);
+    const live = liveMap[currentChallenge?.asset];
+    const a = ASSETS[currentChallenge?.asset] || ASSETS.XAUUSD;
+    if(currentChallenge?.active){ const x=await callWatchdogTelegram("monitor_stopped",currentChallenge); if(!x.ok) alert(`⚠️ STOP ESEGUITO, TELEGRAM NON INVIATO\n\nErrore: ${x.error||"sconosciuto"}\nHTTP: ${x.status||"—"}`); }
     setChallenges(prev => prev.map(ch => {
       if (ch.id !== id) return ch;
       return {
@@ -2481,6 +2496,7 @@ export default function PropHedgeTab() {
       </div>
 
       <div style={{display:"flex",gap:8,flexWrap:"wrap",padding:6,borderRadius:16,border:"1px solid rgba(51,65,85,.72)",background:"rgba(2,6,23,.42)"}}>
+        <button onClick={testWatchdogTelegram} style={{...smallButton,marginRight:8,border:"1px solid rgba(34,197,94,.45)",color:"#86efac"}}>📨 TEST TELEGRAM</button>
         {[["OPERATIVITA","📈 OPERATIVITÀ"],["PREVISIONI","🔮 PREVISIONI OPERATIVE"],["ACCOUNT_BROKER","⚙️ ACCOUNT BROKER"],["STORICO","📚 STORICO PROP"],["ARCHIVIO","🗂️ ARCHIVIO CHALLENGE"]].map(([key,label])=>(
           <button key={key} onClick={()=>setMainView(key)} style={{
             ...secondaryButton,
