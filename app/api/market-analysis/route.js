@@ -900,7 +900,7 @@ function buildThreeHourBlocks(
         ...x,
 
         label:
-          `${String(x.startHour).padStart(2, "0")}–${String(x.endHour).padStart(2, "0")}`,
+                  `${String(x.startHour).padStart(2, "0")}–${String(x.endHour).padStart(2, "0")}`,
 
         move,
         movePct,
@@ -913,7 +913,7 @@ function buildThreeHourBlocks(
           ),
 
         complete:
-          x.bars >= 10
+          x.bars >= 12
       };
     });
 }
@@ -2619,8 +2619,7 @@ function buildForecast({
 
   let signalStrength =
     "INSUFFICIENT";
-
-  if (
+    if (
     direction !== "WAIT"
   ) {
     if (
@@ -3242,6 +3241,11 @@ export async function GET(
           session.dateKey
       );
 
+    // Finestra mobile reale delle ultime 24 ore: 8 blocchi consecutivi da 3H.
+    // Include i blocchi del giorno precedente quando necessario e termina
+    // sempre con il blocco corrente (che può essere ancora incompleto).
+    const rolling24Blocks = blocks.slice(-8);
+
     // ========================================================
     // 6. ROLLING MOMENTUM
     // ========================================================
@@ -3653,8 +3657,7 @@ export async function GET(
             rolling.h6
               .direction
         },
-
-        h12: {
+                h12: {
           dollars:
             Number(
               rolling.h12
@@ -3715,7 +3718,7 @@ export async function GET(
       },
 
       blocks3h:
-        currentDayBlocks.map(
+        rolling24Blocks.map(
           b => ({
             label:
               b.label,
