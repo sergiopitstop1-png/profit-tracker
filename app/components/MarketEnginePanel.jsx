@@ -97,6 +97,13 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
   const [labStatsLoading, setLabStatsLoading] = useState(false);
   const [labStatsError, setLabStatsError] = useState("");
 
+  // Prop/Broker Path Analysis — lettura separata, non modifica il Market Engine
+  const [pathHours, setPathHours] = useState(1);
+  const [pathPropTarget, setPathPropTarget] = useState(40);
+  const [pathData, setPathData] = useState(null);
+  const [pathLoading, setPathLoading] = useState(false);
+  const [pathError, setPathError] = useState("");
+
   // Rileva schermi stretti (mobile) per passare le griglie a colonne fisse a 1 colonna impilata
   const [isNarrow, setIsNarrow] = useState(false);
   useEffect(() => {
@@ -237,6 +244,33 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
     return () => clearInterval(id);
   }, [symbol, labLimit]);
 
+
+  const loadPathAnalysis = async (requestedSymbol = symbol, requestedHours = pathHours) => {
+    setPathLoading(true);
+    setPathError("");
+
+    try {
+      const r = await fetch(
+        `/api/market-signal-path-stats?symbol=${encodeURIComponent(requestedSymbol)}&hours=${encodeURIComponent(requestedHours)}`,
+        { cache:"no-store" }
+      );
+      const j = await r.json();
+      if (!r.ok || !j?.ok) throw new Error(j?.error || "Prop/Broker Path Analysis non disponibile");
+      setPathData(j);
+    } catch (e) {
+      setPathData(null);
+      setPathError(e?.message || "Errore Prop/Broker Path Analysis");
+    } finally {
+      setPathLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPathAnalysis(symbol, pathHours);
+    const id = setInterval(() => loadPathAnalysis(symbol, pathHours), 60_000);
+    return () => clearInterval(id);
+  }, [symbol, pathHours]);
+
   const fallbackLabStats = useMemo(() => {
     const directional = labRows.filter(r => ["BUY","SELL"].includes(String(r?.forecast_direction || "").toUpperCase()));
     const completed = directional.filter(r => r?.direction_correct_3h === true || r?.direction_correct_3h === false);
@@ -281,6 +315,12 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
   const buyStats = labStatsData?.byDirection?.BUY || null;
   const sellStats = labStatsData?.byDirection?.SELL || null;
   const waitStats = labStatsData?.byDirection?.WAIT || null;
+
+  const pathSummary = pathData?.summary || null;
+  const pathPropLevels = Array.isArray(pathData?.propLevels) ? pathData.propLevels : [];
+  const pathSequence = Array.isArray(pathData?.sequenceByLevel) ? pathData.sequenceByLevel : [];
+  const pathRecoveryRows = Array.isArray(pathData?.recoveryByPropTarget) ? pathData.recoveryByPropTarget : [];
+  const selectedRecovery = pathRecoveryRows.find(x => Number(x?.propTarget) === Number(pathPropTarget)) || null;
 
   const renderLabPanel = () => (
     <div style={{
@@ -387,6 +427,152 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
               </div>
             </div>
           )}
+
+          <div style={{
+            marginBottom:12,
+            padding:"11px 12px",
+            borderRadius:13,
+            border:"1px solid rgba(168,85,247,.28)",
+            background:"linear-gradient(135deg,rgba(88,28,135,.08),rgba(2,6,23,.46))"
+          }}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:9}}>
+              <div>
+                <div style={{fontSize:11,fontWeight:1000,color:"#e9d5ff"}}>
+                  🧭 PROP / BROKER PATH ANALYSIS — SOLO LOSS DEL FORECAST
+                </div>
+                <div style={{fontSize:9,color:"#94a3b8",marginTop:3}}>
+                  Misura cosa sarebbe successo alla strategia hedge quando il forecast chiude in LOSS. La direzione Prop è opposta al forecast.
+                </div>
+              </div>
+              <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+                {[1,2,3].map(h=>(
+                  <button
+                    key={h}
+                    onClick={()=>setPathHours(h)}
+                    style={{
+                      ...secondaryButton,
+                      padding:"7px 11px",
+                      opacity:pathHours===h?1:.65,
+                      border:pathHours===h?"1px solid rgba(196,181,253,.65)":"1px solid rgba(71,85,105,.45)",
+                      background:pathHours===h?"rgba(109,40,217,.18)":"rgba(15,23,42,.45)",
+                      color:pathHours===h?"#e9d5ff":"#94a3b8"
+                    }}
+                  >
+                    {h}H
+                  </button>
+                ))}
+                <button
+                  style={{...secondaryButton,padding:"7px 11px"}}
+                  onClick={()=>loadPathAnalysis(symbol,pathHours)}
+                  disabled={pathLoading}
+                >
+                  {pathLoading?"Analizzo…":"↻ Path"}
+                </button>
+              </div>
+            </div>
+
+            {pathError && (
+              <div style={{padding:"9px 10px",marginBottom:9,borderRadius:10,border:"1px solid rgba(248,113,113,.35)",background:"rgba(127,29,29,.12)",color:"#fecaca",fontSize:10}}>
+                ❌ {pathError}
+              </div>
+            )}
+
+            {pathSummary && (
+              <>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(135px,1fr))",gap:7,marginBottom:9}}>
+                  {[
+                    ["LOSS ANALIZZATI",pathSummary.losses ?? 0,"#fb7185"],
+                    ["Δ PROP MEDIO",pathSummary.avgPropDelta==null?"—":`+$${fmt(pathSummary.avgPropDelta,2)}`,"#fde68a"],
+                    ["Δ PROP MAX",pathSummary.maxPropDelta==null?"—":`+$${fmt(pathSummary.maxPropDelta,2)}`,"#fbbf24"],
+                    ["Δ BROKER MEDIO",pathSummary.avgBrokerDelta==null?"—":`+$${fmt(pathSummary.avgBrokerDelta,2)}`,"#5eead4"],
+                    ["Δ BROKER MAX",pathSummary.maxBrokerDelta==null?"—":`+$${fmt(pathSummary.maxBrokerDelta,2)}`,"#2dd4bf"]
+                  ].map(([lab,val,color])=>(
+                    <div key={lab} style={{padding:"9px 10px",borderRadius:10,border:"1px solid rgba(71,85,105,.34)",background:"rgba(15,23,42,.40)"}}>
+                      <div style={{fontSize:8.5,fontWeight:950,color:"#64748b"}}>{lab} — {pathHours}H</div>
+                      <div style={{fontSize:17,fontWeight:1000,color,marginTop:3}}>{val}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{marginBottom:9,padding:"9px 10px",borderRadius:11,border:"1px solid rgba(251,191,36,.18)",background:"rgba(120,53,15,.06)"}}>
+                  <div style={{fontSize:10,fontWeight:950,color:"#fde68a",marginBottom:7}}>
+                    QUANTI LOSS AVREBBERO RAGGIUNTO UN TP PROP?
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(105px,1fr))",gap:6}}>
+                    {pathPropLevels.map(x=>(
+                      <div key={x.level} style={{padding:"7px 8px",borderRadius:9,border:"1px solid rgba(71,85,105,.30)",background:"rgba(2,6,23,.30)"}}>
+                        <div style={{fontSize:10,fontWeight:1000,color:"#f8fafc"}}>PROP +${x.level}</div>
+                        <div style={{fontSize:16,fontWeight:1000,color:"#fbbf24",marginTop:2}}>
+                          {x.pct==null?"—":`${fmt(x.pct,1)}%`}
+                        </div>
+                        <div style={{fontSize:8.5,color:"#64748b"}}>{x.hitCount || 0}/{pathSummary.losses || 0} loss</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{display:"grid",gridTemplateColumns:isNarrow?"1fr":"minmax(190px,.7fr) minmax(320px,1.6fr)",gap:8,marginBottom:9}}>
+                  <div style={{padding:"9px 10px",borderRadius:11,border:"1px solid rgba(56,189,248,.18)",background:"rgba(14,116,144,.05)"}}>
+                    <div style={{fontSize:9,fontWeight:950,color:"#93c5fd",marginBottom:6}}>SE IL TP PROP NON ARRIVA</div>
+                    <label style={{fontSize:9,color:"#94a3b8",display:"block",marginBottom:4}}>TP Prop ipotetico</label>
+                    <select
+                      value={String(pathPropTarget)}
+                      onChange={e=>setPathPropTarget(Number(e.target.value))}
+                      style={{...input,marginBottom:0,padding:"7px 9px"}}
+                    >
+                      {[20,30,40,50,60,70].map(v=><option key={v} value={v}>+${v}</option>)}
+                    </select>
+                    <div style={{fontSize:11,color:"#cbd5e1",marginTop:7}}>
+                      Operazioni ancora aperte:{" "}
+                      <b style={{color:"#fde68a"}}>{selectedRecovery?.remainingCount ?? 0}</b>
+                      <span style={{fontSize:9,color:"#64748b"}}> loss</span>
+                    </div>
+                  </div>
+
+                  <div style={{padding:"9px 10px",borderRadius:11,border:"1px solid rgba(45,212,191,.18)",background:"rgba(13,148,136,.05)"}}>
+                    <div style={{fontSize:9,fontWeight:950,color:"#5eead4",marginBottom:6}}>
+                      TRA QUESTE, QUANTE HANNO POI DATO ESCURSIONE AL BROKER?
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(90px,1fr))",gap:6}}>
+                      {(selectedRecovery?.brokerLevels || []).map(x=>(
+                        <div key={x.level} style={{padding:"7px 8px",borderRadius:9,border:"1px solid rgba(71,85,105,.30)",background:"rgba(2,6,23,.28)"}}>
+                          <div style={{fontSize:9.5,fontWeight:950,color:"#e2e8f0"}}>BROKER +${x.level}</div>
+                          <div style={{fontSize:15,fontWeight:1000,color:"#5eead4",marginTop:2}}>
+                            {x.pct==null?"—":`${fmt(x.pct,1)}%`}
+                          </div>
+                          <div style={{fontSize:8,color:"#64748b"}}>{x.hitCount || 0}/{selectedRecovery?.remainingCount || 0}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {pathSequence.length > 0 && (
+                  <div style={{padding:"9px 10px",borderRadius:11,border:"1px solid rgba(71,85,105,.32)",background:"rgba(2,6,23,.28)"}}>
+                    <div style={{fontSize:9,fontWeight:950,color:"#c4b5fd",marginBottom:6}}>
+                      ORDINE DEI MOVIMENTI QUANDO ENTRAMBI I LATI TOCCANO LO STESSO LIVELLO
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(125px,1fr))",gap:6}}>
+                      {pathSequence.map(x=>(
+                        <div key={x.level} style={{padding:"7px 8px",borderRadius:9,border:"1px solid rgba(71,85,105,.28)"}}>
+                          <div style={{fontSize:9.5,fontWeight:1000,color:"#e2e8f0"}}>${x.level}</div>
+                          <div style={{fontSize:8.5,color:"#fde68a",marginTop:3}}>Prop prima {x.propFirst || 0}</div>
+                          <div style={{fontSize:8.5,color:"#5eead4"}}>Broker prima {x.brokerFirst || 0}</div>
+                          <div style={{fontSize:8.5,color:"#94a3b8"}}>Stessa M15 {x.ambiguous || 0}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{fontSize:8.5,color:"#64748b",marginTop:7,lineHeight:1.45}}>
+                  “LOSS” resta il giudizio statistico sul forecast. Qui misuriamo separatamente se quel LOSS avrebbe favorito la Prop,
+                  se avrebbe lasciato l'operazione aperta e quale escursione avrebbe poi offerto il Broker. I tocchi nella stessa M15
+                  sono marcati come ambigui: con OHLC M15 non possiamo conoscere l'ordine intrabar.
+                </div>
+              </>
+            )}
+          </div>
 
           {labStatsError && (
             <div style={{padding:"10px 12px",marginBottom:10,borderRadius:12,border:"1px solid rgba(245,158,11,.35)",color:"#fde68a",background:"rgba(120,53,15,.12)"}}>
