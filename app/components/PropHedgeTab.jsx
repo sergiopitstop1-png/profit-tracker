@@ -5,6 +5,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
 import MarketEnginePanel from "./MarketEnginePanel";
+import TradingViewChart from "./TradingViewChart";
 import {
   panel, panelHeader, panelTitle, panelSubtitle, input,
   primaryButtonBlue, secondaryButton, statCard, statLabel,
@@ -377,6 +378,7 @@ export default function PropHedgeTab() {
   const [bridgeClosing, setBridgeClosing] = useState({});
 
   const [mainView, setMainView] = useState("OPERATIVITA");
+  const [chartSymbol, setChartSymbol] = useState("XAUUSD");
   const [enginePropDirection, setEnginePropDirection] = useState("WAIT");
   const [engineAnalysisReady, setEngineAnalysisReady] = useState(false);
   const [historyFilters, setHistoryFilters] = useState({
@@ -2432,6 +2434,49 @@ export default function PropHedgeTab() {
           </div>
         </div>
       )}
+
+      <div style={{
+        ...panel,
+        border:"1px solid rgba(59,130,246,.34)",
+        background:"linear-gradient(135deg,rgba(30,64,175,.08),rgba(15,23,42,.96))"
+      }}>
+        <div style={{...panelHeader,alignItems:"center"}}>
+          <div>
+            <h3 style={panelTitle}>📈 Grafico TradingView</h3>
+            <p style={panelSubtitle}>Grafico operativo indipendente dal Market Engine. Cambia asset liberamente senza modificare la previsione, che per ora resta calibrata su XAUUSD.</p>
+          </div>
+
+          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+            <label style={{fontSize:10,color:"#94a3b8",fontWeight:900}}>ASSET GRAFICO</label>
+            <select
+              value={chartSymbol}
+              onChange={e=>setChartSymbol(e.target.value)}
+              style={{...input,marginBottom:0,minWidth:190,padding:"8px 10px"}}
+            >
+              {Object.entries(ASSETS).map(([key,asset]) => (
+                <option key={key} value={key}>{asset?.label || key}</option>
+              ))}
+            </select>
+            <div style={{
+              color:"#93c5fd",
+              fontSize:9,
+              fontWeight:900,
+              border:"1px solid rgba(59,130,246,.28)",
+              background:"rgba(30,64,175,.10)",
+              padding:"6px 9px",
+              borderRadius:999
+            }}>
+              TradingView Advanced Chart
+            </div>
+          </div>
+        </div>
+
+        <div style={{fontSize:11,color:"#cbd5e1",marginBottom:9}}>
+          Visualizzazione corrente: <b style={{color:"#93c5fd"}}>{ASSETS[chartSymbol]?.label || chartSymbol}</b>
+        </div>
+
+        <TradingViewChart symbol={chartSymbol} />
+      </div>
 
       <div style={{
         ...panel,
