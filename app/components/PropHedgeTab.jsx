@@ -317,198 +317,6 @@ function TextNumberField({
   );
 }
 
-
-function ActiveRolling24Strip({ symbol = "XAUUSD", enabled = true }) {
-  const [state, setState] = useState({ blocks: [], error: "", loading: true });
-
-  useEffect(() => {
-    if (!enabled) return;
-
-    let cancelled = false;
-
-    const load = async () => {
-      try {
-        const r = await fetch(
-          `/api/market-analysis?symbol=${encodeURIComponent(symbol)}`,
-          { cache:"no-store" }
-        );
-        const j = await r.json();
-
-        if (!r.ok || !j?.ok) {
-          throw new Error(j?.error || "Rolling 24H non disponibile");
-        }
-
-        if (!cancelled) {
-          setState({
-            blocks: Array.isArray(j?.blocks3h) ? j.blocks3h.slice(-8) : [],
-            error: "",
-            loading: false
-          });
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setState(prev => ({
-            ...prev,
-            error: e?.message || "Errore Rolling 24H",
-            loading: false
-          }));
-        }
-      }
-    };
-
-    load();
-    const id = window.setInterval(load, 60_000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, [symbol, enabled]);
-
-  const blocks = Array.isArray(state.blocks) ? state.blocks : [];
-
-  return (
-    <div style={{
-      marginBottom:12,
-      padding:"10px 12px",
-      borderRadius:13,
-      border:"1px solid rgba(99,102,241,.32)",
-      background:"linear-gradient(135deg,rgba(49,46,129,.09),rgba(2,6,23,.38))"
-    }}>
-      <div style={{
-        display:"flex",
-        justifyContent:"space-between",
-        alignItems:"center",
-        gap:8,
-        flexWrap:"wrap",
-        marginBottom:8
-      }}>
-        <div>
-          <div style={{fontSize:10,fontWeight:1000,color:"#c7d2fe"}}>
-            🕒 MOVIMENTO ULTIME 24 ORE — {symbol}
-          </div>
-          <div style={{fontSize:8.5,color:"#64748b",marginTop:2}}>
-            8 blocchi mobili da 3H · il riquadro più a destra è quello corrente
-          </div>
-        </div>
-        <div style={{fontSize:8,color:"#64748b"}}>← 24H FA · ADESSO →</div>
-      </div>
-
-      {state.error && (
-        <div style={{fontSize:8.5,color:"#fca5a5",marginBottom:6}}>
-          ⚠️ {state.error}
-        </div>
-      )}
-
-      <div style={{
-        display:"grid",
-        gridTemplateColumns:"repeat(8,minmax(72px,1fr))",
-        gap:6,
-        overflowX:"auto",
-        WebkitOverflowScrolling:"touch"
-      }}>
-        {blocks.map((b,i,arr)=>{
-          const isLast = i === arr.length - 1;
-          const bars = Number(b?.bars ?? b?.barCount ?? b?.count ?? 0);
-          const explicitComplete = b?.complete;
-          const isCurrent = isLast && (
-            explicitComplete === false ||
-            (explicitComplete == null && bars > 0 && bars < 12)
-          );
-
-          const moveRaw = b?.move ?? b?.delta ?? b?.priceMove ?? b?.change ?? 0;
-          const move = Number(moveRaw);
-          const safeMove = Number.isFinite(move) ? move : 0;
-
-          const moveColor =
-            safeMove > 0 ? "#5eead4" :
-            safeMove < 0 ? "#fca5a5" :
-            "#cbd5e1";
-
-          return (
-            <div
-              key={`${b?.label || b?.start || i}-${i}`}
-              style={{
-                minWidth:72,
-                padding:"7px 8px",
-                borderRadius:10,
-                border:isCurrent
-                  ? "1px solid rgba(250,204,21,.78)"
-                  : safeMove > 0
-                    ? "1px solid rgba(45,212,191,.30)"
-                    : safeMove < 0
-                      ? "1px solid rgba(248,113,113,.30)"
-                      : "1px solid rgba(148,163,184,.22)",
-                background:isCurrent
-                  ? "linear-gradient(135deg,rgba(202,138,4,.20),rgba(30,41,59,.35))"
-                  : safeMove > 0
-                    ? "rgba(13,148,136,.08)"
-                    : safeMove < 0
-                      ? "rgba(153,27,27,.08)"
-                      : "rgba(30,41,59,.20)"
-              }}
-            >
-              <div style={{
-                display:"flex",
-                justifyContent:"space-between",
-                alignItems:"center",
-                gap:3
-              }}>
-                <span style={{
-                  fontSize:8.5,
-                  color:isCurrent ? "#fde68a" : "#94a3b8",
-                  fontWeight:900,
-                  whiteSpace:"nowrap"
-                }}>
-                  {b?.label || b?.window || `B${i+1}`}
-                </span>
-
-                {isCurrent && (
-                  <span style={{fontSize:6.8,color:"#facc15",fontWeight:1000}}>
-                    LIVE
-                  </span>
-                )}
-              </div>
-
-              <div style={{
-                fontSize:12.5,
-                fontWeight:1000,
-                color:moveColor,
-                marginTop:3
-              }}>
-                {safeMove >= 0 ? "+" : ""}{safeMove.toFixed(1)}
-              </div>
-
-              <div style={{
-                fontSize:7,
-                color:isCurrent ? "#facc15" : "#64748b",
-                marginTop:2
-              }}>
-                {isCurrent
-                  ? `${bars || "?"}/12 M15`
-                  : "COMPLETO"}
-              </div>
-            </div>
-          );
-        })}
-
-        {!blocks.length && (
-          <div style={{
-            gridColumn:"1 / -1",
-            fontSize:9,
-            color:"#64748b",
-            padding:"5px 2px"
-          }}>
-            {state.loading
-              ? "Carico i blocchi mobili delle ultime 24 ore…"
-              : "Nessun blocco 24H disponibile."}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export default function PropHedgeTab() {
   const [challenges, setChallenges] = useState(DEFAULT_CHALLENGES);
   const [brokerBalance, setBrokerBalance] = useState("5000");
@@ -1838,9 +1646,6 @@ export default function PropHedgeTab() {
       closeBrokerPL: ""
     });
 
-    const telegramStart=await callWatchdogTelegram("monitor_started",{...ch,active:{asset:ch.asset,direction:ch.direction,brokerDirection:c.brokerDirection,executionSource:"external"}});
-    if(!telegramStart.ok) alert(`⚠️ TELEGRAM NON INVIATO\n\nErrore: ${telegramStart.error||"sconosciuto"}\nHTTP: ${telegramStart.status||"—"}`);
-
     alert(
       `✅ MONITORAGGIO ATTIVATO\\n\\n` +
       `${ch.name} · ${ch.asset}\\n` +
@@ -2067,16 +1872,6 @@ export default function PropHedgeTab() {
     }
   };
 
-  const callWatchdogTelegram = async (action, ch = null) => {
-    try {
-      const {data}=await supabase.auth.getSession(); const token=data?.session?.access_token;
-      if(!token) return {ok:false,error:"NO_SUPABASE_SESSION"};
-      const r=await fetch("/api/prop-trade-watchdog",{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${token}`},body:JSON.stringify({action,propName:ch?.name||"ProfitTracker",symbol:ch?.active?.asset||ch?.asset||"XAUUSD",executionSource:ch?.active?.executionSource||"profittracker",propDirection:ch?.active?.direction||ch?.direction||"—",brokerDirection:ch?.active?.brokerDirection||(ch?.direction==="BUY"?"SELL":ch?.direction==="SELL"?"BUY":"—")})});
-      const p=await r.json().catch(()=>null); return r.ok&&p?.ok!==false?{ok:true,status:r.status}:{ok:false,status:r.status,error:p?.error||"WATCHDOG_REQUEST_FAILED"};
-    } catch(e){return {ok:false,error:e?.message||String(e)};}
-  };
-  const testWatchdogTelegram = async () => { const x=await callWatchdogTelegram("test_telegram"); alert(x.ok?"✅ TEST TELEGRAM INVIATO\n\nControlla il telefono.":`❌ TEST TELEGRAM FALLITO\n\nErrore: ${x.error||"sconosciuto"}\nHTTP: ${x.status||"—"}`); };
-
   const notifyManualCloseTelegram = async ({
     ch,
     propPL,
@@ -2121,11 +1916,9 @@ export default function PropHedgeTab() {
     }
   };
 
-  const cancelTrade = async (id) => {
-    const currentChallenge=challenges.find(c=>c.id===id);
-    const live = liveMap[currentChallenge?.asset];
-    const a = ASSETS[currentChallenge?.asset] || ASSETS.XAUUSD;
-    if(currentChallenge?.active){ const x=await callWatchdogTelegram("monitor_stopped",currentChallenge); if(!x.ok) alert(`⚠️ STOP ESEGUITO, TELEGRAM NON INVIATO\n\nErrore: ${x.error||"sconosciuto"}\nHTTP: ${x.status||"—"}`); }
+  const cancelTrade = (id) => {
+    const live = liveMap[challenges.find(c => c.id === id)?.asset];
+    const a = ASSETS[challenges.find(c => c.id === id)?.asset] || ASSETS.XAUUSD;
     setChallenges(prev => prev.map(ch => {
       if (ch.id !== id) return ch;
       return {
@@ -2688,7 +2481,6 @@ export default function PropHedgeTab() {
       </div>
 
       <div style={{display:"flex",gap:8,flexWrap:"wrap",padding:6,borderRadius:16,border:"1px solid rgba(51,65,85,.72)",background:"rgba(2,6,23,.42)"}}>
-        <button onClick={testWatchdogTelegram} style={{...smallButton,marginRight:8,border:"1px solid rgba(34,197,94,.45)",color:"#86efac"}}>📨 TEST TELEGRAM</button>
         {[["OPERATIVITA","📈 OPERATIVITÀ"],["PREVISIONI","🔮 PREVISIONI OPERATIVE"],["ACCOUNT_BROKER","⚙️ ACCOUNT BROKER"],["STORICO","📚 STORICO PROP"],["ARCHIVIO","🗂️ ARCHIVIO CHALLENGE"]].map(([key,label])=>(
           <button key={key} onClick={()=>setMainView(key)} style={{
             ...secondaryButton,
@@ -3605,12 +3397,6 @@ export default function PropHedgeTab() {
                     Alert: <b>M15 $4 / $8</b> · <b>1° WAIT / 2° WAIT</b> · <b>inversione</b> · <b>TP / SL</b> · <b>chiusura manuale</b>
                   </div>
                 </div>
-
-                <ActiveRolling24Strip
-                  symbol={String(ch?.active?.asset || ch?.asset || "XAUUSD").toUpperCase()}
-                  enabled={tradingEnabled}
-                />
-
                 <div style={statsGrid}>
                   <div style={statCard}>
                     <div style={statLabel}>Prezzo ingresso</div>
