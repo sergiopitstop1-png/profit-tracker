@@ -347,7 +347,9 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
     setOpError("");
     try {
       const sl = Math.max(1, Number(opSlPoints) || 1000);
-      const calls = [1,2,3].map(async h => {
+      // Checkpoint operativi: prime 3 ore + prosecuzione a blocchi di 3 ore fino a 24H.
+      const operationalHours = [1,2,3,6,9,12,15,18,21,24];
+      const calls = operationalHours.map(async h => {
         const r = await fetch(`/api/market-signal-first-touch?symbol=XAUUSD&hours=${h}&tp=${operationalTarget.targetPoints}&sl=${sl}&pointSize=0.01`, { cache:"no-store" });
         const j = await r.json();
         if (!r.ok || !j?.ok) throw new Error(j?.error || `First Touch ${h}H non disponibile`);
@@ -918,7 +920,8 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
 
   const forecastDirection = data?.combined?.forecastDirection || "WAIT";
   const brokerDirection = forecastDirection;
-  const opHorizons = [1,2,3].map(h => {
+  const operationalHours = [1,2,3,6,9,12,15,18,21,24];
+  const opHorizons = operationalHours.map(h => {
     const bucket = opData?.[h]?.summary?.total || null;
     if (!bucket) return { h, bucket:null, resolvedRate:null, propEdge:null };
     const resolved = Number(bucket.tp || 0) + Number(bucket.sl || 0);
@@ -1047,8 +1050,9 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
           <div style={{padding:"11px",borderRadius:12,border:"1px solid rgba(71,85,105,.4)",background:"rgba(2,6,23,.38)"}}><div style={{fontSize:9,color:"#64748b",fontWeight:950}}>SCORE / STABILITÀ</div><div style={{fontSize:22,fontWeight:1000,color:"#e2e8f0",marginTop:3}}>{operationalScore==null?"—":`${fmt(operationalScore,0)}/100`}</div><div style={{fontSize:9,color:"#94a3b8"}}>Stabilità segnale: <b>{stability}</b>{bestHorizon?` • miglior finestra ${bestHorizon.h}H`:""}</div></div>
         </div>
 
-        <div style={{display:"grid",gridTemplateColumns:isNarrow?"1fr":"repeat(3,minmax(190px,1fr))",gap:8,marginTop:9}}>
-          {opHorizons.map(({h,bucket}) => <div key={h} style={{padding:"10px 11px",borderRadius:12,border:"1px solid rgba(56,189,248,.22)",background:"rgba(2,6,23,.32)"}}>
+        <div style={{fontSize:9,fontWeight:950,color:"#64748b",marginTop:10,marginBottom:5}}>PRIME ORE</div>
+        <div style={{display:"grid",gridTemplateColumns:isNarrow?"1fr":"repeat(3,minmax(190px,1fr))",gap:8}}>
+          {opHorizons.filter(x=>x.h<=3).map(({h,bucket}) => <div key={h} style={{padding:"10px 11px",borderRadius:12,border:"1px solid rgba(56,189,248,.22)",background:"rgba(2,6,23,.32)"}}>
             <div style={{fontSize:11,fontWeight:1000,color:"#bae6fd"}}>ENTRO {h}H</div>
             {!bucket ? <div style={{fontSize:10,color:"#64748b",marginTop:7}}>{opLoading?"Calcolo…":"—"}</div> : <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginTop:7}}>
               <div><div style={{fontSize:8,color:"#64748b"}}>TP PROP</div><b style={{color:"#4ade80"}}>{fmt(bucket.tpPct,1)}%</b></div>
@@ -1056,6 +1060,19 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
               <div><div style={{fontSize:8,color:"#64748b"}}>APERTA</div><b style={{color:"#fde68a"}}>{fmt(bucket.nonePct,1)}%</b></div>
             </div>}
             {bucket && <div style={{fontSize:8,color:"#64748b",marginTop:6}}>Campione {bucket.signals || 0} • first-touch sul path M15</div>}
+          </div>)}
+        </div>
+
+        <div style={{fontSize:9,fontWeight:950,color:"#a5b4fc",marginTop:12,marginBottom:5}}>PROSECUZIONE OPERAZIONE — FINO A 24H</div>
+        <div style={{display:"grid",gridTemplateColumns:isNarrow?"1fr":"repeat(auto-fit,minmax(155px,1fr))",gap:8}}>
+          {opHorizons.filter(x=>x.h>3).map(({h,bucket}) => <div key={h} style={{padding:"10px 11px",borderRadius:12,border:"1px solid rgba(129,140,248,.24)",background:"rgba(30,27,75,.16)"}}>
+            <div style={{fontSize:11,fontWeight:1000,color:"#c7d2fe"}}>ENTRO {h}H</div>
+            {!bucket ? <div style={{fontSize:10,color:"#64748b",marginTop:7}}>{opLoading?"Calcolo…":"—"}</div> : <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginTop:7}}>
+              <div><div style={{fontSize:8,color:"#64748b"}}>TP PROP</div><b style={{color:"#4ade80"}}>{fmt(bucket.tpPct,1)}%</b></div>
+              <div><div style={{fontSize:8,color:"#64748b"}}>SL PROP</div><b style={{color:"#fb7185"}}>{fmt(bucket.slPct,1)}%</b></div>
+              <div><div style={{fontSize:8,color:"#64748b"}}>APERTA</div><b style={{color:"#fde68a"}}>{fmt(bucket.nonePct,1)}%</b></div>
+            </div>}
+            {bucket && <div style={{fontSize:8,color:"#64748b",marginTop:6}}>Campione {bucket.signals || 0} • cumulativo dal segnale</div>}
           </div>)}
         </div>
       </div>
