@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 /*
-  PROP TRADE WATCHDOG v1.02
+  PROP TRADE WATCHDOG v1.03
 
   Monitora tutte le challenge con state.active presente.
   Funziona anche per operazioni aperte ESTERNAMENTE.
@@ -404,6 +404,14 @@ async function sendManualCloseNotification(body){
   );
 }
 
+async function sendLifecycleNotification(body){
+  const a=String(body?.action||""),n=String(body?.propName||"Prop"),s=String(body?.symbol||"XAUUSD"),src=String(body?.executionSource||"unknown").toUpperCase(),pd=String(body?.propDirection||"—"),bd=String(body?.brokerDirection||"—");
+  if(a==="test_telegram") return telegram(`🟢 <b>PROFITTRACKER WATCHDOG ONLINE</b>\nTelegram collegato correttamente.\nRoute Watchdog v1.03 operativa.`);
+  if(a==="monitor_started") return telegram(`📡 <b>MONITORAGGIO AVVIATO</b>\n${n} · ${s}\nOrigine: <b>${src}</b>\nProp: <b>${pd}</b> · Broker: <b>${bd}</b>\nWatchdog attivo: WAIT · inversione · M15 $4/$8 · TP/SL.`);
+  if(a==="monitor_stopped") return telegram(`⏹️ <b>MONITORAGGIO INTERROTTO</b>\n${n} · ${s}\nOrigine: <b>${src}</b>\nNessun altro alert verrà inviato.`);
+  throw new Error("AZIONE_LIFECYCLE_NON_VALIDA");
+}
+
 async function run(){
   checkEnv();
   const rows=await rest(
@@ -415,7 +423,7 @@ async function run(){
     try{ results.push(await processChallenge(row)); }
     catch(e){ results.push({challenge:row.challenge_id,status:"ERROR",error:e?.message||String(e)}); }
   }
-  return {ok:true,version:"1.02",checked:active.length,results};
+  return {ok:true,version:"1.03",checked:active.length,results};
 }
 
 export async function POST(request){
@@ -430,7 +438,14 @@ export async function POST(request){
       if(!user) return json({ok:false,error:"UNAUTHORIZED_USER"},401);
 
       const result = await sendManualCloseNotification(body);
-      return json({ok:true,version:"1.02",action:"manual_close",telegram:result});
+      return json({ok:true,version:"1.03",action:"manual_close",telegram:result});
+    }
+
+    if(["test_telegram","monitor_started","monitor_stopped"].includes(String(body?.action || ""))){
+      const user=await authenticatedUser(request);
+      if(!user) return json({ok:false,error:"UNAUTHORIZED_USER"},401);
+      const result=await sendLifecycleNotification(body);
+      return json({ok:true,version:"1.03",action:body.action,telegram:result});
     }
 
     if(!authOk(request)) return json({ok:false,error:"UNAUTHORIZED"},401);
