@@ -1872,6 +1872,50 @@ export default function PropHedgeTab() {
     }
   };
 
+  const notifyManualCloseTelegram = async ({
+    ch,
+    propPL,
+    brokerPL,
+    propBalanceAfter,
+    brokerBalanceAfter
+  }) => {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) return false;
+
+      const response = await fetch("/api/prop-trade-watchdog", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({
+          action: "manual_close",
+          propName: ch?.name || "Prop",
+          symbol: ch?.active?.asset || ch?.asset || "XAUUSD",
+          executionSource: ch?.active?.executionSource || "profittracker",
+          propDirection: ch?.active?.direction || ch?.direction || "—",
+          brokerDirection: ch?.active?.brokerDirection || "—",
+          propPL,
+          brokerPL,
+          propBalanceAfter,
+          brokerBalanceAfter
+        })
+      });
+
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || payload?.ok === false) {
+        console.warn("Telegram manual close non inviato:", payload);
+        return false;
+      }
+      return true;
+    } catch (e) {
+      console.warn("Telegram manual close error:", e);
+      return false;
+    }
+  };
+
   const cancelTrade = (id) => {
     const live = liveMap[challenges.find(c => c.id === id)?.asset];
     const a = ASSETS[challenges.find(c => c.id === id)?.asset] || ASSETS.XAUUSD;
@@ -1903,7 +1947,11 @@ export default function PropHedgeTab() {
       let bridgeCloseCommandId = null;
 
       // Se la copertura Broker era attiva, PRIMA chiudiamo davvero la posizione MT5.
-      if (ch.active.hedgeEnabledAtEntry && num(ch.active.brokerLots) > 0) {
+      if (
+        ch.active.executionSource !== "external" &&
+        ch.active.hedgeEnabledAtEntry &&
+        num(ch.active.brokerLots) > 0
+      ) {
         const { data: userData } = await supabase.auth.getUser();
         const uid = userData?.user?.id;
         if (!uid) throw new Error("Utente Supabase non autenticato");
@@ -2130,6 +2178,14 @@ export default function PropHedgeTab() {
         loadBrokerAdjustments(),
         loadBrokerLiveStates({ silent: true })
       ]);
+
+      await notifyManualCloseTelegram({
+        ch,
+        propPL: propPLFinal,
+        brokerPL: brokerPLFinal,
+        propBalanceAfter: newPropBalance,
+        brokerBalanceAfter: newBrokerRealizedBalance
+      });
 
       if (bridgeCloseCommandId) {
         alert(
@@ -3338,7 +3394,7 @@ export default function PropHedgeTab() {
                     </div>
                   </div>
                   <div style={{fontSize:9,color:"#94a3b8",lineHeight:1.5}}>
-                    Alert: <b>M15 $4 / $8</b> · <b>1° WAIT / 2° WAIT</b> · <b>inversione</b> · <b>TP / SL</b>
+                    Alert: <b>M15 $4 / $8</b> · <b>1° WAIT / 2° WAIT</b> · <b>inversione</b> · <b>TP / SL</b> · <b>chiusura manuale</b>
                   </div>
                 </div>
                 <div style={statsGrid}>
