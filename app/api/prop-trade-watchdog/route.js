@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 /*
-  PROP TRADE WATCHDOG v1.01
+  PROP TRADE WATCHDOG v1.02
 
   Monitora tutte le challenge con state.active presente.
   Funziona anche per operazioni aperte ESTERNAMENTE.
@@ -352,6 +352,58 @@ async function processChallenge(row){
   return {challenge:row.challenge_id,status:"MONITORING",alerts};
 }
 
+async function authenticatedUser(request){
+  const auth = String(request.headers.get("authorization") || "");
+  if(!auth.toLowerCase().startsWith("bearer ")) return null;
+
+  const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+    method: "GET",
+    headers: {
+      apikey: SERVICE_KEY,
+      Authorization: auth
+    },
+    cache: "no-store"
+  });
+
+  if(!r.ok) return null;
+  const user = await r.json().catch(()=>null);
+  return user?.id ? user : null;
+}
+
+async function sendManualCloseNotification(body){
+  const name = String(body?.propName || "Prop");
+  const symbol = String(body?.symbol || "XAUUSD");
+  const source = String(body?.executionSource || "unknown").toUpperCase();
+  const propDirection = String(body?.propDirection || "—");
+  const brokerDirection = String(body?.brokerDirection || "—");
+  const propPL = Number(body?.propPL);
+  const brokerPL = Number(body?.brokerPL);
+  const propBalance = Number(body?.propBalanceAfter);
+  const brokerBalance = Number(body?.brokerBalanceAfter);
+
+  const money = (v) =>
+    Number.isFinite(v)
+      ? `${v >= 0 ? "+" : ""}$${Number(v).toFixed(2)}`
+      : "—";
+
+  const balance = (v) =>
+    Number.isFinite(v)
+      ? `$${Number(v).toFixed(2)}`
+      : "—";
+
+  return telegram(
+    `✅ <b>OPERAZIONE CHIUSA MANUALMENTE</b>\n` +
+    `${name} · ${symbol}\n` +
+    `Origine: <b>${source}</b>\n` +
+    `Prop: <b>${propDirection}</b> · Broker: <b>${brokerDirection}</b>\n` +
+    `P/L Prop: <b>${money(propPL)}</b>\n` +
+    `P/L Broker: <b>${money(brokerPL)}</b>\n` +
+    `Saldo Prop: <b>${balance(propBalance)}</b>\n` +
+    `Saldo Broker: <b>${balance(brokerBalance)}</b>\n` +
+    `📡 Monitoraggio Telegram terminato.`
+  );
+}
+
 async function run(){
   checkEnv();
   const rows=await rest(
@@ -363,11 +415,24 @@ async function run(){
     try{ results.push(await processChallenge(row)); }
     catch(e){ results.push({challenge:row.challenge_id,status:"ERROR",error:e?.message||String(e)}); }
   }
-  return {ok:true,version:"1.01",checked:active.length,results};
+  return {ok:true,version:"1.02",checked:active.length,results};
 }
 
 export async function POST(request){
   try{
+    checkEnv();
+
+    let body = {};
+    try { body = await request.json(); } catch {}
+
+    if(body?.action === "manual_close"){
+      const user = await authenticatedUser(request);
+      if(!user) return json({ok:false,error:"UNAUTHORIZED_USER"},401);
+
+      const result = await sendManualCloseNotification(body);
+      return json({ok:true,version:"1.02",action:"manual_close",telegram:result});
+    }
+
     if(!authOk(request)) return json({ok:false,error:"UNAUTHORIZED"},401);
     return json(await run());
   }catch(e){ return json({ok:false,error:e?.message||String(e)},500); }
