@@ -2816,7 +2816,7 @@ export default function PropHedgeTab() {
 
                   <div>
                     <label style={fieldLabel}>Direzione Prop</label>
-                    <select style={input} value={ch.direction} onChange={e => setChallenge(ch.id,{direction:e.target.value})}>
+                    <select style={input} value={ch.direction} onChange={e => setChallengeDirectionManual(ch.id,e.target.value)}>
                       <option>BUY</option><option>SELL</option>
                     </select>
                   </div>
