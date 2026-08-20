@@ -377,6 +377,8 @@ export default function PropHedgeTab() {
   const [bridgeClosing, setBridgeClosing] = useState({});
 
   const [mainView, setMainView] = useState("OPERATIVITA");
+  const [enginePropDirection, setEnginePropDirection] = useState("WAIT");
+  const [engineAnalysisReady, setEngineAnalysisReady] = useState(false);
   const [historyFilters, setHistoryFilters] = useState({
     prop: "TUTTE",
     asset: "TUTTI",
@@ -1162,6 +1164,41 @@ export default function PropHedgeTab() {
   const setChallenge = (id, patch) => {
     setChallenges(prev => prev.map(ch => ch.id === id ? { ...ch, ...patch } : ch));
   };
+
+  const setChallengeDirectionManual = (id, nextDirection) => {
+    const dir = String(nextDirection || "WAIT").toUpperCase();
+
+    if (
+      engineAnalysisReady &&
+      ["BUY","SELL"].includes(enginePropDirection) &&
+      ["BUY","SELL"].includes(dir) &&
+      dir !== enginePropDirection
+    ) {
+      const ok = window.confirm(
+        `⚠️ STAI ANDANDO CONTRO LA PREVISIONE\n\n` +
+        `Market Engine: PROP ${enginePropDirection}\n` +
+        `Direzione scelta: PROP ${dir}\n\n` +
+        `Vuoi mantenere comunque la tua scelta manuale?`
+      );
+      if (!ok) return;
+    }
+
+    setChallenge(id, { direction: dir });
+  };
+
+  useEffect(() => {
+    if (
+      !tradingEnabled ||
+      !engineAnalysisReady ||
+      !["BUY","SELL"].includes(enginePropDirection)
+    ) return;
+
+    setChallenges(prev => prev.map(ch => {
+      if (ch.archived) return ch;
+      if (ch.active) return ch;
+      return { ...ch, direction: enginePropDirection };
+    }));
+  }, [tradingEnabled, engineAnalysisReady, enginePropDirection]);
 
   const markOperationalUpdated = (id, key) => {
     setChallenges(prev => prev.map(ch => {
@@ -3197,23 +3234,31 @@ export default function PropHedgeTab() {
 
       </>)}
 
+
       {mainView === "PREVISIONI" && (
-        <div style={{display:"flex",flexDirection:"column",gap:14}}>
-          {!tradingEnabled && (
-            <div style={{...panel,border:"1px solid rgba(100,116,139,.38)",background:"rgba(15,23,42,.52)",color:"#94a3b8",padding:"14px 16px"}}>
-              <div style={{fontSize:15,fontWeight:950,color:"#cbd5e1"}}>⚫ Previsioni live in pausa</div>
-              <div style={{fontSize:11,marginTop:5}}>Premi <b style={{color:"#86efac"}}>AVVIA TRADING</b> per attivare forecast live e Operational Decision Engine. Lo storico del Lab resta comunque disponibile.</div>
-            </div>
-          )}
+        <>
           <MarketEnginePanel
             defaultAsset="XAUUSD"
-            challenges={tradingEnabled ? challenges.filter(ch => !ch.archived) : []}
-            onApplyDirection={tradingEnabled ? ((challengeId, suggestedDirection) => {
-              setChallenge(challengeId, { direction: suggestedDirection });
-            }) : null}
-            labOnly={!tradingEnabled}
+            challenges={challenges.filter(ch => !ch.archived)}
+            onApplyDirection={(challengeId, suggestedDirection) => {
+              setChallengeDirectionManual(challengeId, suggestedDirection);
+            }}
+            onSignalUpdate={(payload) => {
+              const next = String(payload?.propDirection || "WAIT").toUpperCase();
+              const ready = ["BUY","SELL"].includes(next);
+              setEnginePropDirection(next);
+              setEngineAnalysisReady(ready);
+
+              if (tradingEnabled && ready) {
+                setChallenges(prev => prev.map(ch => {
+                  if (ch.archived) return ch;
+                  if (ch.active) return ch;
+                  return { ...ch, direction: next };
+                }));
+              }
+            }}
           />
-        </div>
+        </>
       )}
 
       {mainView === "ACCOUNT_BROKER" && (
