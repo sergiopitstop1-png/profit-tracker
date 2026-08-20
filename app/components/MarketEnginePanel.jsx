@@ -921,20 +921,136 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
   const forecastDirection = data?.combined?.forecastDirection || "WAIT";
   const brokerDirection = forecastDirection;
   const operationalHours = [1,2,3,6,9,12,15,18,21,24];
+
+  /*
+    FIRST TOUCH -> OPERATIONAL SCORE v2
+
+    La direzione continua a venire dal Market Engine.
+    Il First Touch NON cambia BUY/SELL: misura quanto bene
+    la strategia Prop opposta al forecast ha lavorato storicamente
+    con il TP/SL realmente impostato.
+
+    1H/2H/3H = cuore della decisione di ingresso.
+    6H-24H   = coda del trade, usata automaticamente solo
+               quando il checkpoint ha almeno 10 segnali maturi.
+  */
   const opHorizons = operationalHours.map(h => {
     const bucket = opData?.[h]?.summary?.total || null;
-    if (!bucket) return { h, bucket:null, resolvedRate:null, propEdge:null };
+    if (!bucket) {
+      return {
+        h,
+        bucket:null,
+        resolvedRate:null,
+        propEdge:null,
+        firstTouchScore:null,
+        reliability:0
+      };
+    }
+
+    const signals = Number(bucket.signals || 0);
+    const tpPct = Number(bucket.tpPct);
+    const nonePct = Number(bucket.nonePct);
+    const ambiguousPct = Number(bucket.ambiguousPct);
+
     const resolved = Number(bucket.tp || 0) + Number(bucket.sl || 0);
-    const propEdge = resolved > 0 ? (100 * Number(bucket.tp || 0) / resolved) : null;
-    return { h, bucket, resolvedRate: bucket.signals ? 100 * resolved / bucket.signals : null, propEdge };
+    const propEdge = resolved > 0
+      ? 100 * Number(bucket.tp || 0) / resolved
+      : null;
+
+    // TP = 100 punti di qualita', SL = 0.
+    // APERTA e AMBIGUA valgono 50: non sono ancora vittoria o sconfitta.
+    const firstTouchScore =
+      [tpPct, nonePct, ambiguousPct].every(Number.isFinite)
+        ? Math.max(0, Math.min(100, tpPct + nonePct * 0.50 + ambiguousPct * 0.50))
+        : null;
+
+    // Il peso cresce col campione: da 30 segnali in su il checkpoint e' a peso pieno.
+    const reliability = Math.max(0, Math.min(1, signals / 30));
+
+    return {
+      h,
+      bucket,
+      resolvedRate: signals ? 100 * resolved / signals : null,
+      propEdge,
+      firstTouchScore,
+      reliability
+    };
   });
-  const validEdges = opHorizons.filter(x => Number.isFinite(x.propEdge));
-  const historicalEdge = validEdges.length
-    ? validEdges.reduce((a,x)=>a+x.propEdge,0) / validEdges.length
-    : null;
+
+  const weightedAverage = (rows, weightFn) => {
+    let weighted = 0;
+    let totalWeight = 0;
+
+    for (const x of rows) {
+      if (!Number.isFinite(x.firstTouchScore)) continue;
+      const w = Math.max(0, Number(weightFn(x)) || 0) * x.reliability;
+      if (!w) continue;
+      weighted += x.firstTouchScore * w;
+      totalWeight += w;
+    }
+
+    return totalWeight > 0 ? weighted / totalWeight : null;
+  };
+
+  // Ingresso: privilegiamo 1H, poi 2H, poi 3H.
+  const entryRows = opHorizons.filter(
+    x => x.h <= 3 && Number(x.bucket?.signals || 0) > 0
+  );
+
+  const entryFirstTouchScore = weightedAverage(
+    entryRows,
+    x => x.h === 1 ? 1.40 : x.h === 2 ? 1.20 : 1.00
+  );
+
+  // Coda operativa: entra nel motore appena ci sono almeno 10 casi maturi.
+  const tailRows = opHorizons.filter(
+    x => x.h >= 6 && Number(x.bucket?.signals || 0) >= 10
+  );
+
+  const tailFirstTouchScore = weightedAverage(
+    tailRows,
+    x => ({
+      6:0.85,
+      9:0.75,
+      12:0.65,
+      15:0.55,
+      18:0.50,
+      21:0.45,
+      24:0.40
+    }[x.h] || 0)
+  );
+
+  // Le prime 3H restano dominanti. La coda puo' affinare,
+  // non ribaltare da sola l'indicazione.
+  const firstTouchIntegratedScore =
+    entryFirstTouchScore == null
+      ? tailFirstTouchScore
+      : tailFirstTouchScore == null
+        ? entryFirstTouchScore
+        : entryFirstTouchScore * 0.75 + tailFirstTouchScore * 0.25;
+
   const forecastConfidence = Number(data?.combined?.confidence);
-  const counterForecastScore = Number.isFinite(forecastConfidence) ? 100 - forecastConfidence : 50;
-  const operationalScore = historicalEdge == null ? null : Math.max(0, Math.min(100, historicalEdge * .75 + counterForecastScore * .25));
+
+  // La Prop e' opposta al forecast:
+  // confidence forecast alta = rischio maggiore per la Prop.
+  const counterForecastScore =
+    Number.isFinite(forecastConfidence)
+      ? 100 - forecastConfidence
+      : 50;
+
+  // 80% comportamento operativo reale First Touch
+  // 20% forza/confidence del forecast in senso contrarian.
+  const operationalScore =
+    firstTouchIntegratedScore == null
+      ? null
+      : Math.max(
+          0,
+          Math.min(
+            100,
+            firstTouchIntegratedScore * 0.80 +
+            counterForecastScore * 0.20
+          )
+        );
 
   const recentDirectional = labRows
     .filter(r => ["BUY","SELL"].includes(String(r?.forecast_direction || "").toUpperCase()))
@@ -961,8 +1077,8 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
             : { text:"FORTE RISCHIO PROP", color:"#fb7185", icon:"🔴" };
 
   const bestHorizon = opHorizons
-    .filter(x => x.bucket && Number.isFinite(x.propEdge))
-    .sort((a,b) => (b.propEdge || 0) - (a.propEdge || 0))[0] || null;
+    .filter(x => x.h <= 3 && x.bucket && Number.isFinite(x.firstTouchScore))
+    .sort((a,b) => (b.firstTouchScore || 0) - (a.firstTouchScore || 0))[0] || null;
 
   const signalUi = {
     INSUFFICIENT: { label:"INSUFFICIENTE", color:"#fbbf24", bg:"rgba(180,83,9,.15)", border:"rgba(245,158,11,.50)", min:0, max:29 },
@@ -1047,7 +1163,19 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
           <div style={{padding:"11px",borderRadius:12,border:"1px solid rgba(71,85,105,.4)",background:"rgba(2,6,23,.38)"}}><div style={{fontSize:9,color:"#64748b",fontWeight:950}}>DIREZIONE PROP</div><div style={{fontSize:25,fontWeight:1000,color:propDirection==="BUY"?"#5eead4":propDirection==="SELL"?"#fb7185":"#fde68a",marginTop:3}}>{propDirection==="WAIT"?"ATTENDI":propDirection}</div><div style={{fontSize:9,color:"#64748b"}}>Opposta al forecast {forecastDirection}</div></div>
           <div style={{padding:"11px",borderRadius:12,border:"1px solid rgba(71,85,105,.4)",background:"rgba(2,6,23,.38)"}}><div style={{fontSize:9,color:"#64748b",fontWeight:950}}>DIREZIONE BROKER</div><div style={{fontSize:25,fontWeight:1000,color:brokerDirection==="BUY"?"#5eead4":brokerDirection==="SELL"?"#fb7185":"#fde68a",marginTop:3}}>{brokerDirection==="WAIT"?"ATTENDI":brokerDirection}</div><div style={{fontSize:9,color:"#64748b"}}>Stessa direzione del forecast</div></div>
           <div style={{padding:"11px",borderRadius:12,border:`1px solid ${opLabel.color}55`,background:"rgba(2,6,23,.38)"}}><div style={{fontSize:9,color:"#64748b",fontWeight:950}}>INDICAZIONE OPERATIVA</div><div style={{fontSize:16,fontWeight:1000,color:opLabel.color,marginTop:5}}>{opLabel.icon} {opLabel.text}</div><div style={{fontSize:9,color:"#64748b",marginTop:3}}>Indice orientativo, non certezza di mercato</div></div>
-          <div style={{padding:"11px",borderRadius:12,border:"1px solid rgba(71,85,105,.4)",background:"rgba(2,6,23,.38)"}}><div style={{fontSize:9,color:"#64748b",fontWeight:950}}>SCORE / STABILITÀ</div><div style={{fontSize:22,fontWeight:1000,color:"#e2e8f0",marginTop:3}}>{operationalScore==null?"—":`${fmt(operationalScore,0)}/100`}</div><div style={{fontSize:9,color:"#94a3b8"}}>Stabilità segnale: <b>{stability}</b>{bestHorizon?` • miglior finestra ${bestHorizon.h}H`:""}</div></div>
+          <div style={{padding:"11px",borderRadius:12,border:"1px solid rgba(71,85,105,.4)",background:"rgba(2,6,23,.38)"}}>
+            <div style={{fontSize:9,color:"#64748b",fontWeight:950}}>SCORE / STABILITÀ</div>
+            <div style={{fontSize:22,fontWeight:1000,color:"#e2e8f0",marginTop:3}}>{operationalScore==null?"—":`${fmt(operationalScore,0)}/100`}</div>
+            <div style={{fontSize:9,color:"#94a3b8"}}>
+              Stabilità segnale: <b>{stability}</b>{bestHorizon?` • miglior finestra ${bestHorizon.h}H`:""}
+            </div>
+            <div style={{fontSize:8.5,color:"#64748b",marginTop:5,lineHeight:1.45}}>
+              First Touch 1–3H: <b style={{color:"#bae6fd"}}>{entryFirstTouchScore==null?"—":`${fmt(entryFirstTouchScore,1)}/100`}</b>
+              {" • "}
+              Coda 6–24H: <b style={{color:tailFirstTouchScore==null?"#64748b":"#c4b5fd"}}>{tailFirstTouchScore==null?"non ancora matura":`${fmt(tailFirstTouchScore,1)}/100`}</b>
+              {tailRows.length > 0 ? ` (${tailRows.length} checkpoint usati)` : ""}
+            </div>
+          </div>
         </div>
 
         <div style={{fontSize:9,fontWeight:950,color:"#64748b",marginTop:10,marginBottom:5}}>PRIME ORE</div>
@@ -1074,6 +1202,11 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
             </div>}
             {bucket && <div style={{fontSize:8,color:"#64748b",marginTop:6}}>Campione {bucket.signals || 0} • cumulativo dal segnale</div>}
           </div>)}
+        </div>
+        <div style={{fontSize:8.5,color:"#64748b",marginTop:7,lineHeight:1.45}}>
+          🧠 <b style={{color:"#94a3b8"}}>First Touch integrato nello score:</b> 1H/2H/3H vengono sempre usati.
+          I checkpoint 6H/9H/12H/15H/18H/21H/24H entrano automaticamente appena ciascuno raggiunge almeno
+          <b style={{color:"#c4b5fd"}}> 10 segnali maturi</b>, con peso inferiore alle prime 3 ore.
         </div>
       </div>
 
