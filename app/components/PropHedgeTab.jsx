@@ -36,6 +36,7 @@ const ASSETS = {
 };
 
 const MT5_LIVE_MAX_AGE_MS = 90000; // heartbeat 30s: margine anti-jitter
+const ENGINE_DIRECTION_STORAGE_KEY = "propMarketLatestPropDirection:XAUUSD";
 
 const fieldLabel = { display: "block", color: "#93c5fd", fontSize: 13, marginBottom: 6 };
 const grid2 = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px,1fr))", gap: 12 };
@@ -379,8 +380,21 @@ export default function PropHedgeTab() {
 
   const [mainView, setMainView] = useState("OPERATIVITA");
   const [chartSymbol, setChartSymbol] = useState("XAUUSD");
-  const [enginePropDirection, setEnginePropDirection] = useState("WAIT");
-  const [engineAnalysisReady, setEngineAnalysisReady] = useState(false);
+  const [enginePropDirection, setEnginePropDirection] = useState(() => {
+    if (typeof window === "undefined") return "WAIT";
+    try {
+      const saved = JSON.parse(localStorage.getItem(ENGINE_DIRECTION_STORAGE_KEY) || "null");
+      const dir = String(saved?.propDirection || "WAIT").toUpperCase();
+      return ["BUY","SELL"].includes(dir) ? dir : "WAIT";
+    } catch { return "WAIT"; }
+  });
+  const [engineAnalysisReady, setEngineAnalysisReady] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      const saved = JSON.parse(localStorage.getItem(ENGINE_DIRECTION_STORAGE_KEY) || "null");
+      return ["BUY","SELL"].includes(String(saved?.propDirection || "").toUpperCase());
+    } catch { return false; }
+  });
   const [historyFilters, setHistoryFilters] = useState({
     prop: "TUTTE",
     asset: "TUTTI",
@@ -1167,6 +1181,18 @@ export default function PropHedgeTab() {
     setChallenges(prev => prev.map(ch => ch.id === id ? { ...ch, ...patch } : ch));
   };
 
+  const applyEngineDirectionToReadyChallenges = (direction) => {
+    const dir = String(direction || "WAIT").toUpperCase();
+    if (!["BUY","SELL"].includes(dir)) return;
+
+    setChallenges(prev => prev.map(ch => {
+      if (ch.archived) return ch;
+      // Non cambiamo MAI la direzione di un trade gia' piazzato/aperto.
+      if (ch.active) return ch;
+      return { ...ch, direction: dir };
+    }));
+  };
+
   const setChallengeDirectionManual = (id, nextDirection) => {
     const dir = String(nextDirection || "WAIT").toUpperCase();
 
@@ -1195,12 +1221,10 @@ export default function PropHedgeTab() {
       !["BUY","SELL"].includes(enginePropDirection)
     ) return;
 
-    setChallenges(prev => prev.map(ch => {
-      if (ch.archived) return ch;
-      if (ch.active) return ch;
-      return { ...ch, direction: enginePropDirection };
-    }));
-  }, [tradingEnabled, engineAnalysisReady, enginePropDirection]);
+    // Applica il segnale anche quando si torna da PREVISIONI a OPERATIVITA'.
+    // In questo modo una sincronizzazione cloud/UI non puo' lasciare una direzione vecchia.
+    applyEngineDirectionToReadyChallenges(enginePropDirection);
+  }, [tradingEnabled, engineAnalysisReady, enginePropDirection, mainView]);
 
   const markOperationalUpdated = (id, key) => {
     setChallenges(prev => prev.map(ch => {
@@ -3294,12 +3318,18 @@ export default function PropHedgeTab() {
               setEnginePropDirection(next);
               setEngineAnalysisReady(ready);
 
+              try {
+                if (ready) {
+                  localStorage.setItem(ENGINE_DIRECTION_STORAGE_KEY, JSON.stringify({
+                    propDirection: next,
+                    forecastDirection: String(payload?.forecastDirection || "WAIT").toUpperCase(),
+                    analyzedAt: payload?.analyzedAt || new Date().toISOString()
+                  }));
+                }
+              } catch {}
+
               if (tradingEnabled && ready) {
-                setChallenges(prev => prev.map(ch => {
-                  if (ch.archived) return ch;
-                  if (ch.active) return ch;
-                  return { ...ch, direction: next };
-                }));
+                applyEngineDirectionToReadyChallenges(next);
               }
             }}
           />
