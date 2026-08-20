@@ -2,31 +2,10 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 /*
-============================================================
-MARKET SIGNAL FIRST TOUCH SIMULATOR v1.00
-============================================================
-
-Scopo:
-- NON modifica alcun segnale
-- NON esegue trading
-- legge path_m15_3h già salvato
-- simula TP/SL della PROP
-- stabilisce quale livello viene toccato per primo
-- separa i risultati in:
-    TOTALE
-    FORECAST WIN
-    FORECAST LOSS
-
-IMPORTANTE:
-Il forecast e la PROP sono opposti.
-
-Forecast BUY  -> PROP SELL
-Forecast SELL -> PROP BUY
-
-Se TP e SL vengono toccati nella stessa M15:
-AMBIGUOUS, perché con OHLC M15 non conosciamo
-l'ordine intrabar.
-============================================================
+  MARKET SIGNAL FIRST TOUCH v2.00 — 24H TAIL
+  Checkpoint supportati: 1,2,3,6,9,12,15,18,21,24 ore.
+  Usa path_m15_24h; per 1/2/3H accetta anche il vecchio path_m15_3h.
+  Restituisce anche la sorte delle sole operazioni ancora aperte al checkpoint precedente.
 */
 
 const SUPABASE_URL =
@@ -36,784 +15,608 @@ const SUPABASE_URL =
 const SUPABASE_SERVICE_ROLE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const SIGNAL_TABLE = "prop_market_signal_log";
-const DEFAULT_SYMBOL = "XAUUSD";
+const SIGNAL_TABLE =
+  "prop_market_signal_log";
 
+const CHECKPOINTS =
+  [1, 2, 3, 6, 9, 12, 15, 18, 21, 24];
 
-// ============================================================
-// RESPONSE
-// ============================================================
-
-function json(data, status = 200) {
-  return Response.json(data, {
-    status,
-    headers: {
-      "Cache-Control": "no-store, no-cache, must-revalidate"
+function json(
+  data,
+  status = 200
+) {
+  return Response.json(
+    data,
+    {
+      status,
+      headers: {
+        "Cache-Control":
+          "no-store, no-cache, must-revalidate"
+      }
     }
-  });
+  );
 }
 
-
-// ============================================================
-// ENV
-// ============================================================
-
-function assertEnv() {
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    throw new Error("Supabase non configurato.");
+function headers() {
+  if (
+    !SUPABASE_URL ||
+    !SUPABASE_SERVICE_ROLE_KEY
+  ) {
+    throw new Error(
+      "Supabase non configurato."
+    );
   }
-}
 
-
-// ============================================================
-// HEADERS
-// ============================================================
-
-function supabaseHeaders() {
   return {
-    apikey: SUPABASE_SERVICE_ROLE_KEY,
-    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-    "Content-Type": "application/json"
+    apikey:
+      SUPABASE_SERVICE_ROLE_KEY,
+
+    Authorization:
+      `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
   };
 }
 
+function num(
+  v,
+  d = null
+) {
+  const n =
+    Number(v);
 
-// ============================================================
-// UTILITY
-// ============================================================
+  return Number.isFinite(n)
+    ? n
+    : d;
+}
 
-function normalizeSymbol(value) {
-  const symbol = String(value || DEFAULT_SYMBOL)
+function pct(
+  n,
+  d
+) {
+  return d > 0
+    ? Number(
+        (
+          100 *
+          n /
+          d
+        ).toFixed(1)
+      )
+    : null;
+}
+
+function normSymbol(
+  v
+) {
+  return String(
+    v ||
+    "XAUUSD"
+  )
     .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "")
-    .trim();
-
-  return symbol || DEFAULT_SYMBOL;
+    .replace(
+      /[^A-Z0-9]/g,
+      ""
+    ) ||
+    "XAUUSD";
 }
 
-
-function finiteOrNull(value) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : null;
+function opposite(
+  d
+) {
+  return d === "BUY"
+    ? "SELL"
+    : d === "SELL"
+      ? "BUY"
+      : "WAIT";
 }
 
+function previousCheckpoint(
+  h
+) {
+  const i =
+    CHECKPOINTS.indexOf(
+      h
+    );
 
-function normalizeDirection(value) {
-  const direction = String(value || "")
-    .toUpperCase()
-    .trim();
-
-  if (direction === "BUY") return "BUY";
-  if (direction === "SELL") return "SELL";
-
-  return "WAIT";
+  return i > 0
+    ? CHECKPOINTS[
+        i - 1
+      ]
+    : 0;
 }
 
+function normalizePath(
+  v
+) {
+  if (
+    !Array.isArray(v)
+  ) {
+    return [];
+  }
 
-function normalizeBars(input) {
-  if (!Array.isArray(input)) return [];
+  return v
+    .map(
+      b => ({
+        t:
+          num(
+            b?.t
+          ),
 
-  return input
-    .map(bar => ({
-      t: finiteOrNull(bar?.t),
-      o: finiteOrNull(bar?.o),
-      h: finiteOrNull(bar?.h),
-      l: finiteOrNull(bar?.l),
-      c: finiteOrNull(bar?.c),
-      v: finiteOrNull(bar?.v) ?? 0
-    }))
-    .filter(bar =>
-      Number.isFinite(bar.t) &&
-      Number.isFinite(bar.o) &&
-      Number.isFinite(bar.h) &&
-      Number.isFinite(bar.l) &&
-      Number.isFinite(bar.c)
+        o:
+          num(
+            b?.o
+          ),
+
+        h:
+          num(
+            b?.h
+          ),
+
+        l:
+          num(
+            b?.l
+          ),
+
+        c:
+          num(
+            b?.c
+          ),
+
+        v:
+          num(
+            b?.v,
+            0
+          )
+      })
     )
-    .sort((a, b) => a.t - b.t);
+    .filter(
+      b =>
+        [
+          b.t,
+          b.o,
+          b.h,
+          b.l,
+          b.c
+        ].every(
+          Number.isFinite
+        )
+    )
+    .sort(
+      (
+        a,
+        b
+      ) =>
+        a.t -
+        b.t
+    );
 }
 
+function barHit(
+  direction,
+  price,
+  bar
+) {
+  if (
+    direction ===
+    "BUY"
+  ) {
+    return (
+      bar.h >=
+      price
+    );
+  }
 
-function oppositeDirection(direction) {
-  if (direction === "BUY") return "SELL";
-  if (direction === "SELL") return "BUY";
+  if (
+    direction ===
+    "SELL"
+  ) {
+    return (
+      bar.l <=
+      price
+    );
+  }
 
-  return "WAIT";
+  return false;
 }
 
+function classify(
+  row,
+  hours,
+  tpDist,
+  slDist
+) {
+  const entry =
+    num(
+      row.entry_price
+    );
 
-// ============================================================
-// POINT SIZE
-// ============================================================
+  const forecast =
+    String(
+      row.forecast_direction ||
+      ""
+    )
+      .toUpperCase();
 
-/*
-XAUUSD attuale:
-1000 punti MT5 = 10.00 dollari di prezzo
+  if (
+    !Number.isFinite(
+      entry
+    ) ||
+    ![
+      "BUY",
+      "SELL"
+    ].includes(
+      forecast
+    )
+  ) {
+    return {
+      kind:
+        "INVALID"
+    };
+  }
 
-Quindi:
-1 punto = 0.01
+  const prop =
+    opposite(
+      forecast
+    );
 
-Lo rendiamo comunque parametrico.
-*/
+  const raw24 =
+    normalizePath(
+      row.path_m15_24h
+    );
 
-function pointsToPrice(points, pointSize) {
-  return points * pointSize;
+  const raw3 =
+    normalizePath(
+      row.path_m15_3h
+    );
+
+  const path =
+    raw24.length
+      ? raw24
+      : raw3;
+
+  if (
+    !path.length
+  ) {
+    return {
+      kind:
+        "NO_PATH"
+    };
+  }
+
+  const needBars =
+    hours *
+    4;
+
+  if (
+    path.length <
+    needBars
+  ) {
+    return {
+      kind:
+        "PENDING",
+
+      bars:
+        path.length,
+
+      needBars
+    };
+  }
+
+  const bars =
+    path.slice(
+      0,
+      needBars
+    );
+
+  const tpPrice =
+    prop === "BUY"
+      ? entry +
+        tpDist
+      : entry -
+        tpDist;
+
+  const slPrice =
+    prop === "BUY"
+      ? entry -
+        slDist
+      : entry +
+        slDist;
+
+  for (
+    let i = 0;
+    i < bars.length;
+    i++
+  ) {
+    const b =
+      bars[i];
+
+    const tp =
+      barHit(
+        prop,
+        tpPrice,
+        b
+      );
+
+    const sl =
+      barHit(
+        opposite(
+          prop
+        ),
+        slPrice,
+        b
+      );
+
+    if (
+      tp &&
+      sl
+    ) {
+      return {
+        kind:
+          "AMBIGUOUS",
+
+        barIndex:
+          i,
+
+        hitTime:
+          b.t
+      };
+    }
+
+    if (
+      tp
+    ) {
+      return {
+        kind:
+          "TP",
+
+        barIndex:
+          i,
+
+        hitTime:
+          b.t
+      };
+    }
+
+    if (
+      sl
+    ) {
+      return {
+        kind:
+          "SL",
+
+        barIndex:
+          i,
+
+        hitTime:
+          b.t
+      };
+    }
+  }
+
+  return {
+    kind:
+      "NONE",
+
+    bars:
+      bars.length
+  };
 }
 
+function bucket(
+  rows,
+  hours,
+  tpDist,
+  slDist,
+  filterFn =
+    () => true
+) {
+  const counts = {
+    signals:
+      0,
 
-// ============================================================
-// DATABASE
-// ============================================================
+    tp:
+      0,
 
-async function getSignals(symbol, limit = 1000) {
-  const safeLimit = Math.max(
-    1,
-    Math.min(Number(limit) || 1000, 5000)
-  );
+    sl:
+      0,
 
-  const select = [
-    "id",
-    "symbol",
-    "signal_m15_time",
-    "entry_price",
-    "forecast_direction",
+    none:
+      0,
 
-    "direction_correct_1h",
-    "direction_correct_2h",
-    "direction_correct_3h",
+    ambiguous:
+      0
+  };
 
-    "evaluated_1h_at",
-    "evaluated_2h_at",
-    "evaluated_3h_at",
+  for (
+    const r
+    of rows
+  ) {
+    if (
+      !filterFn(
+        r
+      )
+    ) {
+      continue;
+    }
 
-    "evaluation_status",
-    "result_3h",
+    const x =
+      classify(
+        r,
+        hours,
+        tpDist,
+        slDist
+      );
 
-    "path_m15_3h"
-  ].join(",");
+    if (
+      [
+        "PENDING",
+        "NO_PATH",
+        "INVALID"
+      ].includes(
+        x.kind
+      )
+    ) {
+      continue;
+    }
+
+    counts.signals++;
+
+    if (
+      x.kind ===
+      "TP"
+    ) {
+      counts.tp++;
+    }
+
+    else if (
+      x.kind ===
+      "SL"
+    ) {
+      counts.sl++;
+    }
+
+    else if (
+      x.kind ===
+      "AMBIGUOUS"
+    ) {
+      counts.ambiguous++;
+    }
+
+    else {
+      counts.none++;
+    }
+  }
+
+  return {
+    ...counts,
+
+    tpPct:
+      pct(
+        counts.tp,
+        counts.signals
+      ),
+
+    slPct:
+      pct(
+        counts.sl,
+        counts.signals
+      ),
+
+    nonePct:
+      pct(
+        counts.none,
+        counts.signals
+      ),
+
+    ambiguousPct:
+      pct(
+        counts.ambiguous,
+        counts.signals
+      )
+  };
+}
+
+function forecastResult(
+  row,
+  hours
+) {
+  const h =
+    hours <= 1
+      ? 1
+      : hours <= 2
+        ? 2
+        : 3;
+
+  const v =
+    row[
+      `direction_correct_${h}h`
+    ];
+
+  return v === true
+    ? "WIN"
+    : v === false
+      ? "LOSS"
+      : null;
+}
+
+async function getRows(
+  symbol
+) {
+  const select =
+    [
+      "id",
+      "symbol",
+      "signal_m15_time",
+      "entry_price",
+      "forecast_direction",
+      "direction_correct_1h",
+      "direction_correct_2h",
+      "direction_correct_3h",
+      "path_m15_3h",
+      "path_m15_24h"
+    ].join(
+      ","
+    );
 
   const url =
     `${SUPABASE_URL}/rest/v1/${SIGNAL_TABLE}` +
     `?symbol=eq.${encodeURIComponent(symbol)}` +
     `&forecast_direction=in.(BUY,SELL)` +
-    `&path_m15_3h=not.is.null` +
     `&select=${select}` +
     `&order=signal_m15_time.asc` +
-    `&limit=${safeLimit}`;
+    `&limit=5000`;
 
-  const response = await fetch(url, {
-    method: "GET",
-    headers: supabaseHeaders(),
-    cache: "no-store"
-  });
+  const r =
+    await fetch(
+      url,
+      {
+        headers:
+          headers(),
 
-  const text = await response.text();
+        cache:
+          "no-store"
+      }
+    );
 
-  let data;
+  const t =
+    await r.text();
+
+  let j =
+    [];
 
   try {
-    data = text ? JSON.parse(text) : [];
-  } catch {
+    j =
+      t
+        ? JSON.parse(
+            t
+          )
+        : [];
+  }
+
+  catch {
     throw new Error(
-      `Signal query non JSON: ${text.slice(0, 300)}`
+      `Supabase non JSON: ${
+        t.slice(
+          0,
+          200
+        )
+      }`
     );
   }
-
-  if (!response.ok) {
-    throw new Error(
-      data?.message ||
-      data?.error ||
-      `Signal query HTTP ${response.status}`
-    );
-  }
-
-  return Array.isArray(data) ? data : [];
-}
-
-
-// ============================================================
-// FORECAST RESULT AT HORIZON
-// ============================================================
-
-function getForecastResult(signal, hours) {
-  let value = null;
-
-  if (hours === 1) {
-    value = signal.direction_correct_1h;
-  }
-
-  else if (hours === 2) {
-    value = signal.direction_correct_2h;
-  }
-
-  else if (hours === 3) {
-    value = signal.direction_correct_3h;
-  }
-
-  if (value === true) return "WIN";
-  if (value === false) return "LOSS";
-
-  return "PENDING";
-}
-
-
-// ============================================================
-// PATH FOR HORIZON
-// ============================================================
-
-function getPathForHorizon(signal, hours) {
-  const bars = normalizeBars(
-    signal.path_m15_3h
-  );
-
-  if (!bars.length) return [];
-
-  const signalMs =
-    new Date(signal.signal_m15_time).getTime();
-
-  if (!Number.isFinite(signalMs)) {
-    return [];
-  }
-
-  const endMs =
-    signalMs +
-    hours * 60 * 60 * 1000;
-
-  return bars.filter(bar =>
-    bar.t > signalMs &&
-    bar.t <= endMs
-  );
-}
-
-
-// ============================================================
-// LEVELS
-// ============================================================
-
-function getPropLevels({
-  forecastDirection,
-  entryPrice,
-  tpDistance,
-  slDistance
-}) {
-  const propDirection =
-    oppositeDirection(forecastDirection);
-
-  if (propDirection === "BUY") {
-    return {
-      propDirection,
-
-      tpPrice:
-        entryPrice +
-        tpDistance,
-
-      slPrice:
-        entryPrice -
-        slDistance
-    };
-  }
-
-  if (propDirection === "SELL") {
-    return {
-      propDirection,
-
-      tpPrice:
-        entryPrice -
-        tpDistance,
-
-      slPrice:
-        entryPrice +
-        slDistance
-    };
-  }
-
-  return null;
-}
-
-
-// ============================================================
-// FIRST TOUCH
-// ============================================================
-
-function simulateFirstTouch({
-  signal,
-  hours,
-  tpPoints,
-  slPoints,
-  pointSize
-}) {
-  const forecastDirection =
-    normalizeDirection(
-      signal.forecast_direction
-    );
-
-  const entryPrice =
-    finiteOrNull(
-      signal.entry_price
-    );
 
   if (
-    !["BUY", "SELL"].includes(forecastDirection) ||
-    entryPrice === null
+    !r.ok
   ) {
-    return {
-      outcome: "INVALID"
-    };
-  }
-
-  const path =
-    getPathForHorizon(
-      signal,
-      hours
+    throw new Error(
+      j?.message ||
+      j?.error ||
+      `Supabase HTTP ${r.status}`
     );
-
-  if (!path.length) {
-    return {
-      outcome: "NO_PATH"
-    };
   }
 
-  const tpDistance =
-    pointsToPrice(
-      tpPoints,
-      pointSize
-    );
-
-  const slDistance =
-    pointsToPrice(
-      slPoints,
-      pointSize
-    );
-
-  const levels =
-    getPropLevels({
-      forecastDirection,
-      entryPrice,
-      tpDistance,
-      slDistance
-    });
-
-  if (!levels) {
-    return {
-      outcome: "INVALID"
-    };
-  }
-
-  const {
-    propDirection,
-    tpPrice,
-    slPrice
-  } = levels;
-
-
-  // ==========================================================
-  // BAR PER BAR
-  // ==========================================================
-
-  for (let i = 0; i < path.length; i++) {
-    const bar = path[i];
-
-    let tpHit = false;
-    let slHit = false;
-
-    if (propDirection === "BUY") {
-      tpHit =
-        bar.h >= tpPrice;
-
-      slHit =
-        bar.l <= slPrice;
-    }
-
-    else if (propDirection === "SELL") {
-      tpHit =
-        bar.l <= tpPrice;
-
-      slHit =
-        bar.h >= slPrice;
-    }
-
-
-    // ========================================================
-    // BOTH SAME M15
-    // ========================================================
-
-    if (tpHit && slHit) {
-      return {
-        outcome: "AMBIGUOUS",
-
-        barIndex: i,
-
-        hitTime:
-          new Date(bar.t)
-            .toISOString(),
-
-        bar,
-
-        tpPrice,
-        slPrice,
-
-        propDirection
-      };
-    }
-
-
-    // ========================================================
-    // TP FIRST
-    // ========================================================
-
-    if (tpHit) {
-      return {
-        outcome: "TP",
-
-        barIndex: i,
-
-        hitTime:
-          new Date(bar.t)
-            .toISOString(),
-
-        bar,
-
-        tpPrice,
-        slPrice,
-
-        propDirection
-      };
-    }
-
-
-    // ========================================================
-    // SL FIRST
-    // ========================================================
-
-    if (slHit) {
-      return {
-        outcome: "SL",
-
-        barIndex: i,
-
-        hitTime:
-          new Date(bar.t)
-            .toISOString(),
-
-        bar,
-
-        tpPrice,
-        slPrice,
-
-        propDirection
-      };
-    }
-  }
-
-
-  // ==========================================================
-  // NEITHER
-  // ==========================================================
-
-  return {
-    outcome: "NONE",
-
-    tpPrice,
-    slPrice,
-
-    propDirection
-  };
-}
-
-
-// ============================================================
-// STAT BUCKET
-// ============================================================
-
-function createBucket() {
-  return {
-    signals: 0,
-
-    tp: 0,
-    sl: 0,
-    none: 0,
-    ambiguous: 0,
-
-    tpPct: 0,
-    slPct: 0,
-    nonePct: 0,
-    ambiguousPct: 0
-  };
-}
-
-
-function addOutcome(bucket, outcome) {
-  bucket.signals += 1;
-
-  if (outcome === "TP") {
-    bucket.tp += 1;
-  }
-
-  else if (outcome === "SL") {
-    bucket.sl += 1;
-  }
-
-  else if (outcome === "AMBIGUOUS") {
-    bucket.ambiguous += 1;
-  }
-
-  else {
-    bucket.none += 1;
-  }
-}
-
-
-function finalizeBucket(bucket) {
-  const total = bucket.signals;
-
-  if (!total) {
-    return bucket;
-  }
-
-  bucket.tpPct =
-    Number(
-      (
-        bucket.tp /
-        total *
-        100
-      ).toFixed(1)
-    );
-
-  bucket.slPct =
-    Number(
-      (
-        bucket.sl /
-        total *
-        100
-      ).toFixed(1)
-    );
-
-  bucket.nonePct =
-    Number(
-      (
-        bucket.none /
-        total *
-        100
-      ).toFixed(1)
-    );
-
-  bucket.ambiguousPct =
-    Number(
-      (
-        bucket.ambiguous /
-        total *
-        100
-      ).toFixed(1)
-    );
-
-  return bucket;
-}
-
-
-// ============================================================
-// RUN SIMULATOR
-// ============================================================
-
-async function runSimulator({
-  symbol,
-  hours,
-  tpPoints,
-  slPoints,
-  pointSize,
-  limit
-}) {
-  const signals =
-    await getSignals(
-      symbol,
-      limit
-    );
-
-  const buckets = {
-    total: createBucket(),
-    win: createBucket(),
-    loss: createBucket()
-  };
-
-  const rows = [];
-
-  let skippedPending = 0;
-  let skippedNoPath = 0;
-  let skippedInvalid = 0;
-
-
-  for (const signal of signals) {
-    const forecastResult =
-      getForecastResult(
-        signal,
-        hours
-      );
-
-
-    // ========================================================
-    // Per confronto WIN / LOSS usiamo solo segnali
-    // già valutati a quell'orizzonte.
-    // ========================================================
-
-    if (forecastResult === "PENDING") {
-      skippedPending += 1;
-      continue;
-    }
-
-
-    const simulation =
-      simulateFirstTouch({
-        signal,
-        hours,
-        tpPoints,
-        slPoints,
-        pointSize
-      });
-
-
-    if (
-      simulation.outcome === "NO_PATH"
-    ) {
-      skippedNoPath += 1;
-      continue;
-    }
-
-
-    if (
-      simulation.outcome === "INVALID"
-    ) {
-      skippedInvalid += 1;
-      continue;
-    }
-
-
-    // ========================================================
-    // TOTAL
-    // ========================================================
-
-    addOutcome(
-      buckets.total,
-      simulation.outcome
-    );
-
-
-    // ========================================================
-    // WIN / LOSS
-    // ========================================================
-
-    if (forecastResult === "WIN") {
-      addOutcome(
-        buckets.win,
-        simulation.outcome
-      );
-    }
-
-    else if (forecastResult === "LOSS") {
-      addOutcome(
-        buckets.loss,
-        simulation.outcome
-      );
-    }
-
-
-    rows.push({
-      id: signal.id,
-
-      signal_m15_time:
-        signal.signal_m15_time,
-
-      forecast_direction:
-        signal.forecast_direction,
-
-      forecast_result:
-        forecastResult,
-
-      entry_price:
-        signal.entry_price,
-
-      prop_direction:
-        simulation.propDirection,
-
-      outcome:
-        simulation.outcome,
-
-      hit_time:
-        simulation.hitTime || null,
-
-      bar_index:
-        simulation.barIndex ?? null,
-
-      tp_price:
-        simulation.tpPrice ?? null,
-
-      sl_price:
-        simulation.slPrice ?? null,
-
-      hit_bar:
-        simulation.bar || null
-    });
-  }
-
-
-  finalizeBucket(buckets.total);
-  finalizeBucket(buckets.win);
-  finalizeBucket(buckets.loss);
-
-
-  return {
-    ok: true,
-
-    version: "1.00",
-
-    symbol,
-
-    configuration: {
-      hours,
-      tpPoints,
-      slPoints,
-      pointSize,
-
-      tpPriceDistance:
-        pointsToPrice(
-          tpPoints,
-          pointSize
-        ),
-
-      slPriceDistance:
-        pointsToPrice(
-          slPoints,
-          pointSize
-        )
-    },
-
-    sourceSignals:
-      signals.length,
-
-    analyzedSignals:
-      buckets.total.signals,
-
-    skipped: {
-      pending:
-        skippedPending,
-
-      noPath:
-        skippedNoPath,
-
-      invalid:
-        skippedInvalid
-    },
-
-    summary: {
-      total:
-        buckets.total,
-
-      forecastWin:
-        buckets.win,
-
-      forecastLoss:
-        buckets.loss
-    },
-
-    rows
-  };
+  return Array.isArray(
+    j
+  )
+    ? j
+    : [];
 }
 
 
@@ -821,139 +624,316 @@ async function runSimulator({
 // GET
 // ============================================================
 
-export async function GET(request) {
+export async function GET(
+  request
+) {
   try {
-    assertEnv();
-
-    const { searchParams } =
-      new URL(request.url);
-
-
-    // ========================================================
-    // SYMBOL
-    // ========================================================
-
-    const symbol =
-      normalizeSymbol(
-        searchParams.get("symbol") ||
-        DEFAULT_SYMBOL
+    const u =
+      new URL(
+        request.url
       );
 
+    const symbol =
+      normSymbol(
+        u.searchParams.get(
+          "symbol"
+        )
+      );
 
-    // ========================================================
-    // HOURS
-    // ========================================================
-
-    let hours =
-      Number(
-        searchParams.get("hours") ||
+    const hours =
+      num(
+        u.searchParams.get(
+          "hours"
+        ),
         1
       );
 
-    if (![1, 2, 3].includes(hours)) {
-      hours = 1;
+    if (
+      !CHECKPOINTS.includes(
+        hours
+      )
+    ) {
+      return json(
+        {
+          ok:
+            false,
+
+          error:
+            `hours non valido. Usa: ${
+              CHECKPOINTS.join(
+                ", "
+              )
+            }`
+        },
+        400
+      );
     }
 
-
-    // ========================================================
-    // TP
-    // ========================================================
-
-    let tpPoints =
-      Number(
-        searchParams.get("tp") ||
-        1000
+    const tpPoints =
+      Math.max(
+        1,
+        num(
+          u.searchParams.get(
+            "tp"
+          ),
+          1000
+        )
       );
 
-    if (
-      !Number.isFinite(tpPoints) ||
-      tpPoints <= 0
-    ) {
-      tpPoints = 1000;
-    }
-
-
-    // ========================================================
-    // SL
-    // ========================================================
-
-    let slPoints =
-      Number(
-        searchParams.get("sl") ||
-        1000
+    const slPoints =
+      Math.max(
+        1,
+        num(
+          u.searchParams.get(
+            "sl"
+          ),
+          1000
+        )
       );
 
-    if (
-      !Number.isFinite(slPoints) ||
-      slPoints <= 0
-    ) {
-      slPoints = 1000;
-    }
-
-
-    // ========================================================
-    // POINT SIZE
-    // ========================================================
-
-    let pointSize =
-      Number(
-        searchParams.get("pointSize") ||
-        0.01
+    const pointSize =
+      Math.max(
+        0.0000001,
+        num(
+          u.searchParams.get(
+            "pointSize"
+          ),
+          0.01
+        )
       );
 
-    if (
-      !Number.isFinite(pointSize) ||
-      pointSize <= 0
-    ) {
-      pointSize = 0.01;
-    }
+    const tpDist =
+      tpPoints *
+      pointSize;
 
+    const slDist =
+      slPoints *
+      pointSize;
 
-    // ========================================================
-    // LIMIT
-    // ========================================================
-
-    let limit =
-      Number(
-        searchParams.get("limit") ||
-        1000
+    const rows =
+      await getRows(
+        symbol
       );
 
-    if (
-      !Number.isFinite(limit) ||
-      limit <= 0
+
+    // ==========================================================
+    // CONTEGGIO DISPONIBILITA PATH
+    // ==========================================================
+
+    const skipped = {
+      pending:
+        0,
+
+      noPath:
+        0,
+
+      invalid:
+        0
+    };
+
+    let analyzed =
+      0;
+
+    for (
+      const r
+      of rows
     ) {
-      limit = 1000;
+      const x =
+        classify(
+          r,
+          hours,
+          tpDist,
+          slDist
+        );
+
+      if (
+        x.kind ===
+        "PENDING"
+      ) {
+        skipped.pending++;
+      }
+
+      else if (
+        x.kind ===
+        "NO_PATH"
+      ) {
+        skipped.noPath++;
+      }
+
+      else if (
+        x.kind ===
+        "INVALID"
+      ) {
+        skipped.invalid++;
+      }
+
+      else {
+        analyzed++;
+      }
     }
 
 
-    return json(
-      await runSimulator({
-        symbol,
+    // ==========================================================
+    // STATISTICHE CUMULATIVE DALL'INGRESSO
+    // ==========================================================
+
+    const total =
+      bucket(
+        rows,
         hours,
+        tpDist,
+        slDist
+      );
+
+    const forecastWin =
+      bucket(
+        rows,
+        hours,
+        tpDist,
+        slDist,
+        r =>
+          forecastResult(
+            r,
+            hours
+          ) ===
+          "WIN"
+      );
+
+    const forecastLoss =
+      bucket(
+        rows,
+        hours,
+        tpDist,
+        slDist,
+        r =>
+          forecastResult(
+            r,
+            hours
+          ) ===
+          "LOSS"
+      );
+
+
+    // ==========================================================
+    // SOPRAVVISSUTE AL CHECKPOINT PRECEDENTE
+    // ==========================================================
+
+    const prev =
+      previousCheckpoint(
+        hours
+      );
+
+    let survivors =
+      null;
+
+    if (
+      prev >
+      0
+    ) {
+      /*
+        Prendiamo SOLO i trade che al checkpoint precedente
+        erano ancora "NONE", cioè non avevano toccato
+        né TP né SL.
+
+        Poi vediamo che fine hanno fatto entro il checkpoint
+        corrente.
+      */
+
+      const eligible =
+        rows.filter(
+          r =>
+            classify(
+              r,
+              prev,
+              tpDist,
+              slDist
+            ).kind ===
+            "NONE"
+        );
+
+      const b =
+        bucket(
+          eligible,
+          hours,
+          tpDist,
+          slDist
+        );
+
+      survivors = {
+        fromHours:
+          prev,
+
+        toHours:
+          hours,
+
+        openAtPrevious:
+          eligible.length,
+
+        ...b
+      };
+    }
+
+
+    // ==========================================================
+    // RESPONSE
+    // ==========================================================
+
+    return json({
+      ok:
+        true,
+
+      version:
+        "2.00-24H",
+
+      symbol,
+
+      checkpoints:
+        CHECKPOINTS,
+
+      configuration: {
+        hours,
+
         tpPoints,
+
         slPoints,
+
         pointSize,
-        limit
-      })
-    );
+
+        tpPriceDistance:
+          tpDist,
+
+        slPriceDistance:
+          slDist
+      },
+
+      sourceSignals:
+        rows.length,
+
+      analyzedSignals:
+        analyzed,
+
+      skipped,
+
+      summary: {
+        total,
+        forecastWin,
+        forecastLoss
+      },
+
+      survivorsFromPrevious:
+        survivors
+    });
   }
 
-  catch (error) {
-    console.error(
-      "Market Signal First Touch GET error:",
-      error
-    );
-
+  catch (e) {
     return json(
       {
-        ok: false,
-
-        version: "1.00",
+        ok:
+          false,
 
         error:
-          error?.message ||
-          String(error)
+          e?.message ||
+          String(e)
       },
       500
     );
