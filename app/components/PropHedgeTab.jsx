@@ -2244,7 +2244,7 @@ export default function PropHedgeTab() {
       </div>
 
       <div style={{display:"flex",gap:8,flexWrap:"wrap",padding:6,borderRadius:16,border:"1px solid rgba(51,65,85,.72)",background:"rgba(2,6,23,.42)"}}>
-        {[["OPERATIVITA","📈 OPERATIVITÀ"],["ACCOUNT_BROKER","⚙️ ACCOUNT BROKER"],["STORICO","📚 STORICO PROP"],["ARCHIVIO","🗂️ ARCHIVIO CHALLENGE"]].map(([key,label])=>(
+        {[["OPERATIVITA","📈 OPERATIVITÀ"],["PREVISIONI","🔮 PREVISIONI OPERATIVE"],["ACCOUNT_BROKER","⚙️ ACCOUNT BROKER"],["STORICO","📚 STORICO PROP"],["ARCHIVIO","🗂️ ARCHIVIO CHALLENGE"]].map(([key,label])=>(
           <button key={key} onClick={()=>setMainView(key)} style={{
             ...secondaryButton,
             background:mainView===key?"rgba(30,64,175,.48)":"rgba(15,23,42,.48)",
@@ -2394,44 +2394,6 @@ export default function PropHedgeTab() {
             </div>
           </div>
         </div>
-      )}
-
-      {tradingEnabled ? (
-        <MarketEnginePanel
-          defaultAsset="XAUUSD"
-          challenges={challenges.filter(ch => !ch.archived)}
-          onApplyDirection={(challengeId, suggestedDirection) => {
-            // Anche con STOP HEDGE il Market Engine può impostare la direzione della Prop.
-            // Lo stop riguarda esclusivamente la nuova gamba Broker.
-            setChallenge(challengeId, { direction: suggestedDirection });
-          }}
-        />
-      ) : (
-        <>
-          <div style={{
-            ...panel,
-            border:"1px solid rgba(100,116,139,.38)",
-            background:"rgba(15,23,42,.52)",
-            color:"#94a3b8",
-            padding:"16px 18px"
-          }}>
-            <div style={{fontSize:16,fontWeight:950,color:"#cbd5e1"}}>⚫ Market Engine operativo in pausa</div>
-            <div style={{fontSize:12,marginTop:5}}>
-              Premi <b style={{color:"#86efac"}}>AVVIA TRADING</b> per riattivare War Room, prezzi live e operatività.
-              {hasActiveTrade ? " Il monitoraggio del trade aperto resta comunque attivo." : ""}
-            </div>
-            <div style={{fontSize:11,marginTop:6,color:"#c4b5fd"}}>
-              🧪 Il Market Engine Lab continua invece a raccogliere e validare i segnali automaticamente.
-            </div>
-          </div>
-
-          <MarketEnginePanel
-            defaultAsset="XAUUSD"
-            challenges={[]}
-            onApplyDirection={null}
-            labOnly={true}
-          />
-        </>
       )}
 
       <div style={{
@@ -3234,6 +3196,25 @@ export default function PropHedgeTab() {
       })}
 
       </>)}
+
+      {mainView === "PREVISIONI" && (
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          {!tradingEnabled && (
+            <div style={{...panel,border:"1px solid rgba(100,116,139,.38)",background:"rgba(15,23,42,.52)",color:"#94a3b8",padding:"14px 16px"}}>
+              <div style={{fontSize:15,fontWeight:950,color:"#cbd5e1"}}>⚫ Previsioni live in pausa</div>
+              <div style={{fontSize:11,marginTop:5}}>Premi <b style={{color:"#86efac"}}>AVVIA TRADING</b> per attivare forecast live e Operational Decision Engine. Lo storico del Lab resta comunque disponibile.</div>
+            </div>
+          )}
+          <MarketEnginePanel
+            defaultAsset="XAUUSD"
+            challenges={tradingEnabled ? challenges.filter(ch => !ch.archived) : []}
+            onApplyDirection={tradingEnabled ? ((challengeId, suggestedDirection) => {
+              setChallenge(challengeId, { direction: suggestedDirection });
+            }) : null}
+            labOnly={!tradingEnabled}
+          />
+        </div>
+      )}
 
       {mainView === "ACCOUNT_BROKER" && (
         <div style={{...panel,border:"1px solid rgba(34,211,238,.30)",background:"linear-gradient(135deg,rgba(8,145,178,.07),rgba(15,23,42,.96))"}}>
