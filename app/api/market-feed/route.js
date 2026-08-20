@@ -3,7 +3,7 @@ export const revalidate = 0;
 
 /*
 ============================================================
-MARKET FEED API v1.4
+MARKET FEED API v1.2 + PROP WATCHDOG
 
 Riceve da MarketFeedBridge MT5:
 - M15
@@ -11,23 +11,13 @@ Riceve da MarketFeedBridge MT5:
 - account MT5
 - timestamp terminale
 
-Salva su:
+Salva tutto su Supabase nella tabella:
 
 prop_market_feed
 
-QUESTA ROUTE FA SOLO FEED.
-
-NON chiama:
-- Market Signal Logger
-- Market Signal Evaluator
-
-Dopo il salvataggio restituisce immediatamente HTTP 200.
-
-Il processo statistico viene avviato separatamente
-dal MarketFeedBridge.
+NON esegue trading.
 ============================================================
 */
-
 
 const SUPABASE_URL =
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -39,39 +29,51 @@ const SUPABASE_SERVICE_ROLE_KEY =
 const MARKET_FEED_SECRET =
   process.env.MARKET_FEED_SECRET;
 
+const PROP_WATCHDOG_SECRET =
+  process.env.PROP_WATCHDOG_SECRET;
 
-const LIVE_MAX_AGE_SECONDS =
-  90;
+
+/*
+============================================================
+CONFIG
+============================================================
+*/
+
+const LIVE_MAX_AGE_SECONDS = 90;
+
+const SUPPORTED = new Set([
+  "XAUUSD",
+  "XAGUSD",
+
+  "EURUSD",
+  "GBPUSD",
+  "USDJPY",
+  "USDCHF",
+  "USDCAD",
+  "AUDUSD",
+  "NZDUSD",
+
+  "EURGBP",
+  "EURJPY",
+  "EURCHF",
+  "EURAUD",
+
+  "GBPJPY",
+  "GBPCHF",
+  "GBPAUD",
+
+  "AUDJPY",
+  "CADJPY",
+  "CHFJPY",
+  "NZDJPY"
+]);
 
 
-const SUPPORTED =
-  new Set([
-    "XAUUSD",
-    "XAGUSD",
-
-    "EURUSD",
-    "GBPUSD",
-    "USDJPY",
-    "USDCHF",
-    "USDCAD",
-    "AUDUSD",
-    "NZDUSD",
-
-    "EURGBP",
-    "EURJPY",
-    "EURCHF",
-    "EURAUD",
-
-    "GBPJPY",
-    "GBPCHF",
-    "GBPAUD",
-
-    "AUDJPY",
-    "CADJPY",
-    "CHFJPY",
-    "NZDJPY"
-  ]);
-
+/*
+============================================================
+JSON RESPONSE
+============================================================
+*/
 
 function json(
   data,
@@ -91,15 +93,27 @@ function json(
 }
 
 
-function cleanString(value) {
+/*
+============================================================
+UTILITY
+============================================================
+*/
+
+function cleanString(
+  value
+) {
   return String(
     value ?? ""
   ).trim();
 }
 
 
-function normalizeMarketKey(value) {
-  return cleanString(value)
+function normalizeMarketKey(
+  value
+) {
+  return cleanString(
+    value
+  )
     .toUpperCase()
     .replace(
       /[^A-Z]/g,
@@ -108,7 +122,9 @@ function normalizeMarketKey(value) {
 }
 
 
-function toFiniteNumber(value) {
+function toFiniteNumber(
+  value
+) {
   const n =
     Number(value);
 
@@ -118,9 +134,13 @@ function toFiniteNumber(value) {
 }
 
 
-function timestampToIso(value) {
+function timestampToIso(
+  value
+) {
   const n =
-    toFiniteNumber(value);
+    toFiniteNumber(
+      value
+    );
 
   if (
     n === null ||
@@ -128,6 +148,14 @@ function timestampToIso(value) {
   ) {
     return null;
   }
+
+  /*
+    L'EA invia timestamp in millisecondi.
+
+    Per sicurezza:
+    se arrivasse in secondi,
+    lo convertiamo automaticamente.
+  */
 
   const ms =
     n < 10_000_000_000
@@ -149,7 +177,9 @@ function timestampToIso(value) {
 }
 
 
-function normalizeBars(input) {
+function normalizeBars(
+  input
+) {
   if (
     !Array.isArray(input)
   ) {
@@ -192,11 +222,21 @@ function normalizeBars(input) {
     )
     .filter(
       bar =>
-        Number.isFinite(bar.t) &&
-        Number.isFinite(bar.o) &&
-        Number.isFinite(bar.h) &&
-        Number.isFinite(bar.l) &&
-        Number.isFinite(bar.c)
+        Number.isFinite(
+          bar.t
+        ) &&
+        Number.isFinite(
+          bar.o
+        ) &&
+        Number.isFinite(
+          bar.h
+        ) &&
+        Number.isFinite(
+          bar.l
+        ) &&
+        Number.isFinite(
+          bar.c
+        )
     )
     .sort(
       (a, b) =>
@@ -205,7 +245,9 @@ function normalizeBars(input) {
 }
 
 
-function ageSeconds(iso) {
+function ageSeconds(
+  iso
+) {
   if (!iso) {
     return null;
   }
@@ -223,7 +265,6 @@ function ageSeconds(iso) {
 
   return Math.max(
     0,
-
     Math.round(
       (
         Date.now() -
@@ -234,6 +275,12 @@ function ageSeconds(iso) {
   );
 }
 
+
+/*
+============================================================
+SUPABASE CHECK
+============================================================
+*/
 
 function supabaseConfigured() {
   return Boolean(
@@ -261,15 +308,19 @@ function supabaseHeaders(
 }
 
 
+/*
+============================================================
+GET ROW FROM SUPABASE
+============================================================
+*/
+
 async function getFeedRow(
   marketKey
 ) {
   const url =
     `${SUPABASE_URL}` +
     `/rest/v1/prop_market_feed` +
-    `?market_key=eq.${encodeURIComponent(
-      marketKey
-    )}` +
+    `?market_key=eq.${encodeURIComponent(marketKey)}` +
     `&select=` +
     [
       "market_key",
@@ -288,19 +339,22 @@ async function getFeedRow(
     await fetch(
       url,
       {
-        method: "GET",
+        method:
+          "GET",
 
         headers:
           supabaseHeaders(),
 
-        cache: "no-store"
+        cache:
+          "no-store"
       }
     );
 
   const text =
     await response.text();
 
-  let data = null;
+  let data =
+    null;
 
   try {
     data =
@@ -311,11 +365,13 @@ async function getFeedRow(
 
   catch {
     throw new Error(
-      `Supabase GET risposta non JSON: ${text.slice(0,300)}`
+      `Supabase GET risposta non JSON: ${text.slice(0, 300)}`
     );
   }
 
-  if (!response.ok) {
+  if (
+    !response.ok
+  ) {
     throw new Error(
       data?.message ||
       data?.error ||
@@ -323,13 +379,23 @@ async function getFeedRow(
     );
   }
 
-  return Array.isArray(data)
+  return Array.isArray(
+    data
+  )
     ? data[0] || null
     : null;
 }
 
 
-async function upsertFeed(row) {
+/*
+============================================================
+UPSERT SUPABASE
+============================================================
+*/
+
+async function upsertFeed(
+  row
+) {
   const url =
     `${SUPABASE_URL}` +
     `/rest/v1/prop_market_feed` +
@@ -339,7 +405,8 @@ async function upsertFeed(row) {
     await fetch(
       url,
       {
-        method: "POST",
+        method:
+          "POST",
 
         headers:
           supabaseHeaders({
@@ -352,14 +419,16 @@ async function upsertFeed(row) {
             [row]
           ),
 
-        cache: "no-store"
+        cache:
+          "no-store"
       }
     );
 
   const text =
     await response.text();
 
-  let data = null;
+  let data =
+    null;
 
   try {
     data =
@@ -370,11 +439,13 @@ async function upsertFeed(row) {
 
   catch {
     throw new Error(
-      `Supabase UPSERT risposta non JSON: ${text.slice(0,300)}`
+      `Supabase UPSERT risposta non JSON: ${text.slice(0, 300)}`
     );
   }
 
-  if (!response.ok) {
+  if (
+    !response.ok
+  ) {
     throw new Error(
       data?.message ||
       data?.error ||
@@ -383,7 +454,9 @@ async function upsertFeed(row) {
     );
   }
 
-  return Array.isArray(data)
+  return Array.isArray(
+    data
+  )
     ? data[0] || row
     : row;
 }
@@ -392,10 +465,16 @@ async function upsertFeed(row) {
 /*
 ============================================================
 GET
+
+Esempio:
+
+/api/market-feed?symbol=XAUUSD
 ============================================================
 */
 
-export async function GET(request) {
+export async function GET(
+  request
+) {
   try {
     if (
       !supabaseConfigured()
@@ -403,8 +482,12 @@ export async function GET(request) {
       return json(
         {
           ok: false,
+
           error:
-            "Supabase non configurato."
+            "Supabase non configurato.",
+
+          detail:
+            "Mancano NEXT_PUBLIC_SUPABASE_URL/SUPABASE_URL oppure SUPABASE_SERVICE_ROLE_KEY."
         },
         500
       );
@@ -419,8 +502,12 @@ export async function GET(request) {
 
     const marketKey =
       normalizeMarketKey(
-        searchParams.get("symbol") ||
-        searchParams.get("market_key") ||
+        searchParams.get(
+          "symbol"
+        ) ||
+        searchParams.get(
+          "market_key"
+        ) ||
         "XAUUSD"
       );
 
@@ -432,6 +519,7 @@ export async function GET(request) {
       return json(
         {
           ok: false,
+
           error:
             `Simbolo non supportato: ${marketKey}`
         },
@@ -447,8 +535,10 @@ export async function GET(request) {
     if (!row) {
       return json({
         ok: false,
+
         market_key:
           marketKey,
+
         status:
           "NO_FEED"
       });
@@ -526,10 +616,14 @@ export async function GET(request) {
 /*
 ============================================================
 POST
+
+Riceve payload dal MarketFeedBridge MT5.
 ============================================================
 */
 
-export async function POST(request) {
+export async function POST(
+  request
+) {
   try {
     if (
       !supabaseConfigured()
@@ -544,7 +638,6 @@ export async function POST(request) {
         500
       );
     }
-
 
     let body;
 
@@ -600,7 +693,7 @@ export async function POST(request) {
 
     /*
     ------------------------------------------------------------
-    MARKET
+    MARKET KEY
     ------------------------------------------------------------
     */
 
@@ -683,6 +776,12 @@ export async function POST(request) {
     }
 
 
+    /*
+    ------------------------------------------------------------
+    ULTIMA BARRA
+    ------------------------------------------------------------
+    */
+
     const lastM15 =
       m15[
         m15.length - 1
@@ -703,59 +802,24 @@ export async function POST(request) {
         lastH1?.t
       );
 
-    if (!lastM15Time) {
-      return json(
-        {
-          ok: false,
-
-          error:
-            "Timestamp ultima M15 non valido."
-        },
-        400
-      );
-    }
-
-    if (!lastH1Time) {
-      return json(
-        {
-          ok: false,
-
-          error:
-            "Timestamp ultima H1 non valido."
-        },
-        400
-      );
-    }
-
 
     /*
     ------------------------------------------------------------
-    SOLO DIAGNOSTICA NUOVA M15
-
-    Non serve più ad avviare Logger/Evaluator.
+    TERMINAL TIME
     ------------------------------------------------------------
     */
-
-    const previousRow =
-      await getFeedRow(
-        marketKey
-      );
-
-    const previousM15Time =
-      previousRow
-        ?.last_m15_time ||
-      null;
-
-    const isNewM15 =
-      !previousM15Time ||
-      previousM15Time !==
-        lastM15Time;
-
 
     const terminalTime =
       timestampToIso(
         body?.terminal_time
       );
+
+
+    /*
+    ------------------------------------------------------------
+    ACCOUNT
+    ------------------------------------------------------------
+    */
 
     const accountLogin =
       cleanString(
@@ -778,10 +842,16 @@ export async function POST(request) {
       ) ||
       marketKey;
 
+
+    /*
+    ------------------------------------------------------------
+    ROW SUPABASE
+    ------------------------------------------------------------
+    */
+
     const nowIso =
       new Date()
         .toISOString();
-
 
     const row = {
       market_key:
@@ -819,7 +889,7 @@ export async function POST(request) {
 
     /*
     ------------------------------------------------------------
-    L'UNICA OPERAZIONE IMPORTANTE DELLA ROUTE
+    UPSERT
     ------------------------------------------------------------
     */
 
@@ -828,13 +898,35 @@ export async function POST(request) {
         row
       );
 
+    /*
+    ------------------------------------------------------------
+    PROP WATCHDOG
+    ------------------------------------------------------------
+    Non blocca mai il salvataggio del feed.
+    Se una challenge è in monitoraggio, controlla Telegram,
+    controtendenza M15, WAIT/inversione e TP/SL.
+    */
+    try {
+      if (PROP_WATCHDOG_SECRET) {
+        const origin = new URL(request.url).origin;
+        await fetch(`${origin}/api/prop-trade-watchdog`, {
+          method: "POST",
+          headers: {
+            "x-watchdog-secret": PROP_WATCHDOG_SECRET,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ symbol: marketKey }),
+          cache: "no-store"
+        });
+      }
+    } catch (watchdogError) {
+      console.error("Prop Watchdog non bloccante:", watchdogError);
+    }
+
 
     /*
     ------------------------------------------------------------
-    RISPOSTA IMMEDIATA
-
-    Nessun Logger.
-    Nessun Evaluator.
+    OK
     ------------------------------------------------------------
     */
 
@@ -850,6 +942,18 @@ export async function POST(request) {
       source_symbol:
         sourceSymbol,
 
+      account_login:
+        accountLogin,
+
+      account_server:
+        accountServer,
+
+      account_company:
+        accountCompany,
+
+      terminal_time:
+        terminalTime,
+
       last_m15_time:
         lastM15Time,
 
@@ -861,12 +965,6 @@ export async function POST(request) {
 
       h1_bars:
         h1.length,
-
-      new_m15:
-        isNewM15,
-
-      process_required:
-        true,
 
       updated_at:
         saved?.updated_at ||
