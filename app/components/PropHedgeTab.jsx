@@ -395,6 +395,14 @@ export default function PropHedgeTab() {
       return ["BUY","SELL"].includes(String(saved?.propDirection || "").toUpperCase());
     } catch { return false; }
   });
+  const [engineSignalSnapshot, setEngineSignalSnapshot] = useState({
+    forecastDirection: "WAIT",
+    propDirection: "WAIT",
+    score: null,
+    confidence: null,
+    analyzedAt: null
+  });
+
   const [historyFilters, setHistoryFilters] = useState({
     prop: "TUTTE",
     asset: "TUTTI",
@@ -1537,6 +1545,115 @@ export default function PropHedgeTab() {
     return { id: commandId, status: "timeout" };
   };
 
+  const buildMonitoringSnapshot = (ch, c, executionSource = "profittracker") => {
+    const forecastFromEngine = String(
+      engineSignalSnapshot?.forecastDirection ||
+      (["BUY","SELL"].includes(enginePropDirection)
+        ? (enginePropDirection === "BUY" ? "SELL" : "BUY")
+        : "WAIT")
+    ).toUpperCase();
+
+    return {
+      executionSource,
+      monitoringActive: true,
+      initialForecast: forecastFromEngine,
+      initialForecastConfidence: Number.isFinite(Number(engineSignalSnapshot?.confidence))
+        ? Number(engineSignalSnapshot.confidence)
+        : null,
+      initialForecastScore: Number.isFinite(Number(engineSignalSnapshot?.score))
+        ? Number(engineSignalSnapshot.score)
+        : null,
+      initialForecastAt: engineSignalSnapshot?.analyzedAt || new Date().toISOString(),
+      telegram: {
+        enabled: true,
+        waitCount: 0,
+        firstWaitSent: false,
+        secondWaitSent: false,
+        reversalSent: false,
+        m15Warn4SentFor: null,
+        m15Warn8SentFor: null,
+        tpSent: false,
+        slSent: false,
+        lastSignalTime: null
+      }
+    };
+  };
+
+  const placeExternalTrade = async (id) => {
+    const ch = challenges.find(x => x.id === id);
+    const c = calcs[id];
+    if (!ch || !c || !c.px || !c.propLots) {
+      alert("Controlla prezzo, rischio, SL e lotti Prop prima di avviare il monitoraggio.");
+      return;
+    }
+
+    if (!tradingEnabled) {
+      alert("⛔ TRADING NON ATTIVO\\n\\nPremi AVVIA TRADING prima di registrare un'operazione esterna.");
+      return;
+    }
+
+    const selectedBrokerAccount = brokerAccountById(ch?.brokerAccountId);
+    const selectedBrokerLiveState = selectedBrokerAccount
+      ? brokerLiveStateByAccountId[selectedBrokerAccount.id] || null
+      : null;
+
+    const ok = window.confirm(
+      `📡 OPERAZIONE PIAZZATA ESTERNAMENTE — ${ch.name}\\n\\n` +
+      `Prop: ${ch.direction} ${c.propLots.toFixed(2)} ${ch.asset}\\n` +
+      `Broker previsto: ${c.brokerDirection} ${c.brokerLots.toFixed(2)}\\n` +
+      `Entry: ${c.px.toFixed(c.a.decimals)}\\n` +
+      `TP Prop: ${c.propTPPrice.toFixed(c.a.decimals)}\\n` +
+      `SL Prop: ${c.propSL.toFixed(c.a.decimals)}\\n\\n` +
+      `ProfitTracker NON invierà ordini al Broker.\\n` +
+      `Attiverà soltanto monitoraggio, saldi e alert Telegram.\\n\\nConfermi?`
+    );
+    if (!ok) return;
+
+    const placedAt = new Date().toISOString();
+    setChallenge(id, {
+      active: {
+        asset: ch.asset,
+        label: c.a.label,
+        decimals: c.a.decimals,
+        contract: c.a.contract,
+        entry: c.px,
+        direction: ch.direction,
+        brokerDirection: c.brokerDirection,
+        propLots: c.propLots,
+        brokerLots: c.brokerLots,
+        propTP: c.propTPPrice,
+        propSL: c.propSL,
+        brokerTP: c.brokerTP,
+        brokerSL: c.brokerSL,
+        propBalanceStart: num(ch.accountBalance),
+        brokerBalanceStart: selectedBrokerLiveState
+          ? num(selectedBrokerLiveState.balance)
+          : num(brokerBalance),
+        quoteToUsd: c.quoteToUsd,
+        maxBrokerLossAtEntry: c.maxBrokerLoss,
+        hedgeEnabledAtEntry: true,
+        brokerAccountId: selectedBrokerAccount?.id || "",
+        brokerAlias: selectedBrokerAccount?.alias || "ESTERNO",
+        brokerName: selectedBrokerAccount?.broker || "ESTERNO",
+        brokerLogin: selectedBrokerAccount?.mt5_login || "",
+        brokerServer: selectedBrokerAccount?.mt5_server || "",
+        bridgeCommandId: null,
+        bridgeCommandStatus: null,
+        placedAt,
+        ...buildMonitoringSnapshot(ch, c, "external")
+      },
+      closePropPL: "",
+      closeBrokerPL: ""
+    });
+
+    alert(
+      `✅ MONITORAGGIO ATTIVATO\\n\\n` +
+      `${ch.name} · ${ch.asset}\\n` +
+      `Origine: ESTERNA / MANUALE\\n` +
+      `ProfitTracker ora considera l'operazione APERTA e la seguirà per alert, TP/SL e saldo Prop.`
+    );
+  };
+
   const placeTrade = async (id) => {
     const ch = challenges.find(x => x.id === id);
     const c = calcs[id];
@@ -1724,7 +1841,8 @@ export default function PropHedgeTab() {
           brokerServer: hedgeEnabledAtEntry ? selectedBrokerAccount?.mt5_server || "" : "",
           bridgeCommandId,
           bridgeCommandStatus: hedgeEnabledAtEntry ? "pending" : null,
-          placedAt
+          placedAt,
+          ...buildMonitoringSnapshot(ch, c, "profittracker")
         },
         closePropPL: "",
         closeBrokerPL: ""
@@ -3175,6 +3293,20 @@ export default function PropHedgeTab() {
                         ? "⏳ CREAZIONE COMANDO…"
                         : (ch.hedgeEnabled === false ? "✅ PIAZZATA PROP — SENZA HEDGE" : "✅ PIAZZATA — INVIA AL BRIDGE")}
                   </button>
+                  <button
+                    onClick={()=>placeExternalTrade(ch.id)}
+                    disabled={!tradingEnabled || !!ch.active}
+                    style={{
+                      ...secondaryButton,
+                      border:"1px solid rgba(250,204,21,.50)",
+                      color:"#fde68a",
+                      background:"rgba(113,63,18,.20)",
+                      fontWeight:950
+                    }}
+                    title="Usa questo pulsante se hai aperto l'operazione con il vecchio bot o manualmente. ProfitTracker non invia ordini: attiva solo monitoraggio, alert Telegram e tracciamento saldi."
+                  >
+                    📡 PIAZZATA ESTERNAMENTE — MONITORA TELEGRAM
+                  </button>
                   <button style={secondaryButton} onClick={()=>refreshSymbol(ch.asset)}>Aggiorna prezzo</button>
                 </div>
               </>
@@ -3182,6 +3314,33 @@ export default function PropHedgeTab() {
 
             {ch.active && tracking && (
               <>
+                <div style={{
+                  marginBottom:12,
+                  padding:"10px 12px",
+                  borderRadius:12,
+                  border:"1px solid rgba(56,189,248,.28)",
+                  background:"rgba(14,116,144,.07)",
+                  display:"flex",
+                  justifyContent:"space-between",
+                  gap:10,
+                  flexWrap:"wrap",
+                  alignItems:"center"
+                }}>
+                  <div>
+                    <div style={{fontSize:10,fontWeight:1000,color:"#bae6fd"}}>
+                      📡 WATCHDOG TELEGRAM ATTIVO
+                    </div>
+                    <div style={{fontSize:9,color:"#94a3b8",marginTop:3}}>
+                      Origine operazione: <b style={{color:"#e2e8f0"}}>
+                        {ch.active.executionSource === "external" ? "ESTERNA / MANUALE" : "PROFITTRACKER"}
+                      </b>
+                      {" · "}Forecast apertura: <b style={{color:"#fde68a"}}>{ch.active.initialForecast || "—"}</b>
+                    </div>
+                  </div>
+                  <div style={{fontSize:9,color:"#94a3b8",lineHeight:1.5}}>
+                    Alert: <b>M15 $4 / $8</b> · <b>1° WAIT / 2° WAIT</b> · <b>inversione</b> · <b>TP / SL</b>
+                  </div>
+                </div>
                 <div style={statsGrid}>
                   <div style={statCard}>
                     <div style={statLabel}>Prezzo ingresso</div>
@@ -3292,7 +3451,7 @@ export default function PropHedgeTab() {
                       cursor:"pointer",fontWeight:900,color:"#fecaca",background:"rgba(127,29,29,.35)"
                     }}
                   >
-                    ↩️ ANNULLA / RESET
+                    ⏹️ STOP MONITORAGGIO / RESET
                   </button>
                 </div>
               </>
@@ -3317,6 +3476,13 @@ export default function PropHedgeTab() {
               const ready = ["BUY","SELL"].includes(next);
               setEnginePropDirection(next);
               setEngineAnalysisReady(ready);
+              setEngineSignalSnapshot({
+                forecastDirection: String(payload?.forecastDirection || "WAIT").toUpperCase(),
+                propDirection: next,
+                score: Number.isFinite(Number(payload?.score)) ? Number(payload.score) : null,
+                confidence: Number.isFinite(Number(payload?.confidence)) ? Number(payload.confidence) : null,
+                analyzedAt: payload?.analyzedAt || new Date().toISOString()
+              });
 
               try {
                 if (ready) {
