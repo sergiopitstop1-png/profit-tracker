@@ -1,6 +1,6 @@
 "use client";
 
-// PropHedgeTab v1.37 — Trading Lab READ ONLY symbol_info + base precedente
+// PropHedgeTab v1.38 — Trading Lab READ ONLY compatibile con Bridge in SLEEP/OFF
 
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
@@ -2084,12 +2084,11 @@ export default function PropHedgeTab() {
       liveState.connected === true &&
       liveAgeMs <= MT5_LIVE_MAX_AGE_MS;
 
-    if (!online) {
-      setLabSymbolInfoError(
-        `${account.alias || account.broker}: MT5 non online o heartbeat troppo vecchio.`
-      );
-      return;
-    }
+    // IMPORTANTE:
+    // con TRADING OFF il Bridge entra in SLEEP e NON manda heartbeat continuo.
+    // Continua però a fare GET ogni 60 secondi, quindi SYMBOL_INFO resta utilizzabile.
+    // Per questo motivo qui NON blocchiamo più la richiesta se l'heartbeat è vecchio.
+    const labBridgeMode = online ? "ONLINE" : "SLEEP";
 
     setLabSymbolInfoLoading(true);
 
@@ -2146,12 +2145,12 @@ export default function PropHedgeTab() {
 
       const result = await waitForBridgeCommand(
         command.id,
-        { timeoutMs: 30000, intervalMs: 750 }
+        { timeoutMs: 75000, intervalMs: 750 }
       );
 
       if (result.status === "timeout") {
         throw new Error(
-          "Timeout: la MT5 non ha risposto entro 30 secondi. Controlla l'EA v1.11+ e il Journal MT5."
+          "Timeout: la MT5 non ha risposto entro 75 secondi. Con Trading OFF il Bridge controlla i comandi ogni 60 secondi; se non risponde, controlla che MT5 ed EA siano realmente aperti."
         );
       }
 
@@ -4665,7 +4664,7 @@ export default function PropHedgeTab() {
                     const type = String(a.account_type || "real").toUpperCase();
                     return (
                       <option key={a.id} value={a.id}>
-                        {a.alias || a.broker || a.mt5_login} — {type} — {online ? "ONLINE" : "OFFLINE"}
+                        {a.alias || a.broker || a.mt5_login} — {type} — {online ? "ONLINE" : "SLEEP"}
                       </option>
                     );
                   })}
@@ -4723,6 +4722,9 @@ export default function PropHedgeTab() {
                     {" · "}Margine libero $ {fmt(Number(live.free_margin || 0),2)}
                   </>
                 )}
+                <div style={{marginTop:5,color:"#94a3b8",fontSize:10}}>
+                  Se il conto appare SLEEP con Trading in pausa è normale: il Bridge riduce il polling a 60s e sospende l'heartbeat continuo. LEGGI DATI MT5 resta disponibile.
+                </div>
               </div>
             );
           })()}
