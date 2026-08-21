@@ -635,6 +635,23 @@ export default function PropHedgeTab() {
   });
   const [labPositionRefreshing, setLabPositionRefreshing] = useState(false);
   const labPositionRefreshLockRef = useRef(false);
+  // Trading Lab — modalità ACCUMULO
+  // L'importo è esposizione/notional stimata in USD, non margine.
+  const [labAccumUsd, setLabAccumUsd] = useState("10");
+  const [labAccumPreview, setLabAccumPreview] = useState(null);
+  const [labAccumSubmitting, setLabAccumSubmitting] = useState(false);
+  const [labAccumStatus, setLabAccumStatus] = useState("");
+  const [labAccumError, setLabAccumError] = useState("");
+  const [labAccumPositions, setLabAccumPositions] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem("profittracker_lab_accum_positions_v1");
+      const rows = raw ? JSON.parse(raw) : [];
+      return Array.isArray(rows) ? rows : [];
+    } catch {
+      return [];
+    }
+  });
+
 
 
   useEffect(() => {
@@ -645,6 +662,15 @@ export default function PropHedgeTab() {
       );
     } catch {}
   }, [labActiveTrades]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        "profittracker_lab_accum_positions_v1",
+        JSON.stringify(labAccumPositions)
+      );
+    } catch {}
+  }, [labAccumPositions]);
 
   const [chartSymbol, setChartSymbol] = useState("XAUUSD");
   const [enginePropDirection, setEnginePropDirection] = useState(() => {
@@ -2479,6 +2505,272 @@ export default function PropHedgeTab() {
       await loadBrokerLiveStates({ silent: true });
     } catch (e) {
       setLabTradeError(e?.message || String(e));
+    }
+  };
+
+
+  const labCalculateAccumuloPreview = () => {
+    setLabAccumPreview(null);
+    setLabAccumError("");
+    setLabAccumStatus("");
+
+    if (!labSymbolInfo) {
+      setLabAccumError("Prima premi LEGGI DATI MT5 per questo asset.");
+      return;
+    }
+
+    const requestedUsd = num(labAccumUsd);
+    if (!(requestedUsd > 0)) {
+      setLabAccumError("L'importo da accumulare deve essere maggiore di 0 USD.");
+      return;
+    }
+
+    const bid = Number(labSymbolInfo.bid);
+    const ask = Number(labSymbolInfo.ask);
+    const tickSize = Number(labSymbolInfo.tick_size);
+    const tickValue = Number(
+      labSymbolInfo.tick_value_profit ??
+      labSymbolInfo.tick_value ??
+      labSymbolInfo.tick_value_loss
+    );
+    const volumeMin = Number(labSymbolInfo.volume_min);
+    const volumeMax = Number(labSymbolInfo.volume_max);
+    const volumeStep = Number(labSymbolInfo.volume_step);
+    const digits = Number(labSymbolInfo.digits);
+
+    if (!(ask > 0) || !(bid > 0)) {
+      setLabAccumError("Asset senza quotazione live: accumulo non disponibile.");
+      return;
+    }
+    if (!(tickSize > 0) || !(tickValue > 0)) {
+      setLabAccumError("Tick size/value MT5 non validi per calcolare l'esposizione in USD.");
+      return;
+    }
+    if (!(volumeMin > 0) || !(volumeStep > 0)) {
+      setLabAccumError("Volume minimo/step MT5 non validi.");
+      return;
+    }
+
+    // Conversione robusta in valuta conto:
+    // notional USD stimato per 1 lotto = prezzo * tickValue / tickSize.
+    // Funziona anche quando la valuta profitto non è USD perché MT5 restituisce
+    // tickValue già convertito nella valuta del conto.
+    const notionalPerLotUsd = ask * tickValue / tickSize;
+    if (!(notionalPerLotUsd > 0) || !Number.isFinite(notionalPerLotUsd)) {
+      setLabAccumError("Esposizione USD per lotto non calcolabile.");
+      return;
+    }
+
+    const rawVolume = requestedUsd / notionalPerLotUsd;
+    const stepUnits = Math.round(rawVolume / volumeStep);
+    let volume = stepUnits * volumeStep;
+
+    // Non possiamo inviare meno del minimo broker.
+    if (volume < volumeMin) volume = volumeMin;
+    if (volumeMax > 0 && volume > volumeMax) volume = volumeMax;
+
+    // Evita residui floating tipo 0.009999999.
+    const stepDecimals = Math.max(
+      0,
+      (String(volumeStep).split(".")[1] || "").length
+    );
+    volume = Number(volume.toFixed(Math.max(stepDecimals, 2)));
+
+    const actualUsd = volume * notionalPerLotUsd;
+    const minimumUsd = volumeMin * notionalPerLotUsd;
+    const differenceUsd = actualUsd - requestedUsd;
+    const forcedMinimum = requestedUsd + 1e-9 < minimumUsd;
+
+    setLabAccumPreview({
+      symbol: labSymbolInfo.resolved_symbol || labSymbolInfo.requested_symbol || labSymbol,
+      side: "BUY",
+      entry: labRoundToDigits(ask, digits),
+      requestedUsd,
+      volume,
+      actualUsd,
+      minimumUsd,
+      differenceUsd,
+      forcedMinimum,
+      brokerAccountId: labBrokerAccountId,
+      calculatedAt: new Date().toISOString()
+    });
+  };
+
+  const submitLabAccumulo = async () => {
+    if (labAccumSubmitting) return;
+
+    setLabAccumError("");
+    setLabAccumStatus("");
+
+    const preview = labAccumPreview;
+    if (!preview) {
+      setLabAccumError("Calcola prima l'accumulo.");
+      return;
+    }
+
+    const account = brokerAccounts.find(x => x.id === labBrokerAccountId) || null;
+    if (!account) {
+      setLabAccumError("Account Broker non trovato.");
+      return;
+    }
+
+    const live = brokerLiveStateByAccountId[account.id] || null;
+    const liveAgeMs = live?.last_seen_at
+      ? Date.now() - new Date(live.last_seen_at).getTime()
+      : Infinity;
+    const online =
+      !!live &&
+      live.connected === true &&
+      liveAgeMs <= MT5_LIVE_MAX_AGE_MS;
+
+    if (!online) {
+      setLabAccumError("La MT5 deve essere ONLINE per inviare l'accumulo.");
+      return;
+    }
+    if (!tradingEnabled) {
+      setLabAccumError("Premi AVVIA TRADING prima di inviare un accumulo reale.");
+      return;
+    }
+
+    const isReal = String(account.account_type || "real").toLowerCase() === "real";
+    const summary =
+      `${preview.symbol} · BUY senza SL/TP\n` +
+      `Importo richiesto: $ ${fmt(preview.requestedUsd,2)}\n` +
+      `Lotto eseguibile: ${preview.volume}\n` +
+      `Esposizione effettiva stimata: $ ${fmt(preview.actualUsd,2)}\n` +
+      `Minimo broker stimato: $ ${fmt(preview.minimumUsd,2)}`;
+
+    if (isReal) {
+      const ok = window.confirm(
+        `⚠️ ACCUMULO SU DENARO REALE — ${account.alias || account.broker}\n\n` +
+        `${summary}\n\n` +
+        `NESSUNO STOP LOSS · NESSUN TAKE PROFIT.\n` +
+        `La posizione resta aperta finché non la chiudi tu.\n\nProcedere?`
+      );
+      if (!ok) return;
+
+      const typed = window.prompt(
+        `Conferma finale ACCUMULO REALE.\n\nScrivi ACCUMULA per acquistare ${preview.symbol}.`
+      );
+      if (String(typed || "").trim().toUpperCase() !== "ACCUMULA") {
+        setLabAccumStatus("Accumulo annullato.");
+        return;
+      }
+    } else {
+      const ok = window.confirm(`🧪 ACCUMULO DEMO\n\n${summary}\n\nInviare?`);
+      if (!ok) return;
+    }
+
+    setLabAccumSubmitting(true);
+
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData?.user?.id;
+      if (!uid) throw new Error("Utente Supabase non autenticato");
+
+      const { data: existing, error: existingError } = await supabase
+        .from("prop_bridge_commands")
+        .select("id,status")
+        .eq("user_id", uid)
+        .eq("broker_account", String(account.mt5_login))
+        .in("status", ["pending","processing"])
+        .limit(1);
+
+      if (existingError) throw existingError;
+      if (Array.isArray(existing) && existing.length) {
+        throw new Error("Esiste già un comando pending/processing su questo conto. Attendi.");
+      }
+
+      const accumId = `LAB-ACCUM-${Date.now()}`;
+
+      const commandPayload = {
+        user_id: uid,
+        challenge_id: accumId,
+        prop_name: "TRADING LAB ACCUMULO",
+        broker_account: String(account.mt5_login),
+        symbol: preview.symbol,
+        side: "BUY",
+        volume: Number(preview.volume),
+        entry_price: Number(preview.entry),
+        sl: 0,
+        tp: 0,
+        command_type: "open",
+        position_ticket: null,
+        status: "pending"
+      };
+
+      const { data: command, error: commandError } = await supabase
+        .from("prop_bridge_commands")
+        .insert(commandPayload)
+        .select("id,status")
+        .single();
+
+      if (commandError) throw commandError;
+      if (!command?.id) throw new Error("Comando ACCUMULO creato senza ID.");
+
+      setLabLastCommandId(command.id);
+      setLabAccumStatus("⏳ Accumulo inviato al Bridge. Attendo MT5…");
+
+      const result = await waitForBridgeCommand(
+        command.id,
+        { timeoutMs: 30000, intervalMs: 750 }
+      );
+
+      if (result.status === "timeout") {
+        throw new Error("Timeout: MT5 non ha confermato l'accumulo entro 30 secondi.");
+      }
+      if (result.status === "failed") {
+        throw new Error(
+          `ACCUMULO FALLITO${result.error_code ? ` [${result.error_code}]` : ""}: ` +
+          `${result.error_message || "errore MT5 non specificato"}`
+        );
+      }
+      if (result.status !== "executed") {
+        throw new Error(`Stato Bridge inatteso: ${result.status}`);
+      }
+
+      const executionPrice = Number.isFinite(Number(result.execution_price))
+        ? Number(result.execution_price)
+        : preview.entry;
+
+      if (result.position_ticket) {
+        setLabAccumPositions(prev => {
+          const next = prev.filter(
+            x => String(x.positionTicket) !== String(result.position_ticket)
+          );
+          next.push({
+            id: `ACC-${result.position_ticket}`,
+            challengeId: accumId,
+            brokerAccountId: account.id,
+            accountAlias: account.alias || account.broker || String(account.mt5_login),
+            accountType: account.account_type || "real",
+            login: String(account.mt5_login),
+            symbol: preview.symbol,
+            side: "BUY",
+            volume: Number(preview.volume),
+            requestedUsd: Number(preview.requestedUsd),
+            actualUsd: Number(preview.actualUsd),
+            entry: executionPrice,
+            positionTicket: String(result.position_ticket),
+            openedAt: new Date().toISOString()
+          });
+          return next;
+        });
+      }
+
+      setLabAccumStatus(
+        `✅ ACCUMULO ESEGUITO · ${preview.symbol} · Lotto ${preview.volume} · ` +
+        `Ticket ${result.position_ticket || "—"} · Entry ${executionPrice}`
+      );
+
+      await loadBrokerLiveStates({ silent: true });
+      setLabAccumPreview(null);
+
+    } catch (e) {
+      console.error("Trading Lab ACCUMULO:", e);
+      setLabAccumError(e?.message || String(e));
+    } finally {
+      setLabAccumSubmitting(false);
     }
   };
 
@@ -6203,17 +6495,233 @@ export default function PropHedgeTab() {
             )}
           </div>
 
+
           <div style={{
-            marginTop:18,
-            padding:"12px 14px",
-            borderRadius:13,
-            border:"1px solid rgba(99,102,241,.28)",
-            background:"rgba(49,46,129,.08)",
-            color:"#c7d2fe",
-            fontSize:11,
-            lineHeight:1.55
+            marginTop:20,
+            padding:"18px",
+            borderRadius:16,
+            border:"1px solid rgba(168,85,247,.42)",
+            background:"linear-gradient(135deg,rgba(88,28,135,.13),rgba(15,23,42,.82))"
           }}>
-            <b>Passo successivo:</b> modalità ACCUMULO in dollari, senza SL/TP.
+            <div style={{
+              display:"flex",
+              justifyContent:"space-between",
+              alignItems:"center",
+              gap:12,
+              flexWrap:"wrap"
+            }}>
+              <div>
+                <div style={{fontSize:20,fontWeight:950,color:"#f3e8ff"}}>
+                  🪙 Modalità ACCUMULO
+                </div>
+                <div style={{fontSize:12,color:"#d8b4fe",marginTop:4}}>
+                  Scegli quanto vuoi accumulare in USD. Il Lab calcola il lotto MT5 eseguibile. Nessun SL e nessun TP.
+                </div>
+              </div>
+              <div style={{
+                padding:"7px 11px",
+                borderRadius:999,
+                border:"1px solid rgba(250,204,21,.45)",
+                color:"#fde68a",
+                fontSize:11,
+                fontWeight:950
+              }}>
+                BUY · LUNGO PER ACCUMULO
+              </div>
+            </div>
+
+            <div style={{
+              display:"grid",
+              gridTemplateColumns:"minmax(220px,1fr) auto",
+              gap:12,
+              alignItems:"end",
+              marginTop:16
+            }}>
+              <div>
+                <label style={fieldLabel}>Quanto vuoi accumulare ($)</label>
+                <input
+                  style={inputStyle}
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={labAccumUsd}
+                  onChange={e=>{
+                    setLabAccumUsd(e.target.value);
+                    setLabAccumPreview(null);
+                    setLabAccumError("");
+                  }}
+                  placeholder="Es. 1, 2, 5, 50, 1000..."
+                />
+              </div>
+
+              <button
+                type="button"
+                style={{...primaryButtonBlue,padding:"13px 18px"}}
+                onClick={labCalculateAccumuloPreview}
+              >
+                🧮 CALCOLA ACCUMULO
+              </button>
+            </div>
+
+            {labAccumError && (
+              <div style={{
+                marginTop:12,padding:"10px 12px",borderRadius:10,
+                border:"1px solid rgba(248,113,113,.45)",
+                color:"#fecaca",fontSize:13,fontWeight:850
+              }}>
+                ❌ {labAccumError}
+              </div>
+            )}
+
+            {labAccumStatus && (
+              <div style={{
+                marginTop:12,padding:"10px 12px",borderRadius:10,
+                border:"1px solid rgba(52,211,153,.35)",
+                color:"#a7f3d0",fontSize:13,fontWeight:850
+              }}>
+                {labAccumStatus}
+              </div>
+            )}
+
+            {labAccumPreview && (
+              <div style={{
+                marginTop:16,
+                padding:"16px",
+                borderRadius:14,
+                border:"1px solid rgba(192,132,252,.38)",
+                background:"rgba(30,41,59,.55)"
+              }}>
+                <div style={{fontSize:17,fontWeight:950,color:"#f5f3ff"}}>
+                  Anteprima accumulo — {labAccumPreview.symbol}
+                </div>
+
+                <div style={{
+                  display:"grid",
+                  gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",
+                  gap:12,
+                  marginTop:12
+                }}>
+                  {[
+                    ["Richiesto",`$ ${fmt(labAccumPreview.requestedUsd,2)}`],
+                    ["Lotto MT5",String(labAccumPreview.volume)],
+                    ["Esposizione effettiva",`$ ${fmt(labAccumPreview.actualUsd,2)}`],
+                    ["Minimo broker",`$ ${fmt(labAccumPreview.minimumUsd,2)}`],
+                    ["Entry stimato",String(labAccumPreview.entry)],
+                    ["SL / TP","NESSUNO"]
+                  ].map(([label,value])=>(
+                    <div key={label} style={{
+                      padding:"11px 12px",
+                      borderRadius:11,
+                      border:"1px solid rgba(100,116,139,.35)",
+                      background:"rgba(2,6,23,.35)"
+                    }}>
+                      <div style={{fontSize:11,color:"#a78bfa",fontWeight:900,textTransform:"uppercase"}}>
+                        {label}
+                      </div>
+                      <div style={{fontSize:19,color:"#fff",fontWeight:950,marginTop:4}}>
+                        {value}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {labAccumPreview.forcedMinimum && (
+                  <div style={{
+                    marginTop:12,
+                    padding:"12px",
+                    borderRadius:11,
+                    border:"1px solid rgba(251,191,36,.48)",
+                    background:"rgba(120,53,15,.16)",
+                    color:"#fde68a",
+                    fontSize:13,
+                    fontWeight:850,
+                    lineHeight:1.5
+                  }}>
+                    ⚠️ L'importo richiesto è sotto il minimo eseguibile di questo asset.
+                    Con il lotto minimo del broker l'esposizione reale sarebbe circa
+                    <b> $ {fmt(labAccumPreview.actualUsd,2)}</b>. Non inviare se non vuoi questa esposizione.
+                  </div>
+                )}
+
+                {!labAccumPreview.forcedMinimum && Math.abs(labAccumPreview.differenceUsd) > 0.01 && (
+                  <div style={{marginTop:10,fontSize:12,color:"#c4b5fd"}}>
+                    Arrotondamento lotto MT5: differenza stimata rispetto all'importo richiesto
+                    {" "}<b>{labAccumPreview.differenceUsd >= 0 ? "+" : ""}$ {fmt(labAccumPreview.differenceUsd,2)}</b>.
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  disabled={labAccumSubmitting}
+                  style={{
+                    ...primaryButtonBlue,
+                    marginTop:14,
+                    padding:"13px 18px",
+                    opacity:labAccumSubmitting ? .6 : 1
+                  }}
+                  onClick={submitLabAccumulo}
+                >
+                  {labAccumSubmitting ? "⏳ INVIO ACCUMULO…" : "🪙 INVIA ACCUMULO"}
+                </button>
+              </div>
+            )}
+
+            <div style={{
+              marginTop:16,
+              padding:"12px",
+              borderRadius:12,
+              border:"1px solid rgba(100,116,139,.30)",
+              background:"rgba(2,6,23,.28)"
+            }}>
+              <div style={{fontSize:15,fontWeight:950,color:"#e9d5ff"}}>
+                📚 Accumuli registrati
+              </div>
+
+              {!labAccumPositions.length ? (
+                <div style={{marginTop:8,fontSize:12,color:"#94a3b8"}}>
+                  Nessun accumulo ancora registrato.
+                </div>
+              ) : (
+                <div style={{display:"grid",gap:8,marginTop:10}}>
+                  {labAccumPositions.map(row=>(
+                    <div key={row.id || row.positionTicket} style={{
+                      display:"grid",
+                      gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",
+                      gap:8,
+                      padding:"10px 12px",
+                      borderRadius:10,
+                      border:"1px solid rgba(100,116,139,.28)"
+                    }}>
+                      {[
+                        ["Broker",row.accountAlias],
+                        ["Asset",row.symbol],
+                        ["Lotto",row.volume],
+                        ["Richiesto",`$ ${fmt(row.requestedUsd,2)}`],
+                        ["Esposizione",`$ ${fmt(row.actualUsd,2)}`],
+                        ["Entry",row.entry],
+                        ["Ticket",row.positionTicket]
+                      ].map(([label,value])=>(
+                        <div key={label} style={{fontSize:12,color:"#94a3b8"}}>
+                          <b style={{color:"#e2e8f0"}}>{label}:</b>{" "}
+                          <span style={{color:"#fff",fontWeight:850}}>{value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={{
+              marginTop:12,
+              color:"#94a3b8",
+              fontSize:11,
+              lineHeight:1.55
+            }}>
+              Nota: “$ accumulati” indica l'esposizione/notional stimata convertita nella valuta del conto,
+              non il margine bloccato dal broker. Su CFD/Forex il lotto minimo può rendere impossibili importi
+              molto piccoli come $1 o $2.
+            </div>
           </div>
         </div>
       )}
