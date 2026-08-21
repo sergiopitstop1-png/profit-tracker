@@ -6540,7 +6540,7 @@ export default function PropHedgeTab() {
               <div>
                 <label style={fieldLabel}>Quanto vuoi accumulare ($)</label>
                 <input
-                  style={inputStyle}
+                  style={input}
                   type="number"
                   min="0.01"
                   step="0.01"
