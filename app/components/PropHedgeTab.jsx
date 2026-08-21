@@ -645,6 +645,11 @@ export default function PropHedgeTab() {
   const [labAccumScanRows, setLabAccumScanRows] = useState([]);
   const [labAccumScanLoading, setLabAccumScanLoading] = useState(false);
   const [labAccumScanError, setLabAccumScanError] = useState("");
+  const [labAccumScanProgress, setLabAccumScanProgress] = useState({
+    current:0,
+    total:0,
+    pages:0
+  });
   const [labAccumScanFilter, setLabAccumScanFilter] = useState("50");
   const [labAccumCategoryFilter, setLabAccumCategoryFilter] = useState("TUTTI");
   const [labAccumPositions, setLabAccumPositions] = useState(() => {
@@ -2521,6 +2526,7 @@ export default function PropHedgeTab() {
     const account = brokerAccounts.find(x => x.id === labBrokerAccountId) || null;
     setLabAccumScanError("");
     setLabAccumScanRows([]);
+    setLabAccumScanProgress({ current:0, total:0, pages:0 });
 
     if (!account) {
       setLabAccumScanError("Seleziona prima un account Broker.");
@@ -2534,50 +2540,21 @@ export default function PropHedgeTab() {
       const uid = userData?.user?.id;
       if (!uid) throw new Error("Utente Supabase non autenticato");
 
-      const { data: existing, error: existingError } = await supabase
-        .from("prop_bridge_commands")
-        .select("id,status,created_at,updated_at")
-        .eq("user_id", uid)
-        .eq("broker_account", String(account.mt5_login))
-        .eq("command_type", "accum_scan")
-        .in("status", ["pending","processing"])
-        .order("created_at", { ascending:false })
-        .limit(1);
+      let offset = 0;
+      let hasMore = true;
+      let pageCount = 0;
+      let allRows = [];
+      let total = 0;
 
-      if (existingError) throw existingError;
+      while (hasMore) {
+        pageCount += 1;
 
-      let command = null;
-
-      if (Array.isArray(existing) && existing.length) {
-        const pending = existing[0];
-        const bornAt = new Date(pending.created_at || pending.updated_at || 0).getTime();
-        const ageMs = Number.isFinite(bornAt) ? Date.now() - bornAt : Infinity;
-
-        if (ageMs <= 180000) {
-          command = pending;
-        } else {
-          await supabase
-            .from("prop_bridge_commands")
-            .update({
-              status:"failed",
-              error_code:"stale_accum_scan",
-              error_message:"ACCUM_SCAN scaduta dal Trading Lab",
-              processed_at:new Date().toISOString(),
-              updated_at:new Date().toISOString()
-            })
-            .eq("user_id", uid)
-            .eq("id", pending.id)
-            .in("status", ["pending","processing"]);
-        }
-      }
-
-      if (!command) {
         const payload = {
           user_id: uid,
-          challenge_id: `LAB-SCAN-${Date.now()}`,
+          challenge_id: `LAB-SCAN-${Date.now()}-${offset}`,
           prop_name: "TRADING LAB ACCUMULO",
           broker_account: String(account.mt5_login),
-          symbol: "ACCUM_SCAN",
+          symbol: `ACCUM_SCAN:${offset}`,
           side: "BUY",
           volume: 0.01,
           entry_price: null,
@@ -2588,53 +2565,83 @@ export default function PropHedgeTab() {
           status: "pending"
         };
 
-        const { data: inserted, error: commandError } = await supabase
+        const { data: command, error: commandError } = await supabase
           .from("prop_bridge_commands")
           .insert(payload)
           .select("id,status,created_at,updated_at")
           .single();
 
         if (commandError) throw commandError;
-        if (!inserted?.id) throw new Error("ACCUM_SCAN creata senza ID.");
-        command = inserted;
+        if (!command?.id) throw new Error(`ACCUM_SCAN offset ${offset} creata senza ID.`);
+
+        const result = await waitForBridgeCommand(
+          command.id,
+          { timeoutMs: 90000, intervalMs: 1000 }
+        );
+
+        if (result.status === "timeout") {
+          throw new Error(`Timeout scanner asset al blocco ${offset}-${offset+19}.`);
+        }
+        if (result.status === "failed") {
+          throw new Error(
+            result.error_message ||
+            `Scanner asset fallito al blocco ${offset}-${offset+19}.`
+          );
+        }
+
+        const rp = result?.result_payload || {};
+        const rows = Array.isArray(rp.rows) ? rp.rows : [];
+
+        total = Number(rp.total || total || 0);
+
+        const normalized = rows
+          .map(x => ({
+            symbol:String(x?.s || ""),
+            description:String(x?.d || ""),
+            category:String(x?.c || "ALTRO").toUpperCase(),
+            minUsd:Number(x?.m),
+            volumeMin:Number(x?.v),
+            ask:Number(x?.a)
+          }))
+          .filter(x => x.symbol && Number.isFinite(x.minUsd) && x.minUsd > 0);
+
+        allRows = allRows.concat(normalized);
+
+        // Aggiorna già la tabella mentre procede.
+        const deduped = Array.from(
+          new Map(allRows.map(row => [row.symbol, row])).values()
+        ).sort((a,b) => a.minUsd - b.minUsd);
+
+        setLabAccumScanRows(deduped);
+
+        offset = Number(rp.next_offset ?? (offset + 20));
+        hasMore = rp.has_more === true;
+
+        setLabAccumScanProgress({
+          current: Math.min(offset, total || offset),
+          total: total || offset,
+          pages: pageCount
+        });
+
+        // Safety fuse.
+        if (pageCount > 40) {
+          throw new Error("Scanner interrotto: troppe pagine ricevute.");
+        }
       }
 
-      const result = await waitForBridgeCommand(
-        command.id,
-        { timeoutMs: 90000, intervalMs: 1000 }
-      );
+      const finalRows = Array.from(
+        new Map(allRows.map(row => [row.symbol, row])).values()
+      ).sort((a,b) => a.minUsd - b.minUsd);
 
-      if (result.status === "timeout") {
-        throw new Error("Timeout scanner asset: MT5 non ha risposto entro 90 secondi.");
-      }
-      if (result.status === "failed") {
-        throw new Error(result.error_message || "Scanner asset fallito.");
-      }
+      setLabAccumScanRows(finalRows);
 
-      const rp = result?.result_payload || {};
-      const rows = Array.isArray(rp.rows) ? rp.rows : [];
-
-      const normalized = rows
-        .map(x => ({
-          symbol:String(x?.s || ""),
-          description:String(x?.d || ""),
-          category:String(x?.c || "ALTRO").toUpperCase(),
-          minUsd:Number(x?.m),
-          volumeMin:Number(x?.v),
-          ask:Number(x?.a)
-        }))
-        .filter(x => x.symbol && Number.isFinite(x.minUsd) && x.minUsd > 0)
-        .sort((a,b) => a.minUsd - b.minUsd);
-
-      setLabAccumScanRows(normalized);
-
-      if (!normalized.length) {
+      if (!finalRows.length) {
         setLabAccumScanError(
-          "Nessun asset con quotazione valida trovato nello scanner. Riprova con MT5 online."
+          "Nessun asset con quotazione valida trovato nello scanner."
         );
       } else {
         setLabAccumStatus(
-          `✅ Scanner completato: ${normalized.length} asset quotati su ${Number(rp.total || normalized.length)} analizzati.`
+          `✅ Scanner completo: ${finalRows.length} asset quotati su ${total || finalRows.length} analizzati in ${pageCount} blocchi.`
         );
       }
 
@@ -6662,7 +6669,7 @@ export default function PropHedgeTab() {
                   🔎 Scanner asset per ACCUMULO
                 </div>
                 <div style={{fontSize:12,color:"#7dd3fc",marginTop:4}}>
-                  Scansione sicura: legge un blocco compatto di asset con nome e categoria, evitando il limite JSON del Bridge.
+                  Scansione completa paginata: legge automaticamente tutti gli asset in blocchi sicuri da 20, evitando il limite JSON del Bridge.
                 </div>
               </div>
 
@@ -6672,7 +6679,9 @@ export default function PropHedgeTab() {
                 disabled={labAccumScanLoading || !labBrokerAccountId}
                 onClick={scanAccumuloAssets}
               >
-                {labAccumScanLoading ? "⏳ SCANSIONE MT5…" : "🔎 SCANSIONA TUTTI GLI ASSET"}
+                {labAccumScanLoading
+                  ? `⏳ SCANSIONE ${labAccumScanProgress.current}/${labAccumScanProgress.total || "?"}`
+                  : "🔎 SCANSIONA TUTTI GLI ASSET"}
               </button>
             </div>
 
@@ -6721,7 +6730,11 @@ export default function PropHedgeTab() {
                   </div>
 
                   <div style={{fontSize:12,color:"#bae6fd",paddingBottom:10}}>
-                    Ricevuti <b>{labAccumScanRows.length}</b> asset nel blocco sicuro. Ordinati dal minimo più basso.
+                    Ricevuti <b>{labAccumScanRows.length}</b> asset finora.
+                    {labAccumScanLoading && (
+                      <> · blocco <b>{labAccumScanProgress.pages}</b> · progresso <b>{labAccumScanProgress.current}/{labAccumScanProgress.total || "?"}</b></>
+                    )}
+                    {!labAccumScanLoading && <> Ordinati dal minimo più basso.</>}
                   </div>
                 </div>
 
