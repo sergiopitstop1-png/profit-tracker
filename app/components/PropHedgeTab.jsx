@@ -2466,15 +2466,31 @@ export default function PropHedgeTab() {
         throw new Error("La MT5 non ha restituito simboli disponibili.");
       }
 
+      // v1.14 Bridge restituisce una lista LIGHT di stringhe.
+      // Manteniamo compatibilità anche con l'eventuale vecchio formato a oggetti.
       const normalized = rows
-        .filter(x => x && x.symbol)
-        .map(x => ({
-          symbol: String(x.symbol),
-          description: String(x.description || ""),
-          path: String(x.path || ""),
-          currency_base: String(x.currency_base || ""),
-          currency_profit: String(x.currency_profit || "")
-        }))
+        .map(x => {
+          if (typeof x === "string") {
+            return {
+              symbol: x,
+              description: "",
+              path: "",
+              currency_base: "",
+              currency_profit: ""
+            };
+          }
+          if (x && x.symbol) {
+            return {
+              symbol: String(x.symbol),
+              description: String(x.description || ""),
+              path: String(x.path || ""),
+              currency_base: String(x.currency_base || ""),
+              currency_profit: String(x.currency_profit || "")
+            };
+          }
+          return null;
+        })
+        .filter(Boolean)
         .sort((a,b) => a.symbol.localeCompare(b.symbol));
 
       setLabSymbols(normalized);
