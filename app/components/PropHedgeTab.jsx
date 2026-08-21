@@ -1743,6 +1743,140 @@ export default function PropHedgeTab() {
     setMainView("OPERATIVITA");
   };
 
+  const deleteHistoryRow = async (row) => {
+    if (!row?.id) return;
+
+    const ok = window.confirm(
+      `🗑 ELIMINA OPERAZIONE DALLO STORICO?\n\n` +
+      `Prop: ${row.prop_name || "—"}\n` +
+      `Data: ${row.closed_at ? new Date(row.closed_at).toLocaleString("it-IT") : "—"}\n` +
+      `P/L combinato: ${signedMoney(Number(row.combined_pl || 0))}\n\n` +
+      `Questa cancellazione è definitiva su Supabase.`
+    );
+    if (!ok) return;
+
+    try {
+      const { error } = await supabase
+        .from("prop_hedge_operations")
+        .delete()
+        .eq("id", row.id);
+
+      if (error) throw error;
+      setHistoryRows(prev => prev.filter(r => r.id !== row.id));
+    } catch (e) {
+      console.error("Errore eliminazione operazione storico:", e);
+      alert("❌ Impossibile eliminare l'operazione:\n\n" + (e?.message || String(e)));
+    }
+  };
+
+  const deleteFilteredHistory = async () => {
+    if (historyFilters.prop === "TUTTE") {
+      alert("Per sicurezza seleziona prima una singola Prop nel filtro.");
+      return;
+    }
+
+    const rowsToDelete = filteredHistory;
+    if (!rowsToDelete.length) {
+      alert("Non ci sono operazioni da eliminare con i filtri attuali.");
+      return;
+    }
+
+    const ok1 = window.confirm(
+      `🧹 PULIZIA STORICO — ${historyFilters.prop}\n\n` +
+      `Verranno eliminate definitivamente ${rowsToDelete.length} operazioni VISIBILI con i filtri attuali.\n\n` +
+      `Procedere?`
+    );
+    if (!ok1) return;
+
+    const typed = window.prompt(
+      `Conferma definitiva.\n\nScrivi ELIMINA per cancellare ${rowsToDelete.length} operazioni di ${historyFilters.prop}.`
+    );
+    if (String(typed || "").trim().toUpperCase() !== "ELIMINA") return;
+
+    try {
+      const ids = rowsToDelete.map(r => r.id).filter(Boolean);
+      if (!ids.length) return;
+
+      const { error } = await supabase
+        .from("prop_hedge_operations")
+        .delete()
+        .in("id", ids);
+
+      if (error) throw error;
+
+      const deleted = new Set(ids);
+      setHistoryRows(prev => prev.filter(r => !deleted.has(r.id)));
+    } catch (e) {
+      console.error("Errore pulizia storico filtrato:", e);
+      alert("❌ Pulizia storico fallita:\n\n" + (e?.message || String(e)));
+    }
+  };
+
+  const permanentlyDeleteArchivedChallenge = async (ch) => {
+    if (!ch?.id || !ch.archived) return;
+
+    const linkedRows = historyRows.filter(
+      r => r.challenge_id === ch.id || (!r.challenge_id && r.prop_name === ch.name)
+    );
+
+    const ok1 = window.confirm(
+      `🚨 ELIMINAZIONE DEFINITIVA — ${ch.name}\n\n` +
+      `Verranno cancellati:\n` +
+      `• la challenge dall'Archivio\n` +
+      `• ${linkedRows.length} operazioni storiche collegate\n\n` +
+      `NON sarà possibile ripristinarla.\n\nContinuare?`
+    );
+    if (!ok1) return;
+
+    const typed = window.prompt(
+      `Ultima conferma.\n\nScrivi esattamente:\nELIMINA ${ch.name}`
+    );
+    if (String(typed || "").trim() !== `ELIMINA ${ch.name}`) {
+      alert("Conferma non corrispondente. Nessuna cancellazione eseguita.");
+      return;
+    }
+
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData?.user?.id;
+      if (!uid) throw new Error("Utente Supabase non autenticato");
+
+      // 1) Elimina storico collegato tramite challenge_id.
+      const { error: historyByIdError } = await supabase
+        .from("prop_hedge_operations")
+        .delete()
+        .eq("challenge_id", ch.id);
+      if (historyByIdError) throw historyByIdError;
+
+      // 2) Pulisce eventuali vecchie righe legacy senza challenge_id ma con lo stesso nome.
+      const { error: legacyHistoryError } = await supabase
+        .from("prop_hedge_operations")
+        .delete()
+        .is("challenge_id", null)
+        .eq("prop_name", ch.name);
+      if (legacyHistoryError) throw legacyHistoryError;
+
+      // 3) Elimina subito lo stato cloud della challenge.
+      const { error: cloudChallengeError } = await supabase
+        .from("prop_hedge_active_challenges")
+        .delete()
+        .eq("user_id", uid)
+        .eq("challenge_id", ch.id);
+      if (cloudChallengeError) throw cloudChallengeError;
+
+      // 4) Elimina dallo state locale/browser.
+      setChallenges(prev => prev.filter(x => x.id !== ch.id));
+      setHistoryRows(prev => prev.filter(
+        r => !(r.challenge_id === ch.id || (!r.challenge_id && r.prop_name === ch.name))
+      ));
+
+      alert(`✅ ${ch.name} eliminata definitivamente insieme al suo storico.`);
+    } catch (e) {
+      console.error("Errore eliminazione definitiva challenge:", e);
+      alert("❌ Eliminazione definitiva fallita:\n\n" + (e?.message || String(e)));
+    }
+  };
+
   const stopHedge = (id) => {
     const ch = challenges.find(x => x.id === id);
     if (!ch || ch.hedgeEnabled === false) return;
@@ -4130,9 +4264,19 @@ export default function PropHedgeTab() {
             <h3 style={panelTitle}>🗂️ Storico Prop Hedge</h3>
             <p style={panelSubtitle}>Salvataggio automatico su Supabase quando premi “Chiudi e aggiorna saldi”.</p>
           </div>
-          <button style={secondaryButton} onClick={loadHistory}>
-            {historyLoading ? "Aggiorno…" : "↻ Aggiorna storico"}
-          </button>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>
+            {historyFilters.prop !== "TUTTE" && (
+              <button
+                style={{...secondaryButton,color:"#fecaca",border:"1px solid rgba(239,68,68,.45)",background:"rgba(127,29,29,.12)"}}
+                onClick={deleteFilteredHistory}
+              >
+                🧹 Elimina storico Prop filtrata
+              </button>
+            )}
+            <button style={secondaryButton} onClick={loadHistory}>
+              {historyLoading ? "Aggiorno…" : "↻ Aggiorna storico"}
+            </button>
+          </div>
         </div>
 
         {historyError && (
@@ -4231,7 +4375,7 @@ export default function PropHedgeTab() {
                 {[
                   "Data","Prop","Asset","Dir.","Ingresso","Uscita",
                   "Lotti Prop","Lotti Broker","P/L Prop","P/L Broker","Combinato",
-                  "Saldo Prop","Saldo Broker"
+                  "Saldo Prop","Saldo Broker","Azioni"
                 ].map(h=>(
                   <th key={h} style={{
                     textAlign:"left",
@@ -4249,7 +4393,7 @@ export default function PropHedgeTab() {
             <tbody>
               {filteredHistory.length === 0 && (
                 <tr>
-                  <td colSpan={13} style={{padding:20,color:"#94a3b8",textAlign:"center"}}>
+                  <td colSpan={14} style={{padding:20,color:"#94a3b8",textAlign:"center"}}>
                     {historyLoading ? "Caricamento storico…" : "Nessuna operazione nello storico."}
                   </td>
                 </tr>
@@ -4287,6 +4431,21 @@ export default function PropHedgeTab() {
                     <td style={{padding:"10px",whiteSpace:"nowrap"}}>
                       $ {fmt(Number(row.broker_balance_start),2)} → $ {fmt(Number(row.broker_balance_end),2)}
                     </td>
+                    <td style={{padding:"8px 10px",whiteSpace:"nowrap"}}>
+                      <button
+                        title="Elimina definitivamente questa operazione"
+                        style={{
+                          ...secondaryButton,
+                          padding:"6px 9px",
+                          color:"#fecaca",
+                          border:"1px solid rgba(239,68,68,.42)",
+                          background:"rgba(127,29,29,.12)"
+                        }}
+                        onClick={()=>deleteHistoryRow(row)}
+                      >
+                        🗑
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
@@ -4305,7 +4464,7 @@ export default function PropHedgeTab() {
           <div style={panelHeader}>
             <div>
               <h3 style={panelTitle}>🗂️ Archivio Challenge</h3>
-              <p style={panelSubtitle}>Le challenge archiviate restano nello state sincronizzato su Supabase. Nessuna cancellazione.</p>
+              <p style={panelSubtitle}>Le challenge archiviate possono essere ripristinate oppure eliminate definitivamente insieme al loro storico.</p>
             </div>
           </div>
 
@@ -4360,6 +4519,12 @@ export default function PropHedgeTab() {
                     <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:13}}>
                       <button style={secondaryButton} onClick={()=>openChallengeRegistry(ch)}>📋 SCHEDA PROP</button>
                       <button style={{...secondaryButton,color:"#bbf7d0",border:"1px solid rgba(34,197,94,.42)"}} onClick={()=>restoreChallenge(ch.id)}>↩ RIPRISTINA</button>
+                      <button
+                        style={{...secondaryButton,color:"#fecaca",border:"1px solid rgba(239,68,68,.50)",background:"rgba(127,29,29,.14)"}}
+                        onClick={()=>permanentlyDeleteArchivedChallenge(ch)}
+                      >
+                        🗑 ELIMINA DEFINITIVAMENTE
+                      </button>
                     </div>
                   </div>
                 );
