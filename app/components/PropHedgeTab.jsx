@@ -1,6 +1,6 @@
 "use client";
 
-// PropHedgeTab v1.30 — movimenti Broker multi-account + MT5 live stability
+// PropHedgeTab v1.37 — Trading Lab READ ONLY symbol_info + base precedente
 
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
@@ -600,6 +600,16 @@ export default function PropHedgeTab() {
   const [bridgeClosing, setBridgeClosing] = useState({});
 
   const [mainView, setMainView] = useState("OPERATIVITA");
+
+  // Trading Lab v0.1 — SOLO LETTURA SPECIFICHE MT5
+  // In questa fase NON apre, modifica o chiude ordini.
+  const [labBrokerAccountId, setLabBrokerAccountId] = useState("");
+  const [labSymbol, setLabSymbol] = useState("EURUSD");
+  const [labSymbolInfo, setLabSymbolInfo] = useState(null);
+  const [labSymbolInfoLoading, setLabSymbolInfoLoading] = useState(false);
+  const [labSymbolInfoError, setLabSymbolInfoError] = useState("");
+  const [labLastCommandId, setLabLastCommandId] = useState(null);
+
   const [chartSymbol, setChartSymbol] = useState("XAUUSD");
   const [enginePropDirection, setEnginePropDirection] = useState(() => {
     if (typeof window === "undefined") return "WAIT";
@@ -2024,7 +2034,7 @@ export default function PropHedgeTab() {
     while (Date.now() - started < timeoutMs) {
       const { data, error } = await supabase
         .from("prop_bridge_commands")
-        .select("id,status,command_type,position_ticket,mt5_order,mt5_deal,close_deal,execution_price,realized_pl,error_code,error_message,processed_at,closed_at")
+        .select("id,status,command_type,position_ticket,mt5_order,mt5_deal,close_deal,execution_price,realized_pl,result_payload,error_code,error_message,processed_at,closed_at")
         .eq("id", commandId)
         .maybeSingle();
 
@@ -2036,6 +2046,150 @@ export default function PropHedgeTab() {
     }
 
     return { id: commandId, status: "timeout" };
+  };
+
+
+  const requestLabSymbolInfo = async () => {
+    if (labSymbolInfoLoading) return;
+
+    const account = brokerAccounts.find(x => x.id === labBrokerAccountId) || null;
+    const symbol = String(labSymbol || "").trim().toUpperCase();
+
+    setLabSymbolInfo(null);
+    setLabSymbolInfoError("");
+    setLabLastCommandId(null);
+
+    if (!account) {
+      setLabSymbolInfoError("Seleziona un account Broker.");
+      return;
+    }
+
+    if (!symbol) {
+      setLabSymbolInfoError("Inserisci un asset/simbolo MT5.");
+      return;
+    }
+
+    if (account.active === false) {
+      setLabSymbolInfoError("L'account Broker selezionato è disattivato.");
+      return;
+    }
+
+    const liveState = brokerLiveStateByAccountId[account.id] || null;
+    const liveAgeMs = liveState?.last_seen_at
+      ? Date.now() - new Date(liveState.last_seen_at).getTime()
+      : Infinity;
+
+    const online =
+      !!liveState &&
+      liveState.connected === true &&
+      liveAgeMs <= MT5_LIVE_MAX_AGE_MS;
+
+    if (!online) {
+      setLabSymbolInfoError(
+        `${account.alias || account.broker}: MT5 non online o heartbeat troppo vecchio.`
+      );
+      return;
+    }
+
+    setLabSymbolInfoLoading(true);
+
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData?.user?.id;
+      if (!uid) throw new Error("Utente Supabase non autenticato");
+
+      // Evitiamo doppioni sullo stesso conto: un solo SYMBOL_INFO pendente/processato.
+      const { data: existing, error: existingError } = await supabase
+        .from("prop_bridge_commands")
+        .select("id,status,broker_account,symbol,command_type")
+        .eq("user_id", uid)
+        .eq("broker_account", String(account.mt5_login))
+        .eq("command_type", "symbol_info")
+        .in("status", ["pending", "processing"])
+        .limit(1);
+
+      if (existingError) throw existingError;
+
+      if (Array.isArray(existing) && existing.length) {
+        throw new Error(
+          `Esiste già una richiesta SYMBOL_INFO ${existing[0].status} per questo conto (ID ${existing[0].id}).`
+        );
+      }
+
+      const payload = {
+        user_id: uid,
+        challenge_id: `LAB-SYMBOL-${Date.now()}`,
+        prop_name: "TRADING LAB",
+        broker_account: String(account.mt5_login),
+        symbol,
+        // Valori neutri: SYMBOL_INFO non li usa.
+        side: "BUY",
+        volume: 0,
+        entry_price: null,
+        sl: null,
+        tp: null,
+        command_type: "symbol_info",
+        position_ticket: null,
+        status: "pending"
+      };
+
+      const { data: command, error: commandError } = await supabase
+        .from("prop_bridge_commands")
+        .insert(payload)
+        .select("id,status,command_type,broker_account,symbol")
+        .single();
+
+      if (commandError) throw commandError;
+      if (!command?.id) throw new Error("Richiesta SYMBOL_INFO creata senza ID.");
+
+      setLabLastCommandId(command.id);
+
+      const result = await waitForBridgeCommand(
+        command.id,
+        { timeoutMs: 30000, intervalMs: 750 }
+      );
+
+      if (result.status === "timeout") {
+        throw new Error(
+          "Timeout: la MT5 non ha risposto entro 30 secondi. Controlla l'EA v1.11+ e il Journal MT5."
+        );
+      }
+
+      if (result.status === "failed") {
+        throw new Error(
+          `SYMBOL_INFO fallito${result.error_code ? ` [${result.error_code}]` : ""}: ` +
+          `${result.error_message || "errore MT5 non specificato"}`
+        );
+      }
+
+      if (result.status !== "executed") {
+        throw new Error(`Stato SYMBOL_INFO inatteso: ${result.status}`);
+      }
+
+      const info = result.result_payload;
+      if (!info || typeof info !== "object") {
+        throw new Error(
+          "MT5 ha risposto ma result_payload è vuoto. Verifica route v1.11 e colonna result_payload."
+        );
+      }
+
+      setLabSymbolInfo({
+        ...info,
+        requested_account_id: account.id,
+        requested_account_alias: account.alias || account.broker || account.mt5_login,
+        requested_account_type: account.account_type || "real",
+        requested_login: account.mt5_login,
+        requested_server: account.mt5_server,
+        fetched_at: new Date().toISOString()
+      });
+
+      await loadBrokerLiveStates({ silent: true });
+    } catch (e) {
+      console.error("Trading Lab SYMBOL_INFO:", e);
+      setLabSymbolInfoError(e?.message || String(e));
+    } finally {
+      setLabSymbolInfoLoading(false);
+    }
   };
 
   const buildMonitoringSnapshot = (ch, c, executionSource = "profittracker") => {
@@ -3000,7 +3154,7 @@ export default function PropHedgeTab() {
       </div>
 
       <div style={{display:"flex",gap:8,flexWrap:"wrap",padding:6,borderRadius:16,border:"1px solid rgba(51,65,85,.72)",background:"rgba(2,6,23,.42)"}}>
-        {[["OPERATIVITA","📈 OPERATIVITÀ"],["PREVISIONI","🔮 PREVISIONI OPERATIVE"],["ACCOUNT_BROKER","⚙️ ACCOUNT BROKER"],["STORICO","📚 STORICO PROP"],["ARCHIVIO","🗂️ ARCHIVIO CHALLENGE"]].map(([key,label])=>(
+        {[["OPERATIVITA","📈 OPERATIVITÀ"],["PREVISIONI","🔮 PREVISIONI OPERATIVE"],["ACCOUNT_BROKER","⚙️ ACCOUNT BROKER"],["TRADING_LAB","🧪 TRADING LAB"],["STORICO","📚 STORICO PROP"],["ARCHIVIO","🗂️ ARCHIVIO CHALLENGE"]].map(([key,label])=>(
           <button key={key} onClick={()=>setMainView(key)} style={{
             ...secondaryButton,
             background:mainView===key?"rgba(30,64,175,.48)":"rgba(15,23,42,.48)",
@@ -4453,6 +4607,226 @@ export default function PropHedgeTab() {
           </table>
         </div>
       </div>
+      )}
+
+
+      {mainView === "TRADING_LAB" && (
+        <div style={{
+          ...panel,
+          border:"1px solid rgba(34,211,238,.32)",
+          background:"linear-gradient(135deg,rgba(8,145,178,.07),rgba(2,6,23,.96))"
+        }}>
+          <div style={panelHeader}>
+            <div>
+              <h3 style={panelTitle}>🧪 Trading Lab</h3>
+              <p style={panelSubtitle}>
+                Fase 1 — sola lettura delle specifiche reali MT5. Nessun ordine viene aperto da questa schermata.
+              </p>
+            </div>
+            <span style={{
+              padding:"6px 10px",
+              borderRadius:999,
+              fontSize:10,
+              fontWeight:950,
+              color:"#67e8f9",
+              border:"1px solid rgba(34,211,238,.38)",
+              background:"rgba(8,145,178,.12)"
+            }}>
+              READ ONLY
+            </span>
+          </div>
+
+          <div style={{
+            display:"grid",
+            gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",
+            gap:12,
+            marginTop:12
+          }}>
+            <div>
+              <label style={fieldLabel}>Broker / Account MT5</label>
+              <select
+                style={input}
+                value={labBrokerAccountId}
+                onChange={e=>{
+                  setLabBrokerAccountId(e.target.value);
+                  setLabSymbolInfo(null);
+                  setLabSymbolInfoError("");
+                }}
+              >
+                <option value="">— Seleziona account —</option>
+                {brokerAccounts
+                  .filter(a => a.active !== false)
+                  .map(a => {
+                    const live = brokerLiveStateByAccountId[a.id] || null;
+                    const ageMs = live?.last_seen_at
+                      ? Date.now() - new Date(live.last_seen_at).getTime()
+                      : Infinity;
+                    const online = !!live && live.connected === true && ageMs <= MT5_LIVE_MAX_AGE_MS;
+                    const type = String(a.account_type || "real").toUpperCase();
+                    return (
+                      <option key={a.id} value={a.id}>
+                        {a.alias || a.broker || a.mt5_login} — {type} — {online ? "ONLINE" : "OFFLINE"}
+                      </option>
+                    );
+                  })}
+              </select>
+            </div>
+
+            <div>
+              <label style={fieldLabel}>Asset / simbolo MT5</label>
+              <input
+                style={input}
+                type="text"
+                value={labSymbol}
+                placeholder="es. EURUSD, XAUUSD, BTCUSD"
+                onFocus={e=>e.currentTarget.select()}
+                onChange={e=>{
+                  setLabSymbol(String(e.target.value || "").toUpperCase());
+                  setLabSymbolInfo(null);
+                  setLabSymbolInfoError("");
+                }}
+                onKeyDown={e=>{
+                  if (e.key === "Enter") requestLabSymbolInfo();
+                }}
+              />
+            </div>
+          </div>
+
+          {labBrokerAccountId && (() => {
+            const a = brokerAccounts.find(x => x.id === labBrokerAccountId);
+            const live = a ? brokerLiveStateByAccountId[a.id] || null : null;
+            if (!a) return null;
+            const type = String(a.account_type || "real").toUpperCase();
+            const isReal = type === "REAL";
+            return (
+              <div style={{
+                marginTop:12,
+                padding:"12px 14px",
+                borderRadius:14,
+                border:isReal
+                  ? "1px solid rgba(248,113,113,.38)"
+                  : "1px solid rgba(34,197,94,.34)",
+                background:isReal
+                  ? "rgba(127,29,29,.10)"
+                  : "rgba(20,83,45,.10)",
+                color:isReal ? "#fecaca" : "#bbf7d0",
+                fontSize:12,
+                lineHeight:1.55
+              }}>
+                <b>{isReal ? "⚠️ DENARO REALE" : "🟢 CONTO DEMO"}</b>
+                {" · "}
+                {a.alias || a.broker} · Login {a.mt5_login}
+                {live && (
+                  <>
+                    {" · "}Saldo $ {fmt(Number(live.balance || 0),2)}
+                    {" · "}Equity $ {fmt(Number(live.equity || 0),2)}
+                    {" · "}Margine libero $ {fmt(Number(live.free_margin || 0),2)}
+                  </>
+                )}
+              </div>
+            );
+          })()}
+
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginTop:14}}>
+            <button
+              style={{
+                ...primaryButtonBlue,
+                opacity:labSymbolInfoLoading ? .65 : 1
+              }}
+              disabled={labSymbolInfoLoading}
+              onClick={requestLabSymbolInfo}
+            >
+              {labSymbolInfoLoading ? "⏳ Leggo MT5…" : "🔍 LEGGI DATI MT5"}
+            </button>
+
+            {labLastCommandId && (
+              <span style={{fontSize:10,color:"#64748b"}}>
+                Command ID: {labLastCommandId}
+              </span>
+            )}
+          </div>
+
+          {labSymbolInfoError && (
+            <div style={{
+              marginTop:14,
+              padding:"12px 14px",
+              borderRadius:13,
+              border:"1px solid rgba(248,113,113,.38)",
+              background:"rgba(127,29,29,.12)",
+              color:"#fecaca",
+              fontSize:12,
+              fontWeight:800
+            }}>
+              ❌ {labSymbolInfoError}
+            </div>
+          )}
+
+          {labSymbolInfo && (
+            <>
+              <div style={{marginTop:18,...sectionTitle}}>Specifiche reali ricevute dalla MT5</div>
+              <div style={{...sectionDescription,marginBottom:12}}>
+                Il simbolo richiesto viene risolto direttamente dal Broker. Questi dati saranno la base del calcolo automatico lotto / SL / TP.
+              </div>
+
+              <div style={{
+                display:"grid",
+                gridTemplateColumns:"repeat(auto-fit,minmax(185px,1fr))",
+                gap:10
+              }}>
+                {[
+                  ["Simbolo MT5", labSymbolInfo.resolved_symbol || labSymbolInfo.requested_symbol || "—"],
+                  ["Bid", Number.isFinite(Number(labSymbolInfo.bid)) ? String(labSymbolInfo.bid) : "—"],
+                  ["Ask", Number.isFinite(Number(labSymbolInfo.ask)) ? String(labSymbolInfo.ask) : "—"],
+                  ["Digits", labSymbolInfo.digits ?? "—"],
+                  ["Point", labSymbolInfo.point ?? "—"],
+                  ["Tick size", labSymbolInfo.tick_size ?? "—"],
+                  ["Tick value", Number.isFinite(Number(labSymbolInfo.tick_value)) ? `$ ${fmt(Number(labSymbolInfo.tick_value),6)}` : "—"],
+                  ["Tick value profit", Number.isFinite(Number(labSymbolInfo.tick_value_profit)) ? `$ ${fmt(Number(labSymbolInfo.tick_value_profit),6)}` : "—"],
+                  ["Tick value loss", Number.isFinite(Number(labSymbolInfo.tick_value_loss)) ? `$ ${fmt(Number(labSymbolInfo.tick_value_loss),6)}` : "—"],
+                  ["Contract size", Number.isFinite(Number(labSymbolInfo.contract_size)) ? fmt(Number(labSymbolInfo.contract_size),2) : "—"],
+                  ["Volume min", labSymbolInfo.volume_min ?? "—"],
+                  ["Volume max", labSymbolInfo.volume_max ?? "—"],
+                  ["Volume step", labSymbolInfo.volume_step ?? "—"],
+                  ["Valuta base", labSymbolInfo.currency_base || "—"],
+                  ["Valuta profitto", labSymbolInfo.currency_profit || "—"],
+                  ["Valuta margine", labSymbolInfo.currency_margin || "—"]
+                ].map(([label,value])=>(
+                  <div key={label} style={statCard}>
+                    <div style={statLabel}>{label}</div>
+                    <div style={{...statValue,fontSize:18}}>{value}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{
+                marginTop:14,
+                padding:"12px 14px",
+                borderRadius:13,
+                border:"1px solid rgba(34,197,94,.30)",
+                background:"rgba(20,83,45,.08)",
+                color:"#bbf7d0",
+                fontSize:12,
+                lineHeight:1.55
+              }}>
+                ✅ Comunicazione Trading Lab → Supabase → Bridge → MT5 → ProfitTracker riuscita.
+                Nessun ordine è stato eseguito.
+              </div>
+            </>
+          )}
+
+          <div style={{
+            marginTop:18,
+            padding:"12px 14px",
+            borderRadius:13,
+            border:"1px solid rgba(99,102,241,.28)",
+            background:"rgba(49,46,129,.08)",
+            color:"#c7d2fe",
+            fontSize:11,
+            lineHeight:1.55
+          }}>
+            <b>Prossimo step, dopo questo test:</b> modalità TRADING con perdita massima $ + target $ e calcolo automatico dei lotti/SL/TP; poi modalità ACCUMULO.
+          </div>
+        </div>
       )}
 
       {mainView === "ARCHIVIO" && (
