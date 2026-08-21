@@ -642,6 +642,10 @@ export default function PropHedgeTab() {
   const [labAccumSubmitting, setLabAccumSubmitting] = useState(false);
   const [labAccumStatus, setLabAccumStatus] = useState("");
   const [labAccumError, setLabAccumError] = useState("");
+  const [labAccumScanRows, setLabAccumScanRows] = useState([]);
+  const [labAccumScanLoading, setLabAccumScanLoading] = useState(false);
+  const [labAccumScanError, setLabAccumScanError] = useState("");
+  const [labAccumScanFilter, setLabAccumScanFilter] = useState("50");
   const [labAccumPositions, setLabAccumPositions] = useState(() => {
     try {
       const raw = window.localStorage.getItem("profittracker_lab_accum_positions_v1");
@@ -2508,6 +2512,145 @@ export default function PropHedgeTab() {
     }
   };
 
+
+
+  const scanAccumuloAssets = async () => {
+    if (labAccumScanLoading) return;
+
+    const account = brokerAccounts.find(x => x.id === labBrokerAccountId) || null;
+    setLabAccumScanError("");
+    setLabAccumScanRows([]);
+
+    if (!account) {
+      setLabAccumScanError("Seleziona prima un account Broker.");
+      return;
+    }
+
+    setLabAccumScanLoading(true);
+
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData?.user?.id;
+      if (!uid) throw new Error("Utente Supabase non autenticato");
+
+      const { data: existing, error: existingError } = await supabase
+        .from("prop_bridge_commands")
+        .select("id,status,created_at,updated_at")
+        .eq("user_id", uid)
+        .eq("broker_account", String(account.mt5_login))
+        .eq("command_type", "accum_scan")
+        .in("status", ["pending","processing"])
+        .order("created_at", { ascending:false })
+        .limit(1);
+
+      if (existingError) throw existingError;
+
+      let command = null;
+
+      if (Array.isArray(existing) && existing.length) {
+        const pending = existing[0];
+        const bornAt = new Date(pending.created_at || pending.updated_at || 0).getTime();
+        const ageMs = Number.isFinite(bornAt) ? Date.now() - bornAt : Infinity;
+
+        if (ageMs <= 180000) {
+          command = pending;
+        } else {
+          await supabase
+            .from("prop_bridge_commands")
+            .update({
+              status:"failed",
+              error_code:"stale_accum_scan",
+              error_message:"ACCUM_SCAN scaduta dal Trading Lab",
+              processed_at:new Date().toISOString(),
+              updated_at:new Date().toISOString()
+            })
+            .eq("user_id", uid)
+            .eq("id", pending.id)
+            .in("status", ["pending","processing"]);
+        }
+      }
+
+      if (!command) {
+        const payload = {
+          user_id: uid,
+          challenge_id: `LAB-SCAN-${Date.now()}`,
+          prop_name: "TRADING LAB ACCUMULO",
+          broker_account: String(account.mt5_login),
+          symbol: "ACCUM_SCAN",
+          side: "BUY",
+          volume: 0.01,
+          entry_price: null,
+          sl: null,
+          tp: null,
+          command_type: "accum_scan",
+          position_ticket: null,
+          status: "pending"
+        };
+
+        const { data: inserted, error: commandError } = await supabase
+          .from("prop_bridge_commands")
+          .insert(payload)
+          .select("id,status,created_at,updated_at")
+          .single();
+
+        if (commandError) throw commandError;
+        if (!inserted?.id) throw new Error("ACCUM_SCAN creata senza ID.");
+        command = inserted;
+      }
+
+      const result = await waitForBridgeCommand(
+        command.id,
+        { timeoutMs: 90000, intervalMs: 1000 }
+      );
+
+      if (result.status === "timeout") {
+        throw new Error("Timeout scanner asset: MT5 non ha risposto entro 90 secondi.");
+      }
+      if (result.status === "failed") {
+        throw new Error(result.error_message || "Scanner asset fallito.");
+      }
+
+      const rp = result?.result_payload || {};
+      const rows = Array.isArray(rp.rows) ? rp.rows : [];
+
+      const normalized = rows
+        .map(x => ({
+          symbol:String(x?.s || ""),
+          minUsd:Number(x?.m),
+          volumeMin:Number(x?.v),
+          ask:Number(x?.a)
+        }))
+        .filter(x => x.symbol && Number.isFinite(x.minUsd) && x.minUsd > 0)
+        .sort((a,b) => a.minUsd - b.minUsd);
+
+      setLabAccumScanRows(normalized);
+
+      if (!normalized.length) {
+        setLabAccumScanError(
+          "Nessun asset con quotazione valida trovato nello scanner. Riprova con MT5 online."
+        );
+      } else {
+        setLabAccumStatus(
+          `✅ Scanner completato: ${normalized.length} asset quotati su ${Number(rp.total || normalized.length)} analizzati.`
+        );
+      }
+
+    } catch (e) {
+      setLabAccumScanError(e?.message || String(e));
+    } finally {
+      setLabAccumScanLoading(false);
+    }
+  };
+
+  const chooseAccumScanAsset = async (symbol) => {
+    setLabSymbol(symbol);
+    setLabSymbolInfo(null);
+    setLabTradePreview(null);
+    setLabAccumPreview(null);
+    setLabSymbolInfoError("");
+    setLabAccumError("");
+    setLabAccumStatus(`Asset ${symbol} selezionato. Premi LEGGI DATI MT5 per il dettaglio.`);
+  };
 
   const labCalculateAccumuloPreview = () => {
     setLabAccumPreview(null);
@@ -6495,6 +6638,151 @@ export default function PropHedgeTab() {
             )}
           </div>
 
+
+
+          <div style={{
+            marginTop:20,
+            padding:"18px",
+            borderRadius:16,
+            border:"1px solid rgba(14,165,233,.38)",
+            background:"linear-gradient(135deg,rgba(7,89,133,.11),rgba(15,23,42,.80))"
+          }}>
+            <div style={{
+              display:"flex",
+              justifyContent:"space-between",
+              alignItems:"center",
+              gap:12,
+              flexWrap:"wrap"
+            }}>
+              <div>
+                <div style={{fontSize:20,fontWeight:950,color:"#e0f2fe"}}>
+                  🔎 Scanner asset per ACCUMULO
+                </div>
+                <div style={{fontSize:12,color:"#7dd3fc",marginTop:4}}>
+                  Ordina gli asset del broker dal taglio minimo più piccolo al più grande.
+                </div>
+              </div>
+
+              <button
+                type="button"
+                style={{...primaryButtonBlue,padding:"12px 16px"}}
+                disabled={labAccumScanLoading || !labBrokerAccountId}
+                onClick={scanAccumuloAssets}
+              >
+                {labAccumScanLoading ? "⏳ SCANSIONE MT5…" : "🔎 SCANSIONA TUTTI GLI ASSET"}
+              </button>
+            </div>
+
+            {labAccumScanError && (
+              <div style={{
+                marginTop:12,padding:"10px 12px",borderRadius:10,
+                border:"1px solid rgba(248,113,113,.45)",
+                color:"#fecaca",fontSize:13,fontWeight:850
+              }}>
+                ❌ {labAccumScanError}
+              </div>
+            )}
+
+            {labAccumScanRows.length > 0 && (
+              <>
+                <div style={{
+                  display:"grid",
+                  gridTemplateColumns:"minmax(200px,320px) 1fr",
+                  gap:12,
+                  alignItems:"end",
+                  marginTop:14
+                }}>
+                  <div>
+                    <label style={fieldLabel}>Mostra asset con minimo fino a ($)</label>
+                    <input
+                      style={input}
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={labAccumScanFilter}
+                      onChange={e=>setLabAccumScanFilter(e.target.value)}
+                    />
+                  </div>
+                  <div style={{fontSize:12,color:"#bae6fd",paddingBottom:10}}>
+                    Trovati <b>{labAccumScanRows.length}</b> asset quotati. Ordinati dal minimo più basso.
+                  </div>
+                </div>
+
+                <div style={{
+                  marginTop:12,
+                  maxHeight:420,
+                  overflowY:"auto",
+                  border:"1px solid rgba(100,116,139,.30)",
+                  borderRadius:12
+                }}>
+                  <div style={{
+                    display:"grid",
+                    gridTemplateColumns:"1.2fr .9fr .7fr .9fr auto",
+                    gap:8,
+                    padding:"10px 12px",
+                    position:"sticky",
+                    top:0,
+                    zIndex:2,
+                    background:"#0f172a",
+                    color:"#7dd3fc",
+                    fontSize:11,
+                    fontWeight:950,
+                    textTransform:"uppercase"
+                  }}>
+                    <div>Asset</div>
+                    <div>Minimo $</div>
+                    <div>Lotto min</div>
+                    <div>Ask</div>
+                    <div></div>
+                  </div>
+
+                  {labAccumScanRows
+                    .filter(row => {
+                      const max = Number(labAccumScanFilter);
+                      return !(max > 0) || row.minUsd <= max;
+                    })
+                    .slice(0,250)
+                    .map((row,index)=>(
+                      <div
+                        key={`${row.symbol}-${index}`}
+                        style={{
+                          display:"grid",
+                          gridTemplateColumns:"1.2fr .9fr .7fr .9fr auto",
+                          gap:8,
+                          alignItems:"center",
+                          padding:"10px 12px",
+                          borderTop:"1px solid rgba(100,116,139,.18)",
+                          fontSize:13
+                        }}
+                      >
+                        <div style={{fontWeight:950,color:"#f8fafc"}}>{row.symbol}</div>
+                        <div style={{
+                          fontWeight:950,
+                          color:row.minUsd <= 10 ? "#5eead4" :
+                                row.minUsd <= 50 ? "#fde68a" : "#fca5a5"
+                        }}>
+                          $ {fmt(row.minUsd,2)}
+                        </div>
+                        <div style={{color:"#cbd5e1"}}>{row.volumeMin}</div>
+                        <div style={{color:"#cbd5e1"}}>{row.ask}</div>
+                        <button
+                          type="button"
+                          style={{...secondaryButton,padding:"7px 10px",fontSize:11}}
+                          onClick={()=>chooseAccumScanAsset(row.symbol)}
+                        >
+                          USA
+                        </button>
+                      </div>
+                    ))}
+                </div>
+
+                <div style={{marginTop:9,fontSize:10,color:"#94a3b8",lineHeight:1.5}}>
+                  Lo scanner mostra solo i simboli che in quel momento hanno una quotazione valida.
+                  Il “Minimo $” è esposizione/nozionale stimata del lotto minimo, non il margine richiesto.
+                </div>
+              </>
+            )}
+          </div>
 
           <div style={{
             marginTop:20,
