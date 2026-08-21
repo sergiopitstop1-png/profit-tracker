@@ -1,6 +1,6 @@
 "use client";
 
-// PropHedgeTab v1.38 — Trading Lab READ ONLY compatibile con Bridge in SLEEP/OFF
+// PropHedgeTab v1.40 — Trading Lab TRADING + symbol_info + base precedente
 
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
@@ -609,6 +609,16 @@ export default function PropHedgeTab() {
   const [labSymbolInfoLoading, setLabSymbolInfoLoading] = useState(false);
   const [labSymbolInfoError, setLabSymbolInfoError] = useState("");
   const [labLastCommandId, setLabLastCommandId] = useState(null);
+
+  // Trading Lab — modalità TRADING
+  const [labMode, setLabMode] = useState("TRADING");
+  const [labSide, setLabSide] = useState("BUY");
+  const [labMaxLossUsd, setLabMaxLossUsd] = useState("5");
+  const [labTargetUsd, setLabTargetUsd] = useState("20");
+  const [labTradePreview, setLabTradePreview] = useState(null);
+  const [labTradeSubmitting, setLabTradeSubmitting] = useState(false);
+  const [labTradeStatus, setLabTradeStatus] = useState("");
+  const [labTradeError, setLabTradeError] = useState("");
 
   const [chartSymbol, setChartSymbol] = useState("XAUUSD");
   const [enginePropDirection, setEnginePropDirection] = useState(() => {
@@ -2049,6 +2059,307 @@ export default function PropHedgeTab() {
   };
 
 
+
+  const labRoundToDigits = (value, digits) => {
+    const d = Math.max(0, Number(digits) || 0);
+    const p = Math.pow(10, d);
+    return Math.round(Number(value) * p) / p;
+  };
+
+  const labCalculateTradingPreview = () => {
+    setLabTradePreview(null);
+    setLabTradeError("");
+    setLabTradeStatus("");
+
+    if (!labSymbolInfo) {
+      setLabTradeError("Prima premi LEGGI DATI MT5 per questo asset.");
+      return;
+    }
+
+    const side = String(labSide || "BUY").toUpperCase();
+    const maxLoss = num(labMaxLossUsd);
+    const target = num(labTargetUsd);
+
+    if (!["BUY","SELL"].includes(side)) {
+      setLabTradeError("Direzione Trading Lab non valida.");
+      return;
+    }
+
+    if (!(maxLoss > 0)) {
+      setLabTradeError("La perdita massima deve essere maggiore di 0 USD.");
+      return;
+    }
+
+    if (!(target > 0)) {
+      setLabTradeError("Il profitto desiderato deve essere maggiore di 0 USD.");
+      return;
+    }
+
+    const tickSize = Number(labSymbolInfo.tick_size);
+    const tickValueProfit = Number(
+      labSymbolInfo.tick_value_profit ?? labSymbolInfo.tick_value
+    );
+    const tickValueLoss = Number(
+      labSymbolInfo.tick_value_loss ?? labSymbolInfo.tick_value
+    );
+    const volumeMin = Number(labSymbolInfo.volume_min);
+    const volumeMax = Number(labSymbolInfo.volume_max);
+    const volumeStep = Number(labSymbolInfo.volume_step);
+    const digits = Number(labSymbolInfo.digits);
+
+    if (!(tickSize > 0) || !(tickValueProfit > 0) || !(tickValueLoss > 0)) {
+      setLabTradeError("Tick size/value MT5 non validi per questo asset.");
+      return;
+    }
+
+    if (!(volumeMin > 0) || !(volumeStep > 0)) {
+      setLabTradeError("Volume minimo/step MT5 non validi.");
+      return;
+    }
+
+    // Prima versione prudente del Lab:
+    // il lotto è automatico e parte dal MINIMO eseguibile del broker.
+    // In questo modo il Lab ottiene la massima distanza possibile da SL/TP
+    // per gli importi monetari scelti, evitando di gonfiare la leva.
+    const volume = Math.min(
+      volumeMax > 0 ? volumeMax : volumeMin,
+      Math.max(volumeMin, volumeMin)
+    );
+
+    const entry =
+      side === "BUY"
+        ? Number(labSymbolInfo.ask)
+        : Number(labSymbolInfo.bid);
+
+    if (!Number.isFinite(entry) || entry <= 0) {
+      setLabTradeError("Prezzo Bid/Ask MT5 non disponibile.");
+      return;
+    }
+
+    // tick_value è riferito a 1 lotto. Il P/L per tick sul volume scelto:
+    const lossPerTick = tickValueLoss * volume;
+    const profitPerTick = tickValueProfit * volume;
+
+    if (!(lossPerTick > 0) || !(profitPerTick > 0)) {
+      setLabTradeError("Valore monetario per tick non calcolabile.");
+      return;
+    }
+
+    const slTicksRaw = maxLoss / lossPerTick;
+    const tpTicksRaw = target / profitPerTick;
+
+    // Arrotondamento prudenziale:
+    // SL verso l'interno (mai oltre la perdita richiesta per effetto del rounding);
+    // TP verso l'esterno (almeno il target teorico).
+    const slTicks = Math.max(1, Math.floor(slTicksRaw + 1e-12));
+    const tpTicks = Math.max(1, Math.ceil(tpTicksRaw - 1e-12));
+
+    const slDistance = slTicks * tickSize;
+    const tpDistance = tpTicks * tickSize;
+
+    const sl = labRoundToDigits(
+      side === "BUY" ? entry - slDistance : entry + slDistance,
+      digits
+    );
+
+    const tp = labRoundToDigits(
+      side === "BUY" ? entry + tpDistance : entry - tpDistance,
+      digits
+    );
+
+    if (!(sl > 0) || !(tp > 0)) {
+      setLabTradeError("SL/TP calcolati non validi.");
+      return;
+    }
+
+    const estimatedLoss = slTicks * lossPerTick;
+    const estimatedProfit = tpTicks * profitPerTick;
+    const rr = estimatedLoss > 0 ? estimatedProfit / estimatedLoss : 0;
+
+    setLabTradePreview({
+      symbol: labSymbolInfo.resolved_symbol || labSymbolInfo.requested_symbol || labSymbol,
+      side,
+      entry,
+      volume,
+      sl,
+      tp,
+      digits,
+      tickSize,
+      tickValueProfit,
+      tickValueLoss,
+      maxLossRequested: maxLoss,
+      targetRequested: target,
+      estimatedLoss,
+      estimatedProfit,
+      rr,
+      brokerAccountId: labBrokerAccountId,
+      calculatedAt: new Date().toISOString(),
+      method: "MIN_VOLUME"
+    });
+  };
+
+  const submitLabTrade = async () => {
+    if (labTradeSubmitting) return;
+    setLabTradeError("");
+    setLabTradeStatus("");
+
+    const preview = labTradePreview;
+    if (!preview) {
+      setLabTradeError("Calcola prima il trade.");
+      return;
+    }
+
+    const account = brokerAccounts.find(x => x.id === labBrokerAccountId) || null;
+    if (!account) {
+      setLabTradeError("Account Broker non trovato.");
+      return;
+    }
+
+    const live = brokerLiveStateByAccountId[account.id] || null;
+    const liveAgeMs = live?.last_seen_at
+      ? Date.now() - new Date(live.last_seen_at).getTime()
+      : Infinity;
+    const online =
+      !!live &&
+      live.connected === true &&
+      liveAgeMs <= MT5_LIVE_MAX_AGE_MS;
+
+    if (!online) {
+      setLabTradeError(
+        "Per INVIA ORDINE la MT5 deve essere ONLINE con heartbeat recente. Premi AVVIA TRADING e attendi che il conto passi ONLINE."
+      );
+      return;
+    }
+
+    if (!tradingEnabled) {
+      setLabTradeError("Premi AVVIA TRADING prima di inviare un ordine reale.");
+      return;
+    }
+
+    const isReal = String(account.account_type || "real").toLowerCase() === "real";
+
+    const summary =
+      `${preview.symbol} · ${preview.side}\n` +
+      `Lotto: ${preview.volume}\n` +
+      `Entry stimato: ${preview.entry}\n` +
+      `SL: ${preview.sl} ≈ -$ ${fmt(preview.estimatedLoss,2)}\n` +
+      `TP: ${preview.tp} ≈ +$ ${fmt(preview.estimatedProfit,2)}\n` +
+      `R/R: 1:${fmt(preview.rr,2)}`;
+
+    if (isReal) {
+      const confirmReal = window.confirm(
+        `⚠️ ORDINE SU DENARO REALE — ${account.alias || account.broker}\n\n` +
+        `${summary}\n\n` +
+        `Questo ordine verrà inviato davvero alla MT5.\n\nProcedere?`
+      );
+      if (!confirmReal) return;
+
+      const typed = window.prompt(
+        `Conferma finale DENARO REALE.\n\nScrivi ORDINA per inviare ${preview.side} ${preview.symbol}.`
+      );
+      if (String(typed || "").trim().toUpperCase() !== "ORDINA") {
+        setLabTradeStatus("Ordine annullato.");
+        return;
+      }
+    } else {
+      const ok = window.confirm(
+        `🧪 ORDINE TRADING LAB — CONTO DEMO\n\n${summary}\n\nInviare?`
+      );
+      if (!ok) return;
+    }
+
+    setLabTradeSubmitting(true);
+
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData?.user?.id;
+      if (!uid) throw new Error("Utente Supabase non autenticato");
+
+      const { data: existing, error: existingError } = await supabase
+        .from("prop_bridge_commands")
+        .select("id,status,broker_account,symbol,command_type,prop_name")
+        .eq("user_id", uid)
+        .eq("broker_account", String(account.mt5_login))
+        .in("status", ["pending","processing"])
+        .limit(1);
+
+      if (existingError) throw existingError;
+      if (Array.isArray(existing) && existing.length) {
+        throw new Error(
+          `Esiste già un comando ${existing[0].status} sul conto ${account.alias || account.mt5_login}. Attendi che venga completato.`
+        );
+      }
+
+      const labTradeId = `LAB-TRADE-${Date.now()}`;
+
+      const commandPayload = {
+        user_id: uid,
+        challenge_id: labTradeId,
+        prop_name: "TRADING LAB",
+        broker_account: String(account.mt5_login),
+        symbol: preview.symbol,
+        side: preview.side,
+        volume: Number(preview.volume),
+        entry_price: Number(preview.entry),
+        sl: Number(preview.sl),
+        tp: Number(preview.tp),
+        command_type: "open",
+        position_ticket: null,
+        status: "pending"
+      };
+
+      const { data: command, error: commandError } = await supabase
+        .from("prop_bridge_commands")
+        .insert(commandPayload)
+        .select("id,status,command_type,broker_account,symbol,side,volume,sl,tp")
+        .single();
+
+      if (commandError) throw commandError;
+      if (!command?.id) throw new Error("Comando Trading Lab creato senza ID.");
+
+      setLabLastCommandId(command.id);
+      setLabTradeStatus("Ordine inviato al Bridge. Attendo conferma MT5…");
+
+      const result = await waitForBridgeCommand(
+        command.id,
+        { timeoutMs: 30000, intervalMs: 750 }
+      );
+
+      if (result.status === "timeout") {
+        throw new Error(
+          "Timeout: MT5 non ha confermato l'apertura entro 30 secondi. Controlla MT5 prima di riprovare."
+        );
+      }
+
+      if (result.status === "failed") {
+        throw new Error(
+          `APERTURA FALLITA${result.error_code ? ` [${result.error_code}]` : ""}: ` +
+          `${result.error_message || "errore MT5 non specificato"}`
+        );
+      }
+
+      if (result.status !== "executed") {
+        throw new Error(`Stato Bridge inatteso: ${result.status}`);
+      }
+
+      setLabTradeStatus(
+        `✅ ORDINE ESEGUITO · Ticket ${result.position_ticket || "—"} · ` +
+        `Prezzo ${Number.isFinite(Number(result.execution_price)) ? result.execution_price : preview.entry}`
+      );
+
+      await loadBrokerLiveStates({ silent: true });
+
+      // Dopo l'esecuzione invalidiamo la preview perché Bid/Ask potrebbero essere cambiati.
+      setLabTradePreview(null);
+
+    } catch (e) {
+      console.error("Trading Lab OPEN:", e);
+      setLabTradeError(e?.message || String(e));
+    } finally {
+      setLabTradeSubmitting(false);
+    }
+  };
+
   const requestLabSymbolInfo = async () => {
     if (labSymbolInfoLoading) return;
 
@@ -2123,7 +2434,7 @@ export default function PropHedgeTab() {
         symbol,
         // Valori neutri: SYMBOL_INFO non li usa.
         side: "BUY",
-        volume: 0.01,
+        volume: 0,
         entry_price: null,
         sl: null,
         tp: null,
@@ -4619,7 +4930,7 @@ export default function PropHedgeTab() {
             <div>
               <h3 style={panelTitle}>🧪 Trading Lab</h3>
               <p style={panelSubtitle}>
-                Fase 1 — sola lettura delle specifiche reali MT5. Nessun ordine viene aperto da questa schermata.
+                Trading multi-asset: scegli il conto, leggi le specifiche MT5, imposta perdita massima e profitto desiderato in USD. Il Lab calcola automaticamente lotto, SL e TP.
               </p>
             </div>
             <span style={{
@@ -4650,6 +4961,9 @@ export default function PropHedgeTab() {
                   setLabBrokerAccountId(e.target.value);
                   setLabSymbolInfo(null);
                   setLabSymbolInfoError("");
+                  setLabTradePreview(null);
+                  setLabTradeError("");
+                  setLabTradeStatus("");
                 }}
               >
                 <option value="">— Seleziona account —</option>
@@ -4683,6 +4997,9 @@ export default function PropHedgeTab() {
                   setLabSymbol(String(e.target.value || "").toUpperCase());
                   setLabSymbolInfo(null);
                   setLabSymbolInfoError("");
+                  setLabTradePreview(null);
+                  setLabTradeError("");
+                  setLabTradeStatus("");
                 }}
                 onKeyDown={e=>{
                   if (e.key === "Enter") requestLabSymbolInfo();
@@ -4816,6 +5133,192 @@ export default function PropHedgeTab() {
             </>
           )}
 
+
+          <div style={{
+            marginTop:20,
+            padding:"15px 16px",
+            borderRadius:15,
+            border:"1px solid rgba(34,197,94,.28)",
+            background:"rgba(20,83,45,.06)"
+          }}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+              <div>
+                <div style={{fontSize:17,fontWeight:950,color:"#dcfce7"}}>⚡ Modalità TRADING</div>
+                <div style={{fontSize:11,color:"#86efac",marginTop:3}}>
+                  Tu scegli soltanto direzione, perdita massima e target in USD. Lotto, SL e TP li calcola il Lab.
+                </div>
+              </div>
+              <span style={{
+                padding:"5px 9px",
+                borderRadius:999,
+                fontSize:9,
+                fontWeight:950,
+                color:"#fde68a",
+                border:"1px solid rgba(250,204,21,.35)",
+                background:"rgba(161,98,7,.10)"
+              }}>
+                METODO PRUDENTE: LOTTO MINIMO BROKER
+              </span>
+            </div>
+
+            <div style={{
+              display:"grid",
+              gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",
+              gap:12,
+              marginTop:14
+            }}>
+              <div>
+                <label style={fieldLabel}>Direzione</label>
+                <select
+                  style={input}
+                  value={labSide}
+                  onChange={e=>{
+                    setLabSide(e.target.value);
+                    setLabTradePreview(null);
+                    setLabTradeError("");
+                    setLabTradeStatus("");
+                  }}
+                >
+                  <option value="BUY">BUY</option>
+                  <option value="SELL">SELL</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={fieldLabel}>Perdita massima ($)</label>
+                <input
+                  style={input}
+                  type="text"
+                  inputMode="decimal"
+                  value={labMaxLossUsd}
+                  onFocus={e=>e.currentTarget.select()}
+                  onChange={e=>{
+                    const raw=e.target.value;
+                    if (/^[0-9]*[.,]?[0-9]*$/.test(raw) || raw==="") {
+                      setLabMaxLossUsd(raw);
+                      setLabTradePreview(null);
+                      setLabTradeError("");
+                      setLabTradeStatus("");
+                    }
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={fieldLabel}>Profitto desiderato ($)</label>
+                <input
+                  style={input}
+                  type="text"
+                  inputMode="decimal"
+                  value={labTargetUsd}
+                  onFocus={e=>e.currentTarget.select()}
+                  onChange={e=>{
+                    const raw=e.target.value;
+                    if (/^[0-9]*[.,]?[0-9]*$/.test(raw) || raw==="") {
+                      setLabTargetUsd(raw);
+                      setLabTradePreview(null);
+                      setLabTradeError("");
+                      setLabTradeStatus("");
+                    }
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:14}}>
+              <button
+                style={primaryButtonBlue}
+                onClick={labCalculateTradingPreview}
+              >
+                🧮 CALCOLA TRADE
+              </button>
+            </div>
+
+            {labTradePreview && (
+              <div style={{marginTop:16}}>
+                <div style={{
+                  display:"grid",
+                  gridTemplateColumns:"repeat(auto-fit,minmax(175px,1fr))",
+                  gap:10
+                }}>
+                  {[
+                    ["Asset",labTradePreview.symbol],
+                    ["Direzione",labTradePreview.side],
+                    ["Lotto automatico",String(labTradePreview.volume)],
+                    ["Entry stimato",String(labTradePreview.entry)],
+                    ["Stop Loss",String(labTradePreview.sl)],
+                    ["Take Profit",String(labTradePreview.tp)],
+                    ["Perdita teorica",`−$ ${fmt(labTradePreview.estimatedLoss,2)}`],
+                    ["Profitto teorico",`+$ ${fmt(labTradePreview.estimatedProfit,2)}`],
+                    ["R/R",`1:${fmt(labTradePreview.rr,2)}`]
+                  ].map(([label,value])=>(
+                    <div key={label} style={statCard}>
+                      <div style={statLabel}>{label}</div>
+                      <div style={{...statValue,fontSize:18}}>{value}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{
+                  marginTop:12,
+                  padding:"11px 13px",
+                  borderRadius:12,
+                  border:"1px solid rgba(250,204,21,.28)",
+                  background:"rgba(161,98,7,.08)",
+                  color:"#fde68a",
+                  fontSize:11,
+                  lineHeight:1.55
+                }}>
+                  <b>Nota:</b> questa prima modalità automatica usa il lotto minimo consentito dal broker e ricava da lì le distanze di SL/TP.
+                  Spread, commissioni e slippage possono far differire leggermente il P/L reale dagli importi impostati.
+                </div>
+
+                <button
+                  style={{
+                    ...primaryButtonBlue,
+                    marginTop:12,
+                    background:labTradeSubmitting ? "#475569" : undefined,
+                    opacity:labTradeSubmitting ? .65 : 1
+                  }}
+                  disabled={labTradeSubmitting}
+                  onClick={submitLabTrade}
+                >
+                  {labTradeSubmitting ? "⏳ INVIO AL BRIDGE…" : "🚀 INVIA ORDINE AL BRIDGE"}
+                </button>
+              </div>
+            )}
+
+            {labTradeStatus && (
+              <div style={{
+                marginTop:12,
+                padding:"11px 13px",
+                borderRadius:12,
+                border:"1px solid rgba(34,197,94,.30)",
+                background:"rgba(20,83,45,.10)",
+                color:"#bbf7d0",
+                fontSize:12,
+                fontWeight:850
+              }}>
+                {labTradeStatus}
+              </div>
+            )}
+
+            {labTradeError && (
+              <div style={{
+                marginTop:12,
+                padding:"11px 13px",
+                borderRadius:12,
+                border:"1px solid rgba(248,113,113,.38)",
+                background:"rgba(127,29,29,.12)",
+                color:"#fecaca",
+                fontSize:12,
+                fontWeight:850
+              }}>
+                ❌ {labTradeError}
+              </div>
+            )}
+          </div>
+
           <div style={{
             marginTop:18,
             padding:"12px 14px",
@@ -4826,7 +5329,7 @@ export default function PropHedgeTab() {
             fontSize:11,
             lineHeight:1.55
           }}>
-            <b>Prossimo step, dopo questo test:</b> modalità TRADING con perdita massima $ + target $ e calcolo automatico dei lotti/SL/TP; poi modalità ACCUMULO.
+            <b>Passo successivo:</b> modalità ACCUMULO in dollari, senza SL/TP, più pannello posizioni e chiusura Trading Lab separata dalle Prop.
           </div>
         </div>
       )}
