@@ -634,6 +634,7 @@ export default function PropHedgeTab() {
     }
   });
   const [labPositionRefreshing, setLabPositionRefreshing] = useState(false);
+  const labPositionRefreshLockRef = useRef(false);
 
 
   useEffect(() => {
@@ -2321,7 +2322,8 @@ export default function PropHedgeTab() {
   };
 
   const refreshLabActiveTrades = async ({ silent = false } = {}) => {
-    if (labPositionRefreshing || !labActiveTrades.length) return;
+    if (labPositionRefreshLockRef.current || !labActiveTrades.length) return;
+    labPositionRefreshLockRef.current = true;
     setLabPositionRefreshing(true);
 
     try {
@@ -2388,6 +2390,7 @@ export default function PropHedgeTab() {
         }
       }
     } finally {
+      labPositionRefreshLockRef.current = false;
       setLabPositionRefreshing(false);
     }
   };
@@ -2696,9 +2699,11 @@ export default function PropHedgeTab() {
   useEffect(() => {
     if (!labActiveTrades.length) return undefined;
 
+    // Solo mentre esistono posizioni Trading Lab aperte.
+    // Il lock impedisce sovrapposizioni se una risposta MT5 impiega più di 15 sec.
     const timer = window.setInterval(() => {
       refreshLabActiveTrades({ silent: true });
-    }, tradingEnabled ? 45000 : 120000);
+    }, 15000);
 
     return () => window.clearInterval(timer);
   }, [labActiveTrades.length, tradingEnabled]);
@@ -5953,7 +5958,7 @@ export default function PropHedgeTab() {
                   📡 Posizioni Trading Lab attive
                 </div>
                 <div style={{fontSize:10,color:"#67e8f9",marginTop:3}}>
-                  Controllo automatico: {tradingEnabled ? "ogni 45 sec" : "ogni 120 sec in SLEEP"} · TP/SL notificati su Telegram.
+                  LIVE ogni 15 sec finché esiste una posizione aperta · TP/SL notificati su Telegram · zero polling quando non ci sono trade.
                 </div>
               </div>
 
@@ -5988,17 +5993,35 @@ export default function PropHedgeTab() {
                       gridTemplateColumns:"repeat(auto-fit,minmax(145px,1fr))",
                       gap:8
                     }}>
-                      {[
-                        ["Broker",row.accountAlias],
-                        ["Asset",row.symbol],
-                        ["Direzione",row.side],
-                        ["Lotto",String(row.volume)],
-                        ["Ticket",String(row.positionTicket)],
-                        ["Entry",String(row.entry)],
-                        ["SL",String(row.sl)],
-                        ["TP",String(row.tp)],
-                        ["P/L floating",`${Number(row.floatingPL||0)>=0?"+":""}$ ${fmt(Number(row.floatingPL||0),2)}`]
-                      ].map(([label,value])=>(
+                      {(() => {
+                        const floating = Number(row.floatingPL || 0);
+                        const current = Number(row.currentPrice || row.entry || 0);
+                        const tp = Number(row.tp || 0);
+                        const sl = Number(row.sl || 0);
+                        const target = Number(row.targetUsd || 0);
+                        const maxLoss = Number(row.maxLossUsd || 0);
+
+                        const usdToTp = Math.max(0, target - floating);
+                        const usdToSl = Math.max(0, maxLoss + floating);
+                        const priceToTp = current && tp ? Math.abs(tp - current) : null;
+                        const priceToSl = current && sl ? Math.abs(current - sl) : null;
+
+                        return [
+                          ["Broker",row.accountAlias],
+                          ["Asset",row.symbol],
+                          ["Direzione",row.side],
+                          ["Lotto",String(row.volume)],
+                          ["Ticket",String(row.positionTicket)],
+                          ["Entry",String(row.entry)],
+                          ["Prezzo LIVE",current ? String(current) : "—"],
+                          ["P/L LIVE",`${floating>=0?"+":""}$ ${fmt(floating,2)}`],
+                          ["TP",String(row.tp)],
+                          ["Manca al TP",`$ ${fmt(usdToTp,2)}${priceToTp!==null ? ` · Δ ${fmt(priceToTp,6)}` : ""}`],
+                          ["SL",String(row.sl)],
+                          ["Margine allo SL",`$ ${fmt(usdToSl,2)}${priceToSl!==null ? ` · Δ ${fmt(priceToSl,6)}` : ""}`],
+                          ["Ultimo update",row.lastCheckedAt ? new Date(row.lastCheckedAt).toLocaleTimeString("it-IT") : "in attesa…"]
+                        ];
+                      })().map(([label,value])=>(
                         <div key={label} style={{fontSize:10,color:"#94a3b8"}}>
                           <b style={{color:"#e2e8f0"}}>{label}:</b> {value}
                         </div>
