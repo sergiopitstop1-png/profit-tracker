@@ -646,6 +646,7 @@ export default function PropHedgeTab() {
   const [labAccumScanLoading, setLabAccumScanLoading] = useState(false);
   const [labAccumScanError, setLabAccumScanError] = useState("");
   const [labAccumScanFilter, setLabAccumScanFilter] = useState("50");
+  const [labAccumCategoryFilter, setLabAccumCategoryFilter] = useState("TUTTI");
   const [labAccumPositions, setLabAccumPositions] = useState(() => {
     try {
       const raw = window.localStorage.getItem("profittracker_lab_accum_positions_v1");
@@ -2616,6 +2617,8 @@ export default function PropHedgeTab() {
       const normalized = rows
         .map(x => ({
           symbol:String(x?.s || ""),
+          description:String(x?.d || ""),
+          category:String(x?.c || "ALTRO").toUpperCase(),
           minUsd:Number(x?.m),
           volumeMin:Number(x?.v),
           ask:Number(x?.a)
@@ -6659,7 +6662,7 @@ export default function PropHedgeTab() {
                   🔎 Scanner asset per ACCUMULO
                 </div>
                 <div style={{fontSize:12,color:"#7dd3fc",marginTop:4}}>
-                  Ordina gli asset del broker dal taglio minimo più piccolo al più grande.
+                  Ordina gli asset del broker dal taglio minimo più piccolo al più grande e mostra nome e categoria direttamente dalla MT5.
                 </div>
               </div>
 
@@ -6687,13 +6690,13 @@ export default function PropHedgeTab() {
               <>
                 <div style={{
                   display:"grid",
-                  gridTemplateColumns:"minmax(200px,320px) 1fr",
+                  gridTemplateColumns:"minmax(190px,280px) minmax(180px,260px) 1fr",
                   gap:12,
                   alignItems:"end",
                   marginTop:14
                 }}>
                   <div>
-                    <label style={fieldLabel}>Mostra asset con minimo fino a ($)</label>
+                    <label style={fieldLabel}>Minimo fino a ($)</label>
                     <input
                       style={input}
                       type="number"
@@ -6703,6 +6706,20 @@ export default function PropHedgeTab() {
                       onChange={e=>setLabAccumScanFilter(e.target.value)}
                     />
                   </div>
+
+                  <div>
+                    <label style={fieldLabel}>Categoria</label>
+                    <select
+                      style={input}
+                      value={labAccumCategoryFilter}
+                      onChange={e=>setLabAccumCategoryFilter(e.target.value)}
+                    >
+                      {["TUTTI","AZIONE","ETF","FOREX","CRYPTO","INDICE","METAL","ENERGY","COMMODITY","ALTRO"].map(x=>(
+                        <option key={x} value={x}>{x}</option>
+                      ))}
+                    </select>
+                  </div>
+
                   <div style={{fontSize:12,color:"#bae6fd",paddingBottom:10}}>
                     Trovati <b>{labAccumScanRows.length}</b> asset quotati. Ordinati dal minimo più basso.
                   </div>
@@ -6717,7 +6734,7 @@ export default function PropHedgeTab() {
                 }}>
                   <div style={{
                     display:"grid",
-                    gridTemplateColumns:"1.2fr .9fr .7fr .9fr auto",
+                    gridTemplateColumns:".8fr 1.7fr .75fr .75fr .65fr .75fr auto",
                     gap:8,
                     padding:"10px 12px",
                     position:"sticky",
@@ -6729,7 +6746,9 @@ export default function PropHedgeTab() {
                     fontWeight:950,
                     textTransform:"uppercase"
                   }}>
-                    <div>Asset</div>
+                    <div>Ticker</div>
+                    <div>Nome / descrizione</div>
+                    <div>Tipo</div>
                     <div>Minimo $</div>
                     <div>Lotto min</div>
                     <div>Ask</div>
@@ -6739,7 +6758,11 @@ export default function PropHedgeTab() {
                   {labAccumScanRows
                     .filter(row => {
                       const max = Number(labAccumScanFilter);
-                      return !(max > 0) || row.minUsd <= max;
+                      const maxOk = !(max > 0) || row.minUsd <= max;
+                      const catOk =
+                        labAccumCategoryFilter === "TUTTI" ||
+                        row.category === labAccumCategoryFilter;
+                      return maxOk && catOk;
                     })
                     .slice(0,250)
                     .map((row,index)=>(
@@ -6747,7 +6770,7 @@ export default function PropHedgeTab() {
                         key={`${row.symbol}-${index}`}
                         style={{
                           display:"grid",
-                          gridTemplateColumns:"1.2fr .9fr .7fr .9fr auto",
+                          gridTemplateColumns:".8fr 1.7fr .75fr .75fr .65fr .75fr auto",
                           gap:8,
                           alignItems:"center",
                           padding:"10px 12px",
@@ -6755,7 +6778,25 @@ export default function PropHedgeTab() {
                           fontSize:13
                         }}
                       >
-                        <div style={{fontWeight:950,color:"#f8fafc"}}>{row.symbol}</div>
+                        <div style={{fontWeight:950,color:"#f8fafc",fontSize:14}}>
+                          {row.symbol}
+                        </div>
+                        <div style={{color:"#e2e8f0",fontWeight:800}}>
+                          {row.description || "Descrizione non disponibile"}
+                        </div>
+                        <div>
+                          <span style={{
+                            display:"inline-block",
+                            padding:"4px 7px",
+                            borderRadius:999,
+                            border:"1px solid rgba(56,189,248,.30)",
+                            color:"#bae6fd",
+                            fontSize:10,
+                            fontWeight:950
+                          }}>
+                            {row.category}
+                          </span>
+                        </div>
                         <div style={{
                           fontWeight:950,
                           color:row.minUsd <= 10 ? "#5eead4" :
