@@ -2123,7 +2123,7 @@ export default function PropHedgeTab() {
         symbol,
         // Valori neutri: SYMBOL_INFO non li usa.
         side: "BUY",
-        volume: 0,
+        volume: 0.01,
         entry_price: null,
         sl: null,
         tp: null,
