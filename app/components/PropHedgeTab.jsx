@@ -2823,15 +2823,16 @@ export default function PropHedgeTab() {
 
       const { data: existing, error: existingError } = await supabase
         .from("prop_bridge_commands")
-        .select("id,status")
+        .select("id,status,command_type")
         .eq("user_id", uid)
         .eq("broker_account", String(account.mt5_login))
+        .in("command_type", ["open","close"])
         .in("status", ["pending","processing"])
         .limit(1);
 
       if (existingError) throw existingError;
       if (Array.isArray(existing) && existing.length) {
-        throw new Error("Esiste già un comando pending/processing su questo conto. Attendi.");
+        throw new Error("Esiste già un ordine OPEN/CLOSE pending o processing su questo conto. Attendi.");
       }
 
       const accumId = `LAB-ACCUM-${Date.now()}`;
