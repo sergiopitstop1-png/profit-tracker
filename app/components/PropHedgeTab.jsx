@@ -1,6 +1,6 @@
 "use client";
 
-// PropHedgeTab v1.41 — Trading Lab TRADING + attesa MT5 90s con countdown
+// PropHedgeTab v1.42 — Trading Lab: recupero richieste SYMBOL_INFO pendenti + countdown 90s
 
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
@@ -2420,49 +2420,80 @@ export default function PropHedgeTab() {
       const uid = userData?.user?.id;
       if (!uid) throw new Error("Utente Supabase non autenticato");
 
-      // Evitiamo doppioni sullo stesso conto: un solo SYMBOL_INFO pendente/processato.
+      // Un solo SYMBOL_INFO alla volta per conto.
+      // Se ne esiste già uno, NON generiamo un doppione:
+      // - se è recente, riprendiamo ad attenderne il risultato;
+      // - se è vecchio oltre 3 minuti, lo marchiamo failed e ne creiamo uno nuovo.
       const { data: existing, error: existingError } = await supabase
         .from("prop_bridge_commands")
-        .select("id,status,broker_account,symbol,command_type")
+        .select("id,status,broker_account,symbol,command_type,created_at,updated_at")
         .eq("user_id", uid)
         .eq("broker_account", String(account.mt5_login))
         .eq("command_type", "symbol_info")
         .in("status", ["pending", "processing"])
+        .order("created_at", { ascending: false })
         .limit(1);
 
       if (existingError) throw existingError;
 
+      let command = null;
+
       if (Array.isArray(existing) && existing.length) {
-        throw new Error(
-          `Esiste già una richiesta SYMBOL_INFO ${existing[0].status} per questo conto (ID ${existing[0].id}).`
-        );
+        const pending = existing[0];
+        const bornAt = new Date(pending.created_at || pending.updated_at || 0).getTime();
+        const ageMs = Number.isFinite(bornAt) ? Date.now() - bornAt : Infinity;
+
+        if (ageMs <= 180000) {
+          command = pending;
+          setLabTradeStatus(
+            `♻️ Riprendo la richiesta MT5 già pendente (${pending.id}).`
+          );
+        } else {
+          const { error: staleError } = await supabase
+            .from("prop_bridge_commands")
+            .update({
+              status: "failed",
+              error_code: "stale_symbol_info",
+              error_message: "Richiesta SYMBOL_INFO scaduta dal Trading Lab",
+              processed_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+            .eq("user_id", uid)
+            .eq("id", pending.id)
+            .in("status", ["pending", "processing"]);
+
+          if (staleError) throw staleError;
+        }
       }
 
-      const payload = {
-        user_id: uid,
-        challenge_id: `LAB-SYMBOL-${Date.now()}`,
-        prop_name: "TRADING LAB",
-        broker_account: String(account.mt5_login),
-        symbol,
-        // Valori neutri: SYMBOL_INFO non li usa.
-        side: "BUY",
-        volume: 0.01,
-        entry_price: null,
-        sl: null,
-        tp: null,
-        command_type: "symbol_info",
-        position_ticket: null,
-        status: "pending"
-      };
+      if (!command) {
+        const payload = {
+          user_id: uid,
+          challenge_id: `LAB-SYMBOL-${Date.now()}`,
+          prop_name: "TRADING LAB",
+          broker_account: String(account.mt5_login),
+          symbol,
+          // Valori neutri: SYMBOL_INFO non li usa.
+          side: "BUY",
+          volume: 0.01,
+          entry_price: null,
+          sl: null,
+          tp: null,
+          command_type: "symbol_info",
+          position_ticket: null,
+          status: "pending"
+        };
 
-      const { data: command, error: commandError } = await supabase
-        .from("prop_bridge_commands")
-        .insert(payload)
-        .select("id,status,command_type,broker_account,symbol")
-        .single();
+        const { data: inserted, error: commandError } = await supabase
+          .from("prop_bridge_commands")
+          .insert(payload)
+          .select("id,status,command_type,broker_account,symbol,created_at,updated_at")
+          .single();
 
-      if (commandError) throw commandError;
-      if (!command?.id) throw new Error("Richiesta SYMBOL_INFO creata senza ID.");
+        if (commandError) throw commandError;
+        if (!inserted?.id) throw new Error("Richiesta SYMBOL_INFO creata senza ID.");
+        command = inserted;
+      }
 
       setLabLastCommandId(command.id);
 
@@ -4956,7 +4987,7 @@ export default function PropHedgeTab() {
               border:"1px solid rgba(34,211,238,.38)",
               background:"rgba(8,145,178,.12)"
             }}>
-              READ ONLY
+              TRADING LAB
             </span>
           </div>
 
