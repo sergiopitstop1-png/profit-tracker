@@ -4506,13 +4506,18 @@ export default function PropHedgeTab() {
                       <div style={statCard}><div style={statLabel}>Operazioni</div><div style={statValue}>{rows.length}</div></div>
                       <div style={statCard}><div style={statLabel}>Saldo Prop finale</div><div style={statValue}>$ {fmt(num(ch.accountBalance),2)}</div></div>
                       <div style={statCard}><div style={statLabel}>P/L Prop storico</div><div style={{...statValue,color:propPL>=0?"#5eead4":"#fca5a5"}}>{signedMoney(propPL)}</div></div>
-                      <div style={statCard}><div style={statLabel}>P/L Broker storico</div><div style={{...statValue,color:brokerPL>=0?"#5eead4":"#fca5a5"}}>{signedMoney(brokerPL)}</div></div>
+                      <div style={statCard}>
+                        <div style={statLabel}>Esposizione Broker finale</div>
+                        <div style={{...statValue,color:"#fca5a5"}}>
+                          −$ {fmt(Math.abs(num(ch.archivedBrokerExposure ?? challengeExposureMap[ch.id] ?? ch.initialBrokerExposure ?? ch?.importedExisting?.brokerExposureBaseline)),2)}
+                        </div>
+                      </div>
                     </div>
 
                     <div style={{marginTop:10,padding:"10px 12px",borderRadius:12,background:"rgba(2,6,23,.40)",border:"1px solid rgba(71,85,105,.45)",fontSize:12,color:"#cbd5e1"}}>
                       Risultato combinato storico: <b style={{color:combined>=0?"#86efac":"#fca5a5"}}>{signedMoney(combined)}</b><br/>
                       Costo Prop: <b>$ {fmt(num(ch.propCost),2)}</b> • Target desiderato: <b>$ {fmt(num(ch.finalProfitTarget),2)}</b><br/>
-                      Esposizione Broker finale: <b style={{color:"#c4b5fd"}}>$ {fmt(num(ch.archivedBrokerExposure ?? challengeExposureMap[ch.id]),2)}</b><br/>
+                      P/L Broker storico registrato: <b style={{color:brokerPL>=0?"#86efac":"#fca5a5"}}>{signedMoney(brokerPL)}</b><br/>
                       Archiviata: <b>{ch.archivedAt ? new Date(ch.archivedAt).toLocaleString("it-IT") : "—"}</b>
                     </div>
 
