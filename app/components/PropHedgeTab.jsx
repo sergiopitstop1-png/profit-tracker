@@ -6662,7 +6662,7 @@ export default function PropHedgeTab() {
                   🔎 Scanner asset per ACCUMULO
                 </div>
                 <div style={{fontSize:12,color:"#7dd3fc",marginTop:4}}>
-                  Ordina gli asset del broker dal taglio minimo più piccolo al più grande e mostra nome e categoria direttamente dalla MT5.
+                  Scansione sicura: legge un blocco compatto di asset con nome e categoria, evitando il limite JSON del Bridge.
                 </div>
               </div>
 
@@ -6721,7 +6721,7 @@ export default function PropHedgeTab() {
                   </div>
 
                   <div style={{fontSize:12,color:"#bae6fd",paddingBottom:10}}>
-                    Trovati <b>{labAccumScanRows.length}</b> asset quotati. Ordinati dal minimo più basso.
+                    Ricevuti <b>{labAccumScanRows.length}</b> asset nel blocco sicuro. Ordinati dal minimo più basso.
                   </div>
                 </div>
 
