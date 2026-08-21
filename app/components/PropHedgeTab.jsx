@@ -2,7 +2,7 @@
 
 // PropHedgeTab v1.42 — Trading Lab: recupero richieste SYMBOL_INFO pendenti + countdown 90s
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
 import MarketEnginePanel from "./MarketEnginePanel";
 import TradingViewChart from "./TradingViewChart";
