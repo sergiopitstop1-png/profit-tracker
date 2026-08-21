@@ -95,6 +95,8 @@ function makeChallenge(name, id) {
     ddMax: "6",
     dailyDdPct: "3",
     propStage: "STEP 1",
+    propOrigin: "NEW",
+    initialBrokerExposure: "0",
     highImpactNewsAllowed: false,
     propNotes: "",
     themeId: "",
@@ -1583,6 +1585,8 @@ export default function PropHedgeTab() {
   const normalizeChallengeRegistry = (ch) => ({
     ...ch,
     propStage: ch.propStage || "STEP 1",
+    propOrigin: ch.propOrigin || (ch.propStage === "STEP 2" ? "STEP_2" : ch.propStage === "FUNDED / REAL" ? "REAL" : "NEW"),
+    initialBrokerExposure: String(ch.initialBrokerExposure ?? ch?.importedExisting?.brokerExposureBaseline ?? "0"),
     dailyDdPct: ch.dailyDdPct ?? "3",
     highImpactNewsAllowed: ch.highImpactNewsAllowed === true,
     propNotes: ch.propNotes || "",
@@ -1620,11 +1624,16 @@ export default function PropHedgeTab() {
     if (num(d.accountSize) <= 0) return alert("Inserisci il valore della Prop.");
     if (num(d.ddMax) <= 0) return alert("Inserisci il DD massimo.");
     if (num(d.dailyDdPct) <= 0) return alert("Inserisci il DD giornaliero.");
+    if (num(d.initialBrokerExposure) < 0) return alert("L'esposizione Broker pregressa non può essere negativa.");
 
     const startEquity = Math.min(num(d.accountBalance || d.accountSize), num(d.accountSize));
     const saved = {
       ...d,
       name: String(d.name).trim(),
+      importedExisting: {
+        ...(d.importedExisting || {}),
+        brokerExposureBaseline: num(d.initialBrokerExposure)
+      },
       dailyRisk: registryEditingId && d.dailyRisk
         ? d.dailyRisk
         : { date: todayKey(), startEquity: String(startEquity) }
@@ -1668,25 +1677,60 @@ export default function PropHedgeTab() {
 
   const removeChallenge = (id) => {
     const ch = challenges.find(x => x.id === id);
-    if (ch?.active) {
-      alert("Chiudi o annulla prima l'operazione attiva.");
+    if (!ch) return;
+    if (ch.active) {
+      alert("⛔ Non puoi archiviare una Prop con un'operazione attiva. Chiudi o annulla prima l'operazione.");
       return;
     }
-    const status = window.prompt(
-      `Archivia ${ch?.name || "questa challenge"}.\n\nStato finale (facoltativo): SUPERATA, BRUCIATA, CHIUSA, ALTRO`,
-      ch?.archiveStatus || ""
+
+    const exposureAtArchive = Math.max(0, num(challengeExposureMap?.[id] ?? ch.initialBrokerExposure ?? ch?.importedExisting?.brokerExposureBaseline));
+
+    const choice = window.prompt(
+      `📦 ARCHIVIA ${ch.name || "PROP"}\n\n` +
+      `1 = SUPERATA STEP 1\n` +
+      `2 = SUPERATA STEP 2\n` +
+      `3 = PASSATA A FUNDED / REAL\n` +
+      `4 = FALLITA\n` +
+      `5 = CHIUSA / ALTRO\n\n` +
+      `Esposizione Broker finale: $ ${fmt(exposureAtArchive,2)}\n\n` +
+      `Scrivi 1, 2, 3, 4 o 5:`
     );
-    if (status === null) return;
+    if (choice === null) return;
+
+    const statuses = {
+      "1": "SUPERATA STEP 1",
+      "2": "SUPERATA STEP 2",
+      "3": "PASSATA A FUNDED / REAL",
+      "4": "FALLITA",
+      "5": "CHIUSA / ALTRO"
+    };
+    const archiveStatus = statuses[String(choice).trim()];
+    if (!archiveStatus) {
+      alert("Selezione non valida. Archiviazione annullata.");
+      return;
+    }
+
     const ok = window.confirm(
-      `${ch?.name || "Challenge"} verrà tolta dall'operatività ma NON cancellata.\nResterà consultabile nell'Archivio Challenge.\n\nProcedere?`
+      `${ch.name || "Challenge"} verrà tolta dall'operatività ma NON cancellata.\n\n` +
+      `Esito: ${archiveStatus}\n` +
+      `Esposizione Broker congelata: $ ${fmt(exposureAtArchive,2)}\n` +
+      `Costo iniziale: $ ${fmt(num(ch.propCost),2)}\n` +
+      `Guadagno desiderato: $ ${fmt(num(ch.finalProfitTarget),2)}\n\n` +
+      `Resterà consultabile nell'Archivio Challenge. Procedere?`
     );
     if (!ok) return;
+
     setChallenges(prev => prev.map(x => x.id === id ? {
       ...x,
       archived: true,
       archivedAt: new Date().toISOString(),
-      archiveStatus: String(status || "").trim().toUpperCase()
+      archiveStatus,
+      archivedBrokerExposure: exposureAtArchive
     } : x));
+
+    setShowChallengeRegistry(false);
+    setRegistryDraft(null);
+    setRegistryEditingId(null);
   };
 
   const restoreChallenge = (id) => {
@@ -1743,7 +1787,7 @@ export default function PropHedgeTab() {
         0
       );
 
-      const importedBaseline = num(ch?.importedExisting?.brokerExposureBaseline);
+      const importedBaseline = num(ch.initialBrokerExposure ?? ch?.importedExisting?.brokerExposureBaseline);
       result[ch.id] = Math.max(0, importedBaseline + Math.max(0, -brokerNet));
     }
 
@@ -2688,6 +2732,14 @@ export default function PropHedgeTab() {
               <div><label style={fieldLabel}>Prop Firm / Nome challenge</label><input style={input} value={registryDraft.name || ""} onChange={e=>setRegistryDraft(d=>({...d,name:e.target.value}))}/></div>
               <div><label style={fieldLabel}>Fase</label><select style={input} value={registryDraft.propStage || "STEP 1"} onChange={e=>setRegistryDraft(d=>({...d,propStage:e.target.value}))}><option>STEP 1</option><option>STEP 2</option><option>FUNDED / REAL</option></select></div>
               <div>
+                <label style={fieldLabel}>Origine Prop</label>
+                <select style={input} value={registryDraft.propOrigin || "NEW"} onChange={e=>setRegistryDraft(d=>({...d,propOrigin:e.target.value}))}>
+                  <option value="NEW">Nuova challenge</option>
+                  <option value="STEP_2">Passaggio a Step 2</option>
+                  <option value="REAL">Conto Funded / Real</option>
+                </select>
+              </div>
+              <div>
                 <label style={fieldLabel}>Conto Broker predefinito per questa Prop</label>
                 <select style={input} value={registryDraft.brokerAccountId || ""} onChange={e=>setRegistryDraft(d=>({...d,brokerAccountId:e.target.value}))}>
                   <option value="">— Seleziona account Broker —</option>
@@ -2700,7 +2752,8 @@ export default function PropHedgeTab() {
               <TextNumberField label="TP Prop ($)" value={registryDraft.tpProp || ""} onChange={v=>setRegistryDraft(d=>({...d,tpProp:v}))}/>
               <TextNumberField label="DD Max Prop (%)" value={registryDraft.ddMax || ""} onChange={v=>setRegistryDraft(d=>({...d,ddMax:v}))}/>
               <TextNumberField label="DD giornaliero Prop (%)" value={registryDraft.dailyDdPct || ""} onChange={v=>setRegistryDraft(d=>({...d,dailyDdPct:v}))}/>
-              <TextNumberField label="Costo Prop ($)" value={registryDraft.propCost || ""} onChange={v=>setRegistryDraft(d=>({...d,propCost:v}))}/>
+              <TextNumberField label="Costo iniziale da recuperare ($)" value={registryDraft.propCost || ""} onChange={v=>setRegistryDraft(d=>({...d,propCost:v}))}/>
+              <TextNumberField label="Esposizione Broker pregressa ($)" value={registryDraft.initialBrokerExposure || "0"} onChange={v=>setRegistryDraft(d=>({...d,initialBrokerExposure:v}))}/>
               <TextNumberField label="Guadagno finale desiderato ($)" value={registryDraft.finalProfitTarget || ""} onChange={v=>setRegistryDraft(d=>({...d,finalProfitTarget:v}))}/>
               <TextNumberField label="Leva" value={registryDraft.leverage || ""} onChange={v=>setRegistryDraft(d=>({...d,leverage:v}))}/>
               <TextNumberField label="Margine massimo consentito (%)" value={registryDraft.maxMarginPct || ""} onChange={v=>setRegistryDraft(d=>({...d,maxMarginPct:v}))}/>
@@ -2721,13 +2774,30 @@ export default function PropHedgeTab() {
               <div><label style={fieldLabel}>Note / regole particolari</label><textarea style={{...input,minHeight:82,resize:"vertical"}} value={registryDraft.propNotes || ""} onChange={e=>setRegistryDraft(d=>({...d,propNotes:e.target.value}))}/></div>
             </div>
 
+            <div style={{marginTop:14,padding:"12px 14px",borderRadius:14,border:"1px solid rgba(34,197,94,.30)",background:"rgba(20,83,45,.10)",color:"#bbf7d0",fontSize:12,lineHeight:1.55}}>
+              <b>Recupero economico:</b> costo iniziale + esposizione Broker pregressa + guadagno desiderato.
+              Per una challenge nuova lascia l'esposizione a 0. Per Step 2 / Funded / Real inserisci l'esposizione ereditata dalla fase precedente.
+            </div>
+
             <div style={{marginTop:14,padding:"12px 14px",borderRadius:14,border:"1px solid rgba(245,158,11,.35)",background:"rgba(120,53,15,.10)",color:"#fde68a",fontSize:12}}>
               🛡️ DD giornaliero prudenziale: a ogni nuovo giorno la baseline è il minore tra saldo/equity corrente e valore iniziale della Prop. Se sei sopra il valore iniziale, il limite non aumenta.
             </div>
 
-            <div style={{display:"flex",justifyContent:"flex-end",gap:10,marginTop:18}}>
-              <button style={secondaryButton} onClick={()=>{setShowChallengeRegistry(false);setRegistryDraft(null);setRegistryEditingId(null);}}>Annulla</button>
-              <button style={primaryButtonBlue} onClick={saveChallengeRegistry}>💾 Salva scheda Prop</button>
+            <div style={{display:"flex",justifyContent:"space-between",gap:10,marginTop:18,flexWrap:"wrap"}}>
+              <div>
+                {registryEditingId && !challenges.find(x=>x.id===registryEditingId)?.archived && (
+                  <button
+                    style={{...secondaryButton,color:"#fecdd3",border:"1px solid rgba(244,63,94,.55)",background:"rgba(127,29,29,.16)"}}
+                    onClick={()=>removeChallenge(registryEditingId)}
+                  >
+                    📦 ARCHIVIA PROP
+                  </button>
+                )}
+              </div>
+              <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+                <button style={secondaryButton} onClick={()=>{setShowChallengeRegistry(false);setRegistryDraft(null);setRegistryEditingId(null);}}>Annulla</button>
+                <button style={primaryButtonBlue} onClick={saveChallengeRegistry}>💾 Salva scheda Prop</button>
+              </div>
             </div>
           </div>
         </div>
@@ -4283,6 +4353,7 @@ export default function PropHedgeTab() {
                     <div style={{marginTop:10,padding:"10px 12px",borderRadius:12,background:"rgba(2,6,23,.40)",border:"1px solid rgba(71,85,105,.45)",fontSize:12,color:"#cbd5e1"}}>
                       Risultato combinato storico: <b style={{color:combined>=0?"#86efac":"#fca5a5"}}>{signedMoney(combined)}</b><br/>
                       Costo Prop: <b>$ {fmt(num(ch.propCost),2)}</b> • Target desiderato: <b>$ {fmt(num(ch.finalProfitTarget),2)}</b><br/>
+                      Esposizione Broker finale: <b style={{color:"#c4b5fd"}}>$ {fmt(num(ch.archivedBrokerExposure ?? challengeExposureMap[ch.id]),2)}</b><br/>
                       Archiviata: <b>{ch.archivedAt ? new Date(ch.archivedAt).toLocaleString("it-IT") : "—"}</b>
                     </div>
 
