@@ -4164,7 +4164,7 @@ export default function PropHedgeTab() {
           </div>
 
           <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-            <label style={{fontSize:10,color:"#94a3b8",fontWeight:900}}>ASSET GRAFICO</label>
+            <label style={{fontSize:14,color:"#94a3b8",fontWeight:900}}>ASSET GRAFICO</label>
             <select
               value={chartSymbol}
               onChange={e=>setChartSymbol(e.target.value)}
@@ -4291,14 +4291,14 @@ export default function PropHedgeTab() {
                   {live ? (
                     <>
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10}}>
-                        <div><span style={{fontSize:10,color:"#94a3b8"}}>Saldo</span><div style={{fontWeight:900}}>$ {fmt(num(live.balance),2)}</div></div>
-                        <div><span style={{fontSize:10,color:"#94a3b8"}}>Credito / Bonus</span><div style={{fontWeight:900,color:num(live.credit)>0?"#c4b5fd":"#cbd5e1"}}>$ {fmt(num(live.credit),2)}</div></div>
-                        <div><span style={{fontSize:10,color:"#94a3b8"}}>Equity</span><div style={{fontWeight:900,color:num(live.equity)>=num(live.balance)+num(live.credit)?"#5eead4":"#fca5a5"}}>$ {fmt(num(live.equity),2)}</div></div>
-                        <div><span style={{fontSize:10,color:"#94a3b8"}}>Floating reale</span><div style={{fontWeight:900,color:(num(live.equity)-num(live.balance)-num(live.credit))>=0?"#5eead4":"#fca5a5"}}>{signedMoney(num(live.equity)-num(live.balance)-num(live.credit))}</div></div>
-                        <div><span style={{fontSize:10,color:"#94a3b8"}}>Margine libero</span><div style={{fontWeight:850}}>$ {fmt(num(live.free_margin),2)}</div></div>
-                        <div><span style={{fontSize:10,color:"#94a3b8"}}>Algo</span><div style={{fontWeight:850,color:live.algo_trading?"#86efac":"#fca5a5"}}>{live.algo_trading?"ON":"OFF"}</div></div>
+                        <div><span style={{fontSize:14,color:"#94a3b8"}}>Saldo</span><div style={{fontWeight:900}}>$ {fmt(num(live.balance),2)}</div></div>
+                        <div><span style={{fontSize:14,color:"#94a3b8"}}>Credito / Bonus</span><div style={{fontWeight:900,color:num(live.credit)>0?"#c4b5fd":"#cbd5e1"}}>$ {fmt(num(live.credit),2)}</div></div>
+                        <div><span style={{fontSize:14,color:"#94a3b8"}}>Equity</span><div style={{fontWeight:900,color:num(live.equity)>=num(live.balance)+num(live.credit)?"#5eead4":"#fca5a5"}}>$ {fmt(num(live.equity),2)}</div></div>
+                        <div><span style={{fontSize:14,color:"#94a3b8"}}>Floating reale</span><div style={{fontWeight:900,color:(num(live.equity)-num(live.balance)-num(live.credit))>=0?"#5eead4":"#fca5a5"}}>{signedMoney(num(live.equity)-num(live.balance)-num(live.credit))}</div></div>
+                        <div><span style={{fontSize:14,color:"#94a3b8"}}>Margine libero</span><div style={{fontWeight:850}}>$ {fmt(num(live.free_margin),2)}</div></div>
+                        <div><span style={{fontSize:14,color:"#94a3b8"}}>Algo</span><div style={{fontWeight:850,color:live.algo_trading?"#86efac":"#fca5a5"}}>{live.algo_trading?"ON":"OFF"}</div></div>
                       </div>
-                      <div style={{fontSize:10,color:"#94a3b8",marginTop:8}}>Ultimo heartbeat: {seconds !== null ? `${seconds}s fa` : "—"}</div>
+                      <div style={{fontSize:14,color:"#94a3b8",marginTop:8}}>Ultimo heartbeat: {seconds !== null ? `${seconds}s fa` : "—"}</div>
                       <button
                         style={{...secondaryButton,marginTop:10,width:"100%"}}
                         onClick={() => openBrokerMovement(account.id)}
@@ -5954,10 +5954,10 @@ export default function PropHedgeTab() {
               flexWrap:"wrap"
             }}>
               <div>
-                <div style={{fontSize:16,fontWeight:950,color:"#cffafe"}}>
+                <div style={{fontSize:20,fontWeight:950,color:"#cffafe"}}>
                   📡 Posizioni Trading Lab attive
                 </div>
-                <div style={{fontSize:10,color:"#67e8f9",marginTop:3}}>
+                <div style={{fontSize:12,color:"#67e8f9",marginTop:4}}>
                   LIVE ogni 15 sec finché esiste una posizione aperta · TP/SL notificati su Telegram · zero polling quando non ci sono trade.
                 </div>
               </div>
@@ -5984,13 +5984,13 @@ export default function PropHedgeTab() {
                     style={{
                       border:"1px solid rgba(100,116,139,.35)",
                       borderRadius:12,
-                      padding:"12px",
+                      padding:"16px",
                       background:"rgba(15,23,42,.55)"
                     }}
                   >
                     <div style={{
                       display:"grid",
-                      gridTemplateColumns:"repeat(auto-fit,minmax(145px,1fr))",
+                      gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",
                       gap:8
                     }}>
                       {(() => {
@@ -6022,14 +6022,165 @@ export default function PropHedgeTab() {
                           ["Ultimo update",row.lastCheckedAt ? new Date(row.lastCheckedAt).toLocaleTimeString("it-IT") : "in attesa…"]
                         ];
                       })().map(([label,value])=>(
-                        <div key={label} style={{fontSize:10,color:"#94a3b8"}}>
-                          <b style={{color:"#e2e8f0"}}>{label}:</b> {value}
+                        <div key={label} style={{
+                          fontSize:14,
+                          color:"#94a3b8",
+                          lineHeight:1.45
+                        }}>
+                          <b style={{
+                            color:"#cbd5e1",
+                            fontSize:13,
+                            textTransform:"uppercase",
+                            letterSpacing:.35
+                          }}>
+                            {label}:
+                          </b>{" "}
+                          <span style={{
+                            color:"#f8fafc",
+                            fontSize:17,
+                            fontWeight:900
+                          }}>
+                            {value}
+                          </span>
                         </div>
                       ))}
                     </div>
 
+                    {(() => {
+                      const entry = Number(row.entry || 0);
+                      const current = Number(row.currentPrice || row.entry || 0);
+                      const tp = Number(row.tp || 0);
+                      const sl = Number(row.sl || 0);
+                      const side = String(row.side || "BUY").toUpperCase();
+
+                      const minPx = Math.min(sl, tp);
+                      const maxPx = Math.max(sl, tp);
+                      const span = maxPx - minPx;
+
+                      let currentPct = span > 0 ? ((current - minPx) / span) * 100 : 50;
+                      let entryPct = span > 0 ? ((entry - minPx) / span) * 100 : 50;
+
+                      currentPct = Math.max(0, Math.min(100, currentPct));
+                      entryPct = Math.max(0, Math.min(100, entryPct));
+
+                      const towardTp =
+                        side === "BUY"
+                          ? current >= entry
+                          : current <= entry;
+
+                      const moveFromEntry =
+                        entry > 0 ? current - entry : 0;
+
+                      return (
+                        <div style={{
+                          marginTop:12,
+                          padding:"12px 12px 10px",
+                          borderRadius:12,
+                          border:"1px solid rgba(56,189,248,.28)",
+                          background:"rgba(15,23,42,.62)"
+                        }}>
+                          <div style={{
+                            display:"flex",
+                            justifyContent:"space-between",
+                            alignItems:"center",
+                            gap:10,
+                            flexWrap:"wrap",
+                            marginBottom:8
+                          }}>
+                            <div style={{
+                              fontSize:16,
+                              fontWeight:950,
+                              color:"#e0f2fe"
+                            }}>
+                              📈 MOVIMENTO OPERAZIONE
+                            </div>
+
+                            <div style={{
+                              fontSize:15,
+                              fontWeight:950,
+                              color:towardTp ? "#5eead4" : "#fca5a5"
+                            }}>
+                              {towardTp ? "VERSO TP" : "VERSO SL"} · Δ PREZZO {moveFromEntry >= 0 ? "+" : ""}{fmt(moveFromEntry,6)}
+                            </div>
+                          </div>
+
+                          <div style={{
+                            position:"relative",
+                            height:28,
+                            borderRadius:999,
+                            overflow:"hidden",
+                            border:"1px solid rgba(100,116,139,.45)",
+                            background:"linear-gradient(90deg, rgba(127,29,29,.40) 0%, rgba(30,41,59,.55) 50%, rgba(6,95,70,.40) 100%)"
+                          }}>
+                            <div style={{
+                              position:"absolute",
+                              left:`${entryPct}%`,
+                              top:0,
+                              bottom:0,
+                              width:2,
+                              background:"#f8fafc",
+                              opacity:.9,
+                              transform:"translateX(-1px)",
+                              zIndex:2
+                            }} />
+
+                            <div style={{
+                              position:"absolute",
+                              left:`${currentPct}%`,
+                              top:"50%",
+                              width:18,
+                              height:18,
+                              borderRadius:"50%",
+                              background:towardTp ? "#2dd4bf" : "#fb7185",
+                              border:"2px solid #f8fafc",
+                              boxShadow:"0 0 10px rgba(255,255,255,.35)",
+                              transform:"translate(-50%,-50%)",
+                              zIndex:3,
+                              transition:"left .45s ease"
+                            }} />
+                          </div>
+
+                          <div style={{
+                            display:"grid",
+                            gridTemplateColumns:"1fr 1fr 1fr",
+                            gap:8,
+                            marginTop:7,
+                            fontSize:13
+                          }}>
+                            <div style={{color:"#fca5a5",fontWeight:900}}>
+                              SL {sl}
+                            </div>
+                            <div style={{textAlign:"center",color:"#e2e8f0",fontWeight:900}}>
+                              ENTRY {entry}
+                            </div>
+                            <div style={{textAlign:"right",color:"#5eead4",fontWeight:900}}>
+                              TP {tp}
+                            </div>
+                          </div>
+
+                          <div style={{
+                            marginTop:8,
+                            display:"flex",
+                            justifyContent:"space-between",
+                            gap:12,
+                            flexWrap:"wrap",
+                            fontSize:14
+                          }}>
+                            <span style={{color:"#94a3b8"}}>
+                              Prezzo live: <b style={{color:"#f8fafc"}}>{current}</b>
+                            </span>
+                            <span style={{color:"#94a3b8"}}>
+                              P/L: <b style={{color:Number(row.floatingPL||0) >= 0 ? "#5eead4" : "#fca5a5"}}>
+                                {Number(row.floatingPL||0) >= 0 ? "+" : ""}$ {fmt(Number(row.floatingPL||0),2)}
+                              </b>
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
                     {row.lastCheckError && (
-                      <div style={{marginTop:8,fontSize:10,color:"#fca5a5"}}>
+                      <div style={{marginTop:8,fontSize:13,color:"#fca5a5"}}>
                         Ultimo controllo: {row.lastCheckError}
                       </div>
                     )}
