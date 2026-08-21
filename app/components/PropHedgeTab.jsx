@@ -624,6 +624,26 @@ export default function PropHedgeTab() {
   const [labTradeSubmitting, setLabTradeSubmitting] = useState(false);
   const [labTradeStatus, setLabTradeStatus] = useState("");
   const [labTradeError, setLabTradeError] = useState("");
+  const [labActiveTrades, setLabActiveTrades] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem("profittracker_lab_active_trades_v1");
+      const rows = raw ? JSON.parse(raw) : [];
+      return Array.isArray(rows) ? rows : [];
+    } catch {
+      return [];
+    }
+  });
+  const [labPositionRefreshing, setLabPositionRefreshing] = useState(false);
+
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        "profittracker_lab_active_trades_v1",
+        JSON.stringify(labActiveTrades)
+      );
+    } catch {}
+  }, [labActiveTrades]);
 
   const [chartSymbol, setChartSymbol] = useState("XAUUSD");
   const [enginePropDirection, setEnginePropDirection] = useState(() => {
@@ -2252,6 +2272,213 @@ export default function PropHedgeTab() {
     }
   };
 
+
+  const requestLabPositionInfo = async (tradeRow) => {
+    const account = brokerAccounts.find(x => x.id === tradeRow.brokerAccountId) || null;
+    if (!account) throw new Error("Account Trading Lab non trovato.");
+
+    const { data: userData } = await supabase.auth.getUser();
+    const uid = userData?.user?.id;
+    if (!uid) throw new Error("Utente Supabase non autenticato");
+
+    const payload = {
+      user_id: uid,
+      challenge_id: tradeRow.challengeId || `LAB-POS-${Date.now()}`,
+      prop_name: "TRADING LAB",
+      broker_account: String(account.mt5_login),
+      symbol: tradeRow.symbol,
+      side: tradeRow.side || "BUY",
+      volume: 0.01,
+      entry_price: null,
+      sl: null,
+      tp: null,
+      command_type: "position_info",
+      position_ticket: String(tradeRow.positionTicket),
+      status: "pending"
+    };
+
+    const { data: command, error: commandError } = await supabase
+      .from("prop_bridge_commands")
+      .insert(payload)
+      .select("id,status,command_type,position_ticket")
+      .single();
+
+    if (commandError) throw commandError;
+
+    const result = await waitForBridgeCommand(
+      command.id,
+      { timeoutMs: tradingEnabled ? 30000 : 90000, intervalMs: 1000 }
+    );
+
+    if (result.status === "timeout") {
+      throw new Error("Timeout POSITION_INFO");
+    }
+    if (result.status === "failed") {
+      throw new Error(result.error_message || "POSITION_INFO fallito");
+    }
+
+    return result?.result_payload || {};
+  };
+
+  const refreshLabActiveTrades = async ({ silent = false } = {}) => {
+    if (labPositionRefreshing || !labActiveTrades.length) return;
+    setLabPositionRefreshing(true);
+
+    try {
+      const updates = [];
+      const survivors = [];
+
+      for (const tradeRow of labActiveTrades) {
+        try {
+          const info = await requestLabPositionInfo(tradeRow);
+
+          if (info?.is_open === true) {
+            survivors.push({
+              ...tradeRow,
+              floatingPL: Number(info.floating_pl || 0),
+              currentPrice: Number(info.current_price || 0),
+              lastCheckedAt: new Date().toISOString()
+            });
+            continue;
+          }
+
+          const realizedPL = Number(info?.realized_pl);
+          const exitPrice = Number(info?.exit_price);
+          const reason = String(info?.close_reason || "OTHER").toUpperCase();
+
+          let action = "lab_trade_manual_close";
+          if (reason === "TP") action = "lab_trade_tp";
+          else if (reason === "SL") action = "lab_trade_sl";
+
+          await notifyTradingLabTelegram({
+            action,
+            accountAlias: tradeRow.accountAlias,
+            accountType: tradeRow.accountType,
+            login: tradeRow.login,
+            symbol: tradeRow.symbol,
+            side: tradeRow.side,
+            volume: tradeRow.volume,
+            positionTicket: tradeRow.positionTicket,
+            exitPrice: Number.isFinite(exitPrice) ? exitPrice : null,
+            realizedPL: Number.isFinite(realizedPL) ? realizedPL : null
+          });
+
+          updates.push({
+            ticket: tradeRow.positionTicket,
+            reason,
+            realizedPL
+          });
+        } catch (e) {
+          survivors.push({
+            ...tradeRow,
+            lastCheckError: e?.message || String(e)
+          });
+        }
+      }
+
+      setLabActiveTrades(survivors);
+
+      if (!silent) {
+        if (updates.length) {
+          setLabTradeStatus(
+            `✅ Aggiornamento posizioni completato: ${updates.length} posizione/i chiusa/e rilevata/e e notificata/e su Telegram.`
+          );
+        } else {
+          setLabTradeStatus("✅ Posizioni Trading Lab aggiornate.");
+        }
+      }
+    } finally {
+      setLabPositionRefreshing(false);
+    }
+  };
+
+  const closeLabTradeManually = async (tradeRow) => {
+    if (!tradeRow?.positionTicket) return;
+
+    const account = brokerAccounts.find(x => x.id === tradeRow.brokerAccountId) || null;
+    if (!account) {
+      setLabTradeError("Account Trading Lab non trovato.");
+      return;
+    }
+
+    const ok = window.confirm(
+      `Chiudere manualmente ${tradeRow.side} ${tradeRow.symbol}\n` +
+      `Ticket ${tradeRow.positionTicket} su ${tradeRow.accountAlias}?`
+    );
+    if (!ok) return;
+
+    try {
+      setLabTradeError("");
+      setLabTradeStatus("⏳ Invio chiusura Trading Lab al Bridge…");
+
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData?.user?.id;
+      if (!uid) throw new Error("Utente Supabase non autenticato");
+
+      const payload = {
+        user_id: uid,
+        challenge_id: tradeRow.challengeId || `LAB-CLOSE-${Date.now()}`,
+        prop_name: "TRADING LAB",
+        broker_account: String(account.mt5_login),
+        symbol: tradeRow.symbol,
+        side: tradeRow.side || "BUY",
+        volume: 0.01,
+        entry_price: null,
+        sl: null,
+        tp: null,
+        command_type: "close",
+        position_ticket: String(tradeRow.positionTicket),
+        status: "pending"
+      };
+
+      const { data: command, error: commandError } = await supabase
+        .from("prop_bridge_commands")
+        .insert(payload)
+        .select("id,status,command_type,position_ticket")
+        .single();
+
+      if (commandError) throw commandError;
+
+      const result = await waitForBridgeCommand(
+        command.id,
+        { timeoutMs: 30000, intervalMs: 750 }
+      );
+
+      if (result.status !== "executed") {
+        throw new Error(result.error_message || `Chiusura non eseguita: ${result.status}`);
+      }
+
+      const realizedPL = Number(result.realized_pl);
+      const exitPrice = Number(result.execution_price);
+
+      await notifyTradingLabTelegram({
+        action: "lab_trade_manual_close",
+        accountAlias: tradeRow.accountAlias,
+        accountType: tradeRow.accountType,
+        login: tradeRow.login,
+        symbol: tradeRow.symbol,
+        side: tradeRow.side,
+        volume: tradeRow.volume,
+        positionTicket: tradeRow.positionTicket,
+        exitPrice: Number.isFinite(exitPrice) ? exitPrice : null,
+        realizedPL: Number.isFinite(realizedPL) ? realizedPL : null
+      });
+
+      setLabActiveTrades(prev =>
+        prev.filter(x => String(x.positionTicket) !== String(tradeRow.positionTicket))
+      );
+
+      setLabTradeStatus(
+        `✅ Posizione chiusa · Ticket ${tradeRow.positionTicket} · ` +
+        `P/L ${Number.isFinite(realizedPL) ? (realizedPL >= 0 ? "+" : "") + "$" + fmt(realizedPL,2) : "n/d"} · 📨 Telegram OK`
+      );
+
+      await loadBrokerLiveStates({ silent: true });
+    } catch (e) {
+      setLabTradeError(e?.message || String(e));
+    }
+  };
+
   const submitLabTrade = async () => {
     if (labTradeSubmitting) return;
     setLabTradeError("");
@@ -2421,6 +2648,37 @@ export default function PropHedgeTab() {
         (telegramResult.ok ? " · 📨 Telegram OK" : " · ⚠️ Telegram non inviato")
       );
 
+      if (result.position_ticket) {
+        setLabActiveTrades(prev => {
+          const next = prev.filter(
+            x => String(x.positionTicket) !== String(result.position_ticket)
+          );
+
+          next.push({
+            id: `LAB-${result.position_ticket}`,
+            challengeId: labTradeId,
+            brokerAccountId: account.id,
+            accountAlias: account.alias || account.broker || String(account.mt5_login),
+            accountType: account.account_type || "real",
+            login: String(account.mt5_login),
+            symbol: preview.symbol,
+            side: preview.side,
+            volume: Number(preview.volume),
+            entry: executionPrice,
+            sl: Number(preview.sl),
+            tp: Number(preview.tp),
+            maxLossUsd: Number(preview.estimatedLoss),
+            targetUsd: Number(preview.estimatedProfit),
+            positionTicket: String(result.position_ticket),
+            openedAt: new Date().toISOString(),
+            floatingPL: 0,
+            currentPrice: executionPrice
+          });
+
+          return next;
+        });
+      }
+
       await loadBrokerLiveStates({ silent: true });
 
       // Dopo l'esecuzione invalidiamo la preview perché Bid/Ask potrebbero essere cambiati.
@@ -2433,6 +2691,17 @@ export default function PropHedgeTab() {
       setLabTradeSubmitting(false);
     }
   };
+
+
+  useEffect(() => {
+    if (!labActiveTrades.length) return undefined;
+
+    const timer = window.setInterval(() => {
+      refreshLabActiveTrades({ silent: true });
+    }, tradingEnabled ? 45000 : 120000);
+
+    return () => window.clearInterval(timer);
+  }, [labActiveTrades.length, tradingEnabled]);
 
   const requestLabSymbolList = async (accountId = labBrokerAccountId) => {
     if (labSymbolsLoading) return;
@@ -5664,6 +5933,102 @@ export default function PropHedgeTab() {
             )}
           </div>
 
+
+          <div style={{
+            marginTop:18,
+            padding:"14px",
+            borderRadius:14,
+            border:"1px solid rgba(34,211,238,.28)",
+            background:"rgba(8,47,73,.10)"
+          }}>
+            <div style={{
+              display:"flex",
+              justifyContent:"space-between",
+              alignItems:"center",
+              gap:10,
+              flexWrap:"wrap"
+            }}>
+              <div>
+                <div style={{fontSize:16,fontWeight:950,color:"#cffafe"}}>
+                  📡 Posizioni Trading Lab attive
+                </div>
+                <div style={{fontSize:10,color:"#67e8f9",marginTop:3}}>
+                  Controllo automatico: {tradingEnabled ? "ogni 45 sec" : "ogni 120 sec in SLEEP"} · TP/SL notificati su Telegram.
+                </div>
+              </div>
+
+              <button
+                type="button"
+                style={{...secondaryButton,padding:"9px 12px"}}
+                disabled={labPositionRefreshing || !labActiveTrades.length}
+                onClick={()=>refreshLabActiveTrades({ silent:false })}
+              >
+                {labPositionRefreshing ? "⏳ CONTROLLO…" : "↻ AGGIORNA POSIZIONI"}
+              </button>
+            </div>
+
+            {!labActiveTrades.length ? (
+              <div style={{marginTop:12,fontSize:11,color:"#94a3b8"}}>
+                Nessuna posizione Trading Lab attiva registrata.
+              </div>
+            ) : (
+              <div style={{display:"grid",gap:10,marginTop:12}}>
+                {labActiveTrades.map(row => (
+                  <div
+                    key={row.id || row.positionTicket}
+                    style={{
+                      border:"1px solid rgba(100,116,139,.35)",
+                      borderRadius:12,
+                      padding:"12px",
+                      background:"rgba(15,23,42,.55)"
+                    }}
+                  >
+                    <div style={{
+                      display:"grid",
+                      gridTemplateColumns:"repeat(auto-fit,minmax(145px,1fr))",
+                      gap:8
+                    }}>
+                      {[
+                        ["Broker",row.accountAlias],
+                        ["Asset",row.symbol],
+                        ["Direzione",row.side],
+                        ["Lotto",String(row.volume)],
+                        ["Ticket",String(row.positionTicket)],
+                        ["Entry",String(row.entry)],
+                        ["SL",String(row.sl)],
+                        ["TP",String(row.tp)],
+                        ["P/L floating",`${Number(row.floatingPL||0)>=0?"+":""}$ ${fmt(Number(row.floatingPL||0),2)}`]
+                      ].map(([label,value])=>(
+                        <div key={label} style={{fontSize:10,color:"#94a3b8"}}>
+                          <b style={{color:"#e2e8f0"}}>{label}:</b> {value}
+                        </div>
+                      ))}
+                    </div>
+
+                    {row.lastCheckError && (
+                      <div style={{marginTop:8,fontSize:10,color:"#fca5a5"}}>
+                        Ultimo controllo: {row.lastCheckError}
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      style={{
+                        ...secondaryButton,
+                        marginTop:10,
+                        border:"1px solid rgba(248,113,113,.45)",
+                        color:"#fecaca"
+                      }}
+                      onClick={()=>closeLabTradeManually(row)}
+                    >
+                      ✋ CHIUDI POSIZIONE
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div style={{
             marginTop:18,
             padding:"12px 14px",
@@ -5674,7 +6039,7 @@ export default function PropHedgeTab() {
             fontSize:11,
             lineHeight:1.55
           }}>
-            <b>Passo successivo:</b> modalità ACCUMULO in dollari, senza SL/TP, più pannello posizioni e chiusura Trading Lab separata dalle Prop.
+            <b>Passo successivo:</b> modalità ACCUMULO in dollari, senza SL/TP.
           </div>
         </div>
       )}
