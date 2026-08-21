@@ -605,6 +605,10 @@ export default function PropHedgeTab() {
   // In questa fase NON apre, modifica o chiude ordini.
   const [labBrokerAccountId, setLabBrokerAccountId] = useState("");
   const [labSymbol, setLabSymbol] = useState("EURUSD");
+  const [labSymbols, setLabSymbols] = useState([]);
+  const [labSymbolsLoading, setLabSymbolsLoading] = useState(false);
+  const [labSymbolsError, setLabSymbolsError] = useState("");
+  const [labSymbolSearch, setLabSymbolSearch] = useState("");
   const [labSymbolInfo, setLabSymbolInfo] = useState(null);
   const [labSymbolInfoLoading, setLabSymbolInfoLoading] = useState(false);
   const [labSymbolInfoError, setLabSymbolInfoError] = useState("");
@@ -2358,6 +2362,134 @@ export default function PropHedgeTab() {
       setLabTradeError(e?.message || String(e));
     } finally {
       setLabTradeSubmitting(false);
+    }
+  };
+
+  const requestLabSymbolList = async (accountId = labBrokerAccountId) => {
+    if (labSymbolsLoading) return;
+
+    const account = brokerAccounts.find(x => x.id === accountId) || null;
+    setLabSymbolsError("");
+    setLabSymbols([]);
+
+    if (!account) {
+      setLabSymbolsError("Seleziona un account Broker.");
+      return;
+    }
+
+    if (account.active === false) {
+      setLabSymbolsError("L'account Broker selezionato è disattivato.");
+      return;
+    }
+
+    setLabSymbolsLoading(true);
+
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData?.user?.id;
+      if (!uid) throw new Error("Utente Supabase non autenticato");
+
+      // Recupera un'eventuale richiesta recente già in corso.
+      const { data: existing, error: existingError } = await supabase
+        .from("prop_bridge_commands")
+        .select("id,status,broker_account,command_type,created_at,updated_at,result_payload")
+        .eq("user_id", uid)
+        .eq("broker_account", String(account.mt5_login))
+        .eq("command_type", "symbol_list")
+        .in("status", ["pending", "processing"])
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (existingError) throw existingError;
+
+      let command = null;
+      if (Array.isArray(existing) && existing.length) {
+        const pending = existing[0];
+        const bornAt = new Date(pending.created_at || pending.updated_at || 0).getTime();
+        const ageMs = Number.isFinite(bornAt) ? Date.now() - bornAt : Infinity;
+
+        if (ageMs <= 180000) {
+          command = pending;
+        } else {
+          await supabase
+            .from("prop_bridge_commands")
+            .update({
+              status: "failed",
+              error_code: "stale_symbol_list",
+              error_message: "Richiesta SYMBOL_LIST scaduta dal Trading Lab",
+              processed_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+            .eq("user_id", uid)
+            .eq("id", pending.id)
+            .in("status", ["pending", "processing"]);
+        }
+      }
+
+      if (!command) {
+        const payload = {
+          user_id: uid,
+          challenge_id: `LAB-LIST-${Date.now()}`,
+          prop_name: "TRADING LAB",
+          broker_account: String(account.mt5_login),
+          symbol: "SYMBOL_LIST",
+          side: "BUY",
+          volume: 0.01,
+          entry_price: null,
+          sl: null,
+          tp: null,
+          command_type: "symbol_list",
+          position_ticket: null,
+          status: "pending"
+        };
+
+        const { data: inserted, error: commandError } = await supabase
+          .from("prop_bridge_commands")
+          .insert(payload)
+          .select("id,status,command_type,broker_account,created_at,updated_at")
+          .single();
+
+        if (commandError) throw commandError;
+        if (!inserted?.id) throw new Error("Richiesta SYMBOL_LIST creata senza ID.");
+        command = inserted;
+      }
+
+      const result = await waitForBridgeCommand(
+        command.id,
+        { timeoutMs: 90000, intervalMs: 750 }
+      );
+
+      const rp = result?.result_payload || {};
+      const rows = Array.isArray(rp.symbols) ? rp.symbols : [];
+
+      if (!rows.length) {
+        throw new Error("La MT5 non ha restituito simboli disponibili.");
+      }
+
+      const normalized = rows
+        .filter(x => x && x.symbol)
+        .map(x => ({
+          symbol: String(x.symbol),
+          description: String(x.description || ""),
+          path: String(x.path || ""),
+          currency_base: String(x.currency_base || ""),
+          currency_profit: String(x.currency_profit || "")
+        }))
+        .sort((a,b) => a.symbol.localeCompare(b.symbol));
+
+      setLabSymbols(normalized);
+
+      // Se il simbolo corrente non esiste sul nuovo broker, seleziona il primo.
+      const currentExists = normalized.some(x => x.symbol === labSymbol);
+      if (!currentExists && normalized[0]?.symbol) {
+        setLabSymbol(normalized[0].symbol);
+        setLabSymbolInfo(null);
+        setLabTradePreview(null);
+      }
+    } catch (e) {
+      setLabSymbolsError(e?.message || String(e));
+    } finally {
+      setLabSymbolsLoading(false);
     }
   };
 
@@ -4975,7 +5107,7 @@ export default function PropHedgeTab() {
             <div>
               <h3 style={panelTitle}>🧪 Trading Lab</h3>
               <p style={panelSubtitle}>
-                Trading multi-asset: scegli il conto, leggi le specifiche MT5, imposta perdita massima e profitto desiderato in USD. Il Lab calcola automaticamente lotto, SL e TP.
+                Trading multi-asset: scegli il conto e ProfitTracker carica tutti gli asset realmente disponibili su quella MT5. Poi imposta perdita massima e profitto desiderato in USD.
               </p>
             </div>
             <span style={{
@@ -5003,12 +5135,19 @@ export default function PropHedgeTab() {
                 style={input}
                 value={labBrokerAccountId}
                 onChange={e=>{
-                  setLabBrokerAccountId(e.target.value);
+                  const nextAccountId = e.target.value;
+                  setLabBrokerAccountId(nextAccountId);
                   setLabSymbolInfo(null);
                   setLabSymbolInfoError("");
+                  setLabSymbols([]);
+                  setLabSymbolsError("");
+                  setLabSymbolSearch("");
                   setLabTradePreview(null);
                   setLabTradeError("");
                   setLabTradeStatus("");
+                  if (nextAccountId) {
+                    window.setTimeout(() => requestLabSymbolList(nextAccountId), 0);
+                  }
                 }}
               >
                 <option value="">— Seleziona account —</option>
@@ -5032,24 +5171,72 @@ export default function PropHedgeTab() {
 
             <div>
               <label style={fieldLabel}>Asset / simbolo MT5</label>
-              <input
-                style={input}
-                type="text"
-                value={labSymbol}
-                placeholder="es. EURUSD, XAUUSD, BTCUSD"
-                onFocus={e=>e.currentTarget.select()}
-                onChange={e=>{
-                  setLabSymbol(String(e.target.value || "").toUpperCase());
-                  setLabSymbolInfo(null);
-                  setLabSymbolInfoError("");
-                  setLabTradePreview(null);
-                  setLabTradeError("");
-                  setLabTradeStatus("");
-                }}
-                onKeyDown={e=>{
-                  if (e.key === "Enter") requestLabSymbolInfo();
-                }}
-              />
+              <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8}}>
+                <select
+                  style={input}
+                  value={labSymbol}
+                  disabled={!labBrokerAccountId || labSymbolsLoading || !labSymbols.length}
+                  onChange={e=>{
+                    setLabSymbol(String(e.target.value || ""));
+                    setLabSymbolInfo(null);
+                    setLabSymbolInfoError("");
+                    setLabTradePreview(null);
+                    setLabTradeError("");
+                    setLabTradeStatus("");
+                  }}
+                >
+                  {!labSymbols.length && (
+                    <option value={labSymbol || ""}>
+                      {labSymbolsLoading ? "⏳ Carico tutti gli asset MT5..." : "— Carica asset del broker —"}
+                    </option>
+                  )}
+                  {labSymbols
+                    .filter(x => {
+                      const q = String(labSymbolSearch || "").trim().toLowerCase();
+                      if (!q) return true;
+                      return (
+                        x.symbol.toLowerCase().includes(q) ||
+                        x.description.toLowerCase().includes(q) ||
+                        x.path.toLowerCase().includes(q)
+                      );
+                    })
+                    .map(x => (
+                      <option key={x.symbol} value={x.symbol}>
+                        {x.symbol}{x.description ? ` — ${x.description}` : ""}
+                      </option>
+                    ))}
+                </select>
+                <button
+                  type="button"
+                  style={{...primaryButtonBlue,padding:"10px 14px",whiteSpace:"nowrap",opacity:labSymbolsLoading?.65:1}}
+                  disabled={!labBrokerAccountId || labSymbolsLoading}
+                  onClick={()=>requestLabSymbolList()}
+                  title="Ricarica tutti gli strumenti disponibili dalla MT5 selezionata"
+                >
+                  {labSymbolsLoading ? "⏳ ASSET..." : "↻ ASSET"}
+                </button>
+              </div>
+
+              {labSymbols.length > 0 && (
+                <div style={{display:"flex",gap:8,alignItems:"center",marginTop:7}}>
+                  <input
+                    style={{...input,padding:"8px 10px",fontSize:12}}
+                    type="text"
+                    value={labSymbolSearch}
+                    placeholder={`Cerca tra ${labSymbols.length} asset...`}
+                    onChange={e=>setLabSymbolSearch(e.target.value)}
+                  />
+                  <span style={{fontSize:11,color:"#67e8f9",fontWeight:800,whiteSpace:"nowrap"}}>
+                    {labSymbols.length} disponibili
+                  </span>
+                </div>
+              )}
+
+              {labSymbolsError && (
+                <div style={{marginTop:7,fontSize:11,color:"#fca5a5",fontWeight:800}}>
+                  ❌ {labSymbolsError}
+                </div>
+              )}
             </div>
           </div>
 
