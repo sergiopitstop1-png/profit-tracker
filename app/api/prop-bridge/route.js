@@ -3,13 +3,6 @@ export const revalidate = 0;
 
 import { createClient } from "@supabase/supabase-js";
 
-// PROP BRIDGE API v1.10 — trading session + ACK account snapshot
-
-
-// ============================================================
-// SUPABASE ADMIN
-// ============================================================
-
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -29,11 +22,6 @@ function getSupabaseAdmin() {
     }
   });
 }
-
-
-// ============================================================
-// SICUREZZA BRIDGE
-// ============================================================
 
 function checkBridgeAuth(request) {
   const expected = String(
@@ -62,11 +50,6 @@ function checkBridgeAuth(request) {
 
   return { ok: true };
 }
-
-
-// ============================================================
-// TROVA ACCOUNT BROKER CENSITO
-// ============================================================
 
 async function findBrokerAccount(
   supabase,
@@ -114,12 +97,10 @@ async function findBrokerAccount(
   };
 }
 
-
-// ============================================================
-// TRADING SESSION
-// ============================================================
-
-async function getTradingSession(supabase, userId) {
+async function getTradingSession(
+  supabase,
+  userId
+) {
   const { data, error } = await supabase
     .from("prop_trading_session")
     .select(
@@ -145,23 +126,33 @@ async function getTradingSession(supabase, userId) {
   }
 
   return {
-    trading_enabled: data.trading_enabled === true,
+    trading_enabled:
+      data.trading_enabled === true,
+
     mode:
       data.mode ||
-      (data.trading_enabled ? "READY" : "OFF"),
+      (
+        data.trading_enabled
+          ? "READY"
+          : "OFF"
+      ),
+
     active_account:
       data.active_account || null,
+
     active_symbol:
       data.active_symbol || null,
+
     started_at:
       data.started_at || null,
+
     stopped_at:
       data.stopped_at || null,
+
     updated_at:
       data.updated_at || null
   };
 }
-
 
 function nullableFiniteNumber(value) {
   if (
@@ -179,11 +170,6 @@ function nullableFiniteNumber(value) {
     : null;
 }
 
-
-// ============================================================
-// SALVA SNAPSHOT CONTO DOPO OPEN / CLOSE
-// ============================================================
-
 async function saveAccountSnapshotFromResult(
   supabase,
   broker,
@@ -191,23 +177,34 @@ async function saveAccountSnapshotFromResult(
   now
 ) {
   const balance =
-    nullableFiniteNumber(body?.balance);
+    nullableFiniteNumber(
+      body?.balance
+    );
 
   const credit =
-    nullableFiniteNumber(body?.credit ?? 0);
+    nullableFiniteNumber(
+      body?.credit ?? 0
+    );
 
   const equity =
-    nullableFiniteNumber(body?.equity);
+    nullableFiniteNumber(
+      body?.equity
+    );
 
   const margin =
-    nullableFiniteNumber(body?.margin);
+    nullableFiniteNumber(
+      body?.margin
+    );
 
   const freeMargin =
-    nullableFiniteNumber(body?.free_margin);
+    nullableFiniteNumber(
+      body?.free_margin
+    );
 
   const marginLevel =
-    nullableFiniteNumber(body?.margin_level);
-
+    nullableFiniteNumber(
+      body?.margin_level
+    );
 
   const complete =
     balance !== null &&
@@ -216,16 +213,12 @@ async function saveAccountSnapshotFromResult(
     margin !== null &&
     freeMargin !== null;
 
-
-  // Se l'EA vecchio non manda ancora lo snapshot,
-  // il RESULT rimane comunque valido.
   if (!complete) {
     return {
       saved: false,
       state: null
     };
   }
-
 
   const liveRow = {
     broker_account_id:
@@ -267,9 +260,13 @@ async function saveAccountSnapshotFromResult(
       now
   };
 
-
-  const { data, error } = await supabase
-    .from("prop_broker_live_state")
+  const {
+    data,
+    error
+  } = await supabase
+    .from(
+      "prop_broker_live_state"
+    )
     .upsert(
       liveRow,
       {
@@ -293,11 +290,9 @@ async function saveAccountSnapshotFromResult(
     `)
     .single();
 
-
   if (error) {
     throw error;
   }
-
 
   return {
     saved: true,
@@ -313,24 +308,36 @@ async function saveAccountSnapshotFromResult(
         data.mt5_server,
 
       balance:
-        Number(data.balance),
+        Number(
+          data.balance
+        ),
 
       credit:
-        Number(data.credit || 0),
+        Number(
+          data.credit || 0
+        ),
 
       equity:
-        Number(data.equity),
+        Number(
+          data.equity
+        ),
 
       margin:
-        Number(data.margin),
+        Number(
+          data.margin
+        ),
 
       free_margin:
-        Number(data.free_margin),
+        Number(
+          data.free_margin
+        ),
 
       margin_level:
         data.margin_level === null
           ? null
-          : Number(data.margin_level),
+          : Number(
+              data.margin_level
+            ),
 
       connected:
         data.connected,
@@ -344,54 +351,46 @@ async function saveAccountSnapshotFromResult(
   };
 }
 
-
-// ============================================================
-// GET
-//
-// Cerca il primo comando PENDING
-// per LOGIN + SERVER MT5.
-//
-// NELLA STESSA RISPOSTA RESTITUISCE ANCHE:
-//
-// trading.trading_enabled
-// trading.mode
-//
-// In questo modo l'EA non deve fare una seconda richiesta.
-// ============================================================
-
 export async function GET(request) {
   try {
-
     const auth =
-      checkBridgeAuth(request);
-
+      checkBridgeAuth(
+        request
+      );
 
     if (!auth.ok) {
       return Response.json(
         {
           ok: false,
-          error: auth.error
+          error:
+            auth.error
         },
         {
-          status: auth.status
+          status:
+            auth.status
         }
       );
     }
 
+    const {
+      searchParams
+    } = new URL(
+      request.url
+    );
 
-    const { searchParams } =
-      new URL(request.url);
+    const account =
+      String(
+        searchParams.get(
+          "account"
+        ) || ""
+      ).trim();
 
-
-    const account = String(
-      searchParams.get("account") || ""
-    ).trim();
-
-
-    const server = String(
-      searchParams.get("server") || ""
-    ).trim();
-
+    const server =
+      String(
+        searchParams.get(
+          "server"
+        ) || ""
+      ).trim();
 
     if (!account) {
       return Response.json(
@@ -406,7 +405,6 @@ export async function GET(request) {
       );
     }
 
-
     if (!server) {
       return Response.json(
         {
@@ -420,10 +418,8 @@ export async function GET(request) {
       );
     }
 
-
     const supabase =
       getSupabaseAdmin();
-
 
     const brokerCheck =
       await findBrokerAccount(
@@ -431,7 +427,6 @@ export async function GET(request) {
         account,
         server
       );
-
 
     if (!brokerCheck.ok) {
       return Response.json(
@@ -446,14 +441,8 @@ export async function GET(request) {
       );
     }
 
-
     const broker =
       brokerCheck.account;
-
-
-    // --------------------------------------------------------
-    // STATO TRADING
-    // --------------------------------------------------------
 
     const trading =
       await getTradingSession(
@@ -461,51 +450,50 @@ export async function GET(request) {
         broker.user_id
       );
 
-
-    // --------------------------------------------------------
-    // PRIMO COMANDO PENDING PER QUESTO CONTO
-    // --------------------------------------------------------
-
-    const { data, error } =
-      await supabase
-        .from("prop_bridge_commands")
-        .select(`
-          id,
-          created_at,
-          challenge_id,
-          prop_name,
-          broker_account,
-          symbol,
-          side,
-          volume,
-          entry_price,
-          sl,
-          tp,
-          command_type,
-          position_ticket,
-          status
-        `)
-        .eq(
-          "user_id",
-          broker.user_id
-        )
-        .eq(
-          "broker_account",
-          account
-        )
-        .eq(
-          "status",
-          "pending"
-        )
-        .order(
-          "created_at",
-          {
-            ascending: true
-          }
-        )
-        .limit(1)
-        .maybeSingle();
-
+    const {
+      data,
+      error
+    } = await supabase
+      .from(
+        "prop_bridge_commands"
+      )
+      .select(`
+        id,
+        created_at,
+        challenge_id,
+        prop_name,
+        broker_account,
+        symbol,
+        side,
+        volume,
+        entry_price,
+        sl,
+        tp,
+        command_type,
+        position_ticket,
+        result_payload,
+        status
+      `)
+      .eq(
+        "user_id",
+        broker.user_id
+      )
+      .eq(
+        "broker_account",
+        account
+      )
+      .eq(
+        "status",
+        "pending"
+      )
+      .order(
+        "created_at",
+        {
+          ascending: true
+        }
+      )
+      .limit(1)
+      .maybeSingle();
 
     if (error) {
       console.error(
@@ -527,11 +515,6 @@ export async function GET(request) {
       );
     }
 
-
-    // --------------------------------------------------------
-    // NESSUN COMANDO
-    // --------------------------------------------------------
-
     if (!data) {
       return Response.json({
         ok: true,
@@ -542,11 +525,6 @@ export async function GET(request) {
           null
       });
     }
-
-
-    // --------------------------------------------------------
-    // COMANDO PRESENTE
-    // --------------------------------------------------------
 
     return Response.json({
       ok: true,
@@ -590,7 +568,9 @@ export async function GET(request) {
           data.side,
 
         volume:
-          Number(data.volume),
+          Number(
+            data.volume
+          ),
 
         entry_price:
           data.entry_price === null
@@ -602,12 +582,16 @@ export async function GET(request) {
         sl:
           data.sl === null
             ? null
-            : Number(data.sl),
+            : Number(
+                data.sl
+              ),
 
         tp:
           data.tp === null
             ? null
-            : Number(data.tp),
+            : Number(
+                data.tp
+              ),
 
         command_type:
           data.command_type ||
@@ -615,6 +599,10 @@ export async function GET(request) {
 
         position_ticket:
           data.position_ticket,
+
+        result_payload:
+          data.result_payload ||
+          null,
 
         status:
           data.status,
@@ -625,12 +613,10 @@ export async function GET(request) {
     });
 
   } catch (error) {
-
     console.error(
       "Prop Bridge GET fatal error:",
       error
     );
-
 
     return Response.json(
       {
@@ -650,24 +636,12 @@ export async function GET(request) {
   }
 }
 
-
-// ============================================================
-// POST
-//
-// ACTION:
-//
-// heartbeat
-// claim
-// result
-//
-// ============================================================
-
 export async function POST(request) {
   try {
-
     const auth =
-      checkBridgeAuth(request);
-
+      checkBridgeAuth(
+        request
+      );
 
     if (!auth.ok) {
       return Response.json(
@@ -683,27 +657,25 @@ export async function POST(request) {
       );
     }
 
-
     const body =
       await request.json();
 
+    const action =
+      String(
+        body?.action || ""
+      )
+        .trim()
+        .toLowerCase();
 
-    const action = String(
-      body?.action || ""
-    )
-      .trim()
-      .toLowerCase();
+    const account =
+      String(
+        body?.account || ""
+      ).trim();
 
-
-    const account = String(
-      body?.account || ""
-    ).trim();
-
-
-    const server = String(
-      body?.server || ""
-    ).trim();
-
+    const server =
+      String(
+        body?.server || ""
+      ).trim();
 
     if (!action) {
       return Response.json(
@@ -718,7 +690,6 @@ export async function POST(request) {
       );
     }
 
-
     if (!account) {
       return Response.json(
         {
@@ -731,7 +702,6 @@ export async function POST(request) {
         }
       );
     }
-
 
     if (!server) {
       return Response.json(
@@ -746,10 +716,8 @@ export async function POST(request) {
       );
     }
 
-
     const supabase =
       getSupabaseAdmin();
-
 
     const brokerCheck =
       await findBrokerAccount(
@@ -757,7 +725,6 @@ export async function POST(request) {
         account,
         server
       );
-
 
     if (!brokerCheck.ok) {
       return Response.json(
@@ -772,44 +739,41 @@ export async function POST(request) {
       );
     }
 
-
     const broker =
       brokerCheck.account;
 
-
     const now =
-      new Date().toISOString();
+      new Date()
+        .toISOString();
 
-
-    // ========================================================
-    // HEARTBEAT
-    // ========================================================
-
-    if (action === "heartbeat") {
-
+    if (
+      action ===
+      "heartbeat"
+    ) {
       const balance =
-        Number(body?.balance);
-
+        Number(
+          body?.balance
+        );
 
       const credit =
         Number(
           body?.credit ?? 0
         );
 
-
       const equity =
-        Number(body?.equity);
-
+        Number(
+          body?.equity
+        );
 
       const margin =
-        Number(body?.margin);
-
+        Number(
+          body?.margin
+        );
 
       const freeMargin =
         Number(
           body?.free_margin
         );
-
 
       const marginLevel =
         body?.margin_level === null ||
@@ -820,13 +784,22 @@ export async function POST(request) {
               body.margin_level
             );
 
-
       if (
-        !Number.isFinite(balance) ||
-        !Number.isFinite(credit) ||
-        !Number.isFinite(equity) ||
-        !Number.isFinite(margin) ||
-        !Number.isFinite(freeMargin)
+        !Number.isFinite(
+          balance
+        ) ||
+        !Number.isFinite(
+          credit
+        ) ||
+        !Number.isFinite(
+          equity
+        ) ||
+        !Number.isFinite(
+          margin
+        ) ||
+        !Number.isFinite(
+          freeMargin
+        )
       ) {
         return Response.json(
           {
@@ -839,7 +812,6 @@ export async function POST(request) {
           }
         );
       }
-
 
       if (
         marginLevel !== null &&
@@ -859,17 +831,13 @@ export async function POST(request) {
         );
       }
 
-
       const connected =
         body?.connected === true;
-
 
       const algoTrading =
         body?.algo_trading === true;
 
-
       const liveRow = {
-
         broker_account_id:
           broker.id,
 
@@ -908,7 +876,6 @@ export async function POST(request) {
           now
       };
 
-
       const {
         data,
         error
@@ -939,14 +906,11 @@ export async function POST(request) {
         `)
         .single();
 
-
       if (error) {
-
         console.error(
           "Heartbeat Supabase error:",
           error
         );
-
 
         return Response.json(
           {
@@ -964,17 +928,13 @@ export async function POST(request) {
         );
       }
 
-
       return Response.json({
-
         ok: true,
 
         heartbeat:
           true,
 
-
         broker: {
-
           broker_account_id:
             broker.id,
 
@@ -985,9 +945,7 @@ export async function POST(request) {
             broker.broker
         },
 
-
         state: {
-
           account:
             data.mt5_login,
 
@@ -1038,16 +996,10 @@ export async function POST(request) {
       });
     }
 
-
-    // ========================================================
-    // CLAIM / RESULT
-    // ========================================================
-
     const commandId =
       String(
         body?.command_id || ""
       ).trim();
-
 
     if (!commandId) {
       return Response.json(
@@ -1062,15 +1014,10 @@ export async function POST(request) {
       );
     }
 
-
-    // ========================================================
-    // CLAIM
-    //
-    // pending -> processing
-    // ========================================================
-
-    if (action === "claim") {
-
+    if (
+      action ===
+      "claim"
+    ) {
       const {
         data,
         error
@@ -1114,20 +1061,18 @@ export async function POST(request) {
           tp,
           command_type,
           position_ticket,
+          result_payload,
           status,
           created_at,
           updated_at
         `)
         .maybeSingle();
 
-
       if (error) {
-
         console.error(
           "CLAIM Supabase error:",
           error
         );
-
 
         return Response.json(
           {
@@ -1145,9 +1090,7 @@ export async function POST(request) {
         );
       }
 
-
       if (!data) {
-
         return Response.json(
           {
             ok: false,
@@ -1164,18 +1107,13 @@ export async function POST(request) {
         );
       }
 
-
       return Response.json({
-
-        ok:
-          true,
+        ok: true,
 
         claimed:
           true,
 
-
         command: {
-
           id:
             data.id,
 
@@ -1227,6 +1165,10 @@ export async function POST(request) {
           position_ticket:
             data.position_ticket,
 
+          result_payload:
+            data.result_payload ||
+            null,
+
           status:
             data.status,
 
@@ -1239,22 +1181,16 @@ export async function POST(request) {
       });
     }
 
-
-    // ========================================================
-    // RESULT
-    //
-    // processing -> executed / failed
-    // ========================================================
-
-    if (action === "result") {
-
+    if (
+      action ===
+      "result"
+    ) {
       const resultStatus =
         String(
           body?.status || ""
         )
           .trim()
           .toLowerCase();
-
 
       if (
         resultStatus !==
@@ -1275,7 +1211,6 @@ export async function POST(request) {
         );
       }
 
-
       const mt5Order =
         body?.mt5_order === null ||
         body?.mt5_order === undefined ||
@@ -1284,7 +1219,6 @@ export async function POST(request) {
           : String(
               body.mt5_order
             );
-
 
       const mt5Deal =
         body?.mt5_deal === null ||
@@ -1295,7 +1229,6 @@ export async function POST(request) {
               body.mt5_deal
             );
 
-
       const executionPrice =
         body?.execution_price === null ||
         body?.execution_price === undefined ||
@@ -1304,7 +1237,6 @@ export async function POST(request) {
           : Number(
               body.execution_price
             );
-
 
       const errorCode =
         body?.error_code === null ||
@@ -1315,7 +1247,6 @@ export async function POST(request) {
               body.error_code
             );
 
-
       const errorMessage =
         body?.error_message === null ||
         body?.error_message === undefined ||
@@ -1324,7 +1255,6 @@ export async function POST(request) {
           : String(
               body.error_message
             );
-
 
       const positionTicket =
         body?.position_ticket === null ||
@@ -1335,7 +1265,6 @@ export async function POST(request) {
               body.position_ticket
             );
 
-
       const closeDeal =
         body?.close_deal === null ||
         body?.close_deal === undefined ||
@@ -1344,7 +1273,6 @@ export async function POST(request) {
           : String(
               body.close_deal
             );
-
 
       const realizedPl =
         body?.realized_pl === null ||
@@ -1355,6 +1283,14 @@ export async function POST(request) {
               body.realized_pl
             );
 
+      const resultPayload =
+        body?.result_payload &&
+        typeof body.result_payload === "object" &&
+        !Array.isArray(
+          body.result_payload
+        )
+          ? body.result_payload
+          : null;
 
       if (
         realizedPl !== null &&
@@ -1375,7 +1311,6 @@ export async function POST(request) {
         );
       }
 
-
       if (
         executionPrice !== null &&
         !Number.isFinite(
@@ -1395,37 +1330,16 @@ export async function POST(request) {
         );
       }
 
-
-      // ------------------------------------------------------
-      // SNAPSHOT CONTO
-      //
-      // Se l'EA v1.10 manda:
-      //
-      // balance
-      // credit
-      // equity
-      // margin
-      // free_margin
-      // margin_level
-      //
-      // aggiorniamo immediatamente prop_broker_live_state.
-      //
-      // Se non li manda, il RESULT resta comunque valido.
-      // ------------------------------------------------------
-
       let accountSnapshot = {
         saved: false,
         state: null
       };
 
-
       if (
         resultStatus ===
         "executed"
       ) {
-
         try {
-
           accountSnapshot =
             await saveAccountSnapshotFromResult(
               supabase,
@@ -1437,20 +1351,10 @@ export async function POST(request) {
         } catch (
           snapshotError
         ) {
-
           console.error(
             "RESULT account snapshot error:",
             snapshotError
           );
-
-
-          // IMPORTANTISSIMO:
-          //
-          // Il trade è già stato eseguito.
-          //
-          // Non trasformiamo un ACK valido in errore
-          // solo perché non siamo riusciti ad aggiornare
-          // lo snapshot del conto.
 
           accountSnapshot = {
             saved: false,
@@ -1459,42 +1363,35 @@ export async function POST(request) {
         }
       }
 
-
       const updateData = {
-
         status:
           resultStatus,
-
 
         mt5_order:
           mt5Order,
 
-
         mt5_deal:
           mt5Deal,
-
 
         execution_price:
           executionPrice,
 
-
         position_ticket:
           positionTicket,
-
 
         close_deal:
           closeDeal,
 
-
         realized_pl:
           realizedPl,
 
+        result_payload:
+          resultPayload,
 
         closed_at:
           closeDeal
             ? now
             : null,
-
 
         error_code:
           resultStatus ===
@@ -1502,22 +1399,18 @@ export async function POST(request) {
             ? errorCode
             : null,
 
-
         error_message:
           resultStatus ===
           "failed"
             ? errorMessage
             : null,
 
-
         processed_at:
           now,
-
 
         updated_at:
           now
       };
-
 
       const {
         data,
@@ -1560,6 +1453,7 @@ export async function POST(request) {
           execution_price,
           close_deal,
           realized_pl,
+          result_payload,
           closed_at,
           error_code,
           error_message,
@@ -1568,14 +1462,11 @@ export async function POST(request) {
         `)
         .maybeSingle();
 
-
       if (error) {
-
         console.error(
           "RESULT Supabase error:",
           error
         );
-
 
         return Response.json(
           {
@@ -1593,9 +1484,7 @@ export async function POST(request) {
         );
       }
 
-
       if (!data) {
-
         return Response.json(
           {
             ok: false,
@@ -1612,27 +1501,19 @@ export async function POST(request) {
         );
       }
 
-
       return Response.json({
-
-        ok:
-          true,
+        ok: true,
 
         saved:
           true,
 
-
-        // Lo usiamo nel debug e nei test.
         account_state_saved:
           accountSnapshot.saved,
-
 
         account_state:
           accountSnapshot.state,
 
-
         command: {
-
           id:
             data.id,
 
@@ -1694,6 +1575,10 @@ export async function POST(request) {
                   data.realized_pl
                 ),
 
+          result_payload:
+            data.result_payload ||
+            null,
+
           closed_at:
             data.closed_at,
 
@@ -1712,11 +1597,6 @@ export async function POST(request) {
       });
     }
 
-
-    // ========================================================
-    // ACTION NON SUPPORTATA
-    // ========================================================
-
     return Response.json(
       {
         ok: false,
@@ -1730,12 +1610,10 @@ export async function POST(request) {
     );
 
   } catch (error) {
-
     console.error(
       "Prop Bridge POST fatal error:",
       error
     );
-
 
     return Response.json(
       {
