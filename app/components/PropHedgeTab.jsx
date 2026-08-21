@@ -2131,15 +2131,21 @@ export default function PropHedgeTab() {
       Math.max(volumeMin, volumeMin)
     );
 
-    const entry =
-      side === "BUY"
-        ? Number(labSymbolInfo.ask)
-        : Number(labSymbolInfo.bid);
+    const liveBid = Number(labSymbolInfo.bid);
+    const liveAsk = Number(labSymbolInfo.ask);
 
-    if (!Number.isFinite(entry) || entry <= 0) {
-      setLabTradeError("Prezzo Bid/Ask MT5 non disponibile.");
+    if (
+      !Number.isFinite(liveBid) || liveBid <= 0 ||
+      !Number.isFinite(liveAsk) || liveAsk <= 0
+    ) {
+      setLabTradePreview(null);
+      setLabTradeError(
+        "ASSET SENZA QUOTAZIONE — TRADE NON DISPONIBILE. Bid/Ask MT5 devono essere maggiori di zero."
+      );
       return;
     }
+
+    const entry = side === "BUY" ? liveAsk : liveBid;
 
     // tick_value è riferito a 1 lotto. Il P/L per tick sul volume scelto:
     const lossPerTick = tickValueLoss * volume;
@@ -2201,6 +2207,49 @@ export default function PropHedgeTab() {
       calculatedAt: new Date().toISOString(),
       method: "MIN_VOLUME"
     });
+  };
+
+  const notifyTradingLabTelegram = async (payload) => {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) return { ok:false, error:"Sessione Supabase assente" };
+
+      const response = await fetch("/api/prop-trade-watchdog", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const result = await response.json().catch(() => null);
+      if (!response.ok || result?.ok === false) {
+        return { ok:false, error:result?.error || `HTTP ${response.status}` };
+      }
+
+      return { ok:true, result };
+    } catch (e) {
+      console.warn("Trading Lab Telegram:", e);
+      return { ok:false, error:e?.message || String(e) };
+    }
+  };
+
+  const testTradingLabTelegram = async () => {
+    setLabTradeError("");
+    setLabTradeStatus("📨 Invio messaggio test Telegram…");
+
+    const result = await notifyTradingLabTelegram({
+      action: "lab_test_telegram"
+    });
+
+    if (result.ok) {
+      setLabTradeStatus("✅ Telegram Trading Lab collegato: messaggio test inviato.");
+    } else {
+      setLabTradeError(`Telegram non inviato: ${result.error || "errore sconosciuto"}`);
+      setLabTradeStatus("");
+    }
   };
 
   const submitLabTrade = async () => {
@@ -2347,9 +2396,29 @@ export default function PropHedgeTab() {
         throw new Error(`Stato Bridge inatteso: ${result.status}`);
       }
 
+      const executionPrice = Number.isFinite(Number(result.execution_price))
+        ? Number(result.execution_price)
+        : preview.entry;
+
+      const telegramResult = await notifyTradingLabTelegram({
+        action: "lab_trade_opened",
+        accountAlias: account.alias || account.broker || String(account.mt5_login),
+        accountType: account.account_type || "real",
+        login: String(account.mt5_login),
+        symbol: preview.symbol,
+        side: preview.side,
+        volume: Number(preview.volume),
+        entry: executionPrice,
+        sl: Number(preview.sl),
+        tp: Number(preview.tp),
+        maxLossUsd: Number(preview.estimatedLoss),
+        targetUsd: Number(preview.estimatedProfit),
+        positionTicket: result.position_ticket || null
+      });
+
       setLabTradeStatus(
-        `✅ ORDINE ESEGUITO · Ticket ${result.position_ticket || "—"} · ` +
-        `Prezzo ${Number.isFinite(Number(result.execution_price)) ? result.execution_price : preview.entry}`
+        `✅ ORDINE ESEGUITO · Ticket ${result.position_ticket || "—"} · Prezzo ${executionPrice}` +
+        (telegramResult.ok ? " · 📨 Telegram OK" : " · ⚠️ Telegram non inviato")
       );
 
       await loadBrokerLiveStates({ silent: true });
@@ -5391,7 +5460,18 @@ export default function PropHedgeTab() {
           }}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
               <div>
-                <div style={{fontSize:17,fontWeight:950,color:"#dcfce7"}}>⚡ Modalità TRADING</div>
+                {labSymbolInfo && (
+            Number(labSymbolInfo.bid) <= 0 || Number(labSymbolInfo.ask) <= 0
+          ) && (
+            <div style={{marginTop:10,border:"2px solid rgba(239,68,68,.65)",background:"rgba(127,29,29,.20)",borderRadius:10,padding:"12px 14px",fontSize:13,color:"#fca5a5",fontWeight:950}}>
+              ⚠️ ASSET SENZA QUOTAZIONE — TRADE NON DISPONIBILE
+              <div style={{fontSize:10,marginTop:4,color:"#fecaca",fontWeight:700}}>
+                Il simbolo esiste sulla MT5, ma Bid/Ask non sono attivi. Il Lab blocca il calcolo e l'invio ordine.
+              </div>
+            </div>
+          )}
+
+          <div style={{fontSize:17,fontWeight:950,color:"#dcfce7"}}>⚡ Modalità TRADING</div>
                 <div style={{fontSize:11,color:"#86efac",marginTop:3}}>
                   Tu scegli soltanto direzione, perdita massima e target in USD. Lotto, SL e TP li calcola il Lab.
                 </div>
@@ -5477,8 +5557,25 @@ export default function PropHedgeTab() {
               <button
                 style={primaryButtonBlue}
                 onClick={labCalculateTradingPreview}
-              >
+               disabled={
+                  !labSymbolInfo ||
+                  !(Number(labSymbolInfo.bid) > 0) ||
+                  !(Number(labSymbolInfo.ask) > 0)
+                }>
                 🧮 CALCOLA TRADE
+              </button>
+              <button
+                type="button"
+                style={{
+                  ...secondaryButton,
+                  padding:"12px 18px",
+                  fontSize:13,
+                  border:"1px solid rgba(34,211,238,.42)",
+                  color:"#a5f3fc"
+                }}
+                onClick={testTradingLabTelegram}
+              >
+                📨 TEST TELEGRAM LAB
               </button>
             </div>
 
