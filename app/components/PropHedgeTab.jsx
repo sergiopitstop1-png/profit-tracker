@@ -1,6 +1,6 @@
 "use client";
 
-// PropHedgeTab v1.40 — Trading Lab TRADING + symbol_info + base precedente
+// PropHedgeTab v1.41 — Trading Lab TRADING + attesa MT5 90s con countdown
 
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
@@ -609,6 +609,7 @@ export default function PropHedgeTab() {
   const [labSymbolInfoLoading, setLabSymbolInfoLoading] = useState(false);
   const [labSymbolInfoError, setLabSymbolInfoError] = useState("");
   const [labLastCommandId, setLabLastCommandId] = useState(null);
+  const [labWaitSeconds, setLabWaitSeconds] = useState(0);
 
   // Trading Lab — modalità TRADING
   const [labMode, setLabMode] = useState("TRADING");
@@ -2402,6 +2403,17 @@ export default function PropHedgeTab() {
     const labBridgeMode = online ? "ONLINE" : "SLEEP";
 
     setLabSymbolInfoLoading(true);
+    setLabWaitSeconds(90);
+
+    const labCountdownTimer = window.setInterval(() => {
+      setLabWaitSeconds(prev => {
+        if (prev <= 1) {
+          window.clearInterval(labCountdownTimer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
 
     try {
       const { data: userData } = await supabase.auth.getUser();
@@ -2456,12 +2468,12 @@ export default function PropHedgeTab() {
 
       const result = await waitForBridgeCommand(
         command.id,
-        { timeoutMs: 75000, intervalMs: 750 }
+        { timeoutMs: 90000, intervalMs: 750 }
       );
 
       if (result.status === "timeout") {
         throw new Error(
-          "Timeout: la MT5 non ha risposto entro 75 secondi. Con Trading OFF il Bridge controlla i comandi ogni 60 secondi; se non risponde, controlla che MT5 ed EA siano realmente aperti."
+          "Timeout: la MT5 non ha risposto entro 90 secondi. Con Trading OFF il Bridge controlla i comandi ogni 60 secondi; se non risponde, controlla che MT5 ed EA siano realmente aperti."
         );
       }
 
@@ -2498,6 +2510,8 @@ export default function PropHedgeTab() {
       console.error("Trading Lab SYMBOL_INFO:", e);
       setLabSymbolInfoError(e?.message || String(e));
     } finally {
+      window.clearInterval(labCountdownTimer);
+      setLabWaitSeconds(0);
       setLabSymbolInfoLoading(false);
     }
   };
@@ -5055,7 +5069,7 @@ export default function PropHedgeTab() {
               disabled={labSymbolInfoLoading}
               onClick={requestLabSymbolInfo}
             >
-              {labSymbolInfoLoading ? "⏳ Leggo MT5…" : "🔍 LEGGI DATI MT5"}
+              {labSymbolInfoLoading ? `⏳ ATTENDI ${labWaitSeconds || 90} SEC...` : "🔍 LEGGI DATI MT5"}
             </button>
 
             {labLastCommandId && (
