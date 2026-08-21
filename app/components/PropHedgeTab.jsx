@@ -1,6 +1,6 @@
 "use client";
 
-// PropHedgeTab v1.21 — TRADING session + MT5 live stability + avviso avvio
+// PropHedgeTab v1.30 — movimenti Broker multi-account + MT5 live stability
 
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
@@ -540,6 +540,14 @@ export default function PropHedgeTab() {
   const [brokerAdjustNote, setBrokerAdjustNote] = useState("");
   const [brokerAdjustSaving, setBrokerAdjustSaving] = useState(false);
   const [brokerAdjustments, setBrokerAdjustments] = useState([]);
+
+  // Movimenti di cassa per singolo account Broker MT5 (multi-broker / multi-account)
+  const [brokerMovementAccountId, setBrokerMovementAccountId] = useState(null);
+  const [brokerMovementType, setBrokerMovementType] = useState("deposit");
+  const [brokerMovementAmount, setBrokerMovementAmount] = useState("");
+  const [brokerMovementNote, setBrokerMovementNote] = useState("");
+  const [brokerMovementSaving, setBrokerMovementSaving] = useState(false);
+
   const [liveMap, setLiveMap] = useState({});
   const [tradingEnabled, setTradingEnabled] = useState(false);
   const [tradingSyncing, setTradingSyncing] = useState(false);
@@ -977,9 +985,14 @@ export default function PropHedgeTab() {
 
   const loadBrokerAdjustments = async () => {
     try {
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData?.user?.id;
+      if (!uid) throw new Error("Utente Supabase non autenticato");
+
       const { data, error } = await supabase
         .from("prop_hedge_broker_adjustments")
         .select("*")
+        .eq("user_id", uid)
         .order("created_at", { ascending: false })
         .limit(100);
 
@@ -1073,6 +1086,97 @@ export default function PropHedgeTab() {
       alert("Errore nella modifica del saldo Broker: " + (e?.message || String(e)));
     } finally {
       setBrokerAdjustSaving(false);
+    }
+  };
+
+  const openBrokerMovement = (accountId) => {
+    setBrokerMovementAccountId(accountId);
+    setBrokerMovementType("deposit");
+    setBrokerMovementAmount("");
+    setBrokerMovementNote("");
+  };
+
+  const closeBrokerMovement = () => {
+    if (brokerMovementSaving) return;
+    setBrokerMovementAccountId(null);
+    setBrokerMovementAmount("");
+    setBrokerMovementNote("");
+  };
+
+  const applyBrokerAccountMovement = async () => {
+    if (brokerMovementSaving || !brokerMovementAccountId) return;
+
+    const account = brokerAccountById(brokerMovementAccountId);
+    if (!account) {
+      alert("Account Broker non trovato.");
+      return;
+    }
+
+    const live = brokerLiveStateByAccountId[brokerMovementAccountId] || null;
+    if (!live || !Number.isFinite(Number(live.balance))) {
+      alert("Saldo MT5 non disponibile per questo account. Aggiorna MT5 e riprova.");
+      return;
+    }
+
+    const amountAbs = Math.abs(num(brokerMovementAmount));
+    if (!amountAbs) {
+      alert("Inserisci un importo.");
+      return;
+    }
+
+    const before = num(live.balance);
+    const movement = brokerMovementType === "withdrawal" ? -amountAbs : amountAbs;
+    const theoreticalAfter = before + movement;
+
+    if (theoreticalAfter < 0) {
+      alert("Il prelievo supera il saldo MT5 attuale.");
+      return;
+    }
+
+    setBrokerMovementSaving(true);
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData?.user?.id;
+      if (!uid) throw new Error("Utente Supabase non autenticato");
+
+      const { error } = await supabase
+        .from("prop_hedge_broker_adjustments")
+        .insert({
+          user_id: uid,
+          broker_account_id: account.id,
+          account_alias: account.alias || null,
+          broker_name: account.broker || null,
+          adjustment_type: brokerMovementType,
+          amount: movement,
+          balance_before: before,
+          balance_after: theoreticalAfter,
+          note: brokerMovementNote.trim() || null
+        });
+
+      if (error) throw error;
+
+      // IMPORTANTE: non tocchiamo il saldo live. Lo aggiorna solo MT5 tramite heartbeat.
+      await loadBrokerAdjustments();
+      setBrokerMovementAccountId(null);
+      setBrokerMovementAmount("");
+      setBrokerMovementNote("");
+
+      alert(
+        `✅ Movimento registrato — ${account.alias || account.broker || "Broker"}\n\n` +
+        `${brokerMovementType === "deposit" ? "Versamento" : "Prelievo"}: ${signedMoney(movement)}\n` +
+        `Saldo MT5 letto: $ ${fmt(before, 2)}\n` +
+        `Saldo teorico dopo movimento: $ ${fmt(theoreticalAfter, 2)}\n\n` +
+        "Il saldo mostrato da ProfitTracker resterà quello reale ricevuto da MT5."
+      );
+    } catch (e) {
+      console.error("Errore registrazione movimento Broker:", e);
+      alert(
+        "Errore registrazione movimento Broker:\n\n" +
+        (e?.message || String(e)) +
+        "\n\nSe l'errore cita broker_account_id/account_alias/broker_name, esegui prima la migrazione SQL indicata."
+      );
+    } finally {
+      setBrokerMovementSaving(false);
     }
   };
 
@@ -2991,6 +3095,12 @@ export default function PropHedgeTab() {
                         <div><span style={{fontSize:10,color:"#94a3b8"}}>Algo</span><div style={{fontWeight:850,color:live.algo_trading?"#86efac":"#fca5a5"}}>{live.algo_trading?"ON":"OFF"}</div></div>
                       </div>
                       <div style={{fontSize:10,color:"#94a3b8",marginTop:8}}>Ultimo heartbeat: {seconds !== null ? `${seconds}s fa` : "—"}</div>
+                      <button
+                        style={{...secondaryButton,marginTop:10,width:"100%"}}
+                        onClick={() => openBrokerMovement(account.id)}
+                      >
+                        💰 Registra versamento / prelievo
+                      </button>
                     </>
                   ) : (
                     <div style={{fontSize:11,color:"#fde68a",marginTop:9}}>Avvia PropHedgeBridge su questa MT5 per ricevere i dati reali.</div>
@@ -3000,6 +3110,95 @@ export default function PropHedgeTab() {
             })}
           </div>
         )}
+
+        {brokerMovementAccountId && (() => {
+          const account = brokerAccountById(brokerMovementAccountId);
+          const live = brokerLiveStateByAccountId[brokerMovementAccountId] || null;
+          const currentBalance = live ? num(live.balance) : 0;
+          const amountAbs = Math.abs(num(brokerMovementAmount));
+          const signedAmount = brokerMovementType === "withdrawal" ? -amountAbs : amountAbs;
+          const theoreticalAfter = currentBalance + signedAmount;
+
+          if (!account) return null;
+
+          return (
+            <div style={{
+              marginTop:14,
+              padding:14,
+              borderRadius:16,
+              border:"1px solid rgba(45,212,191,.34)",
+              background:"rgba(2,6,23,.58)"
+            }}>
+              <div style={{display:"flex",justifyContent:"space-between",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
+                <div>
+                  <div style={{fontSize:17,fontWeight:950,color:"#f8fafc"}}>💰 Movimento Broker — {account.alias}</div>
+                  <div style={{fontSize:11,color:"#94a3b8",marginTop:3}}>
+                    {account.broker} • {account.mt5_login} • {account.mt5_server}
+                  </div>
+                </div>
+                <button style={secondaryButton} onClick={closeBrokerMovement} disabled={brokerMovementSaving}>Chiudi</button>
+              </div>
+
+              <div style={{
+                display:"grid",
+                gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",
+                gap:10,
+                marginBottom:12
+              }}>
+                <div style={statCard}>
+                  <div style={statLabel}>Saldo MT5 attuale</div>
+                  <div style={statValue}>$ {fmt(currentBalance,2)}</div>
+                  <div style={statSub}>Dato reale ricevuto dall'EA.</div>
+                </div>
+                <div style={statCard}>
+                  <div style={statLabel}>Saldo teorico dopo movimento</div>
+                  <div style={{...statValue,color:theoreticalAfter>=0?"#5eead4":"#fca5a5"}}>$ {fmt(theoreticalAfter,2)}</div>
+                  <div style={statSub}>Solo controllo contabile: non modifica MT5.</div>
+                </div>
+              </div>
+
+              <div style={grid2}>
+                <div>
+                  <label style={fieldLabel}>Tipo movimento</label>
+                  <select style={input} value={brokerMovementType} onChange={e=>setBrokerMovementType(e.target.value)}>
+                    <option value="deposit">Versamento</option>
+                    <option value="withdrawal">Prelievo</option>
+                  </select>
+                </div>
+
+                <TextNumberField
+                  label={brokerMovementType === "deposit" ? "Importo versamento ($)" : "Importo prelievo ($)"}
+                  value={brokerMovementAmount}
+                  onChange={setBrokerMovementAmount}
+                />
+
+                <div style={{gridColumn:"1 / -1"}}>
+                  <label style={fieldLabel}>Nota facoltativa</label>
+                  <input
+                    style={input}
+                    type="text"
+                    value={brokerMovementNote}
+                    placeholder="Es. ricarica capitale / prelievo utili"
+                    onChange={e=>setBrokerMovementNote(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginTop:12}}>
+                <button
+                  style={primaryButtonBlue}
+                  disabled={brokerMovementSaving || !live || !amountAbs || theoreticalAfter < 0}
+                  onClick={applyBrokerAccountMovement}
+                >
+                  {brokerMovementSaving ? "Registro…" : "✅ Registra movimento"}
+                </button>
+                <span style={{fontSize:11,color:"#94a3b8"}}>
+                  Il saldo reale non viene alterato: ProfitTracker continuerà a leggerlo direttamente da MT5.
+                </span>
+              </div>
+            </div>
+          );
+        })()}
 
         {showBrokerAdjust && (
           <div style={{
@@ -3083,7 +3282,7 @@ export default function PropHedgeTab() {
                   {brokerAdjustments.slice(0,5).map(row=>(
                     <div key={row.id} style={{
                       display:"grid",
-                      gridTemplateColumns:"150px 110px 120px 1fr",
+                      gridTemplateColumns:"150px 120px 110px 120px 1fr",
                       gap:8,
                       alignItems:"center",
                       padding:"8px 10px",
@@ -3094,6 +3293,7 @@ export default function PropHedgeTab() {
                       color:"#cbd5e1"
                     }}>
                       <span>{new Date(row.created_at).toLocaleString("it-IT")}</span>
+                      <b style={{color:"#93c5fd"}}>{row.account_alias || "Fallback generale"}</b>
                       <b>{row.adjustment_type === "deposit" ? "Versamento" : row.adjustment_type === "withdrawal" ? "Prelievo" : "Correzione"}</b>
                       <span style={{color:Number(row.amount)>=0?"#5eead4":"#fca5a5"}}>
                         {signedMoney(Number(row.amount))}
