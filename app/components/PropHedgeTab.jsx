@@ -4518,6 +4518,11 @@ export default function PropHedgeTab() {
                       Risultato combinato storico: <b style={{color:combined>=0?"#86efac":"#fca5a5"}}>{signedMoney(combined)}</b><br/>
                       Costo Prop: <b>$ {fmt(num(ch.propCost),2)}</b> • Target desiderato: <b>$ {fmt(num(ch.finalProfitTarget),2)}</b><br/>
                       P/L Broker storico registrato: <b style={{color:brokerPL>=0?"#86efac":"#fca5a5"}}>{signedMoney(brokerPL)}</b><br/>
+                      Capitale da recuperare: <b style={{color:"#fca5a5"}}>−$ {fmt(
+                        Math.abs(num(ch.archivedBrokerExposure ?? challengeExposureMap[ch.id] ?? ch.initialBrokerExposure ?? ch?.importedExisting?.brokerExposureBaseline))
+                        + Math.abs(num(ch.propCost)),
+                        2
+                      )}</b> <span style={{color:"#94a3b8"}}>(esposizione Broker + costo Prop)</span><br/>
                       Archiviata: <b>{ch.archivedAt ? new Date(ch.archivedAt).toLocaleString("it-IT") : "—"}</b>
                     </div>
 
