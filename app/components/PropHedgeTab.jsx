@@ -652,6 +652,8 @@ export default function PropHedgeTab() {
   });
   const [labAccumScanFilter, setLabAccumScanFilter] = useState("50");
   const [labAccumCategoryFilter, setLabAccumCategoryFilter] = useState("TUTTI");
+  const [labAccumSyncing, setLabAccumSyncing] = useState(false);
+  const labAccumRefreshLockRef = useRef(false);
   const [labAccumPositions, setLabAccumPositions] = useState(() => {
     try {
       const raw = window.localStorage.getItem("profittracker_lab_accum_positions_v1");
@@ -2520,6 +2522,270 @@ export default function PropHedgeTab() {
 
 
 
+
+  const syncLabAccumPositions = async ({ silent = false } = {}) => {
+    if (labAccumRefreshLockRef.current) return;
+
+    labAccumRefreshLockRef.current = true;
+    setLabAccumSyncing(true);
+
+    if (!silent) {
+      setLabAccumError("");
+      setLabAccumStatus("🔄 Sincronizzazione accumuli con MT5…");
+    }
+
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData?.user?.id;
+      if (!uid) throw new Error("Utente Supabase non autenticato");
+
+      // Recuperiamo le aperture ACCUMULO realmente confermate dal Bridge.
+      // In questo modo un reload/browser reset non può far "sparire" una posizione reale.
+      const { data: openCommands, error: openError } = await supabase
+        .from("prop_bridge_commands")
+        .select(
+          "id,challenge_id,broker_account,symbol,side,volume,position_ticket,execution_price,created_at,result_payload,status"
+        )
+        .eq("user_id", uid)
+        .eq("prop_name", "TRADING LAB ACCUMULO")
+        .eq("command_type", "open")
+        .eq("status", "executed")
+        .not("position_ticket", "is", null)
+        .order("created_at", { ascending: true });
+
+      if (openError) throw openError;
+
+      const recovered = [];
+
+      for (const cmd of (Array.isArray(openCommands) ? openCommands : [])) {
+        const account = brokerAccounts.find(
+          a => String(a.mt5_login) === String(cmd.broker_account)
+        ) || null;
+
+        if (!account || !cmd.position_ticket) continue;
+
+        const baseRow = {
+          id: `ACC-${cmd.position_ticket}`,
+          challengeId: cmd.challenge_id || `LAB-ACCUM-${cmd.id}`,
+          bridgeOpenCommandId: cmd.id,
+          brokerAccountId: account.id,
+          accountAlias: account.alias || account.broker || String(account.mt5_login),
+          accountType: account.account_type || "real",
+          login: String(account.mt5_login),
+          symbol: String(cmd.symbol || ""),
+          side: String(cmd.side || "BUY").toUpperCase(),
+          volume: Number(cmd.volume || 0),
+          requestedUsd: null,
+          actualUsd: null,
+          entry: Number(cmd.execution_price || 0),
+          positionTicket: String(cmd.position_ticket),
+          openedAt: cmd.created_at || null,
+          recoveredFromMt5: true
+        };
+
+        try {
+          const info = await requestLabPositionInfo(baseRow);
+
+          // Se MT5 dice che è ancora aperta, deve essere mostrata a prescindere dal localStorage.
+          if (info?.is_open === true) {
+            recovered.push({
+              ...baseRow,
+              symbol: String(info.symbol || baseRow.symbol),
+              side: String(info.side || baseRow.side).toUpperCase(),
+              volume: Number(info.volume || baseRow.volume || 0),
+              entry: Number(info.open_price || baseRow.entry || 0),
+              currentPrice: Number(info.current_price || 0),
+              floatingPL: Number(info.floating_pl || 0),
+              lastCheckedAt: new Date().toISOString()
+            });
+          }
+        } catch (e) {
+          // Se un singolo conto non risponde, non perdiamo gli altri accumuli.
+          console.warn("Riconciliazione accumulo:", cmd.position_ticket, e);
+        }
+      }
+
+      setLabAccumPositions(recovered);
+
+      if (!silent) {
+        setLabAccumStatus(
+          recovered.length
+            ? `✅ Sincronizzazione completata: ${recovered.length} accumulo/i realmente aperto/i recuperato/i da MT5.`
+            : "✅ Sincronizzazione completata: nessun accumulo aperto trovato su MT5."
+        );
+      }
+    } catch (e) {
+      console.error("SYNC ACCUMULI:", e);
+      if (!silent) setLabAccumError(e?.message || String(e));
+    } finally {
+      labAccumRefreshLockRef.current = false;
+      setLabAccumSyncing(false);
+    }
+  };
+
+  const refreshLabAccumPositions = async ({ silent = true } = {}) => {
+    if (labAccumRefreshLockRef.current || !labAccumPositions.length) return;
+
+    labAccumRefreshLockRef.current = true;
+    setLabAccumSyncing(true);
+
+    try {
+      const survivors = [];
+
+      for (const row of labAccumPositions) {
+        try {
+          const info = await requestLabPositionInfo(row);
+
+          if (info?.is_open === true) {
+            survivors.push({
+              ...row,
+              symbol: String(info.symbol || row.symbol),
+              side: String(info.side || row.side).toUpperCase(),
+              volume: Number(info.volume || row.volume || 0),
+              entry: Number(info.open_price || row.entry || 0),
+              currentPrice: Number(info.current_price || 0),
+              floatingPL: Number(info.floating_pl || 0),
+              lastCheckedAt: new Date().toISOString(),
+              lastCheckError: ""
+            });
+          }
+        } catch (e) {
+          survivors.push({
+            ...row,
+            lastCheckError: e?.message || String(e)
+          });
+        }
+      }
+
+      setLabAccumPositions(survivors);
+
+      if (!silent) {
+        setLabAccumStatus(`✅ Accumuli aggiornati: ${survivors.length} posizione/i aperta/e.`);
+      }
+    } finally {
+      labAccumRefreshLockRef.current = false;
+      setLabAccumSyncing(false);
+    }
+  };
+
+  const closeLabAccumuloManually = async (row) => {
+    if (!row?.positionTicket) return;
+
+    const account = brokerAccounts.find(x => x.id === row.brokerAccountId) || null;
+    if (!account) {
+      setLabAccumError("Account Broker dell'accumulo non trovato.");
+      return;
+    }
+
+    const ok = window.confirm(
+      `Chiudere questo ACCUMULO?\n\n` +
+      `${row.accountAlias} · ${row.symbol} · ${row.side} · Lotto ${row.volume}\n` +
+      `Ticket ${row.positionTicket}\n\n` +
+      `La chiusura verrà inviata realmente alla MT5.`
+    );
+    if (!ok) return;
+
+    try {
+      setLabAccumError("");
+      setLabAccumStatus("⏳ Invio chiusura ACCUMULO al Bridge…");
+
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData?.user?.id;
+      if (!uid) throw new Error("Utente Supabase non autenticato");
+
+      const { data: existingClose, error: existingCloseError } = await supabase
+        .from("prop_bridge_commands")
+        .select("id,status")
+        .eq("user_id", uid)
+        .eq("broker_account", String(account.mt5_login))
+        .eq("command_type", "close")
+        .eq("position_ticket", String(row.positionTicket))
+        .in("status", ["pending","processing"])
+        .limit(1);
+
+      if (existingCloseError) throw existingCloseError;
+      if (Array.isArray(existingClose) && existingClose.length) {
+        throw new Error("Esiste già una chiusura pending/processing per questo accumulo.");
+      }
+
+      const closePayload = {
+        user_id: uid,
+        challenge_id: row.challengeId || `LAB-ACC-CLOSE-${Date.now()}`,
+        prop_name: "TRADING LAB ACCUMULO",
+        broker_account: String(account.mt5_login),
+        symbol: row.symbol,
+        side: row.side || "BUY",
+        volume: Number(row.volume || 0.01),
+        entry_price: Number(row.currentPrice || row.entry || 0),
+        sl: null,
+        tp: null,
+        command_type: "close",
+        position_ticket: String(row.positionTicket),
+        status: "pending"
+      };
+
+      const { data: command, error: commandError } = await supabase
+        .from("prop_bridge_commands")
+        .insert(closePayload)
+        .select("id,status,position_ticket")
+        .single();
+
+      if (commandError) throw commandError;
+      if (!command?.id) throw new Error("Comando CLOSE ACCUMULO creato senza ID.");
+
+      const result = await waitForBridgeCommand(
+        command.id,
+        { timeoutMs: 30000, intervalMs: 750 }
+      );
+
+      if (result.status === "timeout") {
+        throw new Error("Timeout: MT5 non ha confermato la chiusura entro 30 secondi.");
+      }
+      if (result.status === "failed") {
+        throw new Error(
+          `CHIUSURA ACCUMULO FALLITA${result.error_code ? ` [${result.error_code}]` : ""}: ` +
+          `${result.error_message || "errore MT5 non specificato"}`
+        );
+      }
+      if (result.status !== "executed") {
+        throw new Error(`Stato chiusura inatteso: ${result.status}`);
+      }
+
+      const realizedPL = Number(result.realized_pl);
+      const exitPrice = Number(result.execution_price);
+
+      await notifyTradingLabTelegram({
+        action: "lab_trade_manual_close",
+        accountAlias: row.accountAlias,
+        accountType: row.accountType,
+        login: row.login,
+        symbol: row.symbol,
+        side: row.side,
+        volume: row.volume,
+        positionTicket: row.positionTicket,
+        exitPrice: Number.isFinite(exitPrice) ? exitPrice : null,
+        realizedPL: Number.isFinite(realizedPL) ? realizedPL : null
+      });
+
+      setLabAccumPositions(prev =>
+        prev.filter(x => String(x.positionTicket) !== String(row.positionTicket))
+      );
+
+      setLabAccumStatus(
+        `✅ ACCUMULO CHIUSO · ${row.symbol} · Ticket ${row.positionTicket}` +
+        (Number.isFinite(realizedPL)
+          ? ` · P/L ${(realizedPL >= 0 ? "+" : "")}$${fmt(realizedPL,2)}`
+          : "")
+      );
+
+      await loadBrokerLiveStates({ silent: true });
+    } catch (e) {
+      console.error("CLOSE ACCUMULO:", e);
+      setLabAccumError(e?.message || String(e));
+    }
+  };
+
+
   const scanAccumuloAssets = async () => {
     if (labAccumScanLoading) return;
 
@@ -2905,8 +3171,11 @@ export default function PropHedgeTab() {
             requestedUsd: Number(preview.requestedUsd),
             actualUsd: Number(preview.actualUsd),
             entry: executionPrice,
+            currentPrice: executionPrice,
+            floatingPL: 0,
             positionTicket: String(result.position_ticket),
-            openedAt: new Date().toISOString()
+            openedAt: new Date().toISOString(),
+            recoveredFromMt5: false
           });
           return next;
         });
@@ -3153,6 +3422,27 @@ export default function PropHedgeTab() {
 
     return () => window.clearInterval(timer);
   }, [labActiveTrades.length, tradingEnabled]);
+
+
+  useEffect(() => {
+    if (mainView !== "TRADING_LAB" || !brokerAccounts.length) return undefined;
+
+    const timer = window.setTimeout(() => {
+      syncLabAccumPositions({ silent: true });
+    }, 600);
+
+    return () => window.clearTimeout(timer);
+  }, [mainView, brokerAccounts.length]);
+
+  useEffect(() => {
+    if (!labAccumPositions.length) return undefined;
+
+    const timer = window.setInterval(() => {
+      refreshLabAccumPositions({ silent: true });
+    }, 30000);
+
+    return () => window.clearInterval(timer);
+  }, [labAccumPositions.length, tradingEnabled]);
 
   const requestLabSymbolList = async (accountId = labBrokerAccountId) => {
     if (labSymbolsLoading) return;
@@ -7016,39 +7306,115 @@ export default function PropHedgeTab() {
               border:"1px solid rgba(100,116,139,.30)",
               background:"rgba(2,6,23,.28)"
             }}>
-              <div style={{fontSize:15,fontWeight:950,color:"#e9d5ff"}}>
-                📚 Accumuli registrati
+              <div style={{
+                display:"flex",
+                justifyContent:"space-between",
+                alignItems:"center",
+                gap:10,
+                flexWrap:"wrap"
+              }}>
+                <div>
+                  <div style={{fontSize:17,fontWeight:950,color:"#e9d5ff"}}>
+                    📚 Accumuli REALMENTE aperti
+                  </div>
+                  <div style={{fontSize:10,color:"#c4b5fd",marginTop:3}}>
+                    MT5 è la fonte di verità. ProfitTracker ricostruisce le posizioni anche dopo reload o perdita del localStorage.
+                  </div>
+                </div>
+
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  <button
+                    type="button"
+                    style={{...secondaryButton,padding:"9px 12px"}}
+                    disabled={labAccumSyncing}
+                    onClick={()=>syncLabAccumPositions({ silent:false })}
+                  >
+                    {labAccumSyncing ? "⏳ SINCRONIZZO…" : "🔄 SINCRONIZZA CON MT5"}
+                  </button>
+
+                  <button
+                    type="button"
+                    style={{...secondaryButton,padding:"9px 12px"}}
+                    disabled={labAccumSyncing || !labAccumPositions.length}
+                    onClick={()=>refreshLabAccumPositions({ silent:false })}
+                  >
+                    ↻ AGGIORNA P/L
+                  </button>
+                </div>
               </div>
 
               {!labAccumPositions.length ? (
-                <div style={{marginTop:8,fontSize:12,color:"#94a3b8"}}>
-                  Nessun accumulo ancora registrato.
+                <div style={{
+                  marginTop:10,
+                  padding:"12px",
+                  borderRadius:10,
+                  border:"1px solid rgba(245,158,11,.30)",
+                  color:"#fde68a",
+                  fontSize:12
+                }}>
+                  Nessun accumulo aperto registrato in questo momento.
+                  Se sai che esiste una posizione reale su MT5, premi <b>SINCRONIZZA CON MT5</b>.
                 </div>
               ) : (
-                <div style={{display:"grid",gap:8,marginTop:10}}>
+                <div style={{display:"grid",gap:10,marginTop:12}}>
                   {labAccumPositions.map(row=>(
                     <div key={row.id || row.positionTicket} style={{
-                      display:"grid",
-                      gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",
-                      gap:8,
-                      padding:"10px 12px",
-                      borderRadius:10,
-                      border:"1px solid rgba(100,116,139,.28)"
+                      padding:"14px",
+                      borderRadius:12,
+                      border:"1px solid rgba(168,85,247,.38)",
+                      background:"rgba(30,41,59,.46)"
                     }}>
-                      {[
-                        ["Broker",row.accountAlias],
-                        ["Asset",row.symbol],
-                        ["Lotto",row.volume],
-                        ["Richiesto",`$ ${fmt(row.requestedUsd,2)}`],
-                        ["Esposizione",`$ ${fmt(row.actualUsd,2)}`],
-                        ["Entry",row.entry],
-                        ["Ticket",row.positionTicket]
-                      ].map(([label,value])=>(
-                        <div key={label} style={{fontSize:12,color:"#94a3b8"}}>
-                          <b style={{color:"#e2e8f0"}}>{label}:</b>{" "}
-                          <span style={{color:"#fff",fontWeight:850}}>{value}</span>
+                      <div style={{
+                        display:"grid",
+                        gridTemplateColumns:"repeat(auto-fit,minmax(165px,1fr))",
+                        gap:10
+                      }}>
+                        {[
+                          ["Broker",row.accountAlias],
+                          ["Asset",row.symbol],
+                          ["Direzione",row.side],
+                          ["Lotto",row.volume],
+                          ["Entry",row.entry || "—"],
+                          ["Prezzo LIVE",row.currentPrice || "—"],
+                          ["P/L LIVE",`${Number(row.floatingPL||0)>=0?"+":""}$ ${fmt(Number(row.floatingPL||0),2)}`],
+                          ["Ticket",row.positionTicket],
+                          ["Stato",row.recoveredFromMt5 ? "RECUPERATO DA MT5" : "REGISTRATO"]
+                        ].map(([label,value])=>(
+                          <div key={label} style={{fontSize:12,color:"#94a3b8"}}>
+                            <b style={{color:"#c4b5fd"}}>{label}:</b>{" "}
+                            <span style={{
+                              color:label==="P/L LIVE"
+                                ? (Number(row.floatingPL||0)>=0 ? "#5eead4" : "#fca5a5")
+                                : "#fff",
+                              fontSize:14,
+                              fontWeight:900
+                            }}>
+                              {value}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {row.lastCheckError && (
+                        <div style={{marginTop:8,fontSize:11,color:"#fca5a5"}}>
+                          ⚠️ Ultimo controllo: {row.lastCheckError}
                         </div>
-                      ))}
+                      )}
+
+                      <button
+                        type="button"
+                        style={{
+                          ...secondaryButton,
+                          marginTop:12,
+                          padding:"10px 14px",
+                          border:"1px solid rgba(248,113,113,.55)",
+                          color:"#fecaca",
+                          fontWeight:950
+                        }}
+                        onClick={()=>closeLabAccumuloManually(row)}
+                      >
+                        ✋ CHIUDI ACCUMULO
+                      </button>
                     </div>
                   ))}
                 </div>
