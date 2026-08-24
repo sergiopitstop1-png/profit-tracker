@@ -2523,6 +2523,53 @@ export default function PropHedgeTab() {
 
 
 
+  const requestMt5PositionsList = async (account) => {
+    const { data: userData } = await supabase.auth.getUser();
+    const uid = userData?.user?.id;
+    if (!uid) throw new Error("Utente Supabase non autenticato");
+
+    const payload = {
+      user_id: uid,
+      challenge_id: `LAB-POSLIST-${Date.now()}-${account.mt5_login}`,
+      prop_name: "TRADING LAB RECONCILE",
+      broker_account: String(account.mt5_login),
+      symbol: "POSITIONS_LIST",
+      side: "BUY",
+      volume: 0.01,
+      entry_price: null,
+      sl: null,
+      tp: null,
+      command_type: "positions_list",
+      position_ticket: null,
+      status: "pending"
+    };
+
+    const { data: command, error: commandError } = await supabase
+      .from("prop_bridge_commands")
+      .insert(payload)
+      .select("id,status")
+      .single();
+
+    if (commandError) throw commandError;
+    if (!command?.id) throw new Error("POSITIONS_LIST creata senza ID.");
+
+    const result = await waitForBridgeCommand(
+      command.id,
+      { timeoutMs: tradingEnabled ? 30000 : 90000, intervalMs: 1000 }
+    );
+
+    if (result.status === "timeout") {
+      throw new Error(`Timeout POSITIONS_LIST su ${account.alias || account.mt5_login}`);
+    }
+    if (result.status === "failed") {
+      throw new Error(result.error_message || "POSITIONS_LIST fallita");
+    }
+
+    return Array.isArray(result?.result_payload?.rows)
+      ? result.result_payload.rows
+      : [];
+  };
+
   const syncLabAccumPositions = async ({ silent = false } = {}) => {
     if (labAccumRefreshLockRef.current) return;
 
@@ -2531,91 +2578,84 @@ export default function PropHedgeTab() {
 
     if (!silent) {
       setLabAccumError("");
-      setLabAccumStatus("🔄 Sincronizzazione accumuli con MT5…");
+      setLabAccumStatus("🔄 Leggo direttamente le posizioni REALI delle MT5…");
     }
 
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      const uid = userData?.user?.id;
-      if (!uid) throw new Error("Utente Supabase non autenticato");
-
-      // Recuperiamo le aperture ACCUMULO realmente confermate dal Bridge.
-      // In questo modo un reload/browser reset non può far "sparire" una posizione reale.
-      const { data: openCommands, error: openError } = await supabase
-        .from("prop_bridge_commands")
-        .select(
-          "id,challenge_id,broker_account,symbol,side,volume,position_ticket,execution_price,created_at,result_payload,status"
-        )
-        .eq("user_id", uid)
-        .eq("prop_name", "TRADING LAB ACCUMULO")
-        .eq("command_type", "open")
-        .eq("status", "executed")
-        .not("position_ticket", "is", null)
-        .order("created_at", { ascending: true });
-
-      if (openError) throw openError;
-
       const recovered = [];
 
-      for (const cmd of (Array.isArray(openCommands) ? openCommands : [])) {
-        const account = brokerAccounts.find(
-          a => String(a.mt5_login) === String(cmd.broker_account)
-        ) || null;
-
-        if (!account || !cmd.position_ticket) continue;
-
-        const baseRow = {
-          id: `ACC-${cmd.position_ticket}`,
-          challengeId: cmd.challenge_id || `LAB-ACCUM-${cmd.id}`,
-          bridgeOpenCommandId: cmd.id,
-          brokerAccountId: account.id,
-          accountAlias: account.alias || account.broker || String(account.mt5_login),
-          accountType: account.account_type || "real",
-          login: String(account.mt5_login),
-          symbol: String(cmd.symbol || ""),
-          side: String(cmd.side || "BUY").toUpperCase(),
-          volume: Number(cmd.volume || 0),
-          requestedUsd: null,
-          actualUsd: null,
-          entry: Number(cmd.execution_price || 0),
-          positionTicket: String(cmd.position_ticket),
-          openedAt: cmd.created_at || null,
-          recoveredFromMt5: true
-        };
-
+      for (const account of brokerAccounts) {
         try {
-          const info = await requestLabPositionInfo(baseRow);
+          const rows = await requestMt5PositionsList(account);
 
-          // Se MT5 dice che è ancora aperta, deve essere mostrata a prescindere dal localStorage.
-          if (info?.is_open === true) {
+          for (const x of rows) {
+            const ticket = String(x?.t || "");
+            const symbol = String(x?.s || "");
+            const side = String(x?.d || "BUY").toUpperCase();
+            const volume = Number(x?.v || 0);
+            const entry = Number(x?.o || 0);
+            const currentPrice = Number(x?.p || 0);
+            const floatingPL = Number(x?.pl || 0);
+            const sl = Number(x?.sl || 0);
+            const tp = Number(x?.tp || 0);
+            const magic = Number(x?.m || 0);
+            const comment = String(x?.c || "");
+
+            if (!ticket || !symbol) continue;
+
+            // Il Bridge usa MAGIC_NUMBER 26081701.
+            // Un ordine aperto dal nostro Bridge SENZA SL e SENZA TP
+            // è classificato come ACCUMULO. Così viene recuperato anche
+            // se il browser/localStorage/Supabase "dimenticano" la registrazione.
+            const isOurBridgePosition = magic === 26081701;
+            const isAccumulo = isOurBridgePosition && !(sl > 0) && !(tp > 0);
+
+            if (!isAccumulo) continue;
+
             recovered.push({
-              ...baseRow,
-              symbol: String(info.symbol || baseRow.symbol),
-              side: String(info.side || baseRow.side).toUpperCase(),
-              volume: Number(info.volume || baseRow.volume || 0),
-              entry: Number(info.open_price || baseRow.entry || 0),
-              currentPrice: Number(info.current_price || 0),
-              floatingPL: Number(info.floating_pl || 0),
-              lastCheckedAt: new Date().toISOString()
+              id:`ACC-${account.mt5_login}-${ticket}`,
+              challengeId:`RECOVERED-${ticket}`,
+              brokerAccountId:account.id,
+              accountAlias:account.alias || account.broker || String(account.mt5_login),
+              accountType:account.account_type || "real",
+              login:String(account.mt5_login),
+              symbol,
+              side,
+              volume,
+              requestedUsd:null,
+              actualUsd:null,
+              entry,
+              currentPrice,
+              floatingPL,
+              positionTicket:ticket,
+              openedAt:null,
+              recoveredFromMt5:true,
+              mt5Magic:magic,
+              mt5Comment:comment,
+              lastCheckedAt:new Date().toISOString()
             });
           }
         } catch (e) {
-          // Se un singolo conto non risponde, non perdiamo gli altri accumuli.
-          console.warn("Riconciliazione accumulo:", cmd.position_ticket, e);
+          console.warn("POSITIONS_LIST reconcile:", account?.alias, e);
         }
       }
+
+      recovered.sort((a,b) =>
+        String(a.accountAlias).localeCompare(String(b.accountAlias)) ||
+        String(a.symbol).localeCompare(String(b.symbol))
+      );
 
       setLabAccumPositions(recovered);
 
       if (!silent) {
         setLabAccumStatus(
           recovered.length
-            ? `✅ Sincronizzazione completata: ${recovered.length} accumulo/i realmente aperto/i recuperato/i da MT5.`
-            : "✅ Sincronizzazione completata: nessun accumulo aperto trovato su MT5."
+            ? `✅ MT5 conferma ${recovered.length} accumulo/i realmente aperto/i.`
+            : "✅ MT5 non segnala accumuli aperti riconoscibili dal Bridge."
         );
       }
     } catch (e) {
-      console.error("SYNC ACCUMULI:", e);
+      console.error("SYNC ACCUMULI MT5:", e);
       if (!silent) setLabAccumError(e?.message || String(e));
     } finally {
       labAccumRefreshLockRef.current = false;
@@ -7318,7 +7358,7 @@ export default function PropHedgeTab() {
                     📚 Accumuli REALMENTE aperti
                   </div>
                   <div style={{fontSize:10,color:"#c4b5fd",marginTop:3}}>
-                    MT5 è la fonte di verità. ProfitTracker ricostruisce le posizioni anche dopo reload o perdita del localStorage.
+                    MT5 è la fonte di verità: ProfitTracker legge direttamente tutte le posizioni aperte dei broker e recupera gli accumuli del Bridge anche se browser o database li hanno dimenticati.
                   </div>
                 </div>
 
@@ -7352,7 +7392,7 @@ export default function PropHedgeTab() {
                   color:"#fde68a",
                   fontSize:12
                 }}>
-                  Nessun accumulo aperto registrato in questo momento.
+                  Nessun accumulo aperto rilevato in questo momento.
                   Se sai che esiste una posizione reale su MT5, premi <b>SINCRONIZZA CON MT5</b>.
                 </div>
               ) : (
