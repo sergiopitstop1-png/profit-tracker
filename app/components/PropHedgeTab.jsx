@@ -128,6 +128,7 @@ function makeChallenge(name, id) {
     hedgeStoppedAt: null,
     brokerAccountId: "",
     closePropPL: "",
+    closePropBalance: "",
     closeBrokerPL: "",
     operationalChecks: {
       accountBalance: false,
@@ -3936,6 +3937,7 @@ export default function PropHedgeTab() {
         ...buildMonitoringSnapshot(ch, c, "external")
       },
       closePropPL: "",
+      closePropBalance: "",
       closeBrokerPL: ""
     });
 
@@ -4139,6 +4141,7 @@ export default function PropHedgeTab() {
           ...buildMonitoringSnapshot(ch, c, "profittracker")
         },
         closePropPL: "",
+        closePropBalance: "",
         closeBrokerPL: ""
       });
 
@@ -4219,6 +4222,7 @@ export default function PropHedgeTab() {
         ...ch,
         active: null,
         closePropPL: "",
+        closePropBalance: "",
         closeBrokerPL: "",
         autoPrice: true,
         operationalChecks: resetOperationalChecks(ch),
@@ -4374,15 +4378,29 @@ export default function PropHedgeTab() {
         }
       }
 
-      const propPLFinal = Number.isFinite(Number(options?.propPLOverride))
+      const propBalanceOverride = ch.closePropBalance !== "" && Number.isFinite(Number(String(ch.closePropBalance).replace(",", ".")))
+        ? num(ch.closePropBalance)
+        : null;
+
+      const propPLInput = Number.isFinite(Number(options?.propPLOverride))
         ? Number(options.propPLOverride)
         : (ch.closePropPL === "" ? tracking.propPL : num(ch.closePropPL));
+
+      // Il SALDO REALE Prop, se inserito, è la fonte contabile prioritaria.
+      // In quel caso il P/L effettivo viene derivato dal saldo finale, così commissioni/costi
+      // già contabilizzati dalla Prop non generano discrepanze nel ProfitTracker.
+      const newPropBalance = propBalanceOverride !== null
+        ? propBalanceOverride
+        : ch.active.propBalanceStart + propPLInput;
+
+      const propPLFinal = propBalanceOverride !== null
+        ? newPropBalance - ch.active.propBalanceStart
+        : propPLInput;
+
       // Se MT5 ha chiuso davvero, il P/L reale restituito dal broker ha priorità su stima/manuale.
       const brokerPLFinal = brokerPLFromMt5 !== null
         ? brokerPLFromMt5
         : (ch.closeBrokerPL === "" ? tracking.brokerPL : num(ch.closeBrokerPL));
-
-      const newPropBalance = ch.active.propBalanceStart + propPLFinal;
       // Storico multi-account: il saldo Broker della riga appartiene SOLO al conto assegnato alla Prop.
       const brokerAccountBalanceStart = Number.isFinite(Number(ch.active.brokerBalanceStart))
         ? Number(ch.active.brokerBalanceStart)
@@ -4437,6 +4455,8 @@ export default function PropHedgeTab() {
         combined_pl: propPLFinal + brokerPLFinal,
 
         used_manual_prop_pl: ch.closePropPL !== "",
+        used_manual_prop_balance: propBalanceOverride !== null,
+        manual_prop_pl_input: ch.closePropPL !== "" ? num(ch.closePropPL) : null,
         used_manual_broker_pl: brokerPLFromMt5 === null && ch.closeBrokerPL !== "",
 
         status: "closed",
@@ -4496,6 +4516,7 @@ export default function PropHedgeTab() {
           accountBalance: String(Number(newPropBalance.toFixed(2))),
           active: null,
           closePropPL: "",
+          closePropBalance: "",
           closeBrokerPL: "",
           autoPrice: true,
           operationalChecks: resetOperationalChecks(row),
@@ -5974,7 +5995,10 @@ export default function PropHedgeTab() {
                   <div style={panelHeader}>
                     <div>
                       <h4 style={{...panelTitle,fontSize:17}}>Chiusura reale — {ch.name}</h4>
-                      <p style={panelSubtitle}>Lascia vuoto per usare il P/L teorico live, oppure inserisci quello reale.</p>
+                      <p style={panelSubtitle}>
+                        Se conosci il saldo reale della Prop dopo la chiusura, inseriscilo: avrà priorità assoluta
+                        e il P/L contabile verrà ricavato dal saldo. Così commissioni/costi della Prop restano corretti.
+                      </p>
                     </div>
                   </div>
                   <div style={grid2}>
@@ -5983,6 +6007,12 @@ export default function PropHedgeTab() {
                       value={ch.closePropPL}
                       placeholder={signedMoney(tracking.propPL)}
                       onChange={v=>setChallenge(ch.id,{closePropPL:v})}
+                    />
+                    <TextNumberField
+                      label="Saldo reale Prop dopo chiusura ($)"
+                      value={ch.closePropBalance || ""}
+                      placeholder={fmt(ch.active.propBalanceStart + (ch.closePropPL === "" ? tracking.propPL : num(ch.closePropPL)),2)}
+                      onChange={v=>setChallenge(ch.id,{closePropBalance:v})}
                     />
                     <TextNumberField
                       label="P/L reale Broker ($)"
@@ -5994,7 +6024,9 @@ export default function PropHedgeTab() {
                   <div style={{color:"#cbd5e1",fontSize:13}}>
                     Se chiudi ora:
                     <b style={{marginLeft:8}}>Prop → $ {fmt(
-                      ch.active.propBalanceStart + (ch.closePropPL === "" ? tracking.propPL : num(ch.closePropPL)),2
+                      ch.closePropBalance !== ""
+                        ? num(ch.closePropBalance)
+                        : ch.active.propBalanceStart + (ch.closePropPL === "" ? tracking.propPL : num(ch.closePropPL)),2
                     )}</b>
                     <b style={{marginLeft:16}}>Broker realizzato → $ {fmt(
                       num(brokerBalance) + (ch.closeBrokerPL === "" ? tracking.brokerPL : num(ch.closeBrokerPL)),2
