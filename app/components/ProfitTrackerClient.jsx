@@ -114,8 +114,8 @@ const [stimaForm, setStimaForm] = useState({
   const [quickBookTxForm, setQuickBookTxForm] = useState({ tipo: 'versa', wallet_id: '', importo: '', note: '' })
   const [txForm, setTxForm] = useState({ tipo: '', da_tipo: '', importo: '', da_id: '', a_id: '', note: '', categoria_spesa: '' })
 
-  const [bookFilters, setBookFilters] = useState({ nome: '', intestatario: '', saldoMin: '', saldoMax: '', nota: '' })
-  const [walletFilters, setWalletFilters] = useState({ nome: '', intestatario: '', saldoMin: '', saldoMax: '' })
+  const [bookFilters, setBookFilters] = useState({ nome: '', intestatario: '', saldoMin: '', saldoMax: '', nota: '', soloConNota: false })
+  const [walletFilters, setWalletFilters] = useState({ nome: '', intestatario: '', saldoMin: '', saldoMax: '', nota: '', soloConNota: false })
   const [txFilters, setTxFilters] = useState({ tipo: '', azione: '', categoria: '', testo: '', importoMin: '', importoMax: '', dataFrom: '', dataTo: '' })
 const [memoForm, setMemoForm] = useState({ data_reale: '', data_testo: '', importo: '', descrizione: '', colore: 'normal' })
 const [isListening, setIsListening] = useState(false)
@@ -1828,11 +1828,11 @@ async function saveEditPostIt(id) {
   }
 
   function clearBookFilters() {
-    setBookFilters({ nome: '', intestatario: '', saldoMin: '', saldoMax: '', nota: '' })
+    setBookFilters({ nome: '', intestatario: '', saldoMin: '', saldoMax: '', nota: '', soloConNota: false })
   }
 
   function clearWalletFilters() {
-    setWalletFilters({ nome: '', intestatario: '', saldoMin: '', saldoMax: '' })
+    setWalletFilters({ nome: '', intestatario: '', saldoMin: '', saldoMax: '', nota: '', soloConNota: false })
   }
 
   function clearTxFilters() {
@@ -2886,7 +2886,7 @@ const cashFlowAnnuo = useMemo(() => {
       const intestatarioMatch = (book.intestatario || '').toLowerCase().includes(bookFilters.intestatario.toLowerCase())
       const saldoMinMatch = bookFilters.saldoMin === '' ? true : Number(book.saldo || 0) >= Number(bookFilters.saldoMin)
       const saldoMaxMatch = bookFilters.saldoMax === '' ? true : Number(book.saldo || 0) <= Number(bookFilters.saldoMax)
-      const notaMatch = (book.note || '').toLowerCase().includes(bookFilters.nota.toLowerCase())
+      const notaMatch = bookFilters.soloConNota ? !!(book.note && book.note.trim() !== '') : (book.note || '').toLowerCase().includes(bookFilters.nota.toLowerCase())
       return nomeMatch && intestatarioMatch && saldoMinMatch && saldoMaxMatch && notaMatch
     })
     .sort((a, b) => Number(b.saldo || 0) - Number(a.saldo || 0))
@@ -2899,7 +2899,8 @@ const cashFlowAnnuo = useMemo(() => {
       const intestatarioMatch = (wallet.intestatario || '').toLowerCase().includes(walletFilters.intestatario.toLowerCase())
       const saldoMinMatch = walletFilters.saldoMin === '' ? true : Number(wallet.saldo || 0) >= Number(walletFilters.saldoMin)
       const saldoMaxMatch = walletFilters.saldoMax === '' ? true : Number(wallet.saldo || 0) <= Number(walletFilters.saldoMax)
-      return nomeMatch && intestatarioMatch && saldoMinMatch && saldoMaxMatch
+      const notaMatch = walletFilters.soloConNota ? !!(wallet.note && wallet.note.trim() !== '') : (wallet.note || '').toLowerCase().includes(walletFilters.nota.toLowerCase())
+      return nomeMatch && intestatarioMatch && saldoMinMatch && saldoMaxMatch && notaMatch
     })
     .sort((a, b) => Number(b.saldo || 0) - Number(a.saldo || 0))
 , [wallets, walletFilters])
@@ -4795,7 +4796,11 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 <input value={bookFilters.intestatario} onChange={(e) => setBookFilters({ ...bookFilters, intestatario: e.target.value })} placeholder='Filtra per intestatario...' style={filterInput} />
                 <input value={bookFilters.saldoMin} onChange={(e) => setBookFilters({ ...bookFilters, saldoMin: e.target.value })} placeholder='Saldo min' style={filterInput} />
                 <input value={bookFilters.saldoMax} onChange={(e) => setBookFilters({ ...bookFilters, saldoMax: e.target.value })} placeholder='Saldo max' style={filterInput} />
-                <input value={bookFilters.nota} onChange={(e) => setBookFilters({ ...bookFilters, nota: e.target.value })} placeholder='Filtra per nota...' style={filterInput} />
+                <input value={bookFilters.nota} onChange={(e) => setBookFilters({ ...bookFilters, nota: e.target.value })} placeholder='Filtra per nota...' disabled={bookFilters.soloConNota} style={{ ...filterInput, opacity: bookFilters.soloConNota ? 0.5 : 1 }} />
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#94a3b8', fontSize: 13, whiteSpace: 'nowrap' }}>
+                  <input type='checkbox' checked={bookFilters.soloConNota} onChange={(e) => setBookFilters({ ...bookFilters, soloConNota: e.target.checked })} />
+                  Solo con nota
+                </label>
                 <button type='button' style={secondaryButton} onClick={clearBookFilters}>Pulisci</button>
               </div>
               <div style={tableWrap}>
@@ -4825,6 +4830,11 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 <input value={walletFilters.intestatario} onChange={(e) => setWalletFilters({ ...walletFilters, intestatario: e.target.value })} placeholder='Filtra per intestatario...' style={filterInput} />
                 <input value={walletFilters.saldoMin} onChange={(e) => setWalletFilters({ ...walletFilters, saldoMin: e.target.value })} placeholder='Saldo min' style={filterInput} />
                 <input value={walletFilters.saldoMax} onChange={(e) => setWalletFilters({ ...walletFilters, saldoMax: e.target.value })} placeholder='Saldo max' style={filterInput} />
+                <input value={walletFilters.nota} onChange={(e) => setWalletFilters({ ...walletFilters, nota: e.target.value })} placeholder='Filtra per nota...' disabled={walletFilters.soloConNota} style={{ ...filterInput, opacity: walletFilters.soloConNota ? 0.5 : 1 }} />
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#94a3b8', fontSize: 13, whiteSpace: 'nowrap' }}>
+                  <input type='checkbox' checked={walletFilters.soloConNota} onChange={(e) => setWalletFilters({ ...walletFilters, soloConNota: e.target.checked })} />
+                  Solo con nota
+                </label>
                 <button type='button' style={secondaryButton} onClick={clearWalletFilters}>Pulisci</button>
               </div>
               <div style={tableWrap}>
