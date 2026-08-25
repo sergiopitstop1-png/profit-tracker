@@ -775,7 +775,7 @@ export default function PropHedgeTab() {
 
       try {
         const r = await fetch(
-          `/api/market-analysis?symbol=${encodeURIComponent(analysisSymbol)}`,
+          `/api/market-analysis?symbol=${encodeURIComponent(analysisSymbol)}&force=1`,
           { cache:"no-store" }
         );
         const j = await r.json();
@@ -787,7 +787,7 @@ export default function PropHedgeTab() {
         const lastClose = Number(m15?.lastClose);
 
         if (!Number.isFinite(ema20) || !Number.isFinite(ema50)) {
-          throw new Error("Market Engine non ha ancora abbastanza candele M15 per EMA20/EMA50");
+          throw new Error("EMA20/EMA50 M15 non presenti nella risposta del Market Engine");
         }
 
         if (alive) {
