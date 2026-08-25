@@ -1,6 +1,6 @@
 "use client";
 
-// PropHedgeTab v1.64 — Trading Lab con grafico M15 + EMA20/EMA50
+// PropHedgeTab v1.65 — Trading Lab: fix sincronizzazione asset + EMA20/EMA50
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
@@ -639,6 +639,14 @@ export default function PropHedgeTab() {
   // In questa fase NON apre, modifica o chiude ordini.
   const [labBrokerAccountId, setLabBrokerAccountId] = useState("");
   const [labSymbol, setLabSymbol] = useState("EURUSD");
+  // v1.65 — tiene sempre il simbolo PIÙ RECENTE anche dentro le richieste async.
+  // Evita che una SYMBOL_LIST partita prima della scelta manuale rimetta EURUSD dopo aver scelto XAUUSD.
+  const labSymbolRef = useRef("EURUSD");
+  const setLabSymbolSynced = (nextSymbol) => {
+    const next = String(nextSymbol || "");
+    labSymbolRef.current = next;
+    setLabSymbol(next);
+  };
   const [labSymbols, setLabSymbols] = useState([]);
   const [labSymbolsLoading, setLabSymbolsLoading] = useState(false);
   const [labSymbolsError, setLabSymbolsError] = useState("");
@@ -3816,10 +3824,13 @@ export default function PropHedgeTab() {
 
       setLabSymbols(normalized);
 
-      // Se il simbolo corrente non esiste sul nuovo broker, seleziona il primo.
-      const currentExists = normalized.some(x => x.symbol === labSymbol);
+      // v1.65 — IMPORTANTISSIMO: usa il simbolo PIÙ RECENTE, non quello catturato
+      // quando questa richiesta async è partita. Così una risposta tardiva non può
+      // sovrascrivere XAUUSD con EURUSD (o con il primo asset della lista).
+      const latestSymbol = String(labSymbolRef.current || "");
+      const currentExists = normalized.some(x => x.symbol === latestSymbol);
       if (!currentExists && normalized[0]?.symbol) {
-        setLabSymbol(normalized[0].symbol);
+        setLabSymbolSynced(normalized[0].symbol);
         setLabSymbolInfo(null);
         setLabTradePreview(null);
       }
@@ -6722,7 +6733,7 @@ export default function PropHedgeTab() {
                   value={labSymbol}
                   disabled={!labBrokerAccountId || labSymbolsLoading || !labSymbols.length}
                   onChange={e=>{
-                    setLabSymbol(String(e.target.value || ""));
+                    setLabSymbolSynced(e.target.value);
                     setLabSymbolInfo(null);
                     setLabSymbolInfoError("");
                     setLabTradePreview(null);
