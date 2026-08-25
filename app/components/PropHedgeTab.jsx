@@ -1,6 +1,6 @@
 "use client";
 
-// PropHedgeTab v1.65 — Trading Lab: fix sincronizzazione asset + EMA20/EMA50
+// PropHedgeTab v1.66 — Trading Lab: fix sincronizzazione asset + EMA20/EMA50
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
@@ -2350,6 +2350,27 @@ export default function PropHedgeTab() {
       return;
     }
 
+    // v1.66 — blocco di sicurezza: le specifiche MT5 devono appartenere
+    // allo STESSO simbolo attualmente selezionato nel Trading Lab.
+    const selectedSymbolNow = String(labSymbolRef.current || labSymbol || "").trim().toUpperCase();
+    const infoRequestedSymbol = String(
+      labSymbolInfo.requested_symbol_locked ||
+      labSymbolInfo.requested_symbol ||
+      labSymbolInfo.resolved_symbol ||
+      ""
+    ).trim().toUpperCase();
+    const sameSymbol = infoRequestedSymbol && (
+      infoRequestedSymbol === selectedSymbolNow ||
+      infoRequestedSymbol.startsWith(selectedSymbolNow) ||
+      selectedSymbolNow.startsWith(infoRequestedSymbol.replace(/[._-].*$/, ""))
+    );
+    if (!sameSymbol) {
+      setLabTradeError(
+        `DATI MT5 NON ALLINEATI: selezionato ${selectedSymbolNow}, ma le specifiche caricate sono ${infoRequestedSymbol || "di un altro asset"}. Premi LEGGI DATI MT5.`
+      );
+      return;
+    }
+
     const side = String(labSide || "BUY").toUpperCase();
     const maxLoss = num(labMaxLossUsd);
     const target = num(labTargetUsd);
@@ -3169,7 +3190,7 @@ export default function PropHedgeTab() {
   };
 
   const chooseAccumScanAsset = async (symbol) => {
-    setLabSymbol(symbol);
+    setLabSymbolSynced(symbol);
     setLabSymbolInfo(null);
     setLabTradePreview(null);
     setLabAccumPreview(null);
@@ -3845,7 +3866,8 @@ export default function PropHedgeTab() {
     if (labSymbolInfoLoading) return;
 
     const account = brokerAccounts.find(x => x.id === labBrokerAccountId) || null;
-    const symbol = String(labSymbol || "").trim().toUpperCase();
+    // v1.66 — leggi SEMPRE il simbolo più recente scelto dall'utente.
+    const symbol = String(labSymbolRef.current || labSymbol || "").trim().toUpperCase();
 
     setLabSymbolInfo(null);
     setLabSymbolInfoError("");
@@ -3910,6 +3932,8 @@ export default function PropHedgeTab() {
         .eq("user_id", uid)
         .eq("broker_account", String(account.mt5_login))
         .eq("command_type", "symbol_info")
+        // v1.66 — NON riusare mai una richiesta pendente di un altro asset.
+        .eq("symbol", symbol)
         .in("status", ["pending", "processing"])
         .order("created_at", { ascending: false })
         .limit(1);
@@ -4006,8 +4030,20 @@ export default function PropHedgeTab() {
         );
       }
 
+      // v1.66 — se nel frattempo l'utente ha cambiato asset, questa risposta è vecchia.
+      // La ignoriamo: non deve mai rimettere EURUSD mentre è selezionato XAUUSD (o viceversa).
+      const currentRequestedSymbol = String(labSymbolRef.current || "").trim().toUpperCase();
+      if (currentRequestedSymbol !== symbol) {
+        console.warn("Trading Lab SYMBOL_INFO scartato: asset cambiato durante l'attesa", {
+          responseFor: symbol,
+          current: currentRequestedSymbol
+        });
+        return;
+      }
+
       setLabSymbolInfo({
         ...info,
+        requested_symbol_locked: symbol,
         requested_account_id: account.id,
         requested_account_alias: account.alias || account.broker || account.mt5_login,
         requested_account_type: account.account_type || "real",
@@ -6733,12 +6769,23 @@ export default function PropHedgeTab() {
                   value={labSymbol}
                   disabled={!labBrokerAccountId || labSymbolsLoading || !labSymbols.length}
                   onChange={e=>{
-                    setLabSymbolSynced(e.target.value);
+                    const nextSymbol = String(e.target.value || "");
+                    setLabSymbolSynced(nextSymbol);
                     setLabSymbolInfo(null);
                     setLabSymbolInfoError("");
                     setLabTradePreview(null);
                     setLabTradeError("");
                     setLabTradeStatus("");
+                    setLabEmaState({
+                      loading:true,
+                      error:"",
+                      symbol:normalizeLabAnalysisSymbol(nextSymbol),
+                      ema20:null,
+                      ema50:null,
+                      lastClose:null,
+                      timestamp:null,
+                      source:""
+                    });
                   }}
                 >
                   {!labSymbols.length && (
@@ -6750,6 +6797,10 @@ export default function PropHedgeTab() {
                     .filter(x => {
                       const q = String(labSymbolSearch || "").trim().toLowerCase();
                       if (!q) return true;
+                      // v1.66 — il simbolo selezionato deve restare SEMPRE tra le option.
+                      // Altrimenti il browser può mostrare visivamente il primo risultato filtrato
+                      // (es. XAUUSD) mentre lo stato React è ancora EURUSD.
+                      if (x.symbol === labSymbol) return true;
                       return (
                         x.symbol.toLowerCase().includes(q) ||
                         x.description.toLowerCase().includes(q) ||
@@ -6874,9 +6925,12 @@ export default function PropHedgeTab() {
               </div>
 
               {(() => {
-                const e20 = Number(labEmaState.ema20);
-                const e50 = Number(labEmaState.ema50);
-                const close = Number(labEmaState.lastClose);
+                const e20Raw = labEmaState.ema20;
+                const e50Raw = labEmaState.ema50;
+                const closeRaw = labEmaState.lastClose;
+                const e20 = e20Raw == null ? NaN : Number(e20Raw);
+                const e50 = e50Raw == null ? NaN : Number(e50Raw);
+                const close = closeRaw == null ? NaN : Number(closeRaw);
                 const ready = Number.isFinite(e20) && Number.isFinite(e50);
                 const spread = ready ? Math.abs(e20 - e50) : null;
                 const bias = !ready
@@ -6902,13 +6956,13 @@ export default function PropHedgeTab() {
                   }}>
                     <div style={{...statCard,padding:"10px 12px"}}>
                       <div style={statLabel}>EMA 20 · M15</div>
-                      <div style={{...statValue,fontSize:19,color:"#86efac"}}>
+                      <div style={{...statValue,fontSize:19,color:"#facc15"}}>
                         {ready ? fmt(e20, ASSETS[normalizeLabAnalysisSymbol(labSymbol)]?.decimals ?? 3) : "—"}
                       </div>
                     </div>
                     <div style={{...statCard,padding:"10px 12px"}}>
                       <div style={statLabel}>EMA 50 · M15</div>
-                      <div style={{...statValue,fontSize:19,color:"#fca5a5"}}>
+                      <div style={{...statValue,fontSize:19,color:"#22c55e"}}>
                         {ready ? fmt(e50, ASSETS[normalizeLabAnalysisSymbol(labSymbol)]?.decimals ?? 3) : "—"}
                       </div>
                     </div>
