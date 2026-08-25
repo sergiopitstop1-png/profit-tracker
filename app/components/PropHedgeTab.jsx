@@ -38,6 +38,19 @@ const ASSETS = {
 const MT5_LIVE_MAX_AGE_MS = 90000; // heartbeat 30s: margine anti-jitter
 const ENGINE_DIRECTION_STORAGE_KEY = "propMarketLatestPropDirection:XAUUSD";
 
+// v1.61 — BUFFER DI EMERGENZA HEDGE
+// I livelli server-side del Broker devono scattare DOPO i livelli terminali della Prop,
+// mai prima. Su XAUUSD usiamo $0,50 di margine oltre TP/SL Prop.
+// Per gli altri asset lasciamo 0 per non cambiare il comportamento esistente.
+const BROKER_EMERGENCY_BUFFER_BY_ASSET = {
+  XAUUSD: 0.50
+};
+
+function brokerEmergencyBuffer(asset) {
+  const v = Number(BROKER_EMERGENCY_BUFFER_BY_ASSET[asset] ?? 0);
+  return Number.isFinite(v) && v >= 0 ? v : 0;
+}
+
 const fieldLabel = { display: "block", color: "#93c5fd", fontSize: 13, marginBottom: 6 };
 const grid2 = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px,1fr))", gap: 12 };
 const orderGrid = { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 14, marginTop: 14 };
@@ -185,17 +198,27 @@ function calcChallenge(ch, live) {
   const propSL = ch.direction === "BUY" ? px - slMove : px + slMove;
   const propTPPrice = ch.direction === "BUY" ? px + tpMove : px - tpMove;
   const brokerDirection = ch.direction === "BUY" ? "SELL" : "BUY";
-  const brokerTP = propSL;
-  const brokerSL = propTPPrice;
 
-  const maxBrokerLoss = Math.abs(propTPPrice - px) * a.contract * brokerLots * quoteToUsd;
-  const brokerProfitAtPropSL = Math.abs(propSL - px) * a.contract * brokerLots * quoteToUsd;
+  // v1.61 — i livelli Broker sono PARACADUTE, non il trigger principale.
+  // Devono essere oltre il livello terminale Prop nella direzione del movimento:
+  // PROP BUY  -> Broker SELL: SL sopra TP Prop, TP sotto SL Prop.
+  // PROP SELL -> Broker BUY : SL sotto TP Prop, TP sopra SL Prop.
+  const emergencyBuffer = brokerEmergencyBuffer(ch.asset);
+  const brokerTP = ch.direction === "BUY"
+    ? propSL - emergencyBuffer
+    : propSL + emergencyBuffer;
+  const brokerSL = ch.direction === "BUY"
+    ? propTPPrice + emergencyBuffer
+    : propTPPrice - emergencyBuffer;
+
+  const maxBrokerLoss = Math.abs(brokerSL - px) * a.contract * brokerLots * quoteToUsd;
+  const brokerProfitAtPropSL = Math.abs(brokerTP - px) * a.contract * brokerLots * quoteToUsd;
 
   return {
     a, px, quoteToUsd, burnBalance, ddResidual, riskPct, shots,
     propLots, marginPct, maxMarginPct, marginExceeded, brokerBasePerShot, brokerTpDollars, slMove, tpMove,
     brokerLotsRaw, brokerLots, propSL, propTPPrice, brokerDirection,
-    brokerTP, brokerSL, maxBrokerLoss, brokerProfitAtPropSL
+    emergencyBuffer, brokerTP, brokerSL, maxBrokerLoss, brokerProfitAtPropSL
   };
 }
 
@@ -3909,6 +3932,7 @@ export default function PropHedgeTab() {
         bridgeCommandId: null,
         bridgeCommandStatus: null,
         placedAt,
+        terminalAutoCloseEnabled: false,
         ...buildMonitoringSnapshot(ch, c, "external")
       },
       closePropPL: "",
@@ -4111,6 +4135,7 @@ export default function PropHedgeTab() {
           bridgeCommandId,
           bridgeCommandStatus: hedgeEnabledAtEntry ? "pending" : null,
           placedAt,
+          terminalAutoCloseEnabled: true,
           ...buildMonitoringSnapshot(ch, c, "profittracker")
         },
         closePropPL: "",
@@ -4202,7 +4227,9 @@ export default function PropHedgeTab() {
     }));
   };
 
-  const closeAndUpdate = async (id) => {
+  const autoPropTerminalLockRef = useRef(new Set());
+
+  const closeAndUpdate = async (id, options = {}) => {
     const ch = challenges.find(x => x.id === id);
     const tracking = trackings[id];
     if (!ch?.active || !tracking) return;
@@ -4214,6 +4241,7 @@ export default function PropHedgeTab() {
       let brokerPLFromMt5 = null;
       let brokerExitPrice = tracking.current;
       let bridgeCloseCommandId = null;
+      let brokerWasAlreadyClosed = false;
 
       // Se la copertura Broker era attiva, PRIMA chiudiamo davvero la posizione MT5.
       if (
@@ -4299,25 +4327,56 @@ export default function PropHedgeTab() {
         }
 
         if (closeResult.status === "failed") {
-          throw new Error(
-            `CHIUSURA BROKER FALLITA${closeResult.error_code ? ` [${closeResult.error_code}]` : ""}: ` +
-            `${closeResult.error_message || "errore MT5 non specificato"}`
-          );
+          // v1.61 — Se il Broker ha già preso SL/TP, il ticket non è più aperto.
+          // Non è un errore terminale: chiediamo a MT5 lo storico reale della posizione
+          // e proseguiamo con P/L e prezzo di uscita effettivi.
+          if (String(closeResult.error_code || "").toLowerCase() === "position_not_found") {
+            const positionInfo = await requestLabPositionInfo({
+              brokerAccountId: ch.active.brokerAccountId,
+              challengeId: ch.id,
+              symbol: ch.active.asset,
+              side: ch.active.brokerDirection,
+              positionTicket: String(openCommand.position_ticket)
+            });
+
+            if (positionInfo?.is_open === false) {
+              brokerWasAlreadyClosed = true;
+              if (Number.isFinite(Number(positionInfo.realized_pl))) {
+                brokerPLFromMt5 = Number(positionInfo.realized_pl);
+              }
+              if (Number.isFinite(Number(positionInfo.exit_price))) {
+                brokerExitPrice = Number(positionInfo.exit_price);
+              }
+            } else {
+              throw new Error(
+                `CHIUSURA BROKER FALLITA [position_not_found]: il ticket non risulta aperto ma MT5 non lo conferma come chiuso.`
+              );
+            }
+          } else {
+            throw new Error(
+              `CHIUSURA BROKER FALLITA${closeResult.error_code ? ` [${closeResult.error_code}]` : ""}: ` +
+              `${closeResult.error_message || "errore MT5 non specificato"}`
+            );
+          }
         }
 
-        if (closeResult.status !== "executed") {
+        if (closeResult.status !== "executed" && !brokerWasAlreadyClosed) {
           throw new Error(`Stato chiusura Broker inatteso: ${closeResult.status}`);
         }
 
-        if (Number.isFinite(Number(closeResult.realized_pl))) {
-          brokerPLFromMt5 = Number(closeResult.realized_pl);
-        }
-        if (Number.isFinite(Number(closeResult.execution_price))) {
-          brokerExitPrice = Number(closeResult.execution_price);
+        if (!brokerWasAlreadyClosed) {
+          if (Number.isFinite(Number(closeResult.realized_pl))) {
+            brokerPLFromMt5 = Number(closeResult.realized_pl);
+          }
+          if (Number.isFinite(Number(closeResult.execution_price))) {
+            brokerExitPrice = Number(closeResult.execution_price);
+          }
         }
       }
 
-      const propPLFinal = ch.closePropPL === "" ? tracking.propPL : num(ch.closePropPL);
+      const propPLFinal = Number.isFinite(Number(options?.propPLOverride))
+        ? Number(options.propPLOverride)
+        : (ch.closePropPL === "" ? tracking.propPL : num(ch.closePropPL));
       // Se MT5 ha chiuso davvero, il P/L reale restituito dal broker ha priorità su stima/manuale.
       const brokerPLFinal = brokerPLFromMt5 !== null
         ? brokerPLFromMt5
@@ -4392,7 +4451,12 @@ export default function PropHedgeTab() {
           broker_account_id: ch.active.brokerAccountId || null,
           broker_login: ch.active.brokerLogin || null,
           broker_alias: ch.active.brokerAlias || null,
-          broker_pl_source: brokerPLFromMt5 !== null ? "mt5_realized" : (ch.closeBrokerPL !== "" ? "manual" : "theoretical")
+          broker_pl_source: brokerPLFromMt5 !== null ? "mt5_realized" : (ch.closeBrokerPL !== "" ? "manual" : "theoretical"),
+          broker_already_closed_before_pt_close: brokerWasAlreadyClosed,
+          auto_terminal_reason: options?.autoTerminal || null,
+          prop_pl_source: Number.isFinite(Number(options?.propPLOverride))
+            ? "terminal_level_theoretical"
+            : (ch.closePropPL !== "" ? "manual" : "live_theoretical")
         }
       };
 
@@ -4456,9 +4520,9 @@ export default function PropHedgeTab() {
         brokerBalanceAfter: newBrokerRealizedBalance
       });
 
-      if (bridgeCloseCommandId) {
+      if (bridgeCloseCommandId && !options?.silent) {
         alert(
-          `✅ BROKER CHIUSO E SALDI AGGIORNATI\n\n` +
+          `${brokerWasAlreadyClosed ? "✅ BROKER GIÀ CHIUSO — PT RICONCILIATO" : "✅ BROKER CHIUSO E SALDI AGGIORNATI"}\n\n` +
           `Prop: ${ch.name}\n` +
           `P/L Broker MT5: ${signedMoney(brokerPLFinal)}\n` +
           `Close Command: ${bridgeCloseCommandId}`
@@ -4475,6 +4539,61 @@ export default function PropHedgeTab() {
       setBridgeClosing(prev => ({ ...prev, [id]: false }));
     }
   };
+
+  // v1.61 — AUTO CLOSE DAL LIVELLO TERMINALE PROP
+  // Non possiamo leggere MT5 della Prop: usiamo quindi i livelli Prop congelati nel PT.
+  // Appena il feed attraversa TP/SL Prop, PT ordina la chiusura del Broker.
+  // Gli SL/TP Broker, spostati oltre con il buffer, restano solo come paracadute server-side.
+  useEffect(() => {
+    if (!activeChallenges.length) return;
+
+    for (const activeCh of activeChallenges) {
+      const active = activeCh.active;
+      const tracking = trackings[activeCh.id];
+      if (!active || !tracking) continue;
+      if (active.executionSource === "external") continue;
+      // Le operazioni già aperte prima della v1.61 non vengono auto-chiuse al deploy:
+      // si riconciliano manualmente una volta, poi i nuovi trade saranno automatici.
+      if (active.terminalAutoCloseEnabled !== true) continue;
+
+      const current = Number(tracking.current);
+      const tp = Number(active.propTP);
+      const sl = Number(active.propSL);
+      if (![current, tp, sl].every(Number.isFinite)) continue;
+
+      const isBuy = active.direction === "BUY";
+      const hitTp = isBuy ? current >= tp : current <= tp;
+      const hitSl = isBuy ? current <= sl : current >= sl;
+      if (!hitTp && !hitSl) continue;
+
+      const tradeKey = `${activeCh.id}:${active.placedAt || active.entry}`;
+      if (autoPropTerminalLockRef.current.has(tradeKey)) continue;
+      autoPropTerminalLockRef.current.add(tradeKey);
+      // Se qualcosa fallisce e closeAndUpdate lascia la challenge attiva,
+      // consentiamo un nuovo tentativo automatico dopo 45 secondi.
+      window.setTimeout(() => {
+        autoPropTerminalLockRef.current.delete(tradeKey);
+      }, 45000);
+
+      const terminalPrice = hitTp ? tp : sl;
+      const propSign = isBuy ? 1 : -1;
+      const propPLAtTerminal =
+        (terminalPrice - Number(active.entry)) *
+        Number(active.contract || 0) *
+        Number(active.propLots || 0) *
+        propSign *
+        Number(tracking.quoteToUsd || active.quoteToUsd || 1);
+
+      closeAndUpdate(activeCh.id, {
+        propPLOverride: propPLAtTerminal,
+        autoTerminal: hitTp ? "TP" : "SL",
+        silent: true
+      }).catch((e) => {
+        console.error("AUTO CLOSE PROP TERMINAL:", activeCh.name, e);
+        autoPropTerminalLockRef.current.delete(tradeKey);
+      });
+    }
+  }, [activeChallenges, trackings]);
 
   const totalCombinedPL = activeChallenges.reduce(
     (sum, ch) => sum + (trackings[ch.id]?.combinedPL || 0),
