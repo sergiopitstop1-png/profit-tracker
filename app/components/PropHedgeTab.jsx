@@ -6930,7 +6930,7 @@ export default function PropHedgeTab() {
             );
           })()}
 
-          {/* v1.64 — Grafico M15 nel Trading Lab con EMA20 + EMA50.
+          {/* v1.68 — Grafico M15 + EMA20/EMA50 + posizione prezzo + azione EMA.
               TradingViewChart normalizza anche i suffissi broker (es. XAUUSD.x). */}
           {labSymbol && (
             <div style={{
@@ -6992,6 +6992,30 @@ export default function PropHedgeTab() {
                     : "#fde68a";
                 const biasIcon = bias === "RIALZISTA" ? "🟢" : bias === "RIBASSISTA" ? "🔴" : "🟡";
 
+                const priceReady = ready && Number.isFinite(close);
+                const pricePosition = !priceReady
+                  ? "ATTENDO"
+                  : close > Math.max(e20, e50)
+                    ? "SOPRA ENTRAMBE"
+                    : close < Math.min(e20, e50)
+                      ? "SOTTO ENTRAMBE"
+                      : "TRA LE EMA";
+
+                const emaAction = !priceReady
+                  ? "ATTENDI"
+                  : close > e20 && close > e50 && e20 > e50
+                    ? "BUY"
+                    : close < e20 && close < e50 && e20 < e50
+                      ? "SELL"
+                      : "ATTENDI";
+
+                const actionColor = emaAction === "BUY"
+                  ? "#86efac"
+                  : emaAction === "SELL"
+                    ? "#fca5a5"
+                    : "#fde68a";
+                const actionIcon = emaAction === "BUY" ? "🟢" : emaAction === "SELL" ? "🔴" : "🟡";
+
                 return (
                   <div style={{
                     display:"grid",
@@ -7027,6 +7051,34 @@ export default function PropHedgeTab() {
                       </div>
                       <div style={statSub}>
                         {labEmaState.source ? `Fonte ${labEmaState.source}` : ""}
+                      </div>
+                    </div>
+                    <div style={{...statCard,padding:"10px 12px"}}>
+                      <div style={statLabel}>Posizione Prezzo</div>
+                      <div style={{...statValue,fontSize:17,color:"#e2e8f0"}}>
+                        {pricePosition}
+                      </div>
+                      <div style={statSub}>
+                        {priceReady
+                          ? (pricePosition === "SOPRA ENTRAMBE"
+                              ? "Prezzo sopra EMA20 e EMA50"
+                              : pricePosition === "SOTTO ENTRAMBE"
+                                ? "Prezzo sotto EMA20 e EMA50"
+                                : "Prezzo compreso tra EMA20 e EMA50")
+                          : "Attendo Market Engine"}
+                      </div>
+                    </div>
+                    <div style={{...statCard,padding:"10px 12px",border:`1px solid ${emaAction === "BUY" ? "rgba(34,197,94,.40)" : emaAction === "SELL" ? "rgba(248,113,113,.40)" : "rgba(250,204,21,.35)"}`}}>
+                      <div style={statLabel}>Azione EMA</div>
+                      <div style={{...statValue,fontSize:20,color:actionColor}}>
+                        {actionIcon} {emaAction}
+                      </div>
+                      <div style={statSub}>
+                        {emaAction === "BUY"
+                          ? "Prezzo > EMA20 > EMA50"
+                          : emaAction === "SELL"
+                            ? "Prezzo < EMA20 < EMA50"
+                            : "Manca una conferma completa: attendi"}
                       </div>
                     </div>
                   </div>
