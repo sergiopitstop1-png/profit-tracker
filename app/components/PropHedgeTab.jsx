@@ -1,6 +1,6 @@
 "use client";
 
-// PropHedgeTab v1.42 — Trading Lab: recupero richieste SYMBOL_INFO pendenti + countdown 90s
+// PropHedgeTab v1.63 — Storico modificabile + esposizione Broker preservata
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
@@ -584,6 +584,10 @@ export default function PropHedgeTab() {
   const [historyRows, setHistoryRows] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
+  // v1.63 — modifica manuale righe storico (senza dover cancellare)
+  const [historyEditingRow, setHistoryEditingRow] = useState(null);
+  const [historyEditDraft, setHistoryEditDraft] = useState(null);
+  const [historyEditSaving, setHistoryEditSaving] = useState(false);
 
   // Stato challenge correnti su Supabase
   const [activeSyncLoading, setActiveSyncLoading] = useState(false);
@@ -1874,6 +1878,101 @@ export default function PropHedgeTab() {
     } catch (e) {
       console.error("Errore eliminazione operazione storico:", e);
       alert("❌ Impossibile eliminare l'operazione:\n\n" + (e?.message || String(e)));
+    }
+  };
+
+  const openHistoryEditor = (row) => {
+    if (!row?.id) return;
+    setHistoryEditingRow(row);
+    setHistoryEditDraft({
+      prop_name: row.prop_name ?? "",
+      asset: row.asset ?? "XAUUSD",
+      prop_direction: row.prop_direction ?? "BUY",
+      entry_price: row.entry_price ?? "",
+      exit_price: row.exit_price ?? "",
+      prop_lots: row.prop_lots ?? "",
+      broker_lots: row.broker_lots ?? "",
+      prop_pl: row.prop_pl ?? "",
+      broker_pl: row.broker_pl ?? "",
+      prop_balance_start: row.prop_balance_start ?? "",
+      prop_balance_end: row.prop_balance_end ?? "",
+      broker_balance_start: row.broker_balance_start ?? "",
+      broker_balance_end: row.broker_balance_end ?? "",
+      broker_exposure_start: row.broker_exposure_start ?? "",
+      broker_max_loss: row.broker_max_loss ?? "",
+      notes: row?.metadata?.manual_history_note ?? ""
+    });
+  };
+
+  const closeHistoryEditor = () => {
+    if (historyEditSaving) return;
+    setHistoryEditingRow(null);
+    setHistoryEditDraft(null);
+  };
+
+  const setHistoryEditField = (key, value) => {
+    setHistoryEditDraft(prev => ({ ...(prev || {}), [key]: value }));
+  };
+
+  const saveHistoryEdit = async () => {
+    if (!historyEditingRow?.id || !historyEditDraft) return;
+    if (historyEditSaving) return;
+
+    const propPL = num(historyEditDraft.prop_pl);
+    const brokerPL = num(historyEditDraft.broker_pl);
+    const combinedPL = propPL + brokerPL;
+
+    const patch = {
+      prop_name: String(historyEditDraft.prop_name || "").trim() || historyEditingRow.prop_name,
+      asset: String(historyEditDraft.asset || "").trim().toUpperCase() || historyEditingRow.asset,
+      prop_direction: String(historyEditDraft.prop_direction || "BUY").toUpperCase() === "SELL" ? "SELL" : "BUY",
+      entry_price: num(historyEditDraft.entry_price),
+      exit_price: num(historyEditDraft.exit_price),
+      prop_lots: num(historyEditDraft.prop_lots),
+      broker_lots: num(historyEditDraft.broker_lots),
+      prop_pl: propPL,
+      broker_pl: brokerPL,
+      combined_pl: combinedPL,
+      prop_balance_start: num(historyEditDraft.prop_balance_start),
+      prop_balance_end: num(historyEditDraft.prop_balance_end),
+      broker_balance_start: num(historyEditDraft.broker_balance_start),
+      broker_balance_end: num(historyEditDraft.broker_balance_end),
+      broker_exposure_start: num(historyEditDraft.broker_exposure_start),
+      broker_max_loss: num(historyEditDraft.broker_max_loss),
+      metadata: {
+        ...(historyEditingRow.metadata || {}),
+        manually_edited: true,
+        manually_edited_at: new Date().toISOString(),
+        manual_history_note: String(historyEditDraft.notes || "").trim()
+      }
+    };
+
+    setHistoryEditSaving(true);
+    try {
+      const { data, error } = await supabase
+        .from("prop_hedge_operations")
+        .update(patch)
+        .eq("id", historyEditingRow.id)
+        .select("*")
+        .single();
+
+      if (error) throw error;
+
+      setHistoryRows(prev => prev.map(r => r.id === historyEditingRow.id ? (data || { ...r, ...patch }) : r));
+      setHistoryEditingRow(null);
+      setHistoryEditDraft(null);
+      alert(
+        `✅ OPERAZIONE STORICO AGGIORNATA\n\n` +
+        `P/L Prop: ${signedMoney(propPL)}\n` +
+        `P/L Broker: ${signedMoney(brokerPL)}\n` +
+        `Combinato: ${signedMoney(combinedPL)}\n\n` +
+        `La riga è stata modificata su Supabase senza cancellarla.`
+      );
+    } catch (e) {
+      console.error("Errore modifica operazione storico:", e);
+      alert("❌ Impossibile modificare l'operazione:\n\n" + (e?.message || String(e)));
+    } finally {
+      setHistoryEditSaving(false);
     }
   };
 
@@ -6296,13 +6395,13 @@ export default function PropHedgeTab() {
           border:"1px solid rgba(51,65,85,.78)",
           borderRadius:16
         }}>
-          <table style={{width:"100%",borderCollapse:"collapse",minWidth:1250}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:1380}}>
             <thead>
               <tr style={{background:"#0b1220"}}>
                 {[
                   "Data","Prop","Asset","Dir.","Ingresso","Uscita",
                   "Lotti Prop","Lotti Broker","P/L Prop","P/L Broker","Combinato",
-                  "Saldo Prop","Saldo Broker","Azioni"
+                  "Esposizione Broker","Saldo Prop","Saldo Broker","Azioni"
                 ].map(h=>(
                   <th key={h} style={{
                     textAlign:"left",
@@ -6320,7 +6419,7 @@ export default function PropHedgeTab() {
             <tbody>
               {filteredHistory.length === 0 && (
                 <tr>
-                  <td colSpan={14} style={{padding:20,color:"#94a3b8",textAlign:"center"}}>
+                  <td colSpan={15} style={{padding:20,color:"#94a3b8",textAlign:"center"}}>
                     {historyLoading ? "Caricamento storico…" : "Nessuna operazione nello storico."}
                   </td>
                 </tr>
@@ -6352,6 +6451,9 @@ export default function PropHedgeTab() {
                     <td style={{padding:"10px",color:combined>=0?"#5eead4":"#fca5a5",fontWeight:900}}>
                       {signedMoney(combined)}
                     </td>
+                    <td style={{padding:"10px",whiteSpace:"nowrap",color:"#e9d5ff",fontWeight:800}}>
+                      $ {fmt(Number(row.broker_exposure_start || 0),2)}
+                    </td>
                     <td style={{padding:"10px",whiteSpace:"nowrap"}}>
                       $ {fmt(Number(row.prop_balance_start),2)} → $ {fmt(Number(row.prop_balance_end),2)}
                     </td>
@@ -6359,6 +6461,20 @@ export default function PropHedgeTab() {
                       $ {fmt(Number(row.broker_balance_start),2)} → $ {fmt(Number(row.broker_balance_end),2)}
                     </td>
                     <td style={{padding:"8px 10px",whiteSpace:"nowrap"}}>
+                      <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                      <button
+                        title="Modifica questa operazione"
+                        style={{
+                          ...secondaryButton,
+                          padding:"6px 9px",
+                          color:"#bfdbfe",
+                          border:"1px solid rgba(59,130,246,.46)",
+                          background:"rgba(30,64,175,.14)"
+                        }}
+                        onClick={()=>openHistoryEditor(row)}
+                      >
+                        ✏️
+                      </button>
                       <button
                         title="Elimina definitivamente questa operazione"
                         style={{
@@ -6372,6 +6488,7 @@ export default function PropHedgeTab() {
                       >
                         🗑
                       </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -6379,6 +6496,69 @@ export default function PropHedgeTab() {
             </tbody>
           </table>
         </div>
+
+        {historyEditingRow && historyEditDraft && (
+          <div style={{
+            position:"fixed",inset:0,zIndex:9999,
+            background:"rgba(2,6,23,.82)",backdropFilter:"blur(5px)",
+            display:"flex",alignItems:"center",justifyContent:"center",padding:18
+          }}>
+            <div style={{
+              width:"min(980px,96vw)",maxHeight:"92vh",overflowY:"auto",
+              borderRadius:20,border:"1px solid rgba(96,165,250,.48)",
+              background:"#08111f",boxShadow:"0 24px 80px rgba(0,0,0,.55)",padding:20
+            }}>
+              <div style={{...panelHeader,marginBottom:14}}>
+                <div>
+                  <h3 style={panelTitle}>✏️ Modifica operazione storico</h3>
+                  <p style={panelSubtitle}>Correggi i dati della riga senza cancellarla. Il combinato viene ricalcolato automaticamente.</p>
+                </div>
+                <button style={secondaryButton} onClick={closeHistoryEditor} disabled={historyEditSaving}>✕ Chiudi</button>
+              </div>
+
+              <div style={{...hintBox,marginBottom:14,border:"1px solid rgba(245,158,11,.34)",color:"#fde68a"}}>
+                🧾 Riga: {historyEditingRow.prop_name || "—"} · {historyEditingRow.closed_at ? new Date(historyEditingRow.closed_at).toLocaleString("it-IT") : "—"}.
+                L'esposizione Broker resta nello storico ed è modificabile qui sotto.
+              </div>
+
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))",gap:12}}>
+                <div><label style={fieldLabel}>Prop</label><input style={input} value={historyEditDraft.prop_name} onChange={e=>setHistoryEditField("prop_name",e.target.value)} /></div>
+                <div><label style={fieldLabel}>Asset</label><input style={input} value={historyEditDraft.asset} onChange={e=>setHistoryEditField("asset",e.target.value)} /></div>
+                <div><label style={fieldLabel}>Direzione Prop</label><select style={input} value={historyEditDraft.prop_direction} onChange={e=>setHistoryEditField("prop_direction",e.target.value)}><option value="BUY">BUY</option><option value="SELL">SELL</option></select></div>
+                <div><label style={fieldLabel}>Ingresso</label><input style={input} value={historyEditDraft.entry_price} onChange={e=>setHistoryEditField("entry_price",e.target.value)} /></div>
+                <div><label style={fieldLabel}>Uscita</label><input style={input} value={historyEditDraft.exit_price} onChange={e=>setHistoryEditField("exit_price",e.target.value)} /></div>
+                <div><label style={fieldLabel}>Lotti Prop</label><input style={input} value={historyEditDraft.prop_lots} onChange={e=>setHistoryEditField("prop_lots",e.target.value)} /></div>
+                <div><label style={fieldLabel}>Lotti Broker</label><input style={input} value={historyEditDraft.broker_lots} onChange={e=>setHistoryEditField("broker_lots",e.target.value)} /></div>
+                <div><label style={fieldLabel}>P/L Prop ($)</label><input style={input} value={historyEditDraft.prop_pl} onChange={e=>setHistoryEditField("prop_pl",e.target.value)} /></div>
+                <div><label style={fieldLabel}>P/L Broker ($)</label><input style={input} value={historyEditDraft.broker_pl} onChange={e=>setHistoryEditField("broker_pl",e.target.value)} /></div>
+                <div><label style={fieldLabel}>Saldo Prop iniziale</label><input style={input} value={historyEditDraft.prop_balance_start} onChange={e=>setHistoryEditField("prop_balance_start",e.target.value)} /></div>
+                <div><label style={fieldLabel}>Saldo Prop finale</label><input style={input} value={historyEditDraft.prop_balance_end} onChange={e=>setHistoryEditField("prop_balance_end",e.target.value)} /></div>
+                <div><label style={fieldLabel}>Saldo Broker iniziale</label><input style={input} value={historyEditDraft.broker_balance_start} onChange={e=>setHistoryEditField("broker_balance_start",e.target.value)} /></div>
+                <div><label style={fieldLabel}>Saldo Broker finale</label><input style={input} value={historyEditDraft.broker_balance_end} onChange={e=>setHistoryEditField("broker_balance_end",e.target.value)} /></div>
+                <div><label style={fieldLabel}>Esposizione Broker iniziale ($)</label><input style={input} value={historyEditDraft.broker_exposure_start} onChange={e=>setHistoryEditField("broker_exposure_start",e.target.value)} /></div>
+                <div><label style={fieldLabel}>Perdita max Broker ($)</label><input style={input} value={historyEditDraft.broker_max_loss} onChange={e=>setHistoryEditField("broker_max_loss",e.target.value)} /></div>
+              </div>
+
+              <div style={{marginTop:12}}>
+                <label style={fieldLabel}>Nota correzione</label>
+                <textarea style={{...input,minHeight:76,resize:"vertical"}} value={historyEditDraft.notes} onChange={e=>setHistoryEditField("notes",e.target.value)} placeholder="Es. corretto con saldo reale GOAT e P/L broker MT5" />
+              </div>
+
+              <div style={{...statsGrid,marginTop:14}}>
+                <div style={statCard}><div style={statLabel}>P/L Prop</div><div style={statValue}>{signedMoney(num(historyEditDraft.prop_pl))}</div></div>
+                <div style={statCard}><div style={statLabel}>P/L Broker</div><div style={statValue}>{signedMoney(num(historyEditDraft.broker_pl))}</div></div>
+                <div style={statCard}><div style={statLabel}>Combinato ricalcolato</div><div style={{...statValue,color:(num(historyEditDraft.prop_pl)+num(historyEditDraft.broker_pl))>=0?"#5eead4":"#fca5a5"}}>{signedMoney(num(historyEditDraft.prop_pl)+num(historyEditDraft.broker_pl))}</div></div>
+              </div>
+
+              <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:18,flexWrap:"wrap"}}>
+                <button style={secondaryButton} onClick={closeHistoryEditor} disabled={historyEditSaving}>Annulla</button>
+                <button style={primaryButtonBlue} onClick={saveHistoryEdit} disabled={historyEditSaving}>
+                  {historyEditSaving ? "⏳ Salvo…" : "💾 Salva modifiche"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       )}
 
