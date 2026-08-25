@@ -781,13 +781,13 @@ export default function PropHedgeTab() {
         const j = await r.json();
         if (!r.ok || !j?.ok) throw new Error(j?.error || "EMA M15 non disponibili");
 
-        const m15 = j?.timeframes?.M15 || null;
+        const m15 = j?.timeframes?.m15 || j?.timeframes?.M15 || null;
         const ema20 = Number(m15?.ema20);
         const ema50 = Number(m15?.ema50);
         const lastClose = Number(m15?.lastClose);
 
         if (!Number.isFinite(ema20) || !Number.isFinite(ema50)) {
-          throw new Error("EMA20/EMA50 M15 non presenti nella risposta del Market Engine");
+          throw new Error("EMA20/EMA50 M15 non leggibili nella risposta del Market Engine");
         }
 
         if (alive) {
