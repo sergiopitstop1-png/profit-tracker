@@ -1,6 +1,6 @@
 "use client";
 
-// PropHedgeTab v1.63 — Storico modificabile + esposizione Broker preservata
+// PropHedgeTab v1.64 — Trading Lab con grafico M15 + EMA20/EMA50
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
@@ -49,6 +49,12 @@ const BROKER_EMERGENCY_BUFFER_BY_ASSET = {
 function brokerEmergencyBuffer(asset) {
   const v = Number(BROKER_EMERGENCY_BUFFER_BY_ASSET[asset] ?? 0);
   return Number.isFinite(v) && v >= 0 ? v : 0;
+}
+
+function normalizeLabAnalysisSymbol(symbol) {
+  const raw = String(symbol || "").trim().toUpperCase();
+  const known = Object.keys(ASSETS).find(key => raw === key || raw.startsWith(key));
+  return known || raw.replace(/[._-].*$/, "");
 }
 
 const fieldLabel = { display: "block", color: "#93c5fd", fontSize: 13, marginBottom: 6 };
@@ -643,6 +649,18 @@ export default function PropHedgeTab() {
   const [labLastCommandId, setLabLastCommandId] = useState(null);
   const [labWaitSeconds, setLabWaitSeconds] = useState(0);
 
+  // v1.64 — EMA20/EMA50 M15 lette dal Market Engine (stessa sorgente MT5 del PT).
+  const [labEmaState, setLabEmaState] = useState({
+    loading:false,
+    error:"",
+    symbol:"",
+    ema20:null,
+    ema50:null,
+    lastClose:null,
+    timestamp:null,
+    source:""
+  });
+
   // Trading Lab — modalità TRADING
   const [labMode, setLabMode] = useState("TRADING");
   const [labSide, setLabSide] = useState("BUY");
@@ -735,6 +753,67 @@ export default function PropHedgeTab() {
     confidence: null,
     analyzedAt: null
   });
+
+  useEffect(() => {
+    if (mainView !== "TRADING_LAB" || !labSymbol) return undefined;
+
+    let alive = true;
+    const analysisSymbol = normalizeLabAnalysisSymbol(labSymbol);
+
+    const loadLabEma = async () => {
+      if (alive) {
+        setLabEmaState(prev => ({ ...prev, loading:true, error:"", symbol:analysisSymbol }));
+      }
+
+      try {
+        const r = await fetch(
+          `/api/market-analysis?symbol=${encodeURIComponent(analysisSymbol)}`,
+          { cache:"no-store" }
+        );
+        const j = await r.json();
+        if (!r.ok || !j?.ok) throw new Error(j?.error || "EMA M15 non disponibili");
+
+        const m15 = j?.timeframes?.M15 || null;
+        const ema20 = Number(m15?.ema20);
+        const ema50 = Number(m15?.ema50);
+        const lastClose = Number(m15?.lastClose);
+
+        if (!Number.isFinite(ema20) || !Number.isFinite(ema50)) {
+          throw new Error("Market Engine non ha ancora abbastanza candele M15 per EMA20/EMA50");
+        }
+
+        if (alive) {
+          setLabEmaState({
+            loading:false,
+            error:"",
+            symbol:analysisSymbol,
+            ema20,
+            ema50,
+            lastClose:Number.isFinite(lastClose) ? lastClose : null,
+            timestamp:m15?.timestamp || j?.generatedAt || null,
+            source:j?.source || ""
+          });
+        }
+      } catch (e) {
+        if (alive) {
+          setLabEmaState(prev => ({
+            ...prev,
+            loading:false,
+            error:e?.message || String(e),
+            symbol:analysisSymbol
+          }));
+        }
+      }
+    };
+
+    loadLabEma();
+    const timer = window.setInterval(loadLabEma, 15000);
+
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [mainView, labSymbol]);
 
   const [historyFilters, setHistoryFilters] = useState({
     prop: "TUTTE",
@@ -6743,6 +6822,130 @@ export default function PropHedgeTab() {
               </div>
             );
           })()}
+
+          {/* v1.64 — Grafico M15 nel Trading Lab con EMA20 + EMA50.
+              TradingViewChart normalizza anche i suffissi broker (es. XAUUSD.x). */}
+          {labSymbol && (
+            <div style={{
+              marginTop:16,
+              padding:"14px",
+              borderRadius:16,
+              border:"1px solid rgba(99,102,241,.32)",
+              background:"rgba(15,23,42,.46)"
+            }}>
+              <div style={{
+                display:"flex",
+                justifyContent:"space-between",
+                alignItems:"center",
+                gap:10,
+                flexWrap:"wrap",
+                marginBottom:10
+              }}>
+                <div>
+                  <div style={{fontSize:14,fontWeight:950,color:"#e2e8f0"}}>
+                    📈 Strategia EMA — M15
+                  </div>
+                  <div style={{fontSize:10,color:"#94a3b8",marginTop:3}}>
+                    Asset Trading Lab: <b style={{color:"#67e8f9"}}>{labSymbol}</b> · EMA20 veloce + EMA50 lenta
+                  </div>
+                </div>
+                <div style={{
+                  padding:"6px 10px",
+                  borderRadius:999,
+                  border:"1px solid rgba(250,204,21,.30)",
+                  background:"rgba(161,98,7,.09)",
+                  color:"#fde68a",
+                  fontSize:10,
+                  fontWeight:900
+                }}>
+                  REGOLA: 20 &gt; 50 BUY · 20 &lt; 50 SELL
+                </div>
+              </div>
+
+              {(() => {
+                const e20 = Number(labEmaState.ema20);
+                const e50 = Number(labEmaState.ema50);
+                const close = Number(labEmaState.lastClose);
+                const ready = Number.isFinite(e20) && Number.isFinite(e50);
+                const spread = ready ? Math.abs(e20 - e50) : null;
+                const bias = !ready
+                  ? "ATTENDO"
+                  : e20 > e50
+                    ? "RIALZISTA"
+                    : e20 < e50
+                      ? "RIBASSISTA"
+                      : "NEUTRALE";
+                const biasColor = bias === "RIALZISTA"
+                  ? "#86efac"
+                  : bias === "RIBASSISTA"
+                    ? "#fca5a5"
+                    : "#fde68a";
+                const biasIcon = bias === "RIALZISTA" ? "🟢" : bias === "RIBASSISTA" ? "🔴" : "🟡";
+
+                return (
+                  <div style={{
+                    display:"grid",
+                    gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",
+                    gap:8,
+                    marginBottom:10
+                  }}>
+                    <div style={{...statCard,padding:"10px 12px"}}>
+                      <div style={statLabel}>EMA 20 · M15</div>
+                      <div style={{...statValue,fontSize:19,color:"#86efac"}}>
+                        {ready ? fmt(e20, ASSETS[normalizeLabAnalysisSymbol(labSymbol)]?.decimals ?? 3) : "—"}
+                      </div>
+                    </div>
+                    <div style={{...statCard,padding:"10px 12px"}}>
+                      <div style={statLabel}>EMA 50 · M15</div>
+                      <div style={{...statValue,fontSize:19,color:"#fca5a5"}}>
+                        {ready ? fmt(e50, ASSETS[normalizeLabAnalysisSymbol(labSymbol)]?.decimals ?? 3) : "—"}
+                      </div>
+                    </div>
+                    <div style={{...statCard,padding:"10px 12px"}}>
+                      <div style={statLabel}>Bias EMA</div>
+                      <div style={{...statValue,fontSize:18,color:biasColor}}>
+                        {biasIcon} {bias}
+                      </div>
+                      <div style={statSub}>
+                        {ready ? `Distanza EMA ${fmt(spread, ASSETS[normalizeLabAnalysisSymbol(labSymbol)]?.decimals ?? 3)}` : "Attendo Market Engine"}
+                      </div>
+                    </div>
+                    <div style={{...statCard,padding:"10px 12px"}}>
+                      <div style={statLabel}>Prezzo M15 Engine</div>
+                      <div style={{...statValue,fontSize:19,color:"#93c5fd"}}>
+                        {Number.isFinite(close) ? fmt(close, ASSETS[normalizeLabAnalysisSymbol(labSymbol)]?.decimals ?? 3) : "—"}
+                      </div>
+                      <div style={statSub}>
+                        {labEmaState.source ? `Fonte ${labEmaState.source}` : ""}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {labEmaState.error && (
+                <div style={{
+                  marginBottom:10,
+                  padding:"8px 10px",
+                  borderRadius:10,
+                  border:"1px solid rgba(248,113,113,.30)",
+                  background:"rgba(127,29,29,.08)",
+                  color:"#fca5a5",
+                  fontSize:10,
+                  fontWeight:800
+                }}>
+                  ⚠️ EMA automatiche: {labEmaState.error}
+                </div>
+              )}
+
+              <TradingViewChart
+                symbol={labSymbol}
+                interval="15"
+                height={560}
+                showEma={true}
+              />
+            </div>
+          )}
 
           <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginTop:14}}>
             <button
