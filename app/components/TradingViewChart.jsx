@@ -97,13 +97,13 @@ export default function TradingViewChart({
           id: "MAExp@tv-basicstudies",
           version: 60,
           inputs: { length: 20 },
-          overrides: { "plot.color": "#facc15", "plot.linewidth": 2 },
+          overrides: { "Plot.color": "#facc15", "Plot.linewidth": 3 },
         },
         {
           id: "MAExp@tv-basicstudies",
           version: 60,
           inputs: { length: 50 },
-          overrides: { "plot.color": "#22c55e", "plot.linewidth": 2 },
+          overrides: { "Plot.color": "#22c55e", "Plot.linewidth": 3 },
         },
       ];
     }
