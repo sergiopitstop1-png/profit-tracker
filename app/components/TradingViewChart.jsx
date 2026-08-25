@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 
 const TV_SYMBOLS = {
   XAUUSD: "OANDA:XAUUSD",
@@ -25,18 +25,41 @@ const TV_SYMBOLS = {
   NZDJPY: "OANDA:NZDJPY",
 };
 
-export default function TradingViewChart({ symbol = "XAUUSD" }) {
+function normalizeTradingViewSymbol(symbol) {
+  const raw = String(symbol || "XAUUSD").trim().toUpperCase();
+
+  // I broker possono esporre simboli come XAUUSD.x, XAUUSDm, EURUSD.a ecc.
+  // Per il grafico TradingView ci serve il simbolo base OANDA.
+  const known = Object.keys(TV_SYMBOLS).find(key => raw === key || raw.startsWith(key));
+  if (known) return TV_SYMBOLS[known];
+
+  // Fallback: prova comunque OANDA con il simbolo ricevuto ripulito dai suffissi più comuni.
+  const base = raw
+    .replace(/[._-].*$/, "")
+    .replace(/[^A-Z0-9]/g, "");
+
+  return TV_SYMBOLS[base] || `OANDA:${base || "XAUUSD"}`;
+}
+
+export default function TradingViewChart({
+  symbol = "XAUUSD",
+  interval = "15",
+  height = 650,
+  showEma = true,
+}) {
   const container = useRef(null);
-  const tvSymbol = TV_SYMBOLS[symbol] || `OANDA:${symbol}`;
+  const tvSymbol = useMemo(() => normalizeTradingViewSymbol(symbol), [symbol]);
+  const safeHeight = Number.isFinite(Number(height)) ? Number(height) : 650;
 
   useEffect(() => {
-    if (!container.current) return;
+    if (!container.current) return undefined;
+
     container.current.innerHTML = "";
 
     const widget = document.createElement("div");
     widget.className = "tradingview-widget-container__widget";
-    widget.style.height = "650px";
-    widget.style.minHeight = "650px";
+    widget.style.height = `${safeHeight}px`;
+    widget.style.minHeight = `${safeHeight}px`;
     widget.style.width = "100%";
     container.current.appendChild(widget);
 
@@ -44,12 +67,13 @@ export default function TradingViewChart({ symbol = "XAUUSD" }) {
     script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
     script.type = "text/javascript";
     script.async = true;
-    script.innerHTML = JSON.stringify({
+
+    const config = {
       autosize: false,
       width: "100%",
-      height: 650,
+      height: safeHeight,
       symbol: tvSymbol,
-      interval: "1",
+      interval: String(interval || "15"),
       timezone: "Europe/Rome",
       theme: "dark",
       style: "1",
@@ -62,16 +86,82 @@ export default function TradingViewChart({ symbol = "XAUUSD" }) {
       allow_symbol_change: false,
       save_image: false,
       calendar: false,
-      support_host: "https://www.tradingview.com"
-    });
+      support_host: "https://www.tradingview.com",
+    };
+
+    if (showEma) {
+      // Due EMA indipendenti, pre-caricate direttamente nel widget TradingView.
+      // Restano visibili anche senza abbonamento TradingView personale del browser.
+      config.studies = [
+        {
+          id: "MAExp@tv-basicstudies",
+          version: 60,
+          inputs: { length: 20 },
+        },
+        {
+          id: "MAExp@tv-basicstudies",
+          version: 60,
+          inputs: { length: 50 },
+        },
+      ];
+    }
+
+    script.innerHTML = JSON.stringify(config);
     container.current.appendChild(script);
-  }, [tvSymbol]);
+
+    return () => {
+      if (container.current) container.current.innerHTML = "";
+    };
+  }, [tvSymbol, interval, safeHeight, showEma]);
 
   return (
-    <div
-      ref={container}
-      className="tradingview-widget-container"
-      style={{ height: "650px", minHeight: "650px", width: "100%", position: "relative" }}
-    />
+    <div>
+      {showEma && (
+        <div style={{
+          display: "flex",
+          gap: 8,
+          alignItems: "center",
+          flexWrap: "wrap",
+          marginBottom: 8,
+          fontSize: 11,
+          color: "#cbd5e1",
+        }}>
+          <span style={{
+            padding: "5px 9px",
+            borderRadius: 999,
+            border: "1px solid rgba(34,197,94,.32)",
+            background: "rgba(22,163,74,.08)",
+            color: "#86efac",
+            fontWeight: 900,
+          }}>
+            EMA 20
+          </span>
+          <span style={{
+            padding: "5px 9px",
+            borderRadius: 999,
+            border: "1px solid rgba(248,113,113,.32)",
+            background: "rgba(127,29,29,.08)",
+            color: "#fca5a5",
+            fontWeight: 900,
+          }}>
+            EMA 50
+          </span>
+          <span style={{ color: "#64748b" }}>
+            M15: EMA20 sopra EMA50 = rialzista · EMA20 sotto EMA50 = ribassista
+          </span>
+        </div>
+      )}
+
+      <div
+        ref={container}
+        className="tradingview-widget-container"
+        style={{
+          height: `${safeHeight}px`,
+          minHeight: `${safeHeight}px`,
+          width: "100%",
+          position: "relative",
+        }}
+      />
+    </div>
   );
 }
