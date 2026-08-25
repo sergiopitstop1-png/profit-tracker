@@ -97,11 +97,13 @@ export default function TradingViewChart({
           id: "MAExp@tv-basicstudies",
           version: 60,
           inputs: { length: 20 },
+          overrides: { "plot.color": "#facc15", "plot.linewidth": 2 },
         },
         {
           id: "MAExp@tv-basicstudies",
           version: 60,
           inputs: { length: 50 },
+          overrides: { "plot.color": "#22c55e", "plot.linewidth": 2 },
         },
       ];
     }
@@ -129,9 +131,9 @@ export default function TradingViewChart({
           <span style={{
             padding: "5px 9px",
             borderRadius: 999,
-            border: "1px solid rgba(34,197,94,.32)",
-            background: "rgba(22,163,74,.08)",
-            color: "#86efac",
+            border: "1px solid rgba(250,204,21,.45)",
+            background: "rgba(250,204,21,.08)",
+            color: "#facc15",
             fontWeight: 900,
           }}>
             EMA 20
@@ -139,9 +141,9 @@ export default function TradingViewChart({
           <span style={{
             padding: "5px 9px",
             borderRadius: 999,
-            border: "1px solid rgba(248,113,113,.32)",
-            background: "rgba(127,29,29,.08)",
-            color: "#fca5a5",
+            border: "1px solid rgba(34,197,94,.40)",
+            background: "rgba(22,163,74,.08)",
+            color: "#22c55e",
             fontWeight: 900,
           }}>
             EMA 50
