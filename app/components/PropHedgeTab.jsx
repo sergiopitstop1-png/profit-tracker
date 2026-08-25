@@ -6831,7 +6831,52 @@ export default function PropHedgeTab() {
                     type="text"
                     value={labSymbolSearch}
                     placeholder={`Cerca tra ${labSymbols.length} asset...`}
-                    onChange={e=>setLabSymbolSearch(e.target.value)}
+                    onChange={e=>{
+                      const rawQuery = e.target.value;
+                      setLabSymbolSearch(rawQuery);
+
+                      // v1.67 — la casella di ricerca non deve solo FILTRARE:
+                      // quando digiti XAUU / XAUUSD seleziona davvero il primo simbolo MT5 compatibile
+                      // (es. XAUUSD, XAUUSD.x, XAUUSDm). Così select, grafico, EMA e trade restano allineati.
+                      const q = String(rawQuery || "")
+                        .trim()
+                        .toUpperCase()
+                        .replace(/[^A-Z0-9]/g, "");
+
+                      if (q.length >= 3) {
+                        const matches = labSymbols.filter(x => {
+                          const raw = String(x?.symbol || "").toUpperCase();
+                          const compact = raw.replace(/[^A-Z0-9]/g, "");
+                          const normalized = normalizeLabAnalysisSymbol(raw).replace(/[^A-Z0-9]/g, "");
+                          return compact.startsWith(q) || normalized.startsWith(q) || compact.includes(q);
+                        });
+
+                        if (matches.length) {
+                          const exactish = matches.find(x =>
+                            normalizeLabAnalysisSymbol(x.symbol).replace(/[^A-Z0-9]/g, "") === q
+                          );
+                          const chosen = exactish || matches[0];
+                          if (chosen?.symbol && chosen.symbol !== labSymbolRef.current) {
+                            setLabSymbolSynced(chosen.symbol);
+                            setLabSymbolInfo(null);
+                            setLabSymbolInfoError("");
+                            setLabTradePreview(null);
+                            setLabTradeError("");
+                            setLabTradeStatus("");
+                            setLabEmaState({
+                              loading:true,
+                              error:"",
+                              symbol:normalizeLabAnalysisSymbol(chosen.symbol),
+                              ema20:null,
+                              ema50:null,
+                              lastClose:null,
+                              timestamp:null,
+                              source:""
+                            });
+                          }
+                        }
+                      }
+                    }}
                   />
                   <span style={{fontSize:11,color:"#67e8f9",fontWeight:800,whiteSpace:"nowrap"}}>
                     {labSymbols.length} disponibili
