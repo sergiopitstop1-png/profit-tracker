@@ -1696,7 +1696,7 @@ export default function PropHedgeTab() {
 
     const id = setInterval(() => {
       symbols.forEach(refreshSymbol);
-    }, 5000);
+    }, 2000);
 
     return () => clearInterval(id);
   }, [symbolsKey, tradingRuntimeActive]);
@@ -4680,12 +4680,13 @@ export default function PropHedgeTab() {
         combined_pl: propPLFinal + brokerPLFinal,
 
         used_manual_prop_pl: ch.closePropPL !== "",
-        used_manual_prop_balance: propBalanceOverride !== null,
-        manual_prop_pl_input: ch.closePropPL !== "" ? num(ch.closePropPL) : null,
         used_manual_broker_pl: brokerPLFromMt5 === null && ch.closeBrokerPL !== "",
 
         status: "closed",
         metadata: {
+          used_manual_prop_balance: propBalanceOverride !== null,
+          manual_prop_pl_input: ch.closePropPL !== "" ? num(ch.closePropPL) : null,
+          manual_prop_balance_input: propBalanceOverride !== null ? propBalanceOverride : null,
           quote_to_usd: tracking.quoteToUsd,
           live_source: live?.source || "",
           live_time: live?.time || null,
