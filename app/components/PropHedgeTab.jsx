@@ -6025,8 +6025,8 @@ export default function PropHedgeTab() {
                     </div>
                     <div style={orderRow}><span>Lotti</span><b>{fmt(c.propLots,3)}</b></div>
                     <div style={orderRow}><span>Ingresso</span><b>{fmt(c.px,c.a.decimals)}</b></div>
-                    <div style={orderRow}><span>Take Profit</span><b>{fmt(c.propTPPrice,c.a.decimals)}</b></div>
                     <div style={orderRow}><span>Stop Loss</span><b>{fmt(c.propSL,c.a.decimals)}</b></div>
+                    <div style={orderRow}><span>Take Profit</span><b>{fmt(c.propTPPrice,c.a.decimals)}</b></div>
                   </div>
 
                   <div style={statCard}>
@@ -6035,8 +6035,8 @@ export default function PropHedgeTab() {
                     </div>
                     <div style={orderRow}><span>Lotti</span><b>{fmt(c.brokerLots,2)}</b></div>
                     <div style={orderRow}><span>Ingresso</span><b>{fmt(c.px,c.a.decimals)}</b></div>
-                    <div style={orderRow}><span>Take Profit</span><b>{fmt(c.brokerTP,c.a.decimals)}</b></div>
                     <div style={orderRow}><span>Stop Loss</span><b>{fmt(c.brokerSL,c.a.decimals)}</b></div>
+                    <div style={orderRow}><span>Take Profit</span><b>{fmt(c.brokerTP,c.a.decimals)}</b></div>
                   </div>
                 </div>
 
