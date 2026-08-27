@@ -1,6 +1,6 @@
 "use client";
 
-// PropHedgeTab v1.66 — Trading Lab: fix sincronizzazione asset + EMA20/EMA50
+// PropHedgeTab v1.73 — NO GAP SL/TP Broker + XAUUSD 2 DECIMALI
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
@@ -13,7 +13,7 @@ import {
 } from "./styles";
 
 const ASSETS = {
-  XAUUSD: { label: "XAU/USD — Oro", base: "XAU", quote: "USD", contract: 100, point: 0.01, decimals: 3, lotStep: 0.01 },
+  XAUUSD: { label: "XAU/USD — Oro", base: "XAU", quote: "USD", contract: 100, point: 0.01, decimals: 2, lotStep: 0.01 },
   XAGUSD: { label: "XAG/USD — Argento", base: "XAG", quote: "USD", contract: 5000, point: 0.001, decimals: 4, lotStep: 0.01 },
   EURUSD: { label: "EUR/USD", base: "EUR", quote: "USD", contract: 100000, point: 0.0001, decimals: 5, lotStep: 0.01 },
   GBPUSD: { label: "GBP/USD", base: "GBP", quote: "USD", contract: 100000, point: 0.0001, decimals: 5, lotStep: 0.01 },
@@ -38,17 +38,17 @@ const ASSETS = {
 const MT5_LIVE_MAX_AGE_MS = 90000; // heartbeat 30s: margine anti-jitter
 const ENGINE_DIRECTION_STORAGE_KEY = "propMarketLatestPropDirection:XAUUSD";
 
-// v1.61 — BUFFER DI EMERGENZA HEDGE
-// I livelli server-side del Broker devono scattare DOPO i livelli terminali della Prop,
-// mai prima. Su XAUUSD usiamo $0,50 di margine oltre TP/SL Prop.
-// Per gli altri asset lasciamo 0 per non cambiare il comportamento esistente.
+// v1.72 — NESSUN GAP TRA LIVELLI PROP E BROKER
+// I livelli assoluti di uscita coincidono:
+// PROP BUY  -> Broker SELL: TP Broker = SL Prop, SL Broker = TP Prop.
+// PROP SELL -> Broker BUY : TP Broker = SL Prop, SL Broker = TP Prop.
+// Il solo disallineamento residuo deriva dai diversi prezzi reali di esecuzione/quotazione.
 const BROKER_EMERGENCY_BUFFER_BY_ASSET = {
-  XAUUSD: 0.50
+  XAUUSD: 0
 };
 
 function brokerEmergencyBuffer(asset) {
-  const v = Number(BROKER_EMERGENCY_BUFFER_BY_ASSET[asset] ?? 0);
-  return Number.isFinite(v) && v >= 0 ? v : 0;
+  return 0;
 }
 
 function normalizeLabAnalysisSymbol(symbol) {
@@ -206,17 +206,11 @@ function calcChallenge(ch, live) {
   const propTPPrice = ch.direction === "BUY" ? px + tpMove : px - tpMove;
   const brokerDirection = ch.direction === "BUY" ? "SELL" : "BUY";
 
-  // v1.61 — i livelli Broker sono PARACADUTE, non il trigger principale.
-  // Devono essere oltre il livello terminale Prop nella direzione del movimento:
-  // PROP BUY  -> Broker SELL: SL sopra TP Prop, TP sotto SL Prop.
-  // PROP SELL -> Broker BUY : SL sotto TP Prop, TP sopra SL Prop.
-  const emergencyBuffer = brokerEmergencyBuffer(ch.asset);
-  const brokerTP = ch.direction === "BUY"
-    ? propSL - emergencyBuffer
-    : propSL + emergencyBuffer;
-  const brokerSL = ch.direction === "BUY"
-    ? propTPPrice + emergencyBuffer
-    : propTPPrice - emergencyBuffer;
+  // v1.72 — livelli Broker IDENTICI ai livelli terminali della Prop.
+  // Nessun gap artificiale: il monitoraggio e il flusso PIAZZATA -> BRIDGE restano invariati.
+  const emergencyBuffer = 0;
+  const brokerTP = propSL;
+  const brokerSL = propTPPrice;
 
   const maxBrokerLoss = Math.abs(brokerSL - px) * a.contract * brokerLots * quoteToUsd;
   const brokerProfitAtPropSL = Math.abs(brokerTP - px) * a.contract * brokerLots * quoteToUsd;
@@ -1054,61 +1048,13 @@ export default function PropHedgeTab() {
       const uid = userData?.user?.id;
       if (!uid) throw new Error("Utente Supabase non autenticato");
 
-      // v1.73 — SOURCE OF TRUTH TERMINALE:
-      // se il watchdog server ha già congelato un trade su TP/SL,
-      // il browser NON deve poterlo "resuscitare" con uno stato locale più vecchio.
-      const { data: cloudBeforeUpsert, error: cloudBeforeUpsertError } = await supabase
-        .from("prop_hedge_active_challenges")
-        .select("challenge_id,state")
-        .eq("user_id", uid);
-
-      if (cloudBeforeUpsertError) throw cloudBeforeUpsertError;
-
-      const cloudStateById = new Map(
-        (cloudBeforeUpsert || []).map(r => [String(r.challenge_id), r.state || null])
-      );
-
-      const rows = challenges.map(ch => {
-        const cloudState = cloudStateById.get(String(ch.id));
-        const cloudActive = cloudState?.active || null;
-        const localActive = ch?.active || null;
-
-        const sameTrade =
-          cloudActive &&
-          localActive &&
-          String(cloudActive.placedAt || cloudActive.entry || "") ===
-            String(localActive.placedAt || localActive.entry || "");
-
-        const cloudTerminalLocked =
-          sameTrade &&
-          cloudActive.monitoringActive === false &&
-          !!cloudActive.terminalDetectedAt;
-
-        const stateToSave = cloudTerminalLocked
-          ? {
-              ...ch,
-              active: {
-                ...localActive,
-                ...cloudActive,
-                monitoringActive: false,
-                terminalAutoCloseEnabled: false,
-                telegram: {
-                  ...(localActive?.telegram || {}),
-                  ...(cloudActive?.telegram || {}),
-                  enabled: false
-                }
-              }
-            }
-          : ch;
-
-        return {
-          user_id: uid,
-          challenge_id: ch.id,
-          prop_name: ch.name || "Prop",
-          state: sanitizeChallengeForCloud(stateToSave),
-          updated_at: new Date().toISOString()
-        };
-      });
+      const rows = challenges.map(ch => ({
+        user_id: uid,
+        challenge_id: ch.id,
+        prop_name: ch.name || "Prop",
+        state: sanitizeChallengeForCloud(ch),
+        updated_at: new Date().toISOString()
+      }));
 
       if (rows.length) {
         const { error: upsertError } = await supabase
@@ -1744,7 +1690,7 @@ export default function PropHedgeTab() {
 
     const id = setInterval(() => {
       symbols.forEach(refreshSymbol);
-    }, 2000);
+    }, 5000);
 
     return () => clearInterval(id);
   }, [symbolsKey, tradingRuntimeActive]);
@@ -4505,7 +4451,6 @@ export default function PropHedgeTab() {
   };
 
   const autoPropTerminalLockRef = useRef(new Set());
-  const cloudTerminalReconcileLockRef = useRef(new Set());
 
   const closeAndUpdate = async (id, options = {}) => {
     const ch = challenges.find(x => x.id === id);
@@ -4729,13 +4674,12 @@ export default function PropHedgeTab() {
         combined_pl: propPLFinal + brokerPLFinal,
 
         used_manual_prop_pl: ch.closePropPL !== "",
+        used_manual_prop_balance: propBalanceOverride !== null,
+        manual_prop_pl_input: ch.closePropPL !== "" ? num(ch.closePropPL) : null,
         used_manual_broker_pl: brokerPLFromMt5 === null && ch.closeBrokerPL !== "",
 
         status: "closed",
         metadata: {
-          used_manual_prop_balance: propBalanceOverride !== null,
-          manual_prop_pl_input: ch.closePropPL !== "" ? num(ch.closePropPL) : null,
-          manual_prop_balance_input: propBalanceOverride !== null ? propBalanceOverride : null,
           quote_to_usd: tracking.quoteToUsd,
           live_source: live?.source || "",
           live_time: live?.time || null,
@@ -4824,29 +4768,22 @@ export default function PropHedgeTab() {
           `Close Command: ${bridgeCloseCommandId}`
         );
       }
-
-      return true;
     } catch (e) {
       console.error("Errore chiusura Prop Hedge:", e);
       alert(
         "❌ CHIUSURA / AGGIORNAMENTO NON COMPLETATO\n\n" +
         (e?.message || String(e)) +
-        "\n\nIl trade resta CONGELATO come terminale: il watchdog non invierà altri alert TP/SL/controtendenza. " +
-        "ProfitTracker ritenterà la riconciliazione oppure potrai usare CHIUDI E AGGIORNA."
+        "\n\nLa challenge resta aperta. Controlla MT5 e riprova solo dopo aver verificato lo stato reale della posizione."
       );
-      return false;
     } finally {
       setBridgeClosing(prev => ({ ...prev, [id]: false }));
     }
   };
 
-  // v1.73 — TERMINAL LOCK + RICONCILIAZIONE
-  // Regola fondamentale: il PRIMO TP/SL è terminale e irreversibile per quel trade_id.
-  // Appena rilevato:
-  // 1) congela subito il monitoraggio (niente altri alert Telegram);
-  // 2) salva evento/prezzo/P&L terminale nello state;
-  // 3) prova a chiudere/riconciliare il Broker;
-  // 4) se la chiusura fallisce, il trade resta congelato e NON torna "live".
+  // v1.61 — AUTO CLOSE DAL LIVELLO TERMINALE PROP
+  // Non possiamo leggere MT5 della Prop: usiamo quindi i livelli Prop congelati nel PT.
+  // Appena il feed attraversa TP/SL Prop, PT ordina la chiusura del Broker.
+  // Gli SL/TP Broker, spostati oltre con il buffer, restano solo come paracadute server-side.
   useEffect(() => {
     if (!activeChallenges.length) return;
 
@@ -4855,10 +4792,9 @@ export default function PropHedgeTab() {
       const tracking = trackings[activeCh.id];
       if (!active || !tracking) continue;
       if (active.executionSource === "external") continue;
+      // Le operazioni già aperte prima della v1.61 non vengono auto-chiuse al deploy:
+      // si riconciliano manualmente una volta, poi i nuovi trade saranno automatici.
       if (active.terminalAutoCloseEnabled !== true) continue;
-
-      // Un evento terminale già registrato non può mai essere rivalutato.
-      if (active.monitoringActive === false || active.terminalDetectedAt) continue;
 
       const current = Number(tracking.current);
       const tp = Number(active.propTP);
@@ -4873,8 +4809,12 @@ export default function PropHedgeTab() {
       const tradeKey = `${activeCh.id}:${active.placedAt || active.entry}`;
       if (autoPropTerminalLockRef.current.has(tradeKey)) continue;
       autoPropTerminalLockRef.current.add(tradeKey);
+      // Se qualcosa fallisce e closeAndUpdate lascia la challenge attiva,
+      // consentiamo un nuovo tentativo automatico dopo 45 secondi.
+      window.setTimeout(() => {
+        autoPropTerminalLockRef.current.delete(tradeKey);
+      }, 45000);
 
-      const terminalEvent = hitTp ? "TP" : "SL";
       const terminalPrice = hitTp ? tp : sl;
       const propSign = isBuy ? 1 : -1;
       const propPLAtTerminal =
@@ -4884,157 +4824,16 @@ export default function PropHedgeTab() {
         propSign *
         Number(tracking.quoteToUsd || active.quoteToUsd || 1);
 
-      const detectedAt = new Date().toISOString();
-
-      // CONGELAMENTO LOCALE IMMEDIATO.
-      setChallenges(prev => prev.map(row => {
-        if (row.id !== activeCh.id || !row.active) return row;
-
-        const sameTrade =
-          String(row.active.placedAt || row.active.entry || "") ===
-          String(active.placedAt || active.entry || "");
-
-        if (!sameTrade) return row;
-
-        return {
-          ...row,
-          active: {
-            ...row.active,
-            monitoringActive: false,
-            terminalAutoCloseEnabled: false,
-            terminalDetectedAt: detectedAt,
-            terminalReason: terminalEvent,
-            terminalPrice,
-            terminalPropPL: propPLAtTerminal,
-            terminalStatus: "EXIT_DETECTED",
-            telegram: {
-              ...(row.active.telegram || {}),
-              enabled: false,
-              tpSent: terminalEvent === "TP" ? true : row.active.telegram?.tpSent,
-              slSent: terminalEvent === "SL" ? true : row.active.telegram?.slSent
-            }
-          }
-        };
-      }));
-
-      // La riconciliazione viene tentata una sola volta per ciclo;
-      // in caso di errore il lock viene liberato dopo 10s, ma il terminal lock resta.
-      (async () => {
-        const ok = await closeAndUpdate(activeCh.id, {
-          propPLOverride: propPLAtTerminal,
-          autoTerminal: terminalEvent,
-          silent: true
-        });
-
-        if (!ok) {
-          window.setTimeout(() => {
-            autoPropTerminalLockRef.current.delete(tradeKey);
-          }, 10000);
-        }
-      })();
+      closeAndUpdate(activeCh.id, {
+        propPLOverride: propPLAtTerminal,
+        autoTerminal: hitTp ? "TP" : "SL",
+        silent: true
+      }).catch((e) => {
+        console.error("AUTO CLOSE PROP TERMINAL:", activeCh.name, e);
+        autoPropTerminalLockRef.current.delete(tradeKey);
+      });
     }
   }, [activeChallenges, trackings]);
-
-  // Se il watchdog server rileva TP/SL tramite HIGH/LOW della M15 mentre il browser
-  // perde il tick, scrive un TERMINAL LOCK nel cloud. Questo polling lo recepisce
-  // e avvia la stessa riconciliazione Broker senza aspettare un nuovo attraversamento prezzo.
-  useEffect(() => {
-    if (!activeChallenges.length) return undefined;
-
-    let cancelled = false;
-
-    const reconcileCloudTerminal = async () => {
-      try {
-        const ids = activeChallenges
-          .filter(ch => !!ch.active)
-          .map(ch => ch.id);
-
-        if (!ids.length) return;
-
-        const { data: userData } = await supabase.auth.getUser();
-        const uid = userData?.user?.id;
-        if (!uid) return;
-
-        const { data, error } = await supabase
-          .from("prop_hedge_active_challenges")
-          .select("challenge_id,state,updated_at")
-          .eq("user_id", uid)
-          .in("challenge_id", ids);
-
-        if (error || cancelled) return;
-
-        for (const row of data || []) {
-          const cloudActive = row?.state?.active;
-          if (
-            !cloudActive ||
-            cloudActive.monitoringActive !== false ||
-            !cloudActive.terminalDetectedAt ||
-            !["TP","SL"].includes(String(cloudActive.terminalReason || "").toUpperCase())
-          ) continue;
-
-          const localCh = challenges.find(ch => ch.id === row.challenge_id);
-          const localActive = localCh?.active;
-          if (!localActive) continue;
-
-          const sameTrade =
-            String(localActive.placedAt || localActive.entry || "") ===
-            String(cloudActive.placedAt || cloudActive.entry || "");
-
-          if (!sameTrade) continue;
-
-          const tradeKey = `${localCh.id}:${localActive.placedAt || localActive.entry}`;
-          if (cloudTerminalReconcileLockRef.current.has(tradeKey)) continue;
-          cloudTerminalReconcileLockRef.current.add(tradeKey);
-
-          const terminalReason = String(cloudActive.terminalReason).toUpperCase();
-          const terminalPL = Number(cloudActive.terminalPropPL);
-
-          // Porta subito anche il browser nello stato congelato del server.
-          setChallenges(prev => prev.map(ch => {
-            if (ch.id !== localCh.id || !ch.active) return ch;
-            return {
-              ...ch,
-              active: {
-                ...ch.active,
-                ...cloudActive,
-                monitoringActive: false,
-                terminalAutoCloseEnabled: false,
-                telegram: {
-                  ...(ch.active.telegram || {}),
-                  ...(cloudActive.telegram || {}),
-                  enabled: false
-                }
-              }
-            };
-          }));
-
-          const ok = await closeAndUpdate(localCh.id, {
-            propPLOverride: Number.isFinite(terminalPL)
-              ? terminalPL
-              : undefined,
-            autoTerminal: terminalReason,
-            silent: true
-          });
-
-          if (!ok) {
-            window.setTimeout(() => {
-              cloudTerminalReconcileLockRef.current.delete(tradeKey);
-            }, 10000);
-          }
-        }
-      } catch (e) {
-        console.warn("Cloud terminal reconcile:", e);
-      }
-    };
-
-    reconcileCloudTerminal();
-    const timer = window.setInterval(reconcileCloudTerminal, 2000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [activeChallenges]);
 
   const totalCombinedPL = activeChallenges.reduce(
     (sum, ch) => sum + (trackings[ch.id]?.combinedPL || 0),
@@ -6334,14 +6133,8 @@ export default function PropHedgeTab() {
                   alignItems:"center"
                 }}>
                   <div>
-                    <div style={{
-                      fontSize:10,
-                      fontWeight:1000,
-                      color:ch.active.monitoringActive === false ? "#fde68a" : "#bae6fd"
-                    }}>
-                      {ch.active.monitoringActive === false
-                        ? `⏳ USCITA ${ch.active.terminalReason || ""} RILEVATA — RICONCILIAZIONE IN CORSO`
-                        : "📡 WATCHDOG TELEGRAM ATTIVO"}
+                    <div style={{fontSize:10,fontWeight:1000,color:"#bae6fd"}}>
+                      📡 WATCHDOG TELEGRAM ATTIVO
                     </div>
                     <div style={{fontSize:9,color:"#94a3b8",marginTop:3}}>
                       Origine operazione: <b style={{color:"#e2e8f0"}}>
