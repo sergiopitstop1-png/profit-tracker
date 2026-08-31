@@ -1,6 +1,6 @@
 "use client";
 
-// PropHedgeTab v1.74 — TERMINAL LOCK + HISTORY SAFE + NO GAP + XAU 2 DECIMALI
+// PropHedgeTab v1.76 — ESPOSIZIONE TOTALE + PAYOUT + TERMINAL LOCK + HISTORY SAFE + NO GAP + XAU 2 DECIMALI
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../profit-tracker/supabaseClient";
@@ -115,6 +115,7 @@ function makeChallenge(name, id) {
     propStage: "STEP 1",
     propOrigin: "NEW",
     initialBrokerExposure: "0",
+    payoutTotal: "0",
     highImpactNewsAllowed: false,
     propNotes: "",
     themeId: "",
@@ -1828,6 +1829,7 @@ export default function PropHedgeTab() {
     propStage: ch.propStage || "STEP 1",
     propOrigin: ch.propOrigin || (ch.propStage === "STEP 2" ? "STEP_2" : ch.propStage === "FUNDED / REAL" ? "REAL" : "NEW"),
     initialBrokerExposure: String(ch.initialBrokerExposure ?? ch?.importedExisting?.brokerExposureBaseline ?? "0"),
+    payoutTotal: String(ch.payoutTotal ?? "0"),
     dailyDdPct: ch.dailyDdPct ?? "3",
     highImpactNewsAllowed: ch.highImpactNewsAllowed === true,
     propNotes: ch.propNotes || "",
@@ -1866,6 +1868,7 @@ export default function PropHedgeTab() {
     if (num(d.ddMax) <= 0) return alert("Inserisci il DD massimo.");
     if (num(d.dailyDdPct) <= 0) return alert("Inserisci il DD giornaliero.");
     if (num(d.initialBrokerExposure) < 0) return alert("L'esposizione Broker pregressa non può essere negativa.");
+    if (num(d.payoutTotal) < 0) return alert("I payout incassati non possono essere negativi.");
 
     const startEquity = Math.min(num(d.accountBalance || d.accountSize), num(d.accountSize));
     const saved = {
@@ -2258,7 +2261,12 @@ export default function PropHedgeTab() {
       );
 
       const importedBaseline = num(ch.initialBrokerExposure ?? ch?.importedExisting?.brokerExposureBaseline);
-      result[ch.id] = Math.max(0, importedBaseline + Math.max(0, -brokerNet));
+      const payoutTotal = Math.max(0, num(ch.payoutTotal));
+      const grossExposure = importedBaseline + Math.max(0, -brokerNet);
+
+      // v1.75 — ogni payout realmente incassato recupera esposizione Broker.
+      // Non può mai portare l'esposizione sotto zero.
+      result[ch.id] = Math.max(0, grossExposure - payoutTotal);
     }
 
     return result;
@@ -5218,6 +5226,7 @@ export default function PropHedgeTab() {
               <TextNumberField label="DD giornaliero Prop (%)" value={registryDraft.dailyDdPct || ""} onChange={v=>setRegistryDraft(d=>({...d,dailyDdPct:v}))}/>
               <TextNumberField label="Costo iniziale da recuperare ($)" value={registryDraft.propCost || ""} onChange={v=>setRegistryDraft(d=>({...d,propCost:v}))}/>
               <TextNumberField label="Esposizione Broker pregressa ($)" value={registryDraft.initialBrokerExposure || "0"} onChange={v=>setRegistryDraft(d=>({...d,initialBrokerExposure:v}))}/>
+              <TextNumberField label="Payout incassati cumulativi ($)" value={registryDraft.payoutTotal || "0"} onChange={v=>setRegistryDraft(d=>({...d,payoutTotal:v}))}/>
               <TextNumberField label="Guadagno finale desiderato ($)" value={registryDraft.finalProfitTarget || ""} onChange={v=>setRegistryDraft(d=>({...d,finalProfitTarget:v}))}/>
               <TextNumberField label="Leva" value={registryDraft.leverage || ""} onChange={v=>setRegistryDraft(d=>({...d,leverage:v}))}/>
               <TextNumberField label="Margine massimo consentito (%)" value={registryDraft.maxMarginPct || ""} onChange={v=>setRegistryDraft(d=>({...d,maxMarginPct:v}))}/>
@@ -6035,6 +6044,11 @@ export default function PropHedgeTab() {
                   <TextNumberField label="Saldo Account Prop ($)" value={ch.accountBalance} onChange={v=>setChallenge(ch.id,{accountBalance:v})} operational updated={!!ch.operationalChecks?.accountBalance} onOperationalChange={()=>markOperationalUpdated(ch.id,"accountBalance")} />
                   <TextNumberField label="DD Max Prop (%)" value={ch.ddMax} onChange={v=>setChallenge(ch.id,{ddMax:v})} />
                   <TextNumberField label="Costo Prop ($)" value={ch.propCost} onChange={v=>setChallenge(ch.id,{propCost:v})} />
+                  <TextNumberField
+                    label="Payout incassati cumulativi ($)"
+                    value={ch.payoutTotal ?? "0"}
+                    onChange={v=>setChallenge(ch.id,{payoutTotal:v})}
+                  />
                   <TextNumberField label="Guadagno finale desiderato ($)" value={ch.finalProfitTarget} onChange={v=>setChallenge(ch.id,{finalProfitTarget:v})} operational updated={!!ch.operationalChecks?.finalProfitTarget} onOperationalChange={()=>markOperationalUpdated(ch.id,"finalProfitTarget")} />
                   <TextNumberField label="Rischio ($)" value={ch.risk} onChange={v=>setChallenge(ch.id,{risk:v})} operational updated={!!ch.operationalChecks?.risk} onOperationalChange={()=>markOperationalUpdated(ch.id,"risk")} />
                   <TextNumberField label="SL Distance (punti)" value={ch.slPoints} onChange={v=>setChallenge(ch.id,{slPoints:v})} operational updated={!!ch.operationalChecks?.slPoints} onOperationalChange={()=>markOperationalUpdated(ch.id,"slPoints")} />
@@ -6052,7 +6066,29 @@ export default function PropHedgeTab() {
                       $ {fmt(challengeExposureMap[ch.id] ?? 0,2)}
                     </div>
                     <div style={{fontSize:11,color:"#94a3b8",marginTop:4}}>
-                      Derivata dal P/L Broker realizzato nello storico di questa challenge.
+                      Perdite Broker accumulate meno payout incassati.
+                      {num(ch.payoutTotal) > 0 && (
+                        <> · Payout registrati: <b style={{color:"#86efac"}}>$ {fmt(num(ch.payoutTotal),2)}</b></>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{
+                    padding:"8px 10px",
+                    borderRadius:14,
+                    border:"1px solid rgba(251,191,36,.38)",
+                    background:"rgba(146,64,14,.10)"
+                  }}>
+                    <label style={{...fieldLabel,marginBottom:6}}>Esposizione TOTALE da recuperare</label>
+                    <div style={{fontSize:20,fontWeight:900,color:"#fde68a"}}>
+                      $ {fmt(
+                        Math.max(0, num(challengeExposureMap[ch.id] ?? 0)) + Math.max(0, num(ch.propCost)),
+                        2
+                      )}
+                    </div>
+                    <div style={{fontSize:11,color:"#94a3b8",marginTop:4}}>
+                      Esposizione Broker netta $ {fmt(challengeExposureMap[ch.id] ?? 0,2)}
+                      {" + "}Costo Prop $ {fmt(num(ch.propCost),2)}
                     </div>
                   </div>
 
@@ -8428,6 +8464,7 @@ export default function PropHedgeTab() {
                     <div style={{marginTop:12,padding:"16px 18px",borderRadius:12,background:"rgba(2,6,23,.40)",border:"1px solid rgba(71,85,105,.45)",fontSize:15,lineHeight:1.75,color:"#cbd5e1"}}>
                       Risultato combinato storico: <b style={{color:combined>=0?"#86efac":"#fca5a5"}}>{signedMoney(combined)}</b><br/>
                       Costo Prop: <b>$ {fmt(num(ch.propCost),2)}</b> • Target desiderato: <b>$ {fmt(num(ch.finalProfitTarget),2)}</b><br/>
+                      Payout incassati: <b style={{color:"#86efac"}}>$ {fmt(num(ch.payoutTotal),2)}</b><br/>
                       P/L Broker storico registrato: <b style={{color:brokerPL>=0?"#86efac":"#fca5a5"}}>{signedMoney(brokerPL)}</b><br/>
                       <span style={{fontSize:16,fontWeight:900}}>Capitale da recuperare:</span> <b style={{color:"#fca5a5",fontSize:18}}>−$ {fmt(
                         Math.abs(num(ch.archivedBrokerExposure ?? challengeExposureMap[ch.id] ?? ch.initialBrokerExposure ?? ch?.importedExisting?.brokerExposureBaseline))
