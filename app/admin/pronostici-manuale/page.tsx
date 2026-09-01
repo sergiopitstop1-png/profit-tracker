@@ -25,6 +25,7 @@ const textDim = "#6b7490";
 const textMain = "#e8ecf5";
 const win = "#4af0c4";
 const loss = "#ff5c5c";
+const voidColor = "#94a3b8";
 
 export default function PronosticiManualePage() {
   const [picks, setPicks] = useState<Pick[]>([]);
@@ -44,7 +45,8 @@ export default function PronosticiManualePage() {
 
   useEffect(() => { load(); }, []);
 
-  const setStatus = async (id: string, status: "WIN" | "LOSS") => {
+  const setStatus = async (id: string, status: "WIN" | "LOSS" | "ANNULLATO") => {
+    if (status === "ANNULLATO" && !window.confirm("Segnare questo pronostico come annullato/non disputato? Non verrà conteggiato nelle statistiche.")) return;
     setSavingId(id);
     try {
       const res = await fetch("/api/pronostici/segna-esito", {
@@ -110,6 +112,11 @@ export default function PronosticiManualePage() {
                 onClick={() => setStatus(p.id, "LOSS")}
                 style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${loss}`, background: "rgba(255,92,92,0.1)", color: loss, fontWeight: 700, fontSize: 12, cursor: "pointer" }}
               >✗ LOSS</button>
+              <button
+                disabled={savingId === p.id}
+                onClick={() => setStatus(p.id, "ANNULLATO")}
+                style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${voidColor}`, background: "rgba(148,163,184,0.1)", color: voidColor, fontWeight: 700, fontSize: 12, cursor: "pointer" }}
+              >🚫 Annullato</button>
             </div>
           </div>
         ))}
