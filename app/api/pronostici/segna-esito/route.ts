@@ -39,7 +39,8 @@ export async function POST(request: Request) {
   }
 
   const { id, status } = await request.json();
-  if (!id || (status !== "WIN" && status !== "LOSS")) {
+  const validStatuses = ["WIN", "LOSS", "ANNULLATO"];
+  if (!id || !validStatuses.includes(status)) {
     return NextResponse.json({ error: "Dati non validi" }, { status: 400 });
   }
 
