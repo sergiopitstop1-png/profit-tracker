@@ -307,7 +307,7 @@ export default function DashboardTab({
             <div style={{
               border: '1px solid #1e293b', borderRadius: 12, overflow: 'hidden', background: '#020617'
             }}>
-              <TradingViewChart symbol={dashChartSymbol} height={220} showEma={false} />
+              <TradingViewChart symbol={dashChartSymbol} height={420} showEma={false} />
             </div>
           </div>
         </div>
