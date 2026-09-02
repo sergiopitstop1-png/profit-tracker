@@ -3353,8 +3353,29 @@ const accantonamentoMichela = rateMichela.maturato
 const totaleMensileMichela = rateMichela.totale
 const rateMichelaDaPagare = rateMichela.daPagare
 
-const accantonamentiTotale = accantonamentoRoyalty + accantonamentoClub + accantonamentoFiglio + accantonamentoPaolo + accantonamentoMichela
-const accantonamentiAvvisiCount = rateFiglioDaPagare.length + ratePaoloDaPagare.length + rateMichelaDaPagare.length
+// Antonello: 1.050€ ogni 3 mesi (350€/mese equivalente). Settembre 2026 già pagato/in Contabilità,
+// quindi il ciclo sintetico parte da ottobre 2026. Prossime rate reali: dic 2026, mar 2027, giu 2027,
+// poi il contratto finisce -> da luglio 2027 in poi l'accantonamento torna a 0 in automatico.
+const ANTONELLO_IMPORTO = Number(dashboardSettings.antonello_importo_trimestrale ?? 1050)
+const ANTONELLO_INIZIO = new Date(2026, 9, 1)
+const ANTONELLO_FINE = new Date(2027, 5, 30)
+const oggiAntonello = new Date()
+let meseCicloAntonello = 0
+let accantonamentoAntonello = 0
+let antonelloDaPagare = []
+if (oggiAntonello >= ANTONELLO_INIZIO && oggiAntonello <= ANTONELLO_FINE) {
+  const mesiTrascorsiAntonello = (oggiAntonello.getFullYear() - ANTONELLO_INIZIO.getFullYear()) * 12 + (oggiAntonello.getMonth() - ANTONELLO_INIZIO.getMonth()) + 1
+  meseCicloAntonello = ((mesiTrascorsiAntonello - 1) % 3) + 1
+  accantonamentoAntonello = (ANTONELLO_IMPORTO / 3) * meseCicloAntonello
+  const meseKeyAntonello = `${oggiAntonello.getFullYear()}-${String(oggiAntonello.getMonth() + 1).padStart(2, '0')}`
+  const giornoAntonello = oggiAntonello.getDate()
+  if (meseCicloAntonello === 3 && giornoAntonello >= 15 && dashboardSettings.antonello_pagato_trimestre !== meseKeyAntonello) {
+    antonelloDaPagare = [{ key: 'antonello_pagato_trimestre', amount: ANTONELLO_IMPORTO, label: 'rata trimestrale' }]
+  }
+}
+
+const accantonamentiTotale = accantonamentoRoyalty + accantonamentoClub + accantonamentoFiglio + accantonamentoPaolo + accantonamentoMichela + accantonamentoAntonello
+const accantonamentiAvvisiCount = rateFiglioDaPagare.length + ratePaoloDaPagare.length + rateMichelaDaPagare.length + antonelloDaPagare.length
 const massiRows = memoSavingsRows.filter(r => r.persona === 'massimiliano').sort((a, b) => a.ordine - b.ordine)
 const samuRows = memoSavingsRows.filter(r => r.persona === 'samuele').sort((a, b) => a.ordine - b.ordine)
 const massiMontante = massiRows.length > 0 ? Number(massiRows[massiRows.length - 1].montante || 0) : 0
@@ -3369,6 +3390,7 @@ const cassaDisponibile =
   accantonamentoFiglio -
   accantonamentoPaolo -
   accantonamentoMichela -
+  accantonamentoAntonello -
   risparmiSamuMassi
 
 const targetCassa = Number(dashboardSettings.target_cassa || 0)
@@ -3734,6 +3756,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             michelaR17={MICHELA_R17}
             michelaR24={MICHELA_R24}
             rateMichelaDaPagare={rateMichelaDaPagare}
+            accantonamentoAntonello={accantonamentoAntonello}
+            meseCicloAntonello={meseCicloAntonello}
+            antonelloImporto={ANTONELLO_IMPORTO}
+            antonelloDaPagare={antonelloDaPagare}
             accantonamentiTotale={accantonamentiTotale}
           />
         )}
