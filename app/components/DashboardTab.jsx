@@ -42,6 +42,7 @@ export default function DashboardTab({
   accantonamentoClub,
   mediaMensileClub,
   meseCicloClub,
+  rinnovoClubAnnuo,
   updateDashboardSetting,
   parseEuroInput,
   mediaMensileRoyalty,
@@ -400,7 +401,27 @@ export default function DashboardTab({
               />
             </div>
             <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>
-              {formatCurrency(mediaMensileClub)} × {meseCicloClub} mesi (ciclo ott→set) · scade 30/9 · 3.500 €/anno
+              {formatCurrency(mediaMensileClub)} × {meseCicloClub} mesi (ciclo ott→set) · scade 30/9
+            </div>
+            <div style={{ fontSize: 11, color: '#4b5568', marginTop: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span>Costo rinnovo annuo:</span>
+              <input
+                defaultValue={Number(rinnovoClubAnnuo || 3500)}
+                onBlur={(e) => {
+                  const num = Number(String(e.target.value).replace(',', '.'))
+                  if (!Number.isNaN(num) && num > 0) {
+                    updateDashboardSetting('rinnovo_club_annuo', String(num))
+                  } else {
+                    e.target.value = Number(rinnovoClubAnnuo || 3500)
+                  }
+                }}
+                onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur() }}
+                style={{
+                  width: 60, background: 'transparent', border: 'none', borderBottom: '1px dashed #334155',
+                  color: '#6b7490', fontSize: 11, padding: '0 2px', outline: 'none'
+                }}
+              />
+              <span>€/anno</span>
             </div>
           </div>
 
