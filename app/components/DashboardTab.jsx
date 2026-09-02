@@ -54,6 +54,14 @@ export default function DashboardTab({
   mediaMensileClub,
   meseCicloClub,
   rinnovoClubAnnuo,
+  accantonamentoFiglio,
+  totaleMensileFiglio,
+  giornoFiglio,
+  figlioG1,
+  figlioG7,
+  figlioG13,
+  figlioG20,
+  figlioG27,
   updateDashboardSetting,
   parseEuroInput,
   mediaMensileRoyalty,
@@ -460,6 +468,52 @@ export default function DashboardTab({
                 }}
               />
               <span>€/anno</span>
+            </div>
+          </div>
+
+          <div style={panel}>
+            <div style={panelHeader}>
+              <div>
+                <h2 style={panelTitle}>Stipendio figlio</h2>
+              </div>
+            </div>
+
+            <div style={{ fontSize: 26, fontWeight: 800, color: '#f8fafc' }}>
+              {formatCurrency(accantonamentoFiglio)}
+            </div>
+            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>
+              maturato al giorno {giornoFiglio} · {formatCurrency(totaleMensileFiglio)}/mese totale
+            </div>
+
+            <div style={{ fontSize: 11, color: '#4b5568', marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+              {[
+                { key: 'figlio_g1', label: 'g.1', value: figlioG1 },
+                { key: 'figlio_g7', label: 'g.7', value: figlioG7 },
+                { key: 'figlio_g13', label: 'g.13', value: figlioG13 },
+                { key: 'figlio_g20', label: 'g.20', value: figlioG20 },
+                { key: 'figlio_g27', label: 'g.27', value: figlioG27 },
+              ].map((rata) => (
+                <div key={rata.key} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span>{rata.label}:</span>
+                  <input
+                    defaultValue={Number(rata.value || 0)}
+                    onBlur={(e) => {
+                      const num = Number(String(e.target.value).replace(',', '.'))
+                      if (!Number.isNaN(num) && num >= 0) {
+                        updateDashboardSetting(rata.key, String(num))
+                      } else {
+                        e.target.value = Number(rata.value || 0)
+                      }
+                    }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur() }}
+                    style={{
+                      width: 44, background: 'transparent', border: 'none', borderBottom: '1px dashed #334155',
+                      color: '#6b7490', fontSize: 11, padding: '0 2px', outline: 'none'
+                    }}
+                  />
+                  <span>€</span>
+                </div>
+              ))}
             </div>
           </div>
 
