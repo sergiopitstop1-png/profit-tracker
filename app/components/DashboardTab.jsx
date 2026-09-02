@@ -305,7 +305,7 @@ export default function DashboardTab({
             <div style={{
               border: '1px solid #1e293b', borderRadius: 12, overflow: 'hidden', background: '#020617'
             }}>
-              <TradingViewChart symbol={dashChartSymbol} height={420} showEma={false} />
+              <TradingViewChart symbol={dashChartSymbol} height={560} showEma={false} />
             </div>
           </div>
         </div>
@@ -440,7 +440,11 @@ export default function DashboardTab({
                 <p style={panelSubtitle}>Aggiornamento in tempo reale</p>
               </div>
             </div>
-            <MarketOverviewWidget height={380} />
+            <div style={{
+              border: '1px solid #1e293b', borderRadius: 12, overflow: 'hidden', background: '#020617'
+            }}>
+              <MarketOverviewWidget height={360} />
+            </div>
           </div>
         </div>
       </div>
