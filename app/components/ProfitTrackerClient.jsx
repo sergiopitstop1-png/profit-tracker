@@ -3273,6 +3273,27 @@ if (oggiClub >= CLUB_CICLO_INIZIO) {
   meseCicloClub = ((mesiTrascorsiClub - 1) % 12) + 1
   accantonamentoClub = mediaMensileClub * meseCicloClub
 }
+// Accantonamento stipendio figlio: 5 rate mensili (giorno -> importo), modificabili da dashboard.
+// I pagamenti reali vengono anche registrati in Contabilità man mano che li fai: come per il club,
+// l'accantonamento sintetico si sovrappone volutamente a quelle uscite reali (stessa logica, per prudenza).
+// Si azzera da solo ogni mese perché segue il giorno del mese corrente (1-31), non un ciclo custom.
+const FIGLIO_G1 = Number(dashboardSettings.figlio_g1 ?? 100)
+const FIGLIO_G7 = Number(dashboardSettings.figlio_g7 ?? 100)
+const FIGLIO_G13 = Number(dashboardSettings.figlio_g13 ?? 350)
+const FIGLIO_G20 = Number(dashboardSettings.figlio_g20 ?? 100)
+const FIGLIO_G27 = Number(dashboardSettings.figlio_g27 ?? 100)
+const FIGLIO_SCHEDULE = [
+  { day: 1, amount: FIGLIO_G1 },
+  { day: 7, amount: FIGLIO_G7 },
+  { day: 13, amount: FIGLIO_G13 },
+  { day: 20, amount: FIGLIO_G20 },
+  { day: 27, amount: FIGLIO_G27 },
+]
+const giornoFiglio = new Date().getDate()
+const accantonamentoFiglio = FIGLIO_SCHEDULE
+  .filter(p => p.day <= giornoFiglio)
+  .reduce((sum, p) => sum + p.amount, 0)
+const totaleMensileFiglio = FIGLIO_SCHEDULE.reduce((sum, p) => sum + p.amount, 0)
 const massiRows = memoSavingsRows.filter(r => r.persona === 'massimiliano').sort((a, b) => a.ordine - b.ordine)
 const samuRows = memoSavingsRows.filter(r => r.persona === 'samuele').sort((a, b) => a.ordine - b.ordine)
 const massiMontante = massiRows.length > 0 ? Number(massiRows[massiRows.length - 1].montante || 0) : 0
@@ -3284,6 +3305,7 @@ const cassaDisponibile =
   prelievoDelMese -
   accantonamentoRoyalty -
   accantonamentoClub -
+  accantonamentoFiglio -
   risparmiSamuMassi
 
 const targetCassa = Number(dashboardSettings.target_cassa || 0)
@@ -3590,6 +3612,14 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             mediaMensileClub={mediaMensileClub}
             meseCicloClub={meseCicloClub}
             rinnovoClubAnnuo={CLUB_RINNOVO_ANNUO}
+            accantonamentoFiglio={accantonamentoFiglio}
+            totaleMensileFiglio={totaleMensileFiglio}
+            giornoFiglio={giornoFiglio}
+            figlioG1={FIGLIO_G1}
+            figlioG7={FIGLIO_G7}
+            figlioG13={FIGLIO_G13}
+            figlioG20={FIGLIO_G20}
+            figlioG27={FIGLIO_G27}
             updateDashboardSetting={updateDashboardSetting}
             parseEuroInput={parseEuroInput}
             mediaMensileRoyalty={mediaMensileRoyalty}
