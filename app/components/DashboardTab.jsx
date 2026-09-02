@@ -39,6 +39,9 @@ export default function DashboardTab({
   guadagnoAnnuo,
   cashFlowAnnuo,
   accantonamentoRoyalty,
+  accantonamentoClub,
+  mediaMensileClub,
+  meseCicloClub,
   updateDashboardSetting,
   parseEuroInput,
   mediaMensileRoyalty,
@@ -333,6 +336,71 @@ export default function DashboardTab({
             </div>
             <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>
               {formatCurrency(mediaMensileRoyalty)} × {meseCorrenteNum} mesi
+            </div>
+          </div>
+
+          <div style={panel}>
+            <div style={panelHeader}>
+              <div>
+                <h2 style={panelTitle}>Accantonamento rinnovo club</h2>
+              </div>
+            </div>
+
+            <div style={{ position: 'relative' }}>
+              <input
+                value={Number(accantonamentoClub || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'}
+                readOnly
+                onChange={() => {}}
+                onFocus={(e) => {
+                  e.target.value = Number(accantonamentoClub ?? 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                }}
+                onBlur={(e) => {
+                  updateDashboardSetting('accantonamento_club', e.target.value)
+                  const raw = String(e.target.value || '')
+                    .replace(/€/g, '')
+                    .replace(/\s/g, '')
+                    .replace(/\./g, '')
+                    .replace(',', '.')
+                  const num = Number(raw)
+                  if (!Number.isNaN(num)) {
+                    e.target.value = num.toLocaleString('it-IT', {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2
+                    }) + ' €'
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    updateDashboardSetting('accantonamento_club', e.target.value)
+                    const num = parseEuroInput(e.target.value)
+                    if (!Number.isNaN(num)) {
+                      e.target.value = num.toLocaleString('it-IT', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2
+                      }) + ' €'
+                    }
+                    e.target.blur()
+                  }
+
+                  if (e.key === 'Escape') {
+                    e.target.value = Number(accantonamentoClub || 0).toLocaleString('it-IT', {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2
+                    }) + ' €'
+                    e.target.blur()
+                  }
+                }}
+                style={{
+                  ...input,
+                  fontSize: 26,
+                  fontWeight: 800,
+                  paddingRight: 45
+                }}
+              />
+            </div>
+            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>
+              {formatCurrency(mediaMensileClub)} × {meseCicloClub} mesi (ciclo ott→set) · scade 30/9 · 3.500 €/anno
             </div>
           </div>
 
