@@ -318,7 +318,7 @@ export default function DashboardTab({
             <div style={panelHeader}>
               <div>
                 <h2 style={panelTitle}>Accantonamenti</h2>
-                <p style={panelSubtitle}>Royalty, club, figlio, Paolo, Michela — clicca per il dettaglio</p>
+                <p style={panelSubtitle}>Royalty, club, stipendi, Michela — clicca per il dettaglio</p>
               </div>
               {accantonamentiAvvisiCount > 0 && (
                 <div style={{
