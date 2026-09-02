@@ -9,6 +9,7 @@ import CollaboratoriManager from './CollaboratoriManager'
 import { PostItTab, PostItFloatingWidget } from './PostItWidget'
 import MemoTab from './MemoTab'
 import DashboardTab from './DashboardTab'
+import AccantonamentiTab from './AccantonamentiTab'
 import SmsTab from './SmsTab'
 import PropHedgeTab from './PropHedgeTab'
 import {
@@ -746,6 +747,19 @@ function getProtocollo(nomeBook) {
     if (nome.includes(key)) return { ...proto, key }
   }
   return { ...PROTOCOLLI['default'], key: 'default' }
+}
+
+// Calcola lo stato di un "accantonamento a rate" (usato per figlio, Paolo, Michela):
+// dato uno schedule di {day, amount, key}, dice quanto e' gia' maturato, quanto resta
+// da pagare questo mese, e quali rate sono scadute ma non ancora segnate come pagate.
+function calcolaRateAccantonamento(schedule, dashboardSettings) {
+  const oggi = new Date()
+  const giorno = oggi.getDate()
+  const meseKey = `${oggi.getFullYear()}-${String(oggi.getMonth() + 1).padStart(2, '0')}`
+  const totale = schedule.reduce((s, r) => s + r.amount, 0)
+  const maturato = schedule.filter(r => r.day <= giorno).reduce((s, r) => s + r.amount, 0)
+  const daPagare = schedule.filter(r => r.day <= giorno && dashboardSettings[r.key] !== meseKey)
+  return { giorno, meseKey, totale, maturato, residuo: totale - maturato, daPagare }
 }
 
 function getSettimanaAnno() {
@@ -2046,13 +2060,19 @@ async function toggleSimRinnovato(cliente) {
   setClienti(prev => prev.map(c => c.id === cliente.id ? { ...c, sim_rinnovato: nuovoRinnovato, sim_rinnovato_mese: nuovoRinnovato ? meseKey : null } : c))
 }
 
-async function toggleFiglioPagato(fieldKey) {
+async function toggleAccantonamentoPagato(fieldKey) {
   const oggi = new Date()
   const meseKey = `${oggi.getFullYear()}-${String(oggi.getMonth() + 1).padStart(2, '0')}`
   const giaPagato = dashboardSettings[fieldKey] === meseKey
   const nuovoValore = giaPagato ? null : meseKey
   await supabase.from('dashboard_settings').update({ [fieldKey]: nuovoValore }).eq('id', 1)
   setDashboardSettings(prev => ({ ...prev, [fieldKey]: nuovoValore }))
+}
+
+async function togglePaoloAttivo() {
+  const nuovoValore = !dashboardSettings.paolo_attivo
+  await supabase.from('dashboard_settings').update({ paolo_attivo: nuovoValore }).eq('id', 1)
+  setDashboardSettings(prev => ({ ...prev, paolo_attivo: nuovoValore }))
 }
 
 async function toggleClienteTerminato(cliente) {
@@ -3282,10 +3302,10 @@ if (oggiClub >= CLUB_CICLO_INIZIO) {
   meseCicloClub = ((mesiTrascorsiClub - 1) % 12) + 1
   accantonamentoClub = mediaMensileClub * meseCicloClub
 }
-// Accantonamento stipendio figlio: 5 rate mensili (giorno -> importo), modificabili da dashboard.
-// I pagamenti reali vengono anche registrati in Contabilità man mano che li fai: come per il club,
-// l'accantonamento sintetico si sovrappone volutamente a quelle uscite reali (stessa logica, per prudenza).
-// Si azzera da solo ogni mese perché segue il giorno del mese corrente (1-31), non un ciclo custom.
+// Accantonamenti a rate (figlio, Paolo, Michela): stessa logica del club, importi modificabili
+// da interfaccia. I pagamenti reali finiscono anche in Contabilità quando li fai: l'accantonamento
+// sintetico si sovrappone volutamente a quelle uscite (stessa scelta di prudenza del rinnovo club).
+// Si azzerano da soli ogni mese perché seguono il giorno del calendario, non un ciclo custom.
 const FIGLIO_G1 = Number(dashboardSettings.figlio_g1 ?? 100)
 const FIGLIO_G7 = Number(dashboardSettings.figlio_g7 ?? 100)
 const FIGLIO_G13 = Number(dashboardSettings.figlio_g13 ?? 350)
@@ -3298,14 +3318,43 @@ const FIGLIO_SCHEDULE = [
   { day: 20, amount: FIGLIO_G20, key: 'figlio_g20_pagato_mese', label: 'giorno 20' },
   { day: 27, amount: FIGLIO_G27, key: 'figlio_g27_pagato_mese', label: 'giorno 27' },
 ]
-const giornoFiglio = new Date().getDate()
-const meseKeyFiglio = (() => { const o = new Date(); return `${o.getFullYear()}-${String(o.getMonth() + 1).padStart(2, '0')}` })()
-const accantonamentoFiglio = FIGLIO_SCHEDULE
-  .filter(p => p.day <= giornoFiglio)
-  .reduce((sum, p) => sum + p.amount, 0)
-const totaleMensileFiglio = FIGLIO_SCHEDULE.reduce((sum, p) => sum + p.amount, 0)
-// Rate già scadute questo mese ma non ancora segnate come pagate: sono quelle da mostrare come avviso.
-const rateFiglioDaPagare = FIGLIO_SCHEDULE.filter(p => p.day <= giornoFiglio && dashboardSettings[p.key] !== meseKeyFiglio)
+const rateFiglio = calcolaRateAccantonamento(FIGLIO_SCHEDULE, dashboardSettings)
+const giornoFiglio = rateFiglio.giorno
+const accantonamentoFiglio = rateFiglio.maturato
+const totaleMensileFiglio = rateFiglio.totale
+const rateFiglioDaPagare = rateFiglio.daPagare
+
+// Paolo (collaboratore, bisettimanale): non ancora operativo -> non conta finché non lo attivi.
+const PAOLO_ATTIVO = !!dashboardSettings.paolo_attivo
+const PAOLO_R15 = Number(dashboardSettings.paolo_r15 ?? 1000)
+const PAOLO_R30 = Number(dashboardSettings.paolo_r30 ?? 1000)
+const PAOLO_SCHEDULE = [
+  { day: 15, amount: PAOLO_R15, key: 'paolo_r15_pagato_mese', label: 'giorno 15' },
+  { day: 30, amount: PAOLO_R30, key: 'paolo_r30_pagato_mese', label: 'giorno 30' },
+]
+const ratePaolo = calcolaRateAccantonamento(PAOLO_SCHEDULE, dashboardSettings)
+const accantonamentoPaolo = PAOLO_ATTIVO ? ratePaolo.maturato : 0
+const totaleMensilePaolo = ratePaolo.totale
+const ratePaoloDaPagare = PAOLO_ATTIVO ? ratePaolo.daPagare : []
+
+// Michela (spese di casa): 1.300€/mese in 4 rate da 325€.
+const MICHELA_R1 = Number(dashboardSettings.michela_r1 ?? 325)
+const MICHELA_R9 = Number(dashboardSettings.michela_r9 ?? 325)
+const MICHELA_R17 = Number(dashboardSettings.michela_r17 ?? 325)
+const MICHELA_R24 = Number(dashboardSettings.michela_r24 ?? 325)
+const MICHELA_SCHEDULE = [
+  { day: 1, amount: MICHELA_R1, key: 'michela_r1_pagato_mese', label: 'giorno 1' },
+  { day: 9, amount: MICHELA_R9, key: 'michela_r9_pagato_mese', label: 'giorno 9' },
+  { day: 17, amount: MICHELA_R17, key: 'michela_r17_pagato_mese', label: 'giorno 17' },
+  { day: 24, amount: MICHELA_R24, key: 'michela_r24_pagato_mese', label: 'giorno 24' },
+]
+const rateMichela = calcolaRateAccantonamento(MICHELA_SCHEDULE, dashboardSettings)
+const accantonamentoMichela = rateMichela.maturato
+const totaleMensileMichela = rateMichela.totale
+const rateMichelaDaPagare = rateMichela.daPagare
+
+const accantonamentiTotale = accantonamentoRoyalty + accantonamentoClub + accantonamentoFiglio + accantonamentoPaolo + accantonamentoMichela
+const accantonamentiAvvisiCount = rateFiglioDaPagare.length + ratePaoloDaPagare.length + rateMichelaDaPagare.length
 const massiRows = memoSavingsRows.filter(r => r.persona === 'massimiliano').sort((a, b) => a.ordine - b.ordine)
 const samuRows = memoSavingsRows.filter(r => r.persona === 'samuele').sort((a, b) => a.ordine - b.ordine)
 const massiMontante = massiRows.length > 0 ? Number(massiRows[massiRows.length - 1].montante || 0) : 0
@@ -3318,6 +3367,8 @@ const cassaDisponibile =
   accantonamentoRoyalty -
   accantonamentoClub -
   accantonamentoFiglio -
+  accantonamentoPaolo -
+  accantonamentoMichela -
   risparmiSamuMassi
 
 const targetCassa = Number(dashboardSettings.target_cassa || 0)
@@ -3576,6 +3627,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 
         <nav style={tabsBar}>
           <button style={activeTab === 'dashboard' ? activeTabButton : tabButton} onClick={() => handleTabChange('dashboard')}>Dashboard</button>
+          <button style={activeTab === 'accantonamenti' ? activeTabButton : tabButton} onClick={() => handleTabChange('accantonamenti')}>💰 Accantonamenti</button>
           <button style={activeTab === 'books' ? activeTabButton : tabButton} onClick={() => handleTabChange('books')}>Books</button>
           <button style={activeTab === 'wallets' ? activeTabButton : tabButton} onClick={() => handleTabChange('wallets')}>Wallets</button>
           <button style={activeTab === 'transactions' ? activeTabButton : tabButton} onClick={() => handleTabChange('transactions')}>Transactions</button>
@@ -3619,24 +3671,11 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             totaleUsciteEsterne={totaleUsciteEsterne}
             guadagnoAnnuo={guadagnoAnnuo}
             cashFlowAnnuo={cashFlowAnnuo}
-            accantonamentoRoyalty={accantonamentoRoyalty}
-            accantonamentoClub={accantonamentoClub}
-            mediaMensileClub={mediaMensileClub}
-            meseCicloClub={meseCicloClub}
-            rinnovoClubAnnuo={CLUB_RINNOVO_ANNUO}
-            accantonamentoFiglio={accantonamentoFiglio}
-            totaleMensileFiglio={totaleMensileFiglio}
-            giornoFiglio={giornoFiglio}
-            figlioG1={FIGLIO_G1}
-            figlioG7={FIGLIO_G7}
-            figlioG13={FIGLIO_G13}
-            figlioG20={FIGLIO_G20}
-            figlioG27={FIGLIO_G27}
-            rateFiglioDaPagare={rateFiglioDaPagare}
-            toggleFiglioPagato={toggleFiglioPagato}
+            accantonamentiTotale={accantonamentiTotale}
+            accantonamentiAvvisiCount={accantonamentiAvvisiCount}
+            goToAccantonamenti={() => handleTabChange('accantonamenti')}
             updateDashboardSetting={updateDashboardSetting}
             parseEuroInput={parseEuroInput}
-            mediaMensileRoyalty={mediaMensileRoyalty}
             meseCorrenteNum={meseCorrenteNum}
             risparmiSamuMassi={risparmiSamuMassi}
             setDashboardSettings={setDashboardSettings}
@@ -3656,6 +3695,46 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             formatDate={formatDate}
             formatCurrency={formatCurrency}
             saveWeeklySnapshot={saveWeeklySnapshot}
+          />
+        )}
+        {activeTab === 'accantonamenti' && (
+          <AccantonamentiTab
+            formatCurrency={formatCurrency}
+            updateDashboardSetting={updateDashboardSetting}
+            toggleAccantonamentoPagato={toggleAccantonamentoPagato}
+            togglePaoloAttivo={togglePaoloAttivo}
+            meseCorrenteNum={meseCorrenteNum}
+            accantonamentoRoyalty={accantonamentoRoyalty}
+            mediaMensileRoyalty={mediaMensileRoyalty}
+            royaltyTotale2026={royaltyTotale2026}
+            royaltyPagato2026={royaltyPagato2026}
+            accantonamentoClub={accantonamentoClub}
+            mediaMensileClub={mediaMensileClub}
+            meseCicloClub={meseCicloClub}
+            rinnovoClubAnnuo={CLUB_RINNOVO_ANNUO}
+            accantonamentoFiglio={accantonamentoFiglio}
+            totaleMensileFiglio={totaleMensileFiglio}
+            giornoFiglio={giornoFiglio}
+            figlioG1={FIGLIO_G1}
+            figlioG7={FIGLIO_G7}
+            figlioG13={FIGLIO_G13}
+            figlioG20={FIGLIO_G20}
+            figlioG27={FIGLIO_G27}
+            rateFiglioDaPagare={rateFiglioDaPagare}
+            paoloAttivo={PAOLO_ATTIVO}
+            accantonamentoPaolo={accantonamentoPaolo}
+            totaleMensilePaolo={totaleMensilePaolo}
+            paoloR15={PAOLO_R15}
+            paoloR30={PAOLO_R30}
+            ratePaoloDaPagare={ratePaoloDaPagare}
+            accantonamentoMichela={accantonamentoMichela}
+            totaleMensileMichela={totaleMensileMichela}
+            michelaR1={MICHELA_R1}
+            michelaR9={MICHELA_R9}
+            michelaR17={MICHELA_R17}
+            michelaR24={MICHELA_R24}
+            rateMichelaDaPagare={rateMichelaDaPagare}
+            accantonamentiTotale={accantonamentiTotale}
           />
         )}
         {activeTab === 'prop-hedge' && <PropHedgeTab />}
