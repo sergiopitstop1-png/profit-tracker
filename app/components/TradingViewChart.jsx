@@ -23,6 +23,8 @@ const TV_SYMBOLS = {
   CADJPY: "OANDA:CADJPY",
   CHFJPY: "OANDA:CHFJPY",
   NZDJPY: "OANDA:NZDJPY",
+  BTCUSD: "COINBASE:BTCUSD",
+  ETHUSD: "COINBASE:ETHUSD",
 };
 
 function normalizeTradingViewSymbol(symbol) {
