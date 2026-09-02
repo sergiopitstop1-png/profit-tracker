@@ -115,6 +115,11 @@ export default function AccantonamentiTab({
   michelaR1, michelaR9, michelaR17, michelaR24,
   rateMichelaDaPagare,
 
+  accantonamentoAntonello,
+  meseCicloAntonello,
+  antonelloImporto,
+  antonelloDaPagare,
+
   accantonamentiTotale,
 }) {
   const fmt = formatCurrency || formatCurrencyFallback
@@ -258,6 +263,47 @@ export default function AccantonamentiTab({
               { key: 'm24', settingKey: 'michela_r24', label: 'g.24', value: michelaR24 },
             ]}
           />
+        </div>
+
+        {/* ANTONELLO */}
+        <div style={{ ...panel, opacity: meseCicloAntonello > 0 ? 1 : 0.6 }}>
+          <div style={panelHeader}>
+            <div>
+              <h2 style={panelTitle}>Antonello</h2>
+              <p style={panelSubtitle}>1.050€ ogni 3 mesi (ott→dic, gen→mar, apr→giu) · finisce dopo giu 2027</p>
+            </div>
+          </div>
+          {meseCicloAntonello > 0 ? (
+            <>
+              <BigValue>{fmt(accantonamentoAntonello)}</BigValue>
+              <SubNote>
+                {fmt(antonelloImporto / 3)} × {meseCicloAntonello} mesi del ciclo trimestrale in corso
+              </SubNote>
+              <AvvisiRate label="Antonello" rate={antonelloDaPagare} onPagato={toggleAccantonamentoPagato} />
+            </>
+          ) : (
+            <SubNote>Ciclo non attivo (fuori dal periodo ott 2026 → giu 2027, oppure contratto concluso).</SubNote>
+          )}
+          <div style={{ fontSize: 11, color: '#4b5568', marginTop: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span>Importo trimestrale:</span>
+            <input
+              defaultValue={Number(antonelloImporto || 1050)}
+              onBlur={(e) => {
+                const num = Number(String(e.target.value).replace(',', '.'))
+                if (!Number.isNaN(num) && num > 0) {
+                  updateDashboardSetting('antonello_importo_trimestrale', String(num))
+                } else {
+                  e.target.value = Number(antonelloImporto || 1050)
+                }
+              }}
+              onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur() }}
+              style={{
+                width: 60, background: 'transparent', border: 'none', borderBottom: '1px dashed #334155',
+                color: '#6b7490', fontSize: 11, padding: '0 2px', outline: 'none'
+              }}
+            />
+            <span>€/trimestre</span>
+          </div>
         </div>
 
       </div>
