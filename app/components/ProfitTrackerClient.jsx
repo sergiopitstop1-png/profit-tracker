@@ -3258,6 +3258,11 @@ const royaltyPagato2026 = memoRoyaltyEntries
   .reduce((sum, r) => sum + Number(r.pagato || 0), 0)
 const mediaMensileRoyalty = royaltyTotale2026 / 12
 const accantonamentoRoyalty = (mediaMensileRoyalty * meseCorrenteNum) - royaltyPagato2026
+// Accantonamento rinnovo club: 3.500 €/anno, scadenza 30/9. Ciclo ottobre->settembre (ottobre = mese 1 del ciclo, settembre = mese 12)
+const CLUB_RINNOVO_ANNUO = 3500
+const mediaMensileClub = CLUB_RINNOVO_ANNUO / 12
+const meseCicloClub = meseCorrenteNum >= 10 ? (meseCorrenteNum - 9) : (meseCorrenteNum + 3)
+const accantonamentoClub = mediaMensileClub * meseCicloClub
 const massiRows = memoSavingsRows.filter(r => r.persona === 'massimiliano').sort((a, b) => a.ordine - b.ordine)
 const samuRows = memoSavingsRows.filter(r => r.persona === 'samuele').sort((a, b) => a.ordine - b.ordine)
 const massiMontante = massiRows.length > 0 ? Number(massiRows[massiRows.length - 1].montante || 0) : 0
@@ -3268,6 +3273,7 @@ const cassaDisponibile =
   totaleCassa -
   prelievoDelMese -
   accantonamentoRoyalty -
+  accantonamentoClub -
   risparmiSamuMassi
 
 const targetCassa = Number(dashboardSettings.target_cassa || 0)
@@ -3570,6 +3576,9 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             guadagnoAnnuo={guadagnoAnnuo}
             cashFlowAnnuo={cashFlowAnnuo}
             accantonamentoRoyalty={accantonamentoRoyalty}
+            accantonamentoClub={accantonamentoClub}
+            mediaMensileClub={mediaMensileClub}
+            meseCicloClub={meseCicloClub}
             updateDashboardSetting={updateDashboardSetting}
             parseEuroInput={parseEuroInput}
             mediaMensileRoyalty={mediaMensileRoyalty}
