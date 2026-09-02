@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import TradingViewChart from './TradingViewChart'
+import MarketOverviewWidget from './MarketOverviewWidget'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import {
   tabContent, primaryButtonBlue, heroGrid, heroCard, heroLabel, heroValue, heroSub,
@@ -431,6 +432,16 @@ export default function DashboardTab({
             sub='Cassa attuale - prelievo - royalty - risparmi'
             accent='#22c55e'
           />
+
+          <div style={panel}>
+            <div style={panelHeader}>
+              <div>
+                <h2 style={panelTitle}>Indici di borsa</h2>
+                <p style={panelSubtitle}>Aggiornamento in tempo reale</p>
+              </div>
+            </div>
+            <MarketOverviewWidget height={380} />
+          </div>
         </div>
       </div>
 
