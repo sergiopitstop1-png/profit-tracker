@@ -1,4 +1,5 @@
-import React from 'react'
+import React, { useState } from 'react'
+import TradingViewChart from './TradingViewChart'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import {
   tabContent, primaryButtonBlue, heroGrid, heroCard, heroLabel, heroValue, heroSub,
@@ -7,6 +8,16 @@ import {
   rankRow, rankBadge, rankMain, miniRowTitle, miniRowSub, rankValue, tableWrap,
   table, th, tr, td, statCard, statLabel, statValue, statSub,
 } from './styles'
+
+const DASH_CHART_ASSETS = [
+  { symbol: 'XAUUSD', label: 'Oro (XAU/USD)' },
+  { symbol: 'BTCUSD', label: 'Bitcoin' },
+  { symbol: 'ETHUSD', label: 'Ethereum' },
+  { symbol: 'EURUSD', label: 'EUR/USD' },
+  { symbol: 'GBPUSD', label: 'GBP/USD' },
+  { symbol: 'USDJPY', label: 'USD/JPY' },
+  { symbol: 'XAGUSD', label: 'Argento (XAG/USD)' },
+]
 
 // Componenti locali (autonomi, nessuna dipendenza dallo stato del padre)
 const badge = (tipo) => ({
@@ -66,6 +77,7 @@ export default function DashboardTab({
   formatCurrency,
   saveWeeklySnapshot,
 }) {
+  const [dashChartSymbol, setDashChartSymbol] = useState('XAUUSD')
   return (
     <div style={tabContent}>
       {(() => {
@@ -270,6 +282,32 @@ export default function DashboardTab({
                 </div>
               ))}
 
+            </div>
+          </div>
+
+          <div style={{ marginTop: 20 }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              marginBottom: 10, flexWrap: 'wrap', gap: 8
+            }}>
+              <div style={{ fontSize: 14, color: '#94a3b8', letterSpacing: '1px' }}>GRAFICO MERCATI</div>
+              <select
+                value={dashChartSymbol}
+                onChange={(e) => setDashChartSymbol(e.target.value)}
+                style={{
+                  background: '#020617', border: '1px solid #1e293b', borderRadius: 8,
+                  color: '#e2e8f0', fontSize: 12, padding: '6px 8px'
+                }}
+              >
+                {DASH_CHART_ASSETS.map(a => (
+                  <option key={a.symbol} value={a.symbol}>{a.label}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{
+              border: '1px solid #1e293b', borderRadius: 12, overflow: 'hidden', background: '#020617'
+            }}>
+              <TradingViewChart symbol={dashChartSymbol} height={220} showEma={false} />
             </div>
           </div>
         </div>
