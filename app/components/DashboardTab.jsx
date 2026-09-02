@@ -49,24 +49,11 @@ export default function DashboardTab({
   totaleUsciteEsterne,
   guadagnoAnnuo,
   cashFlowAnnuo,
-  accantonamentoRoyalty,
-  accantonamentoClub,
-  mediaMensileClub,
-  meseCicloClub,
-  rinnovoClubAnnuo,
-  accantonamentoFiglio,
-  totaleMensileFiglio,
-  giornoFiglio,
-  figlioG1,
-  figlioG7,
-  figlioG13,
-  figlioG20,
-  figlioG27,
-  rateFiglioDaPagare,
-  toggleFiglioPagato,
+  accantonamentiTotale,
+  accantonamentiAvvisiCount,
+  goToAccantonamenti,
   updateDashboardSetting,
   parseEuroInput,
-  mediaMensileRoyalty,
   meseCorrenteNum,
   risparmiSamuMassi,
   setDashboardSettings,
@@ -323,226 +310,34 @@ export default function DashboardTab({
         </div>
 
         <div style={heroSideGrid}>
-          <div style={panel}>
+          <div style={{
+            ...panel,
+            ...(accantonamentiAvvisiCount > 0 ? { border: '1px solid rgba(239,68,68,0.4)' } : {}),
+            cursor: 'pointer'
+          }} onClick={goToAccantonamenti}>
             <div style={panelHeader}>
               <div>
-                <h2 style={panelTitle}>Accantonamento royalty</h2>
+                <h2 style={panelTitle}>Accantonamenti</h2>
+                <p style={panelSubtitle}>Royalty, club, figlio, Paolo, Michela — clicca per il dettaglio</p>
               </div>
-            </div>
-
-            <div style={{ position: 'relative' }}>
-              <input
-                value={Number(accantonamentoRoyalty || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'}
-                readOnly
-                onChange={() => {}}
-                onFocus={(e) => {
-                  e.target.value = Number(accantonamentoRoyalty ?? 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                }}
-                onBlur={(e) => {
-                  updateDashboardSetting('accantonamento_royalty', e.target.value)
-                  const raw = String(e.target.value || '')
-                    .replace(/€/g, '')
-                    .replace(/\s/g, '')
-                    .replace(/\./g, '')
-                    .replace(',', '.')
-                  const num = Number(raw)
-                  if (!Number.isNaN(num)) {
-                    e.target.value = num.toLocaleString('it-IT', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2
-                    }) + ' €'
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    updateDashboardSetting('accantonamento_royalty', e.target.value)
-                    const num = parseEuroInput(e.target.value)
-                    if (!Number.isNaN(num)) {
-                      e.target.value = num.toLocaleString('it-IT', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2
-                      }) + ' €'
-                    }
-                    e.target.blur()
-                  }
-
-                  if (e.key === 'Escape') {
-                    e.target.value = Number(accantonamentoRoyalty || 0).toLocaleString('it-IT', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2
-                    }) + ' €'
-                    e.target.blur()
-                  }
-                }}
-                style={{
-                  ...input,
-                  fontSize: 26,
-                  fontWeight: 800,
-                  paddingRight: 45
-                }}
-              />
-            </div>
-            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>
-              {formatCurrency(mediaMensileRoyalty)} × {meseCorrenteNum} mesi
-            </div>
-          </div>
-
-          <div style={panel}>
-            <div style={panelHeader}>
-              <div>
-                <h2 style={panelTitle}>Accantonamento rinnovo club</h2>
-              </div>
-            </div>
-
-            <div style={{ position: 'relative' }}>
-              <input
-                value={Number(accantonamentoClub || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'}
-                readOnly
-                onChange={() => {}}
-                onFocus={(e) => {
-                  e.target.value = Number(accantonamentoClub ?? 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                }}
-                onBlur={(e) => {
-                  updateDashboardSetting('accantonamento_club', e.target.value)
-                  const raw = String(e.target.value || '')
-                    .replace(/€/g, '')
-                    .replace(/\s/g, '')
-                    .replace(/\./g, '')
-                    .replace(',', '.')
-                  const num = Number(raw)
-                  if (!Number.isNaN(num)) {
-                    e.target.value = num.toLocaleString('it-IT', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2
-                    }) + ' €'
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    updateDashboardSetting('accantonamento_club', e.target.value)
-                    const num = parseEuroInput(e.target.value)
-                    if (!Number.isNaN(num)) {
-                      e.target.value = num.toLocaleString('it-IT', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2
-                      }) + ' €'
-                    }
-                    e.target.blur()
-                  }
-
-                  if (e.key === 'Escape') {
-                    e.target.value = Number(accantonamentoClub || 0).toLocaleString('it-IT', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2
-                    }) + ' €'
-                    e.target.blur()
-                  }
-                }}
-                style={{
-                  ...input,
-                  fontSize: 26,
-                  fontWeight: 800,
-                  paddingRight: 45
-                }}
-              />
-            </div>
-            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>
-              {formatCurrency(mediaMensileClub)} × {meseCicloClub} mesi (ciclo ott→set) · scade 30/9
-            </div>
-            <div style={{ fontSize: 11, color: '#4b5568', marginTop: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span>Costo rinnovo annuo:</span>
-              <input
-                defaultValue={Number(rinnovoClubAnnuo || 3500)}
-                onBlur={(e) => {
-                  const num = Number(String(e.target.value).replace(',', '.'))
-                  if (!Number.isNaN(num) && num > 0) {
-                    updateDashboardSetting('rinnovo_club_annuo', String(num))
-                  } else {
-                    e.target.value = Number(rinnovoClubAnnuo || 3500)
-                  }
-                }}
-                onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur() }}
-                style={{
-                  width: 60, background: 'transparent', border: 'none', borderBottom: '1px dashed #334155',
-                  color: '#6b7490', fontSize: 11, padding: '0 2px', outline: 'none'
-                }}
-              />
-              <span>€/anno</span>
-            </div>
-          </div>
-
-          <div style={panel}>
-            <div style={panelHeader}>
-              <div>
-                <h2 style={panelTitle}>Stipendio figlio</h2>
-              </div>
+              {accantonamentiAvvisiCount > 0 && (
+                <div style={{
+                  fontSize: 11, fontWeight: 800, color: '#fca5a5', background: 'rgba(239,68,68,0.15)',
+                  border: '1px solid rgba(239,68,68,0.4)', borderRadius: 999, padding: '3px 9px'
+                }}>
+                  {accantonamentiAvvisiCount} da pagare
+                </div>
+              )}
             </div>
 
             <div style={{ fontSize: 26, fontWeight: 800, color: '#f8fafc' }}>
-              {formatCurrency(totaleMensileFiglio - accantonamentoFiglio)}
+              {formatCurrency(accantonamentiTotale)}
             </div>
             <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>
-              ancora da pagare questo mese (su {formatCurrency(totaleMensileFiglio)}) · aggiornato al giorno {giornoFiglio}
-            </div>
-
-            {rateFiglioDaPagare && rateFiglioDaPagare.length > 0 && (
-              <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {rateFiglioDaPagare.map((rata) => (
-                  <div key={rata.key} style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.35)',
-                    borderRadius: 8, padding: '6px 10px'
-                  }}>
-                    <span style={{ fontSize: 12, color: '#fca5a5', fontWeight: 700 }}>
-                      ⚠️ PAGARE FIGLIO · {formatCurrency(rata.amount)} ({rata.label})
-                    </span>
-                    <button
-                      onClick={() => toggleFiglioPagato(rata.key)}
-                      style={{
-                        fontSize: 11, fontWeight: 700, color: '#4ade80', background: 'rgba(34,197,94,0.12)',
-                        border: '1px solid rgba(74,222,128,0.4)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer'
-                      }}
-                    >
-                      ✓ Pagato
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div style={{ fontSize: 11, color: '#4b5568', marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-              {[
-                { key: 'figlio_g1', label: 'g.1', value: figlioG1 },
-                { key: 'figlio_g7', label: 'g.7', value: figlioG7 },
-                { key: 'figlio_g13', label: 'g.13', value: figlioG13 },
-                { key: 'figlio_g20', label: 'g.20', value: figlioG20 },
-                { key: 'figlio_g27', label: 'g.27', value: figlioG27 },
-              ].map((rata) => (
-                <div key={rata.key} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span>{rata.label}:</span>
-                  <input
-                    defaultValue={Number(rata.value || 0)}
-                    onBlur={(e) => {
-                      const num = Number(String(e.target.value).replace(',', '.'))
-                      if (!Number.isNaN(num) && num >= 0) {
-                        updateDashboardSetting(rata.key, String(num))
-                      } else {
-                        e.target.value = Number(rata.value || 0)
-                      }
-                    }}
-                    onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur() }}
-                    style={{
-                      width: 44, background: 'transparent', border: 'none', borderBottom: '1px dashed #334155',
-                      color: '#6b7490', fontSize: 11, padding: '0 2px', outline: 'none'
-                    }}
-                  />
-                  <span>€</span>
-                </div>
-              ))}
+              totale accantonato/da accantonare questo mese
             </div>
           </div>
+
 
           <div style={panel}>
             <div style={panelHeader}>
