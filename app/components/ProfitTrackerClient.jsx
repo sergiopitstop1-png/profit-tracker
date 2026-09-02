@@ -3258,11 +3258,21 @@ const royaltyPagato2026 = memoRoyaltyEntries
   .reduce((sum, r) => sum + Number(r.pagato || 0), 0)
 const mediaMensileRoyalty = royaltyTotale2026 / 12
 const accantonamentoRoyalty = (mediaMensileRoyalty * meseCorrenteNum) - royaltyPagato2026
-// Accantonamento rinnovo club: 3.500 €/anno, scadenza 30/9. Ciclo ottobre->settembre (ottobre = mese 1 del ciclo, settembre = mese 12)
-const CLUB_RINNOVO_ANNUO = 3500
+// Accantonamento rinnovo club: importo annuo modificabile da dashboard (default 3.500 €), scadenza 30/9.
+// Le 4 rate reali (set-ott-nov-dic 2026) sono già in Contabilità: l'accantonamento sintetico parte da zero
+// e non conta fino al 1° ottobre 2026, poi accumula 12 mesi per volta (ott->set) anche se si sovrappone
+// alle rate reali dei mesi successivi (voluto, per prudenza).
+const CLUB_RINNOVO_ANNUO = Number(dashboardSettings.rinnovo_club_annuo || 3500)
 const mediaMensileClub = CLUB_RINNOVO_ANNUO / 12
-const meseCicloClub = meseCorrenteNum >= 10 ? (meseCorrenteNum - 9) : (meseCorrenteNum + 3)
-const accantonamentoClub = mediaMensileClub * meseCicloClub
+const CLUB_CICLO_INIZIO = new Date(2026, 9, 1) // 1 ottobre 2026
+const oggiClub = new Date()
+let meseCicloClub = 0
+let accantonamentoClub = 0
+if (oggiClub >= CLUB_CICLO_INIZIO) {
+  const mesiTrascorsiClub = (oggiClub.getFullYear() - CLUB_CICLO_INIZIO.getFullYear()) * 12 + (oggiClub.getMonth() - CLUB_CICLO_INIZIO.getMonth()) + 1
+  meseCicloClub = ((mesiTrascorsiClub - 1) % 12) + 1
+  accantonamentoClub = mediaMensileClub * meseCicloClub
+}
 const massiRows = memoSavingsRows.filter(r => r.persona === 'massimiliano').sort((a, b) => a.ordine - b.ordine)
 const samuRows = memoSavingsRows.filter(r => r.persona === 'samuele').sort((a, b) => a.ordine - b.ordine)
 const massiMontante = massiRows.length > 0 ? Number(massiRows[massiRows.length - 1].montante || 0) : 0
@@ -3579,6 +3589,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             accantonamentoClub={accantonamentoClub}
             mediaMensileClub={mediaMensileClub}
             meseCicloClub={meseCicloClub}
+            rinnovoClubAnnuo={CLUB_RINNOVO_ANNUO}
             updateDashboardSetting={updateDashboardSetting}
             parseEuroInput={parseEuroInput}
             mediaMensileRoyalty={mediaMensileRoyalty}
