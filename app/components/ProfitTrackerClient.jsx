@@ -2046,6 +2046,15 @@ async function toggleSimRinnovato(cliente) {
   setClienti(prev => prev.map(c => c.id === cliente.id ? { ...c, sim_rinnovato: nuovoRinnovato, sim_rinnovato_mese: nuovoRinnovato ? meseKey : null } : c))
 }
 
+async function toggleFiglioPagato(fieldKey) {
+  const oggi = new Date()
+  const meseKey = `${oggi.getFullYear()}-${String(oggi.getMonth() + 1).padStart(2, '0')}`
+  const giaPagato = dashboardSettings[fieldKey] === meseKey
+  const nuovoValore = giaPagato ? null : meseKey
+  await supabase.from('dashboard_settings').update({ [fieldKey]: nuovoValore }).eq('id', 1)
+  setDashboardSettings(prev => ({ ...prev, [fieldKey]: nuovoValore }))
+}
+
 async function toggleClienteTerminato(cliente) {
   const nuovoTerminato = !cliente.terminato
   if (nuovoTerminato && !window.confirm(`Segnare "${cliente.nome}" come cliente terminato?`)) return
@@ -3283,17 +3292,20 @@ const FIGLIO_G13 = Number(dashboardSettings.figlio_g13 ?? 350)
 const FIGLIO_G20 = Number(dashboardSettings.figlio_g20 ?? 100)
 const FIGLIO_G27 = Number(dashboardSettings.figlio_g27 ?? 100)
 const FIGLIO_SCHEDULE = [
-  { day: 1, amount: FIGLIO_G1 },
-  { day: 7, amount: FIGLIO_G7 },
-  { day: 13, amount: FIGLIO_G13 },
-  { day: 20, amount: FIGLIO_G20 },
-  { day: 27, amount: FIGLIO_G27 },
+  { day: 2, amount: FIGLIO_G1, key: 'figlio_g1_pagato_mese', label: 'giorno 2' },
+  { day: 7, amount: FIGLIO_G7, key: 'figlio_g7_pagato_mese', label: 'giorno 7' },
+  { day: 13, amount: FIGLIO_G13, key: 'figlio_g13_pagato_mese', label: 'giorno 13' },
+  { day: 20, amount: FIGLIO_G20, key: 'figlio_g20_pagato_mese', label: 'giorno 20' },
+  { day: 27, amount: FIGLIO_G27, key: 'figlio_g27_pagato_mese', label: 'giorno 27' },
 ]
 const giornoFiglio = new Date().getDate()
+const meseKeyFiglio = (() => { const o = new Date(); return `${o.getFullYear()}-${String(o.getMonth() + 1).padStart(2, '0')}` })()
 const accantonamentoFiglio = FIGLIO_SCHEDULE
   .filter(p => p.day <= giornoFiglio)
   .reduce((sum, p) => sum + p.amount, 0)
 const totaleMensileFiglio = FIGLIO_SCHEDULE.reduce((sum, p) => sum + p.amount, 0)
+// Rate già scadute questo mese ma non ancora segnate come pagate: sono quelle da mostrare come avviso.
+const rateFiglioDaPagare = FIGLIO_SCHEDULE.filter(p => p.day <= giornoFiglio && dashboardSettings[p.key] !== meseKeyFiglio)
 const massiRows = memoSavingsRows.filter(r => r.persona === 'massimiliano').sort((a, b) => a.ordine - b.ordine)
 const samuRows = memoSavingsRows.filter(r => r.persona === 'samuele').sort((a, b) => a.ordine - b.ordine)
 const massiMontante = massiRows.length > 0 ? Number(massiRows[massiRows.length - 1].montante || 0) : 0
@@ -3620,6 +3632,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             figlioG13={FIGLIO_G13}
             figlioG20={FIGLIO_G20}
             figlioG27={FIGLIO_G27}
+            rateFiglioDaPagare={rateFiglioDaPagare}
+            toggleFiglioPagato={toggleFiglioPagato}
             updateDashboardSetting={updateDashboardSetting}
             parseEuroInput={parseEuroInput}
             mediaMensileRoyalty={mediaMensileRoyalty}
