@@ -187,13 +187,13 @@ export default function AccantonamentiTab({
         <div style={panel}>
           <div style={panelHeader}>
             <div>
-              <h2 style={panelTitle}>Stipendio figlio</h2>
+              <h2 style={panelTitle}>Stipendio Massimiliano</h2>
               <p style={panelSubtitle}>Giorni 2 · 7 · 13 · 20 · 27</p>
             </div>
           </div>
           <BigValue>{fmt(totaleMensileFiglio - accantonamentoFiglio)}</BigValue>
           <SubNote>ancora da pagare questo mese (su {fmt(totaleMensileFiglio)}) · aggiornato al giorno {giornoFiglio}</SubNote>
-          <AvvisiRate label="figlio" rate={rateFiglioDaPagare} onPagato={toggleAccantonamentoPagato} />
+          <AvvisiRate label="Massimiliano" rate={rateFiglioDaPagare} onPagato={toggleAccantonamentoPagato} />
           <RateEditor
             updateDashboardSetting={updateDashboardSetting}
             rate={[
