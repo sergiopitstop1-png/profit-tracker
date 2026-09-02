@@ -62,6 +62,8 @@ export default function DashboardTab({
   figlioG13,
   figlioG20,
   figlioG27,
+  rateFiglioDaPagare,
+  toggleFiglioPagato,
   updateDashboardSetting,
   parseEuroInput,
   mediaMensileRoyalty,
@@ -479,11 +481,36 @@ export default function DashboardTab({
             </div>
 
             <div style={{ fontSize: 26, fontWeight: 800, color: '#f8fafc' }}>
-              {formatCurrency(accantonamentoFiglio)}
+              {formatCurrency(totaleMensileFiglio - accantonamentoFiglio)}
             </div>
             <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>
-              maturato al giorno {giornoFiglio} · {formatCurrency(totaleMensileFiglio)}/mese totale
+              ancora da pagare questo mese (su {formatCurrency(totaleMensileFiglio)}) · aggiornato al giorno {giornoFiglio}
             </div>
+
+            {rateFiglioDaPagare && rateFiglioDaPagare.length > 0 && (
+              <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {rateFiglioDaPagare.map((rata) => (
+                  <div key={rata.key} style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.35)',
+                    borderRadius: 8, padding: '6px 10px'
+                  }}>
+                    <span style={{ fontSize: 12, color: '#fca5a5', fontWeight: 700 }}>
+                      ⚠️ PAGARE FIGLIO · {formatCurrency(rata.amount)} ({rata.label})
+                    </span>
+                    <button
+                      onClick={() => toggleFiglioPagato(rata.key)}
+                      style={{
+                        fontSize: 11, fontWeight: 700, color: '#4ade80', background: 'rgba(34,197,94,0.12)',
+                        border: '1px solid rgba(74,222,128,0.4)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer'
+                      }}
+                    >
+                      ✓ Pagato
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div style={{ fontSize: 11, color: '#4b5568', marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
               {[
