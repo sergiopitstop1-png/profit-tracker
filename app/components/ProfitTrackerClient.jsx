@@ -12,6 +12,7 @@ import DashboardTab from './DashboardTab'
 import AccantonamentiTab from './AccantonamentiTab'
 import SmsTab from './SmsTab'
 import PropHedgeTab from './PropHedgeTab'
+import Masaniello from './Masaniello'
 import {
   container, pageWrap, header, title, subtitle, copyrightBox, tabsBar, tabButton,
   activeTabButton, successBox, errorBox, tabContent, statsGrid, statsGridCompact,
@@ -3668,6 +3669,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           <button style={activeTab === 'sms' ? activeTabButton : tabButton} onClick={() => handleTabChange('sms')}>📱 SMS</button>
           <button style={activeTab === 'team' ? activeTabButton : tabButton} onClick={() => handleTabChange('team')}>👥 Team</button>
           <button style={activeTab === 'prop-hedge' ? activeTabButton : tabButton} onClick={() => handleTabChange('prop-hedge')}>📈 Prop Hedge</button>
+          <button style={activeTab === 'masaniello' ? activeTabButton : tabButton} onClick={() => handleTabChange('masaniello')}>🎲 Masaniello</button>
 <button
   style={activeTab === 'stime-cassa' ? activeTabButton : tabButton}
   onClick={() => {
@@ -3764,6 +3766,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           />
         )}
         {activeTab === 'prop-hedge' && <PropHedgeTab />}
+        {activeTab === 'masaniello' && <Masaniello />}
         {activeTab === 'periodi' && (() => {
           const annoCorrente = new Date().getFullYear()
           const cashFlowAnno = cashFlowAnnuo
