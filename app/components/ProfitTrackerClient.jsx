@@ -3384,7 +3384,6 @@ if (oggiAntonello >= ANTONELLO_INIZIO && oggiAntonello <= ANTONELLO_FINE) {
   }
 }
 
-const accantonamentiTotale = accantonamentoRoyalty + accantonamentoClub + accantonamentoFiglio + accantonamentoPaolo + accantonamentoMichela + accantonamentoAntonello
 const accantonamentiAvvisiCount = rateFiglioDaPagare.length + ratePaoloDaPagare.length + rateMichelaDaPagare.length + antonelloDaPagare.length
 
 // Totale "da pagare questo mese" mostrato in Dashboard e in cima al tab Accantonamenti:
@@ -3406,12 +3405,7 @@ const risparmiSamuMassi = massiMontante + samuMontante
 const cassaDisponibile =
   totaleCassa -
   prelievoDelMese -
-  accantonamentoRoyalty -
-  accantonamentoClub -
-  accantonamentoFiglio -
-  accantonamentoPaolo -
-  accantonamentoMichela -
-  accantonamentoAntonello -
+  accantonamentiDaPagareTotale -
   risparmiSamuMassi
 
 const targetCassa = Number(dashboardSettings.target_cassa || 0)
