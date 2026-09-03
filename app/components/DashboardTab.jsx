@@ -311,6 +311,20 @@ export default function DashboardTab({
         </div>
 
         <div style={heroSideGrid}>
+          <StatCard
+            label='Cassa disponibile'
+            value={formatCurrency(cassaDisponibile)}
+            sub='Cassa attuale - prelievo - royalty - risparmi'
+            accent='#22c55e'
+          />
+
+          <StatCard
+            label='Cassa attuale'
+            value={formatCurrency(totaleCassa)}
+            sub={`Books ${formatCurrency(totaleBooks)} · Wallets ${formatCurrency(totaleWallets)}`}
+            accent='#f59e0b'
+          />
+
           <div style={{
             ...panel,
             ...(accantonamentiAvvisiCount > 0 ? { border: '1px solid rgba(239,68,68,0.4)' } : {}),
@@ -338,7 +352,6 @@ export default function DashboardTab({
               totale accantonato/da accantonare questo mese
             </div>
           </div>
-
 
           <div style={panel}>
             <div style={panelHeader}>
@@ -399,13 +412,6 @@ export default function DashboardTab({
           </div>
 
           <StatCard
-            label='Cassa attuale'
-            value={formatCurrency(totaleCassa)}
-            sub={`Books ${formatCurrency(totaleBooks)} · Wallets ${formatCurrency(totaleWallets)}`}
-            accent='#f59e0b'
-          />
-
-          <StatCard
             label='Prelievo del mese'
             value={formatCurrency(prelievoDelMese)}
             sub={`Letto da Stime di Cassa · ${currentMonthLabel()}`}
@@ -424,13 +430,6 @@ export default function DashboardTab({
             value={formatCurrency(mediaMensileResidua)}
             sub={`Su ${12 - meseCorrenteNum + 1} mesi rimanenti (mese corrente incluso) · obiettivo minimo`}
             accent='#a855f7'
-          />
-
-          <StatCard
-            label='Cassa disponibile'
-            value={formatCurrency(cassaDisponibile)}
-            sub='Cassa attuale - prelievo - royalty - risparmi'
-            accent='#22c55e'
           />
 
           <div style={panel}>
