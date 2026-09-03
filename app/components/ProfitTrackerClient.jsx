@@ -12,7 +12,6 @@ import DashboardTab from './DashboardTab'
 import AccantonamentiTab from './AccantonamentiTab'
 import SmsTab from './SmsTab'
 import PropHedgeTab from './PropHedgeTab'
-import Masaniello from './Masaniello'
 import {
   container, pageWrap, header, title, subtitle, copyrightBox, tabsBar, tabButton,
   activeTabButton, successBox, errorBox, tabContent, statsGrid, statsGridCompact,
@@ -761,6 +760,16 @@ function calcolaRateAccantonamento(schedule, dashboardSettings) {
   const maturato = schedule.filter(r => r.day <= giorno).reduce((s, r) => s + r.amount, 0)
   const daPagare = schedule.filter(r => r.day <= giorno && dashboardSettings[r.key] !== meseKey)
   return { giorno, meseKey, totale, maturato, residuo: totale - maturato, daPagare }
+}
+
+// Come calcolaRateAccantonamento, ma per il totale generale: non guarda il giorno del mese,
+// parte sempre dal totale pieno e scala solo quando una rata viene segnata "Pagato".
+function totaleMenoPagato(schedule, dashboardSettings) {
+  const oggi = new Date()
+  const meseKey = `${oggi.getFullYear()}-${String(oggi.getMonth() + 1).padStart(2, '0')}`
+  const totale = schedule.reduce((s, r) => s + r.amount, 0)
+  const pagato = schedule.filter(r => dashboardSettings[r.key] === meseKey).reduce((s, r) => s + r.amount, 0)
+  return totale - pagato
 }
 
 function getSettimanaAnno() {
@@ -3377,6 +3386,17 @@ if (oggiAntonello >= ANTONELLO_INIZIO && oggiAntonello <= ANTONELLO_FINE) {
 
 const accantonamentiTotale = accantonamentoRoyalty + accantonamentoClub + accantonamentoFiglio + accantonamentoPaolo + accantonamentoMichela + accantonamentoAntonello
 const accantonamentiAvvisiCount = rateFiglioDaPagare.length + ratePaoloDaPagare.length + rateMichelaDaPagare.length + antonelloDaPagare.length
+
+// Totale "da pagare questo mese" mostrato in Dashboard e in cima al tab Accantonamenti:
+// parte dal totale mensile pieno e scala solo quando segni "Pagato" (non quando passa il giorno).
+// Royalty e Club restano invariati: Royalty scala gi\xe0 da s\xe9 col pagato del Memo, Club non ha un pulsante "pagato".
+const accantonamentiDaPagareTotale =
+  accantonamentoRoyalty +
+  accantonamentoClub +
+  totaleMenoPagato(FIGLIO_SCHEDULE, dashboardSettings) +
+  (PAOLO_ATTIVO ? totaleMenoPagato(PAOLO_SCHEDULE, dashboardSettings) : 0) +
+  totaleMenoPagato(MICHELA_SCHEDULE, dashboardSettings) +
+  accantonamentoAntonello
 const massiRows = memoSavingsRows.filter(r => r.persona === 'massimiliano').sort((a, b) => a.ordine - b.ordine)
 const samuRows = memoSavingsRows.filter(r => r.persona === 'samuele').sort((a, b) => a.ordine - b.ordine)
 const massiMontante = massiRows.length > 0 ? Number(massiRows[massiRows.length - 1].montante || 0) : 0
@@ -3669,7 +3689,6 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           <button style={activeTab === 'sms' ? activeTabButton : tabButton} onClick={() => handleTabChange('sms')}>📱 SMS</button>
           <button style={activeTab === 'team' ? activeTabButton : tabButton} onClick={() => handleTabChange('team')}>👥 Team</button>
           <button style={activeTab === 'prop-hedge' ? activeTabButton : tabButton} onClick={() => handleTabChange('prop-hedge')}>📈 Prop Hedge</button>
-          <button style={activeTab === 'masaniello' ? activeTabButton : tabButton} onClick={() => handleTabChange('masaniello')}>🎲 Masaniello</button>
 <button
   style={activeTab === 'stime-cassa' ? activeTabButton : tabButton}
   onClick={() => {
@@ -3695,7 +3714,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             totaleUsciteEsterne={totaleUsciteEsterne}
             guadagnoAnnuo={guadagnoAnnuo}
             cashFlowAnnuo={cashFlowAnnuo}
-            accantonamentiTotale={accantonamentiTotale}
+            accantonamentiTotale={accantonamentiDaPagareTotale}
             accantonamentiAvvisiCount={accantonamentiAvvisiCount}
             goToAccantonamenti={() => handleTabChange('accantonamenti')}
             updateDashboardSetting={updateDashboardSetting}
@@ -3762,11 +3781,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             meseCicloAntonello={meseCicloAntonello}
             antonelloImporto={ANTONELLO_IMPORTO}
             antonelloDaPagare={antonelloDaPagare}
-            accantonamentiTotale={accantonamentiTotale}
+            accantonamentiTotale={accantonamentiDaPagareTotale}
           />
         )}
         {activeTab === 'prop-hedge' && <PropHedgeTab />}
-        {activeTab === 'masaniello' && <Masaniello />}
         {activeTab === 'periodi' && (() => {
           const annoCorrente = new Date().getFullYear()
           const cashFlowAnno = cashFlowAnnuo
