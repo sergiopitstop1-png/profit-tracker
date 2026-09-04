@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from("promo_screenshots")
-    .select("id, storage_path, label, collaboratore_id, collaboratori(nome)")
+    .select("id, storage_path, label, istruzioni, collaboratore_id, collaboratori(nome)")
     .eq("giorno", giorno)
     .order("created_at", { ascending: true });
 
@@ -54,6 +54,24 @@ export async function POST(req: NextRequest) {
     .from("promo_screenshots")
     .insert({ giorno, storage_path: path, label, collaboratore_id: collaboratoreId })
     .select()
+    .single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ screenshot: data });
+}
+
+// PATCH /api/screenshots  (JSON: { id, istruzioni }) -> aggiorna solo le istruzioni di una promo
+export async function PATCH(req: NextRequest) {
+  const body = await req.json();
+  const { id, istruzioni } = body || {};
+
+  if (!id) return NextResponse.json({ error: "id mancante" }, { status: 400 });
+
+  const { data, error } = await supabaseAdmin
+    .from("promo_screenshots")
+    .update({ istruzioni: istruzioni ?? null })
+    .eq("id", id)
+    .select("id, istruzioni")
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
