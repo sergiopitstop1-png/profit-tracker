@@ -12,6 +12,8 @@ export default function PromoScreenshotsPanel() {
   const [screens, setScreens] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [zoomed, setZoomed] = useState(null); // screenshot selezionato per la vista ingrandita
+  const [istruzioniBozza, setIstruzioniBozza] = useState(""); // testo delle istruzioni mentre lo modifichi
+  const [salvandoIstruzioni, setSalvandoIstruzioni] = useState(false);
   const [mostraTutti, setMostraTutti] = useState(false); // vedi anche le promo degli altri collaboratori
   const fileInput = useRef(null);
   const { collaboratori, attivoId, setAttivo } = useCollaboratoreAttivo();
@@ -25,6 +27,27 @@ export default function PromoScreenshotsPanel() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // Ogni volta che apri (o cambi) uno screenshot ingrandito, riparti dal testo salvato per quello
+  useEffect(() => {
+    setIstruzioniBozza(zoomed?.istruzioni || "");
+  }, [zoomed?.id]);
+
+  const salvaIstruzioni = async () => {
+    if (!zoomed) return;
+    setSalvandoIstruzioni(true);
+    try {
+      await fetch("/api/screenshots", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: zoomed.id, istruzioni: istruzioniBozza }),
+      });
+      setScreens((prev) => prev.map((s) => (s.id === zoomed.id ? { ...s, istruzioni: istruzioniBozza } : s)));
+      setZoomed((prev) => (prev ? { ...prev, istruzioni: istruzioniBozza } : prev));
+    } finally {
+      setSalvandoIstruzioni(false);
+    }
+  };
 
   const upload = async (files) => {
     setUploading(true);
@@ -117,17 +140,49 @@ export default function PromoScreenshotsPanel() {
           >
             <X size={20} />
           </button>
-          <img
-            src={zoomed.url}
-            alt={zoomed.label || "promo"}
+          <div
             onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: "92vw", maxHeight: "88vh", objectFit: "contain", borderRadius: 8, cursor: "default" }}
-          />
-          {zoomed.label && (
-            <div style={{ position: "absolute", bottom: 24, left: "50%", transform: "translateX(-50%)", background: "rgba(20,22,26,0.85)", color: "#EDEEF0", padding: "8px 16px", borderRadius: 8, fontSize: 13 }}>
-              {zoomed.label}
+            style={{
+              display: "flex", flexDirection: "column", alignItems: "center", gap: 14,
+              maxWidth: "92vw", maxHeight: "88vh", cursor: "default",
+            }}
+          >
+            <img
+              src={zoomed.url}
+              alt={zoomed.label || "promo"}
+              style={{ maxWidth: "92vw", maxHeight: "62vh", objectFit: "contain", borderRadius: 8 }}
+            />
+
+            {zoomed.label && (
+              <div style={{ background: "rgba(20,22,26,0.85)", color: "#EDEEF0", padding: "8px 16px", borderRadius: 8, fontSize: 13 }}>
+                {zoomed.label}
+              </div>
+            )}
+
+            {/* Sezione nera con le istruzioni per chi farà la promo */}
+            <div style={{
+              width: "min(560px, 92vw)", background: "#000000", border: "1px solid #2A2F38",
+              borderRadius: 10, padding: 14,
+            }}>
+              <div style={{ fontSize: 11, color: "#8A8F98", fontWeight: 600, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.4 }}>
+                Istruzioni per chi farà la promo
+              </div>
+              <textarea
+                value={istruzioniBozza}
+                onChange={(e) => setIstruzioniBozza(e.target.value)}
+                onBlur={salvaIstruzioni}
+                placeholder="Scrivi qui le istruzioni per questa promo..."
+                rows={4}
+                style={{
+                  width: "100%", background: "#14161A", border: "1px solid #2A2F38", borderRadius: 8,
+                  color: "#EDEEF0", padding: 10, fontSize: 13, fontFamily: "inherit", resize: "vertical",
+                }}
+              />
+              {salvandoIstruzioni && (
+                <div style={{ fontSize: 11, color: "#6B7280", marginTop: 6 }}>Salvataggio...</div>
+              )}
             </div>
-          )}
+          </div>
         </div>
       )}
     </div>
