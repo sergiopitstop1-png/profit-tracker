@@ -1874,6 +1874,28 @@ async function saveEditPostIt(id) {
     return supabase.from(table).update({ saldo }).eq('id', id)
   }
 
+  // Manda una richiesta di aggiornamento saldi al poller sul PC.
+  // book = chiave minuscola senza spazi (es. "lottomatica"), deve combaciare
+  // con la chiave usata in config.json sul PC.
+  // onlyClient = null per tutti i clienti di quel book, oppure un nome preciso.
+  async function queueSaldoJob(book, onlyClient) {
+    try {
+      const res = await fetch('https://sergioapicella.it/api/saldo-jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ book, only_client: onlyClient || null })
+      })
+      const data = await res.json()
+      if (data.error) { setErrorMessage(`Errore avvio aggiornamento: ${data.error}`); return }
+      setErrorMessage(onlyClient
+        ? `✅ Aggiornamento ${book} per ${onlyClient} avviato — pronto tra qualche minuto`
+        : `✅ Aggiornamento ${book} avviato per tutti i clienti — pronto tra qualche minuto`)
+      setTimeout(() => setErrorMessage(''), 6000)
+    } catch (e) {
+      setErrorMessage(`Errore avvio aggiornamento: ${e.message}`)
+    }
+  }
+
   // ── Aggiornamenti locali dopo scritture su Supabase, senza ricaricare tutto con loadData() ──
   function applyLocalWalletSaldo(id, nuovoSaldo) {
     setWallets(prev => prev.map(w => w.id === id ? { ...w, saldo: nuovoSaldo } : w))
@@ -4975,7 +4997,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 )}
         {activeTab === 'books' && (
           <div style={tabContent}>
-            <div style={sectionTopBar}><div><h2 style={sectionTitle}>Books</h2><p style={sectionDescription}>Archivio bookmaker con filtri, note e azioni rapide</p></div><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>{Object.keys(pendingBookSaldi).some(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }) && (<button style={{ ...primaryButtonGreen, background: 'linear-gradient(135deg, #d97706, #f59e0b)', boxShadow: '0 0 14px rgba(245,158,11,0.4)', animation: 'blinkPrevisto 1.8s ease-in-out infinite' }} onClick={handleSalvaBookSaldi}>💾 Salva saldi ({Object.keys(pendingBookSaldi).filter(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }).length})</button>)}<button style={primaryButtonGreen} onClick={() => setShowBookModal(true)}>+ Nuovo Book</button></div></div>
+            <div style={sectionTopBar}><div><h2 style={sectionTitle}>Books</h2><p style={sectionDescription}>Archivio bookmaker con filtri, note e azioni rapide</p></div><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>{Object.keys(pendingBookSaldi).some(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }) && (<button style={{ ...primaryButtonGreen, background: 'linear-gradient(135deg, #d97706, #f59e0b)', boxShadow: '0 0 14px rgba(245,158,11,0.4)', animation: 'blinkPrevisto 1.8s ease-in-out infinite' }} onClick={handleSalvaBookSaldi}>💾 Salva saldi ({Object.keys(pendingBookSaldi).filter(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }).length})</button>)}<button style={secondaryButton} onClick={() => { const nomiBookUnici = [...new Set(books.map(b => (b.nome || '').toLowerCase().replace(/\s+/g, '')))].filter(Boolean); nomiBookUnici.forEach(b => queueSaldoJob(b, null)) }}>🔄 Aggiorna saldi</button><button style={primaryButtonGreen} onClick={() => setShowBookModal(true)}>+ Nuovo Book</button></div></div>
             <div style={statsGridCompact}><StatCard label='Totale books' value={formatCurrency(totaleBooks)} sub={`${books.length} records`} accent='#22c55e' /><StatCard label='Totale filtrato' value={formatCurrency(totaleBooksFiltrati)} sub={`${filteredBooks.length} risultati visibili`} accent='#38bdf8' /></div>
             <div style={panel}>
               <div style={filterRow}>
@@ -4989,6 +5011,11 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                   Solo con nota
                 </label>
                 <button type='button' style={secondaryButton} onClick={clearBookFilters}>Pulisci</button>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                {[...new Set(books.map(b => b.nome).filter(Boolean))].sort().map(nome => (
+                  <button key={nome} type='button' style={tinyBlueButton} onClick={() => queueSaldoJob(nome.toLowerCase().replace(/\s+/g, ''), null)}>🔄 {nome}</button>
+                ))}
               </div>
               <div style={tableWrap}>
                 <table style={tableLarge}><thead><tr><th style={th}>ID</th><th style={th}>Nome</th><th style={th}>Intestatario</th><th style={th}>Saldo</th><th style={th}>Note</th><th style={th}>Azioni</th></tr></thead><tbody>
