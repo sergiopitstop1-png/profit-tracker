@@ -1,7 +1,6 @@
-// Salva questo file come: app/api/saldo-jobs/route.ts
-
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { isRequestAuthorized } from '@/lib/apiAuth'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -10,6 +9,10 @@ const supabase = createClient(
 
 // GET ?status=pending - lista le richieste (filtrabile per stato), le piu' vecchie prima
 export async function GET(request: Request) {
+  if (!(await isRequestAuthorized(request))) {
+    return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 })
+  }
+
   const { searchParams } = new URL(request.url)
   const status = searchParams.get('status')
 
@@ -23,6 +26,10 @@ export async function GET(request: Request) {
 
 // POST - crea una nuova richiesta. Body: { book: "lottomatica", only_client?: "Alfonso" }
 export async function POST(request: Request) {
+  if (!(await isRequestAuthorized(request))) {
+    return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 })
+  }
+
   const body = await request.json()
   const { book, only_client } = body
 
@@ -42,6 +49,10 @@ export async function POST(request: Request) {
 
 // PATCH - aggiorna lo stato/risultato di una richiesta (usato dal poller sul PC)
 export async function PATCH(request: Request) {
+  if (!(await isRequestAuthorized(request))) {
+    return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 })
+  }
+
   const body = await request.json()
   const { id, ...fields } = body
 
