@@ -25,7 +25,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'cliente mancante' }, { status: 400 })
   }
 
-  const folder = cliente.toLowerCase().replace(/\s+/g, '-')
+  const folder = cliente
 
   const { data, error } = await supabase.storage
     .from(BUCKET)
@@ -63,7 +63,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'file o cliente mancante' }, { status: 400 })
   }
 
-  const folder = cliente.toLowerCase().replace(/\s+/g, '-')
+  const folder = cliente
   const fileName = `${folder}/${sanitizeFileName(file.name)}`
 
   const arrayBuffer = await file.arrayBuffer()
@@ -93,7 +93,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: 'cliente o file mancante' }, { status: 400 })
   }
 
-  const folder = cliente.toLowerCase().replace(/\s+/g, '-')
+  const folder = cliente
   const filePath = `${folder}/${fileName}`
 
   const { error } = await supabase.storage
