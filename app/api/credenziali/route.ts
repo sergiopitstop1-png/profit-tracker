@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { isRequestAuthorized } from '@/lib/apiAuth'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,6 +9,10 @@ const supabase = createClient(
 
 // GET - lista tutte le credenziali con dati book (senza password), oppure rivela una singola password
 export async function GET(request: Request) {
+  if (!(await isRequestAuthorized(request))) {
+    return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 })
+  }
+
   const { searchParams } = new URL(request.url)
   const revealId = searchParams.get('reveal')
 
@@ -63,6 +68,10 @@ export async function GET(request: Request) {
 
 // POST - crea una nuova credenziale (cifrata). Serve book_id OPPURE bookmaker_manuale+intestatario_manuale
 export async function POST(request: Request) {
+  if (!(await isRequestAuthorized(request))) {
+    return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 })
+  }
+
   const body = await request.json()
   const { book_id, username, password, data_iscrizione, risposta_segreta, limite_settimanale, invio_documenti, note, bookmaker_manuale, intestatario_manuale } = body
 
@@ -92,6 +101,10 @@ export async function POST(request: Request) {
 
 // DELETE - elimina una credenziale
 export async function DELETE(request: Request) {
+  if (!(await isRequestAuthorized(request))) {
+    return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 })
+  }
+
   const { searchParams } = new URL(request.url)
   const id = searchParams.get('id')
 
@@ -108,6 +121,10 @@ export async function DELETE(request: Request) {
 
 // PUT - modifica una credenziale esistente
 export async function PUT(request: Request) {
+  if (!(await isRequestAuthorized(request))) {
+    return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 })
+  }
+
   const body = await request.json()
   const { id, book_id, username, password, data_iscrizione, risposta_segreta, limite_settimanale, invio_documenti, note, bookmaker_manuale, intestatario_manuale } = body
 
