@@ -19,7 +19,7 @@ export async function isRequestAuthorized(request: Request): Promise<boolean> {
   }
 
   // 2) sessione utente vip/admin (stesso controllo del middleware)
-  const cookieStore = cookies()
+  const cookieStore = await cookies()
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
