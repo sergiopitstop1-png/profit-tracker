@@ -4216,7 +4216,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                       >{rinnovato ? '✅ Rinnovato' : '🔄 Segna rinnovato'}</button>
                     )}
                     <button onClick={() => { setEditingCliente(c); setClienteForm({ nome: c.nome, email: c.email || '', telefono: c.telefono || '', sim_operatore: c.sim_operatore || '', sim_importo: c.sim_importo || '', sim_giorno_scadenza: c.sim_giorno_scadenza || '', note: c.note || '' }); setShowClienteModal(true) }} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>✏️ Modifica</button>
-                    <button onClick={async () => { setDocCliente(c); setDocFiles([]); setDocLoading(true); setDocUploading(false); const r = await fetch(`/api/documenti?cliente=${encodeURIComponent(c.nome)}`); const d = await r.json(); setDocFiles(d.files || []); setDocLoading(false) }} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(251,191,36,0.4)', background: 'rgba(251,191,36,0.08)', color: '#fbbf24', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>📁 Documenti</button>
+                    <button onClick={async () => { setDocCliente(c); setDocFiles([]); setDocLoading(true); setDocUploading(false); const r = await fetch(`/api/documenti?cliente=${encodeURIComponent(c.id)}`); const d = await r.json(); setDocFiles(d.files || []); setDocLoading(false) }} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(251,191,36,0.4)', background: 'rgba(251,191,36,0.08)', color: '#fbbf24', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>📁 Documenti</button>
                     <button onClick={() => toggleClienteTerminato(c)} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(239,68,68,0.4)', background: 'transparent', color: '#f87171', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>🚫 Termina</button>
                     <button onClick={() => deleteCliente(c.id)} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.08)', color: '#f87171', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>🗑️</button>
                   </>
@@ -5365,11 +5365,11 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                         setDocUploading(true)
                         const formData = new FormData()
                         formData.append('file', file)
-                        formData.append('cliente', docCliente.nome)
+                        formData.append('cliente', docCliente.id)
                         await fetch('/api/documenti', { method: 'POST', body: formData })
                         setDocUploading(false)
                       }
-                      const r = await fetch(`/api/documenti?cliente=${encodeURIComponent(docCliente.nome)}`)
+                      const r = await fetch(`/api/documenti?cliente=${encodeURIComponent(docCliente.id)}`)
                       const d = await r.json()
                       setDocFiles(d.files || [])
                     }}
@@ -5381,11 +5381,11 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                         setDocUploading(true)
                         const formData = new FormData()
                         formData.append('file', file)
-                        formData.append('cliente', docCliente.nome)
+                        formData.append('cliente', docCliente.id)
                         await fetch('/api/documenti', { method: 'POST', body: formData })
                         setDocUploading(false)
                       }
-                      const r = await fetch(`/api/documenti?cliente=${encodeURIComponent(docCliente.nome)}`)
+                      const r = await fetch(`/api/documenti?cliente=${encodeURIComponent(docCliente.id)}`)
                       const d = await r.json()
                       setDocFiles(d.files || [])
                       e.target.value = ''
@@ -5420,8 +5420,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                           </a>
                           <button onClick={async () => {
                             if (!confirm('Eliminare ' + f.name + '?')) return
-                            await fetch(`/api/documenti?cliente=${encodeURIComponent(docCliente.nome)}&file=${encodeURIComponent(f.name)}`, { method: 'DELETE' })
-                            const r = await fetch(`/api/documenti?cliente=${encodeURIComponent(docCliente.nome)}`)
+                            await fetch(`/api/documenti?cliente=${encodeURIComponent(docCliente.id)}&file=${encodeURIComponent(f.name)}`, { method: 'DELETE' })
+                            const r = await fetch(`/api/documenti?cliente=${encodeURIComponent(docCliente.id)}`)
                             const d = await r.json()
                             setDocFiles(d.files || [])
                           }} style={{ padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.08)', color: '#f87171', fontSize: 12, cursor: 'pointer' }}>
