@@ -1,8 +1,6 @@
-// Salva questo file come: app/api/aggiorna-saldo/route.ts
-// (stessa struttura di app/api/credenziali/route.ts, stessa chiave service role)
-
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { isRequestAuthorized } from '@/lib/apiAuth'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -11,6 +9,10 @@ const supabase = createClient(
 
 // POST - aggiorna il saldo di un book, dato il suo id nella tabella "books"
 export async function POST(request: Request) {
+  if (!(await isRequestAuthorized(request))) {
+    return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 })
+  }
+
   const body = await request.json()
   const { book_id, saldo } = body
 
