@@ -5414,10 +5414,25 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                             style={{ padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(34,197,94,0.4)', background: 'rgba(34,197,94,0.08)', color: '#22c55e', fontSize: 12, fontWeight: 700, textDecoration: 'none', cursor: 'pointer' }}>
                             👁️
                           </a>
-                          <a href={f.url} download target="_blank" rel="noreferrer"
-                            style={{ padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontSize: 12, fontWeight: 700, textDecoration: 'none', cursor: 'pointer' }}>
+                          <button onClick={async () => {
+                            try {
+                              const res = await fetch(f.url)
+                              const blob = await res.blob()
+                              const blobUrl = URL.createObjectURL(blob)
+                              const a = document.createElement('a')
+                              a.href = blobUrl
+                              a.download = f.name
+                              document.body.appendChild(a)
+                              a.click()
+                              a.remove()
+                              URL.revokeObjectURL(blobUrl)
+                            } catch (err) {
+                              alert('Errore durante il download: ' + err.message)
+                            }
+                          }}
+                            style={{ padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                             ⬇️
-                          </a>
+                          </button>
                           <button onClick={async () => {
                             if (!confirm('Eliminare ' + f.name + '?')) return
                             await fetch(`/api/documenti?cliente=${encodeURIComponent(docCliente.id)}&file=${encodeURIComponent(f.name)}`, { method: 'DELETE' })
