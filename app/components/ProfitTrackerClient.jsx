@@ -1888,7 +1888,7 @@ async function saveEditPostIt(id) {
       .replace(/\s+/g, '')
   }
 
-  async function queueSaldoJob(book, onlyClient) {
+  async function eseguiSaldoJob(book, onlyClient) {
     try {
       const res = await fetch('https://sergioapicella.it/api/saldo-jobs', {
         method: 'POST',
@@ -1904,6 +1904,18 @@ async function saveEditPostIt(id) {
     } catch (e) {
       setErrorMessage(`Errore avvio aggiornamento: ${e.message}`)
     }
+  }
+
+  // Come eseguiSaldoJob, ma chiede prima conferma con una finestra di dialogo
+  // — usata dai tastini per singolo book, cosi' un click per sbaglio non
+  // manda comunque la richiesta.
+  async function queueSaldoJob(book, onlyClient, labelVisualizzato) {
+    const label = labelVisualizzato || book
+    const messaggio = onlyClient
+      ? `Aggiornare il saldo di ${label} per ${onlyClient}?`
+      : `Aggiornare il saldo di ${label} per tutti i clienti?`
+    if (!window.confirm(messaggio)) return
+    await eseguiSaldoJob(book, onlyClient)
   }
 
   // ── Aggiornamenti locali dopo scritture su Supabase, senza ricaricare tutto con loadData() ──
@@ -4216,7 +4228,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                       >{rinnovato ? '✅ Rinnovato' : '🔄 Segna rinnovato'}</button>
                     )}
                     <button onClick={() => { setEditingCliente(c); setClienteForm({ nome: c.nome, email: c.email || '', telefono: c.telefono || '', sim_operatore: c.sim_operatore || '', sim_importo: c.sim_importo || '', sim_giorno_scadenza: c.sim_giorno_scadenza || '', note: c.note || '' }); setShowClienteModal(true) }} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>✏️ Modifica</button>
-                    <button onClick={async () => { setDocCliente(c); setDocFiles([]); setDocLoading(true); setDocUploading(false); const r = await fetch(`/api/documenti?cliente=${encodeURIComponent(c.id)}`); const d = await r.json(); setDocFiles(d.files || []); setDocLoading(false) }} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(251,191,36,0.4)', background: 'rgba(251,191,36,0.08)', color: '#fbbf24', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>📁 Documenti</button>
+                    <button onClick={async () => { setDocCliente(c); setDocFiles([]); setDocLoading(true); setDocUploading(false); const r = await fetch(`/api/documenti?cliente=${encodeURIComponent(c.nome)}`); const d = await r.json(); setDocFiles(d.files || []); setDocLoading(false) }} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(251,191,36,0.4)', background: 'rgba(251,191,36,0.08)', color: '#fbbf24', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>📁 Documenti</button>
                     <button onClick={() => toggleClienteTerminato(c)} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(239,68,68,0.4)', background: 'transparent', color: '#f87171', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>🚫 Termina</button>
                     <button onClick={() => deleteCliente(c.id)} style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.08)', color: '#f87171', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>🗑️</button>
                   </>
@@ -5007,7 +5019,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 )}
         {activeTab === 'books' && (
           <div style={tabContent}>
-            <div style={sectionTopBar}><div><h2 style={sectionTitle}>Books</h2><p style={sectionDescription}>Archivio bookmaker con filtri, note e azioni rapide</p></div><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>{Object.keys(pendingBookSaldi).some(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }) && (<button style={{ ...primaryButtonGreen, background: 'linear-gradient(135deg, #d97706, #f59e0b)', boxShadow: '0 0 14px rgba(245,158,11,0.4)', animation: 'blinkPrevisto 1.8s ease-in-out infinite' }} onClick={handleSalvaBookSaldi}>💾 Salva saldi ({Object.keys(pendingBookSaldi).filter(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }).length})</button>)}<button style={secondaryButton} onClick={() => { const nomiBookUnici = [...new Set(books.filter(b => b.nome && !/punti e monete/i.test(b.nome) && !/in corso/i.test(b.nome)).map(b => normalizzaBookKey(b.nome)))].filter(Boolean); nomiBookUnici.forEach(b => queueSaldoJob(b, null)) }}>🔄 Aggiorna saldi</button><button style={primaryButtonGreen} onClick={() => setShowBookModal(true)}>+ Nuovo Book</button></div></div>
+            <div style={sectionTopBar}><div><h2 style={sectionTitle}>Books</h2><p style={sectionDescription}>Archivio bookmaker con filtri, note e azioni rapide</p></div><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>{Object.keys(pendingBookSaldi).some(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }) && (<button style={{ ...primaryButtonGreen, background: 'linear-gradient(135deg, #d97706, #f59e0b)', boxShadow: '0 0 14px rgba(245,158,11,0.4)', animation: 'blinkPrevisto 1.8s ease-in-out infinite' }} onClick={handleSalvaBookSaldi}>💾 Salva saldi ({Object.keys(pendingBookSaldi).filter(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }).length})</button>)}<button style={secondaryButton} onClick={() => { const nomiBookUnici = [...new Set(books.filter(b => b.nome && !/punti e monete/i.test(b.nome) && !/in corso/i.test(b.nome)).map(b => normalizzaBookKey(b.nome)))].filter(Boolean); if (!window.confirm(`Aggiornare i saldi di tutti i ${nomiBookUnici.length} book per tutti i clienti?`)) return; nomiBookUnici.forEach(b => eseguiSaldoJob(b, null)) }}>🔄 Aggiorna saldi</button><button style={primaryButtonGreen} onClick={() => setShowBookModal(true)}>+ Nuovo Book</button></div></div>
             <div style={statsGridCompact}><StatCard label='Totale books' value={formatCurrency(totaleBooks)} sub={`${books.length} records`} accent='#22c55e' /><StatCard label='Totale filtrato' value={formatCurrency(totaleBooksFiltrati)} sub={`${filteredBooks.length} risultati visibili`} accent='#38bdf8' /></div>
             <div style={panel}>
               <div style={filterRow}>
@@ -5032,7 +5044,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                   ).entries()]
                     .sort((a, b) => a[1].localeCompare(b[1]))
                     .map(([key, nomeVisualizzato]) => (
-                      <button key={key} type='button' style={tinyBlueButton} onClick={() => queueSaldoJob(key, null)}>🔄 {nomeVisualizzato}</button>
+                      <button key={key} type='button' style={tinyBlueButton} onClick={() => queueSaldoJob(key, null, nomeVisualizzato)}>🔄 {nomeVisualizzato}</button>
                     ))}
                 </div>
               )}
@@ -5365,11 +5377,11 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                         setDocUploading(true)
                         const formData = new FormData()
                         formData.append('file', file)
-                        formData.append('cliente', docCliente.id)
+                        formData.append('cliente', docCliente.nome)
                         await fetch('/api/documenti', { method: 'POST', body: formData })
                         setDocUploading(false)
                       }
-                      const r = await fetch(`/api/documenti?cliente=${encodeURIComponent(docCliente.id)}`)
+                      const r = await fetch(`/api/documenti?cliente=${encodeURIComponent(docCliente.nome)}`)
                       const d = await r.json()
                       setDocFiles(d.files || [])
                     }}
@@ -5381,11 +5393,11 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                         setDocUploading(true)
                         const formData = new FormData()
                         formData.append('file', file)
-                        formData.append('cliente', docCliente.id)
+                        formData.append('cliente', docCliente.nome)
                         await fetch('/api/documenti', { method: 'POST', body: formData })
                         setDocUploading(false)
                       }
-                      const r = await fetch(`/api/documenti?cliente=${encodeURIComponent(docCliente.id)}`)
+                      const r = await fetch(`/api/documenti?cliente=${encodeURIComponent(docCliente.nome)}`)
                       const d = await r.json()
                       setDocFiles(d.files || [])
                       e.target.value = ''
@@ -5414,29 +5426,14 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                             style={{ padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(34,197,94,0.4)', background: 'rgba(34,197,94,0.08)', color: '#22c55e', fontSize: 12, fontWeight: 700, textDecoration: 'none', cursor: 'pointer' }}>
                             👁️
                           </a>
-                          <button onClick={async () => {
-                            try {
-                              const res = await fetch(f.url)
-                              const blob = await res.blob()
-                              const blobUrl = URL.createObjectURL(blob)
-                              const a = document.createElement('a')
-                              a.href = blobUrl
-                              a.download = f.name
-                              document.body.appendChild(a)
-                              a.click()
-                              a.remove()
-                              URL.revokeObjectURL(blobUrl)
-                            } catch (err) {
-                              alert('Errore durante il download: ' + err.message)
-                            }
-                          }}
-                            style={{ padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                          <a href={f.url} download target="_blank" rel="noreferrer"
+                            style={{ padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(56,189,248,0.4)', background: 'rgba(56,189,248,0.08)', color: '#38bdf8', fontSize: 12, fontWeight: 700, textDecoration: 'none', cursor: 'pointer' }}>
                             ⬇️
-                          </button>
+                          </a>
                           <button onClick={async () => {
                             if (!confirm('Eliminare ' + f.name + '?')) return
-                            await fetch(`/api/documenti?cliente=${encodeURIComponent(docCliente.id)}&file=${encodeURIComponent(f.name)}`, { method: 'DELETE' })
-                            const r = await fetch(`/api/documenti?cliente=${encodeURIComponent(docCliente.id)}`)
+                            await fetch(`/api/documenti?cliente=${encodeURIComponent(docCliente.nome)}&file=${encodeURIComponent(f.name)}`, { method: 'DELETE' })
+                            const r = await fetch(`/api/documenti?cliente=${encodeURIComponent(docCliente.nome)}`)
                             const d = await r.json()
                             setDocFiles(d.files || [])
                           }} style={{ padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.08)', color: '#f87171', fontSize: 12, cursor: 'pointer' }}>
