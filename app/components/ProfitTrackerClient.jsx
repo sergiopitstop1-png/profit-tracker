@@ -5417,7 +5417,12 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                     ) : (
                       docFiles.map((f, idx) => (
                         <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(11,18,32,0.85)', border: '1px solid rgba(51,65,85,0.8)', borderRadius: 10, padding: '10px 14px' }}>
-                          <span style={{ fontSize: 20 }}>{f.name.endsWith('.pdf') ? '📄' : f.name.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? '🖼️' : f.name.match(/\.(doc|docx)$/i) ? '📝' : f.name.match(/\.(xls|xlsx)$/i) ? '📊' : '📎'}</span>
+                          {f.name.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                            <img src={f.url} alt={f.name}
+                              style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6, border: '1px solid rgba(51,65,85,0.8)', flexShrink: 0 }} />
+                          ) : (
+                            <span style={{ fontSize: 20, width: 40, textAlign: 'center', flexShrink: 0 }}>{f.name.endsWith('.pdf') ? '📄' : f.name.match(/\.(doc|docx)$/i) ? '📝' : f.name.match(/\.(xls|xlsx)$/i) ? '📊' : '📎'}</span>
+                          )}
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ color: '#f8fafc', fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</div>
                             <div style={{ color: '#64748b', fontSize: 11 }}>{f.size ? (f.size / 1024).toFixed(1) + ' KB' : ''} {f.created_at ? '· ' + new Date(f.created_at).toLocaleDateString('it-IT') : ''}</div>
