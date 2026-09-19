@@ -139,6 +139,10 @@ const [lucySportAggiornato, setLucySportAggiornato] = useState(null)
 const [lucyLiveProposte, setLucyLiveProposte] = useState([])
 const [lucySportNonCollocate, setLucySportNonCollocate] = useState([])
 const [lucyTabellaAperta, setLucyTabellaAperta] = useState(false)
+const [lucyLiveTabellaAperta, setLucyLiveTabellaAperta] = useState(false)
+const [lucyConfermate, setLucyConfermate] = useState(() => {
+  try { return JSON.parse(localStorage.getItem('profittracker_lucy_confermate') || '[]') } catch { return [] }
+})
 const [lucyStorico, setLucyStorico] = useState(() => {
   try { return JSON.parse(localStorage.getItem('profittracker_lucy_storico') || '[]') } catch { return [] }
 })
@@ -1595,6 +1599,56 @@ function generaLucyLive(agendaItems = []) {
 }
 
 
+
+function salvaLucyConfermate(next) {
+  setLucyConfermate(next)
+  try { localStorage.setItem('profittracker_lucy_confermate', JSON.stringify(next)) } catch {}
+}
+
+function lucyOggi() { return new Date().toISOString().slice(0,10) }
+
+function keyBetLucy(p,a,tipo='profilazione') {
+  return `${lucyOggi()}|${p.home}|${p.away}|${p.mercato}|${a.book.id}|${a.esito}|${Number(a.stake||0).toFixed(2)}|${tipo}`
+}
+
+function confermaSingolaBetLucy(p,a,tipo='profilazione') {
+  const key=keyBetLucy(p,a,tipo)
+  if (lucyConfermate.some(x=>x.key===key)) return
+  const rec={
+    key,data:lucyOggi(),creato:new Date().toISOString(),tipo,
+    bookId:a.book.id,book:a.book.nome,intestatario:a.book.intestatario,
+    partita:`${p.home} - ${p.away}`,orario:p.orario||'—',mercato:p.mercato,esito:a.esito,
+    stake:Number(a.stake||0),quota:Number(a.quota||0),
+    betNumero:a.betNumero||null,betRichieste:a.betRichieste||null
+  }
+  salvaLucyConfermate([...lucyConfermate,rec])
+}
+
+function annullaSingolaBetLucy(key) {
+  salvaLucyConfermate(lucyConfermate.filter(x=>x.key!==key))
+}
+
+function confermateOggiLucy() {
+  return lucyConfermate.filter(x=>x.data===lucyOggi())
+}
+
+function costoTeoricoSportOggi() {
+  // Somma il peggior P/L teorico dei soli incroci attualmente proposti.
+  return lucySportProposte.reduce((s,p)=>{
+    const vals=(p.scenari||[]).map(x=>Number(x.netto||0))
+    return s+(vals.length?Math.min(...vals):0)
+  },0)
+}
+
+function costoZeroLiveOggi() {
+  // Per il Live mostriamo separatamente l'esposizione teorica associata allo 0.
+  // Se lo 0 è assegnato a un conto "Numeri", usa lo stake indicativo per numero.
+  return lucyLiveProposte.reduce((s,p)=>{
+    const g=(p.gruppo||[]).find(x=>x.tipo==='Numeri' && (x.numeri||[]).includes(0))
+    return s+(g?Number(g.stakeNumeroIndicativo||0):0)
+  },0)
+}
+
 function salvaLucyStorico(next) {
   setLucyStorico(next)
   try { localStorage.setItem('profittracker_lucy_storico', JSON.stringify(next)) } catch {}
@@ -1644,6 +1698,17 @@ function cancellaGiornataLucy(id) {
 function cancellaTuttoStoricoLucy() {
   if (!window.confirm('Cancellare TUTTO lo storico Lucy? Questa operazione non è annullabile.')) return
   salvaLucyStorico([])
+}
+
+
+function getOrarioPartitaLucy(c) {
+  const raw=c?.utcDate || c?.date || c?.commence_time || c?.kickoff || c?.orario
+  if(!raw) return '—'
+  try {
+    const d=new Date(raw)
+    if(Number.isNaN(d.getTime())) return String(raw)
+    return d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})
+  } catch { return String(raw) }
 }
 
 async function generaLucySport(agendaItems = []) {
@@ -1734,10 +1799,26 @@ async function generaLucySport(agendaItems = []) {
     candidati.sort((a,b)=>a.score-b.score)
 
     // Ogni conto genera N "slot bet". Quindi Lottomatica 100€ su 3/4 bet compare su 4 partite diverse.
+    // Le conferme della giornata diventano memoria operativa:
+    // al secondo calcolo Lucy considera già eseguite quantità e numero di bet.
+    const giaFatte = confermateOggiLucy().filter(x=>x.tipo==='profilazione' || x.tipo==='extra')
+    sportItems.forEach(item=>{
+      const fatteConto=giaFatte.filter(x=>x.bookId===item.book.id)
+      const nFatte=fatteConto.filter(x=>x.tipo==='profilazione').length
+      const euroFatti=fatteConto.reduce((s,x)=>s+Number(x.stake||0),0)
+      item.betGiaFatte=nFatte
+      item.euroGiaFatti=euroFatti
+      item.betRichiesteResidue=Math.max(0,item.betRichieste-nFatte)
+      item.budgetResiduo=Math.max(0,item.budgetTotale-euroFatti)
+      if(item.betRichiesteResidue>0){
+        item.stakeVariabili=distribuisciStakeVariabili(item.book,item.betRichiesteResidue,item.budgetResiduo)
+      } else item.stakeVariabili=[]
+    })
+
     const slot = []
     sportItems.forEach(item => {
-      for (let i=0; i<item.betRichieste; i++) {
-        slot.push({ ...item, betNumero:i+1, importoIndicativo:item.stakeVariabili[i] })
+      for (let i=0; i<item.betRichiesteResidue; i++) {
+        slot.push({ ...item, betNumero:item.betGiaFatte+i+1, importoIndicativo:item.stakeVariabili[i] })
       }
     })
 
@@ -1755,6 +1836,7 @@ async function generaLucySport(agendaItems = []) {
     // Totale Sport già assegnato oggi per singolo conto: impedisce che gli EXTRA
     // si accumulino su Federico/Michela/etc. attraverso più incroci.
     const totaleSportPerBook = new Map()
+    confermateOggiLucy().forEach(x=>totaleSportPerBook.set(x.bookId,(totaleSportPerBook.get(x.bookId)||0)+Number(x.stake||0)))
     const budgetTargetPerBook = new Map(sportItems.map(x=>[x.book.id,x.budgetTotale]))
     let giro = 0
 
@@ -1876,7 +1958,7 @@ async function generaLucySport(agendaItems = []) {
         return {esito,netto:vp+vm+vx-giocato}
       })
 
-      proposte.push({ ...c, assegnazioni, integrazioni, extraProfilazione, scenari })
+      proposte.push({ ...c, orario:getOrarioPartitaLucy(c), assegnazioni, integrazioni, extraProfilazione, scenari })
     }
 
     setLucySportNonCollocate(slot.map(s => ({
@@ -4663,7 +4745,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
               <thead style={{position:'sticky',top:55,zIndex:1,background:'#cbd5e1'}}>
                 <tr>
-                  {['#','PARTITA','MERCATO','BOOK','INTESTATARIO','TIPO','ESITO','IMPORTO','QUOTA','BET','TARGET/CAP'].map(h=>
+                  {['#','PARTITA','ORARIO','MERCATO','BOOK','INTESTATARIO','TIPO','ESITO','IMPORTO','QUOTA','BET','TARGET/CAP','STATO'].map(h=>
                     <th key={h} style={{border:'1px solid #94a3b8',padding:'7px 6px',textAlign:'left',whiteSpace:'nowrap'}}>{h}</th>
                   )}
                 </tr>
@@ -4679,6 +4761,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                     <tr key={`${pi}-${ri}-${a.book.id}`} style={{background:ri%2===0?'#ffffff':'#f1f5f9'}}>
                       <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:800}}>{pi+1}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:800,whiteSpace:'nowrap'}}>{p.home} – {p.away}</td>
+                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:900,textAlign:'center',whiteSpace:'nowrap'}}>{p.orario||'—'}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,whiteSpace:'nowrap'}}>{p.mercato||p.market||''}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:800}}>{a.book.nome}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,whiteSpace:'nowrap'}}>{a.book.intestatario}</td>
@@ -4690,11 +4773,27 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                       <td style={{border:'1px solid #cbd5e1',padding:6,whiteSpace:'nowrap'}}>
                         {a.capGiornaliero ? `cap ${Number(a.capGiornaliero).toFixed(0)}€` : a.budgetTotale ? `${Number(a.budgetTotale).toFixed(0)}€` : '—'}
                       </td>
+                      <td style={{border:'1px solid #cbd5e1',padding:5,whiteSpace:'nowrap'}}>
+                        {(()=>{
+                          const tipo=a.tipoRiga==='PROFILAZIONE'?'profilazione':a.tipoRiga==='EXTRA PROF.'?'extra':'mantenimento'
+                          const k=keyBetLucy(p,a,tipo), ok=lucyConfermate.some(x=>x.key===k)
+                          return ok
+                            ? <button onClick={()=>annullaSingolaBetLucy(k)} style={{background:'#16a34a',color:'white',border:0,borderRadius:6,padding:'5px 7px',fontSize:9,fontWeight:900,cursor:'pointer'}}>✓ FATTA</button>
+                            : <button onClick={()=>confermaSingolaBetLucy(p,a,tipo)} style={{background:'#2563eb',color:'white',border:0,borderRadius:6,padding:'5px 7px',fontSize:9,fontWeight:900,cursor:'pointer'}}>CONFERMA</button>
+                        })()}
+                      </td>
                     </tr>
                   ))
                 })}
               </tbody>
             </table>
+
+
+            <div style={{padding:'10px 12px',background:'#e2e8f0',borderTop:'2px solid #64748b',display:'flex',gap:18,flexWrap:'wrap',fontSize:11}}>
+              <b>Puntato confermato oggi: {confermateOggiLucy().reduce((s,x)=>s+Number(x.stake||0),0).toFixed(2)} €</b>
+              <b style={{color:costoTeoricoSportOggi()<0?'#b91c1c':'#166534'}}>P/L teorico profilazione Sport: {costoTeoricoSportOggi().toFixed(2)} €</b>
+              <span style={{color:'#475569'}}>Il P/L è una stima sugli incroci/quote mostrati; il consuntivo reale dipende dagli esiti e dalle quote effettivamente giocate.</span>
+            </div>
 
             {lucySportNonCollocate.length>0 && (
               <div style={{padding:12,background:'#fee2e2',borderTop:'2px solid #ef4444'}}>
@@ -4712,7 +4811,13 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 
       {/* LUCY LIVE — usa anche gli altri conti in Profilazione come copertura/amici */}
       <div style={{ background:'rgba(76,29,149,0.16)', border:'1px solid rgba(167,139,250,0.35)', borderRadius:16, padding:'14px 16px', marginBottom:16 }}>
-        <div style={{fontSize:14,fontWeight:900,color:'#ede9fe'}}>🎰 Lucy Live — Incroci Casinò</div>
+        <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+          <div style={{fontSize:14,fontWeight:900,color:'#ede9fe'}}>🎰 Lucy Live — Incroci Casinò</div>
+          <button onClick={()=>setLucyLiveTabellaAperta(true)} disabled={!lucyLiveProposte.length}
+            style={{marginLeft:'auto',background:lucyLiveProposte.length?'#7c3aed':'#334155',color:'white',border:0,borderRadius:8,padding:'7px 10px',fontSize:10,fontWeight:900,cursor:lucyLiveProposte.length?'pointer':'default'}}>
+            📋 TABELLA LIVE
+          </button>
+        </div>
         <div style={{fontSize:11,color:'#94a3b8',marginTop:2,marginBottom:10}}>
           Se oggi un conto deve fare Casinò Live, Lucy cerca 5 amici fra gli altri conti in Profilazione, anche se oggi non avevano una lavorazione propria.
         </div>
@@ -4747,6 +4852,42 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           </div>
         )}
       </div>
+
+
+      {lucyLiveTabellaAperta && (
+        <div onClick={()=>setLucyLiveTabellaAperta(false)}
+          style={{position:'fixed',inset:0,zIndex:9999,background:'rgba(2,6,23,.82)',display:'flex',alignItems:'center',justifyContent:'center',padding:18}}>
+          <div onClick={e=>e.stopPropagation()} style={{width:'min(1350px,96vw)',maxHeight:'90vh',overflow:'auto',background:'#f8fafc',borderRadius:12,color:'#111827'}}>
+            <div style={{position:'sticky',top:0,zIndex:2,background:'#ede9fe',borderBottom:'1px solid #a78bfa',padding:'10px 12px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div><b>🎰 Lucy Live — Tabella operativa</b><div style={{fontSize:10,color:'#6b7280'}}>Una riga per conto · sestine evidenziate come tali</div></div>
+              <button onClick={()=>setLucyLiveTabellaAperta(false)} style={{background:'#dc2626',color:'white',border:0,borderRadius:7,padding:'7px 11px',fontWeight:900}}>✕ CHIUDI</button>
+            </div>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+              <thead style={{background:'#ddd6fe'}}>
+                <tr>{['#','BOOK','INTESTATARIO','RUOLO','TIPO','NUMERI / SESTINA','BUDGET','PUNTATA INDICATIVA'].map(h=><th key={h} style={{border:'1px solid #a78bfa',padding:7,textAlign:'left'}}>{h}</th>)}</tr>
+              </thead>
+              <tbody>
+                {lucyLiveProposte.flatMap((p,pi)=>(p.gruppo||[]).map((g,gi)=>(
+                  <tr key={`${pi}-${g.book.id}-${gi}`} style={{background:gi%2?'#f5f3ff':'white'}}>
+                    <td style={{border:'1px solid #ddd6fe',padding:6}}>{pi+1}</td>
+                    <td style={{border:'1px solid #ddd6fe',padding:6,fontWeight:800}}>{g.book.nome}</td>
+                    <td style={{border:'1px solid #ddd6fe',padding:6}}>{g.book.intestatario}</td>
+                    <td style={{border:'1px solid #ddd6fe',padding:6}}>{g.ruolo}</td>
+                    <td style={{border:'1px solid #ddd6fe',padding:6,fontWeight:800}}>{g.tipo}</td>
+                    <td style={{border:'1px solid #ddd6fe',padding:6}}>{(g.numeri||[]).join(', ')}</td>
+                    <td style={{border:'1px solid #ddd6fe',padding:6,textAlign:'right'}}>{Number(g.budget||0).toFixed(2)} €</td>
+                    <td style={{border:'1px solid #ddd6fe',padding:6,textAlign:'right'}}>{Number(g.stakeNumeroIndicativo||0).toFixed(2)} €</td>
+                  </tr>
+                )))}
+              </tbody>
+            </table>
+            <div style={{padding:'11px 12px',background:'#ede9fe',borderTop:'2px solid #8b5cf6',fontSize:11}}>
+              <b>Costo teorico Live legato allo 0: {costoZeroLiveOggi().toFixed(2)} €</b>
+              <span style={{marginLeft:12,color:'#6b7280'}}>Lucy individua il conto a cui è assegnato lo 0 e mostra la puntata indicativa sullo zero.</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div style={statsGridCompact}>
         <div style={{ background: 'rgba(34,197,94,0.10)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: 16, padding: '14px 18px' }}>
