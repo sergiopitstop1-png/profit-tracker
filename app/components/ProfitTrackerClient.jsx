@@ -1630,6 +1630,17 @@ function annullaSingolaBetLucy(key) {
   salvaLucyConfermate(lucyConfermate.filter(x=>x.key!==key))
 }
 
+
+function azzeraConfermeOggiLucy() {
+  if (!window.confirm('Azzerare SOLO le conferme di oggi? Lo storico delle altre giornate non viene toccato.')) return
+  const oggi=lucyOggi()
+  salvaLucyConfermate(lucyConfermate.filter(x=>x.data!==oggi))
+  setLucySportProposte([])
+  setLucySportNonCollocate([])
+  setLucyRinviate([])
+  setLucySportError('Conferme di oggi azzerate. Premi PREPARA INCROCI SPORT per ricalcolare da zero.')
+}
+
 function confermateOggiLucy() {
   return lucyConfermate.filter(x=>x.data===lucyOggi())
 }
@@ -1982,15 +1993,21 @@ async function generaLucySport(agendaItems = []) {
       } else rinviate.push({...p,costoStimato:costo})
     })
 
-    const nonCollocate=slot.map(s => ({
-      book:s.book, betNumero:s.betNumero, betRichieste:s.betRichieste,
-      stake:s.importoIndicativo, budgetTotale:s.budgetTotale
-    }))
+    const nonCollocate=[
+      ...slot.map(s => ({
+        book:s.book, betNumero:s.betNumero, betRichieste:s.betRichieste,
+        stake:s.importoIndicativo, budgetTotale:s.budgetTotale, motivo:'nessuna partita compatibile'
+      })),
+      ...rinviate.flatMap(p => (p.assegnazioni||[]).map(a => ({
+        book:a.book, betNumero:a.betNumero, betRichieste:a.betRichieste,
+        stake:a.stake, budgetTotale:a.budgetTotale, motivo:'rinviata per budget costo'
+      })))
+    ]
     setLucySportNonCollocate(nonCollocate)
     setLucyRinviate(rinviate)
 
     if (nonCollocate.length || rinviate.length) {
-      setLucySportError(`Lucy resta entro il costo massimo di ${Number(lucyCostoMax).toFixed(0)}€. ${rinviate.length} incroci rinviati e ${nonCollocate.length} bet non collocate restano da completare nei prossimi calcoli.`)
+      setLucySportError(`Lucy resta entro il costo massimo di ${Number(lucyCostoMax).toFixed(0)}€. ${rinviate.length} incroci rinviati; ${nonCollocate.length} bet restano da completare. Le bet già confermate oggi non vengono riproposte.`)
     }
 
     setLucySportProposte(accettate)
@@ -4696,7 +4713,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               <div key={`${s.book.id}-${s.betNumero}-${i}`} style={{background:'rgba(15,23,42,.8)',borderRadius:7,padding:'7px 8px',fontSize:11}}>
                 <b style={{color:'#f8fafc'}}>{s.book.nome} · {s.book.intestatario}</b>
                 <div style={{color:'#fbbf24',marginTop:3}}>Bet {s.betNumero}/{s.betRichieste} · ~{s.stake.toFixed(0)}€ · target {s.budgetTotale.toFixed(0)}€</div>
-                <div style={{color:'#64748b',marginTop:3}}>Da collocare su un'altra partita compatibile.</div>
+                <div style={{color:'#64748b',marginTop:3}}>{s.motivo==='rinviata per budget costo' ? 'Rinviata perché il piano superava il costo massimo impostato.' : 'Da collocare su un’altra partita compatibile.'}</div>
               </div>
             ))}
           </div>
@@ -6763,4 +6780,12 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
   </div>
     )
 }
+
+            {confermateOggiLucy().length>0 && (
+              <button onClick={azzeraConfermeOggiLucy}
+                style={{background:'#7f1d1d',color:'#fecaca',border:'1px solid #991b1b',borderRadius:8,padding:'7px 9px',fontSize:9,fontWeight:900,cursor:'pointer'}}
+                title="Utile durante i test: cancella solo la memoria operativa delle bet confermate oggi">
+                ↺ AZZERA CONFERME OGGI
+              </button>
+            )}
 
