@@ -347,13 +347,22 @@ const BOOK_STANDARD = [
   'totosi'
 ]
 
-// Planetwin365 — template "Casinò 200€" (diverso dallo standard 50-100€, condiviso concettualmente
-// con la card base di Lottomatica/GoldBet, ma quei due usano già la VIP come protocollo primario)
-const PROTOCOLLO_CASINO_200 = {
-  ricarica: '200€', live: '200€', slot: '100-200€', sport: '100€',
-  azioni: ['Ricarica almeno 200€ a inizio settimana', 'Un giorno gioca 200€ casinò live + 100-200€ slot spin basso', 'Un altro giorno gioca 100€ sport su 3/4 bet sport', 'Usa tutte le valide per tutti', 'Ripeti per 4 settimane', 'Usa le riservate che arrivano e ripeti ogni 2 mesi']
+// Gruppo Lottomatica — Lottomatica / GoldBet / Planetwin365
+// Profilazione Casinò: ciclo operativo 4 settimane, poi monitoraggio riservate.
+const PROTOCOLLO_GRUPPO_LOTTOMATICA = {
+  ricarica: '100€', live: '100€', slot: '100€', sport: '100€', settimane: 4,
+  azioni: [
+    'Ricarica almeno 100€ a inizio settimana',
+    'Un giorno gioca 100€ Casinò Live con almeno 3 amici; chi vince raddoppia + 100€ slot spin basso',
+    'Un altro giorno gioca 100€ Sport su 3/4 bet',
+    'Usa tutte le valide per tutti',
+    'Ripeti per 4 settimane',
+    'Dopo il ciclo controlla le riservate ogni 7 giorni',
+    'Se per 30 giorni non arrivano riservate: segnala di ripetere la profilazione',
+    'In ogni caso segnala un nuovo ciclo ogni 2 mesi'
+  ]
 }
-const BOOK_CASINO_200 = ['planetwin365']
+const BOOK_GRUPPO_LOTTOMATICA = ['planetwin365', 'planetwin', 'goldbet', 'lottomatica']
 
 // QuiGioco — template proprio (ciclo con fermo 14gg)
 const PROTOCOLLO_QUIGIOCO = {
@@ -451,7 +460,7 @@ const PROTOCOLLO_BET365 = {
 const PROTOCOLLI_EXPERT = {
   'betsson': {
     label: 'Betsson Expert',
-    azioni: ['3/4 promo BJ a settimana', 'Cashback 100%', 'Almeno 2 ricariche a settimana da 50€ in su', 'Appena ricevi le riservate, continua a fare le VXT + ricariche']
+    azioni: ['3/4 sessioni/promozioni Casinò a settimana mixando Blackjack e numeri Roulette', 'Cashback 100%', 'Almeno 2 ricariche a settimana da 50€ in su', '2-3 bet Sport da 15-25€ — quota minima 2.50', 'Appena ricevi le riservate, continua a fare le VXT + ricariche']
   },
   'william hill': {
     label: 'William Hill Expert',
@@ -485,9 +494,8 @@ function getTipoProtocolloAttivo(nomeBook) {
   if (nome.includes('stanleybet')) return 'stanleybet'
   if (nome.includes('bwin')) return 'bwin'
   if (BOOK_BETFAIR_EXCHANGE.some(k => nome.includes(k))) return 'betfair_exchange'
-  if (BOOK_CASINO_200.some(k => nome.includes(k))) return 'casino_200'
+  if (BOOK_GRUPPO_LOTTOMATICA.some(k => nome.includes(k))) return 'gruppo_lottomatica'
   if (['sisal', 'pokerstars', 'snai'].some(k => nome.includes(k))) return 'vip_fase12'
-  if (['goldbet', 'lottomatica'].some(k => nome.includes(k))) return 'vip_lotto'
   if (['betsson', 'william hill', 'netbet', 'admiral'].some(k => nome.includes(k))) return 'expert'
   if (BOOK_STANDARD.some(k => nome.includes(k))) return 'standard'
   return null
@@ -589,16 +597,29 @@ function getAgendaAttivoV2(book, giorno, settimana) {
     return null
   }
 
-  if (tipo === 'casino_200') {
-    const giornoRicarica = 1 // "a inizio settimana"
-    const giorniRestanti = [0, 2, 3, 4, 5, 6]
-    const giornoLive = giorniRestanti[hashBook(book.id, settimana * 10 + 80) % giorniRestanti.length]
-    const giorniSportPossibili = giorniRestanti.filter(g => g !== giornoLive)
-    const giornoSport = giorniSportPossibili[hashBook(book.id, settimana * 10 + 81) % giorniSportPossibili.length]
+  if (tipo === 'gruppo_lottomatica') {
+    const inizio = book.profilo_ciclo_inizio ? new Date(`${book.profilo_ciclo_inizio}T00:00:00`) : new Date()
+    const oggi = new Date()
+    const giorniCiclo = Math.max(0, Math.floor((oggi - inizio) / 86400000))
 
-    if (giorno === giornoRicarica) return ['Ricarica almeno 200€ a inizio settimana']
-    if (giorno === giornoLive) return ['Gioca 200€ casinò live + 100-200€ slot spin basso']
-    if (giorno === giornoSport) return ['Gioca 100€ sport su 3/4 bet sport']
+    // Prime 4 settimane: protocollo operativo.
+    if (giorniCiclo < 28) {
+      const giornoRicarica = 1
+      const giorniRestanti = [0, 2, 3, 4, 5, 6]
+      const giornoLive = giorniRestanti[hashBook(book.id, settimana * 10 + 80) % giorniRestanti.length]
+      const giorniSportPossibili = giorniRestanti.filter(g => g !== giornoLive)
+      const giornoSport = giorniSportPossibili[hashBook(book.id, settimana * 10 + 81) % giorniSportPossibili.length]
+      if (giorno === giornoRicarica) return ['Ricarica almeno 100€ a inizio settimana']
+      if (giorno === giornoLive) return ['Casinò Live 100€ con almeno 3 amici; chi vince raddoppia + 100€ slot spin basso']
+      if (giorno === giornoSport) return ['Sport 100€ suddivisi su 3/4 bet']
+      return null
+    }
+
+    // Dopo il ciclo il conto resta in Profilazione: controllo riservate ogni 7 giorni.
+    const giorniDalFineCiclo = giorniCiclo - 28
+    if (giorniDalFineCiclo >= 60) return ['🔴 Richiamo 2 mesi: avvia un nuovo ciclo di profilazione (4 settimane)']
+    if (giorniDalFineCiclo >= 30 && giorniDalFineCiclo % 7 === 0) return ['🟠 Nessuna riservata da un mese? Valuta/avvia un nuovo ciclo di profilazione', '👁️ Controlla comunque le riservate']
+    if (giorniDalFineCiclo % 7 === 0) return ['👁️ Controlla riservate / inbox del conto']
     return null
   }
 
@@ -689,7 +710,7 @@ function getRiassuntoProtocolloAttivo(nomeBook) {
     standard: { durata: 'Standard (Sport + Casinò)', capitale_min: 50, azioni: ['Ricarica 50-100€', '2-3 bet/sett — quota min 1.35', 'Slot 50-100€ spin bassi'] },
     vip_fase12: { durata: 'VIP Fase 1 & 2', capitale_min: 100, azioni: ['Ricarica 100€+/sett', 'Volume 200€+/sett offline + Cas. Live', 'Sport 40-50€, 1-2 volte/mese'] },
     vip_lotto: { durata: 'VIP Lotto Live', capitale_min: 1000, azioni: ['Ricarica 500-1000€', 'GG1-3: casinò live + giochi offline', 'Sport 300€ (quota 2.50+)'] },
-    casino_200: { durata: 'Casinò 200€ (ciclo 4 sett.)', capitale_min: 200, azioni: PROTOCOLLO_CASINO_200.azioni.slice(0, 3) },
+    gruppo_lottomatica: { durata: 'Gruppo Lottomatica — 4 sett. + monitoraggio', capitale_min: 100, azioni: PROTOCOLLO_GRUPPO_LOTTOMATICA.azioni.slice(0, 3) },
     quigioco: { durata: 'QuiGioco (ciclo fermo 14gg)', capitale_min: 50, azioni: PROTOCOLLO_QUIGIOCO.azioni.slice(0, 3) },
     stanleybet: { durata: 'Stanleybet (ciclo 1 mese)', capitale_min: 50, azioni: PROTOCOLLO_STANLEYBET.azioniSport.slice(0, 3) },
     bwin: { durata: 'Bwin (ciclo 3 settimane)', capitale_min: 30, azioni: PROTOCOLLO_BWIN.azioni.slice(0, 3) },
@@ -826,72 +847,32 @@ function getAzioniOggi(book) {
   }
 
   if (livello === 'mantenimento' || livello === 'mantenimento-a' || livello === 'mantenimento-b' || livello === 'mantenimento-c') {
-    const classeEffettiva = livello === 'mantenimento-a' ? 'A' : livello === 'mantenimento-b' ? (isSoloCasino(book.nome) ? 'B_CASINO' : 'B') : livello === 'mantenimento-c' ? 'C' : classe
-
-    if (classeEffettiva === 'A') {
-      const oggi2 = new Date()
-      const GIORNO_ZERO = new Date('2026-05-18')
-      const giorniDaZero = Math.floor((oggi2 - GIORNO_ZERO) / (1000 * 60 * 60 * 24))
-      const soloCasino = isSoloCasino(book.nome)
-      const offset = hashBook(book.id, 101) % 60
-      const isAzioneDay = (giorniDaZero - offset) % 60 === 0
-      if (isAzioneDay && soloCasino) return { tipo: 'manutenzione-a', azioni: ['Sessione slot 5-10€'], badge: '🟡 Mant. A' }
-      if (isAzioneDay && !soloCasino) return { tipo: 'manutenzione-a', azioni: ['1 bet sportiva'], badge: '🟡 Mant. A' }
-      return null
-    }
-
-    if (classeEffettiva === 'B' || classeEffettiva === 'B_CASINO') {
-      const oggi2 = new Date()
-      const GIORNO_ZERO = new Date('2026-05-18')
-      const giorniDaZero = Math.floor((oggi2 - GIORNO_ZERO) / (1000 * 60 * 60 * 24))
-      const soloCasino = isSoloCasino(book.nome)
-      const offset = hashBook(book.id, 303) % 60
-      const isAzioneDay = (giorniDaZero - offset) % 60 === 0
-      if (isAzioneDay && soloCasino) return { tipo: 'manutenzione-b', azioni: ['Sessione slot 5-10€'], badge: '🟡 Mant. B' }
-      if (isAzioneDay && !soloCasino) return { tipo: 'manutenzione-b', azioni: ['1 bet sportiva'], badge: '🟡 Mant. B' }
-      return null
-    }
-
-    if (classeEffettiva === 'C') {
-      const oggi2 = new Date()
-      const GIORNO_ZERO = new Date('2026-05-18')
-      const giorniDaZero = Math.floor((oggi2 - GIORNO_ZERO) / (1000 * 60 * 60 * 24))
-      const soloCasino = isSoloCasino(book.nome)
-      const offset = hashBook(book.id, 505) % 60
-      const isAzioneDay = (giorniDaZero - offset) % 60 === 0
-      if (isAzioneDay && soloCasino) return { tipo: 'manutenzione-c', azioni: ['Sessione slot 5-10€'], badge: '🟡 Mant. C' }
-      if (isAzioneDay && !soloCasino) return { tipo: 'manutenzione-c', azioni: ['1 bet sportiva'], badge: '🟡 Mant. C' }
-      return null
-    }
+    // Mantenimento unico: 10€ ogni 60 giorni, distribuito in modo stabile per account.
+    // Gli stati legacy A/B/C vengono trattati come semplice Mantenimento finché non vengono aggiornati.
+    const GIORNO_ZERO = new Date('2026-09-19T00:00:00')
+    const giorniDaZero = Math.floor((oggi - GIORNO_ZERO) / 86400000)
+    const offset = hashBook(book.id, 6060) % 60
+    const isAzioneDay = ((giorniDaZero - offset) % 60 + 60) % 60 === 0
+    if (!isAzioneDay) return null
+    if (isSoloCasino(book.nome)) return { tipo: 'mantenimento', azioni: ['Sessione Casinò/slot da 10€'], badge: '🟡 Mantenimento' }
+    return { tipo: 'mantenimento', azioni: ['1 bet sportiva da 10€'], badge: '🟡 Mantenimento' }
   }
   return null
 }
 
 async function autoAssegnaProfiloDefault(booksData) {
-  const daAggiornare = booksData.filter(b => !b.profilo_livello)
-  if (daAggiornare.length === 0) return
-  const updates = daAggiornare.map(b => {
-    const classe = getClasseBook(b.nome)
-    const classeNorm = classe === 'B_CASINO' ? 'b' : classe.toLowerCase()
-    return { id: b.id, profilo_livello: `mantenimento-${classeNorm}` }
-  })
-  // Batch da 50 per non sovraccaricare Supabase
-  const batchSize = 50
-  for (let i = 0; i < updates.length; i += batchSize) {
-    const batch = updates.slice(i, i + batchSize)
-    await Promise.all(batch.map(upd =>
-      supabase.from('books').update({ profilo_livello: upd.profilo_livello }).eq('id', upd.id)
-    ))
-  }
-  setBooks(prev => prev.map(b => {
-    const upd = updates.find(u => u.id === b.id)
-    return upd ? { ...b, profilo_livello: upd.profilo_livello } : b
-  }))
+  // V2: nessuna assegnazione automatica. È Sergio a decidere Profilazione / Mantenimento / Dormiente.
+  return
 }
 
 async function updateProfiloLivello(bookId, livello) {
   setSavingProfilo(p => ({ ...p, [bookId]: true }))
-  const cicloInizio = livello === 'attivo' ? new Date().toISOString().split('T')[0] : null
+  const livelloNormalizzato = livello && livello.startsWith('mantenimento') ? 'mantenimento' : livello
+  const corrente = books.find(b => b.id === bookId)
+  const cicloInizio = livelloNormalizzato === 'attivo'
+    ? (corrente?.profilo_livello === 'attivo' && corrente?.profilo_ciclo_inizio ? corrente.profilo_ciclo_inizio : new Date().toISOString().split('T')[0])
+    : null
+  livello = livelloNormalizzato
   const { error } = await supabase.from('books').update({
     profilo_livello: livello,
     profilo_ciclo_inizio: cicloInizio
@@ -3944,8 +3925,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
   }, 0)
 
   const getLivelloBadge = (livello) => {
-    if (livello === 'attivo') return { bg: 'rgba(34,197,94,0.18)', color: '#22c55e', label: '🟢 Attivo' }
-    if (livello && livello.startsWith('mantenimento')) { const cls = livello.split('-')[1]?.toUpperCase() || ''; return { bg: 'rgba(251,191,36,0.18)', color: '#fbbf24', label: `🟡 Mant.${cls}` } }
+    if (livello === 'attivo') return { bg: 'rgba(34,197,94,0.18)', color: '#22c55e', label: '🟢 Profilazione' }
+    if (livello && livello.startsWith('mantenimento')) return { bg: 'rgba(251,191,36,0.18)', color: '#fbbf24', label: '🟡 Mantenimento' }
     if (livello === 'dormiente') return { bg: 'rgba(100,116,139,0.18)', color: '#94a3b8', label: '⚫ Dormiente' }
     return { bg: 'rgba(51,65,85,0.3)', color: '#64748b', label: '— Non impostato' }
   }
@@ -4011,43 +3992,14 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           })()}
         </div>
 
-        {/* PROTOCOLLI DI MANTENIMENTO */}
+        {/* MANTENIMENTO V2 */}
         <div style={{ background: 'rgba(11,18,32,0.7)', border: '1px solid rgba(51,65,85,0.85)', borderRadius: 16, padding: '14px 16px' }}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: '#f8fafc', marginBottom: 10 }}>📖 Protocolli di mantenimento</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-
-            <div style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 10, padding: '10px 12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
-                <span style={{ fontSize: 11, fontWeight: 800, background: 'rgba(251,191,36,0.18)', color: '#fbbf24', padding: '2px 8px', borderRadius: 6 }}>Serie A</span>
-                <span style={{ fontSize: 11, color: '#64748b' }}>bet365 · snai · sisal · lottomatica · goldbet · planetwin · eurobet · pokerstars</span>
-              </div>
-              <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.5 }}>1 bet sportiva ogni 2 mesi (solo-casinò: 1 sessione slot 5-10€ ogni 2 mesi)</div>
-            </div>
-
-            <div style={{ background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.22)', borderRadius: 10, padding: '10px 12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
-                <span style={{ fontSize: 11, fontWeight: 800, background: 'rgba(56,189,248,0.15)', color: '#38bdf8', padding: '2px 8px', borderRadius: 6 }}>Serie B</span>
-                <span style={{ fontSize: 11, color: '#64748b' }}>netbet · bwin · betsson · william hill · stanleybet · e-play24 · betfair</span>
-              </div>
-              <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.5 }}>1 bet sportiva ogni 2 mesi (solo-casinò: 1 sessione slot 5-10€ ogni 2 mesi)</div>
-            </div>
-
-            <div style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.22)', borderRadius: 10, padding: '10px 12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
-                <span style={{ fontSize: 11, fontWeight: 800, background: 'rgba(34,197,94,0.15)', color: '#22c55e', padding: '2px 8px', borderRadius: 6 }}>B Casino</span>
-                <span style={{ fontSize: 11, color: '#64748b' }}>gioco digitale · starcasino · betflag · tombola · zonagioco</span>
-              </div>
-              <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.5 }}>1 sessione slot 5-10€ ogni 2 mesi (no bet sportiva)</div>
-            </div>
-
-            <div style={{ background: 'rgba(100,116,139,0.08)', border: '1px solid rgba(100,116,139,0.22)', borderRadius: 10, padding: '10px 12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
-                <span style={{ fontSize: 11, fontWeight: 800, background: 'rgba(100,116,139,0.18)', color: '#94a3b8', padding: '2px 8px', borderRadius: 6 }}>Serie C</span>
-                <span style={{ fontSize: 11, color: '#64748b' }}>tutti gli altri bookmaker</span>
-              </div>
-              <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.5 }}>1 bet 5-10€ ogni 2 mesi (solo-casinò: 1 sessione slot 5-10€ ogni 2 mesi)</div>
-            </div>
-
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#f8fafc', marginBottom: 10 }}>📖 Mantenimento unico</div>
+          <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.6 }}>
+            <div>🟡 <b>10€ ogni 60 giorni</b>, distribuiti automaticamente fra gli account in mantenimento.</div>
+            <div>⚽ Book Sport: 1 bet sportiva da 10€.</div>
+            <div>🎰 Solo Casinò: sessione Casinò/slot da 10€.</div>
+            <div style={{ marginTop: 6, color: '#94a3b8' }}>I Dormienti non entrano nell'agenda. La scelta dello stato resta sempre manuale.</div>
           </div>
         </div>
 
@@ -4055,7 +4007,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 
       <div style={statsGridCompact}>
         <div style={{ background: 'rgba(34,197,94,0.10)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: 16, padding: '14px 18px' }}>
-          <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Attivi</div>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Profilazione</div>
           <div style={{ fontSize: 24, fontWeight: 800, color: '#22c55e' }}>{totAttivi}</div>
         </div>
         <div style={{ background: 'rgba(251,191,36,0.10)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 16, padding: '14px 18px' }}>
@@ -4080,7 +4032,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         <input style={filterInput} placeholder="Cerca book o intestatario..." value={profilazioneSearch} onChange={e => setProfilazioneSearch(e.target.value)} />
         <select style={filterInput} value={profilazioneFilter.livello} onChange={e => setProfilazioneFilter(p => ({ ...p, livello: e.target.value }))}>
           <option value="">Tutti i livelli</option>
-          <option value="attivo">🟢 Attivi</option>
+          <option value="attivo">🟢 Profilazione</option>
           <option value="mantenimento">🟡 Mantenimento</option>
           <option value="dormiente">⚫ Dormienti</option>
         </select>
@@ -4130,16 +4082,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       <button style={{ ...tinyGreenButton, opacity: book.profilo_livello === 'attivo' ? 0.4 : 1, fontSize: 11 }}
                         disabled={savingProfilo[book.id] || book.profilo_livello === 'attivo'}
-                        onClick={() => updateProfiloLivello(book.id, 'attivo')}>Attivo</button>
-                      <button style={{ ...tinyOrangeButton, opacity: book.profilo_livello === 'mantenimento-a' ? 0.4 : 1, fontSize: 11 }}
-                        disabled={savingProfilo[book.id] || book.profilo_livello === 'mantenimento-a'}
-                        onClick={() => updateProfiloLivello(book.id, 'mantenimento-a')}>Mant.A</button>
-                      <button style={{ ...tinyOrangeButton, background: 'rgba(245,158,11,0.18)', opacity: book.profilo_livello === 'mantenimento-b' ? 0.4 : 1, fontSize: 11 }}
-                        disabled={savingProfilo[book.id] || book.profilo_livello === 'mantenimento-b'}
-                        onClick={() => updateProfiloLivello(book.id, 'mantenimento-b')}>Mant.B</button>
-                      <button style={{ ...tinyOrangeButton, background: 'rgba(100,116,139,0.18)', color: '#94a3b8', opacity: book.profilo_livello === 'mantenimento-c' ? 0.4 : 1, fontSize: 11 }}
-                        disabled={savingProfilo[book.id] || book.profilo_livello === 'mantenimento-c'}
-                        onClick={() => updateProfiloLivello(book.id, 'mantenimento-c')}>Mant.C</button>
+                        onClick={() => updateProfiloLivello(book.id, 'attivo')}>Profilazione</button>
+                      <button style={{ ...tinyOrangeButton, opacity: book.profilo_livello === 'mantenimento' ? 0.4 : 1, fontSize: 11 }}
+                        disabled={savingProfilo[book.id] || book.profilo_livello === 'mantenimento'}
+                        onClick={() => updateProfiloLivello(book.id, 'mantenimento')}>Mantenimento</button>
                       <button style={{ ...tinyRedButton, background: book.profilo_livello === 'dormiente' ? '#334155' : undefined, opacity: book.profilo_livello === 'dormiente' ? 0.4 : 1, fontSize: 11 }}
                         disabled={savingProfilo[book.id] || book.profilo_livello === 'dormiente'}
                         onClick={() => updateProfiloLivello(book.id, 'dormiente')}>Dorm.</button>
