@@ -1,7 +1,13 @@
 export const dynamic = "force-dynamic";
 
-async function callTR(path, apiKey) {
-  const res = await fetch(`https://therundown.io${path}`, {
+async function getEvents(sportId, apiKey) {
+  const oggi = new Date().toISOString().slice(0, 10);
+
+  const url =
+    `https://therundown.io/api/v2/sports/${sportId}/events/${oggi}` +
+    `?main_line=true&hide_closed=true`;
+
+  const res = await fetch(url, {
     headers: {
       "X-TheRundown-Key": apiKey,
     },
@@ -18,11 +24,55 @@ async function callTR(path, apiKey) {
   }
 
   return {
-    ok: res.ok,
+    sportId,
     status: res.status,
-    data,
+    ok: res.ok,
     remaining: res.headers.get("x-datapoints-remaining"),
     used: res.headers.get("x-datapoints-used"),
+    limit: res.headers.get("x-datapoints-limit"),
+    data,
+  };
+}
+
+function compattaEvento(evento) {
+  if (!evento || typeof evento !== "object") return evento;
+
+  const teams =
+    evento.teams ||
+    evento.participants ||
+    evento.competitors ||
+    [];
+
+  return {
+    event_id:
+      evento.event_id ??
+      evento.id ??
+      null,
+
+    data:
+      evento.event_date ??
+      evento.start_time ??
+      evento.scheduled ??
+      evento.date ??
+      null,
+
+    nome:
+      evento.name ??
+      evento.event_name ??
+      null,
+
+    teams,
+
+    // Per il primo test manteniamo solo un assaggio
+    // della struttura quote restituita dall'API.
+    lines_sample:
+      evento.lines
+        ? Object.entries(evento.lines).slice(0, 2)
+        : evento.markets
+        ? Object.entries(evento.markets).slice(0, 2)
+        : null,
+
+    chiavi_disponibili: Object.keys(evento),
   };
 }
 
@@ -32,129 +82,69 @@ export async function GET() {
 
     if (!apiKey) {
       return Response.json(
-        { ok: false, error: "THERUNDOWN_API_KEY non configurata" },
+        {
+          ok: false,
+          error: "THERUNDOWN_API_KEY non configurata",
+        },
         { status: 500 }
       );
     }
 
-    const [sportsRes, affiliatesRes, marketsRes] = await Promise.all([
-      callTR("/api/v2/sports", apiKey),
-      callTR("/api/v2/affiliates", apiKey),
-      callTR("/api/v2/markets", apiKey),
+    // 11 = EPL
+    // 16 = UEFA Champions League
+    const [epl, champions] = await Promise.all([
+      getEvents(11, apiKey),
+      getEvents(16, apiKey),
     ]);
 
-    const sports =
-      sportsRes.data?.sports ||
-      sportsRes.data?.data ||
+    const eventiEpl =
+      epl.data?.events ||
+      epl.data?.data ||
       [];
 
-    const affiliates =
-      affiliatesRes.data?.affiliates ||
-      affiliatesRes.data?.data ||
+    const eventiChampions =
+      champions.data?.events ||
+      champions.data?.data ||
       [];
-
-    const markets =
-      marketsRes.data?.markets ||
-      marketsRes.data?.data ||
-      [];
-
-    // Campionati / competizioni calcio che interessano a Lucy
-    const paroleCalcio = [
-      "EPL",
-      "ITALY",
-      "GERMANY",
-      "SPAIN",
-      "FRANCE",
-      "UEFACHAMP",
-      "UEFAEURO",
-      "MLS",
-      "BRAZIL",
-      "SOCCER"
-    ];
-
-    const calcio = sports.filter((s) => {
-      const nome = String(
-        s.sport_name ||
-        s.name ||
-        ""
-      ).toUpperCase();
-
-      return paroleCalcio.some((p) => nome.includes(p));
-    });
-
-    // Mercati che possono essere utili a Lucy
-    const mercatiLucy = [
-      "moneyline",
-      "spread",
-      "total",
-      "over_under",
-      "both_teams",
-      "double_chance",
-      "draw_no_bet",
-      "first_team_score",
-      "winning_margin"
-    ];
-
-    const mercati = markets.filter((m) => {
-      const testo = [
-        m.name,
-        m.short_description,
-        m.description,
-        m.family
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-
-      return mercatiLucy.some((p) => testo.includes(p));
-    });
-
-    const books = affiliates.map((a) => ({
-      id: a.affiliate_id ?? a.id,
-      nome: a.affiliate_name ?? a.name,
-      stato: a.status
-    }));
 
     return Response.json({
-      ok: true,
+      ok: epl.ok && champions.ok,
 
-      riepilogo: {
-        competizioni_calcio_trovate: calcio.length,
-        bookmaker_trovati: books.length,
-        mercati_lucy_trovati: mercati.length
+      test: "TheRundown EPL + Champions",
+
+      EPL: {
+        sport_id: 11,
+        status: epl.status,
+        eventi_trovati: eventiEpl.length,
+        esempio: eventiEpl.slice(0, 3).map(compattaEvento),
       },
 
-      competizioni: calcio.map((s) => ({
-        id: s.sport_id ?? s.id,
-        nome: s.sport_name ?? s.name
-      })),
+      CHAMPIONS: {
+        sport_id: 16,
+        status: champions.status,
+        eventi_trovati: eventiChampions.length,
+        esempio: eventiChampions.slice(0, 3).map(compattaEvento),
+      },
 
-      bookmaker: books,
-
-      mercati_lucy: mercati.map((m) => ({
-        id: m.id,
-        nome: m.name,
-        descrizione: m.short_description,
-        live: m.live
-      })),
-
-      quota_api: {
+      quota: {
         remaining:
-          sportsRes.remaining ||
-          affiliatesRes.remaining ||
-          marketsRes.remaining,
-        used:
-          sportsRes.used ||
-          affiliatesRes.used ||
-          marketsRes.used
-      }
-    });
+          champions.remaining ||
+          epl.remaining,
 
+        used:
+          champions.used ||
+          epl.used,
+
+        limit:
+          champions.limit ||
+          epl.limit,
+      },
+    });
   } catch (error) {
     return Response.json(
       {
         ok: false,
-        error: error?.message || String(error)
+        error: error?.message || String(error),
       },
       { status: 500 }
     );
