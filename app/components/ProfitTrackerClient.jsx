@@ -140,6 +140,8 @@ const [lucyLiveProposte, setLucyLiveProposte] = useState([])
 const [lucySportNonCollocate, setLucySportNonCollocate] = useState([])
 const [lucyTabellaAperta, setLucyTabellaAperta] = useState(false)
 const [lucyLiveTabellaAperta, setLucyLiveTabellaAperta] = useState(false)
+const [lucyCostoMax, setLucyCostoMax] = useState(() => Number(localStorage.getItem('profittracker_lucy_costo_max') || 50))
+const [lucyRinviate, setLucyRinviate] = useState([])
 const [lucyConfermate, setLucyConfermate] = useState(() => {
   try { return JSON.parse(localStorage.getItem('profittracker_lucy_confermate') || '[]') } catch { return [] }
 })
@@ -1702,13 +1704,20 @@ function cancellaTuttoStoricoLucy() {
 
 
 function getOrarioPartitaLucy(c) {
-  const raw=c?.utcDate || c?.date || c?.commence_time || c?.kickoff || c?.orario
+  const raw=c?.ora || c?.utcDate || c?.date || c?.commence_time || c?.kickoff || c?.orario
   if(!raw) return '—'
   try {
     const d=new Date(raw)
     if(Number.isNaN(d.getTime())) return String(raw)
     return d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})
   } catch { return String(raw) }
+}
+
+
+function costoPeggioreIncrocioLucy(p) {
+  const vals=(p?.scenari||[]).map(x=>Number(x.netto||0))
+  if(!vals.length) return 0
+  return Math.max(0,-Math.min(...vals))
 }
 
 async function generaLucySport(agendaItems = []) {
@@ -1961,15 +1970,30 @@ async function generaLucySport(agendaItems = []) {
       proposte.push({ ...c, orario:getOrarioPartitaLucy(c), assegnazioni, integrazioni, extraProfilazione, scenari })
     }
 
-    setLucySportNonCollocate(slot.map(s => ({
+    // Applica il budget massimo di COSTO della giornata.
+    // Lucy tiene gli incroci migliori finché il peggior P/L cumulativo resta nel tetto scelto.
+    const ordinate=[...proposte].sort((a,b)=>costoPeggioreIncrocioLucy(a)-costoPeggioreIncrocioLucy(b))
+    const accettate=[], rinviate=[]
+    let costoUsato=0
+    ordinate.forEach(p=>{
+      const costo=costoPeggioreIncrocioLucy(p)
+      if(costoUsato+costo <= Number(lucyCostoMax||0)+0.001){
+        accettate.push(p); costoUsato+=costo
+      } else rinviate.push({...p,costoStimato:costo})
+    })
+
+    const nonCollocate=slot.map(s => ({
       book:s.book, betNumero:s.betNumero, betRichieste:s.betRichieste,
       stake:s.importoIndicativo, budgetTotale:s.budgetTotale
-    })))
-    if (slot.length) {
-      setLucySportError(`Lucy ha preparato gli incroci possibili, ma restano ${slot.length} bet da collocare: vedi “DA COMPLETARE”.`)
+    }))
+    setLucySportNonCollocate(nonCollocate)
+    setLucyRinviate(rinviate)
+
+    if (nonCollocate.length || rinviate.length) {
+      setLucySportError(`Lucy resta entro il costo massimo di ${Number(lucyCostoMax).toFixed(0)}€. ${rinviate.length} incroci rinviati e ${nonCollocate.length} bet non collocate restano da completare nei prossimi calcoli.`)
     }
 
-    setLucySportProposte(proposte)
+    setLucySportProposte(accettate)
     setLucySportAggiornato(new Date())
   } catch (e) {
     setLucySportProposte([])
@@ -4593,7 +4617,15 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             <div style={{ fontSize:14, fontWeight:900, color:'#e0f2fe' }}>🤖 Lucy Sport — Incroci automatici</div>
             <div style={{ fontSize:11, color:'#94a3b8', marginTop:2 }}>Prende le lavorazioni Sport di oggi e cerca coperture complete usando le quote medie PronoX. Regola: lo stesso conto non riceve mai due esiti della stessa partita.</div>
           </div>
-          <button style={{ ...tinyBlueButton, marginLeft:'auto' }} disabled={lucySportLoading} onClick={() => generaLucySport(agendaOggi)}>
+          
+            <div style={{display:'flex',alignItems:'center',gap:6,background:'rgba(15,23,42,.75)',border:'1px solid #334155',borderRadius:9,padding:'5px 8px'}}>
+              <span style={{fontSize:10,color:'#94a3b8',fontWeight:800}}>💰 COSTO MAX OGGI</span>
+              <input type="number" min="0" step="5" value={lucyCostoMax}
+                onChange={e=>{const v=Math.max(0,Number(e.target.value)||0);setLucyCostoMax(v);try{localStorage.setItem('profittracker_lucy_costo_max',String(v))}catch{}}}
+                style={{width:70,background:'#020617',color:'#f8fafc',border:'1px solid #475569',borderRadius:6,padding:'5px 6px',fontWeight:900,textAlign:'right'}} />
+              <span style={{fontSize:11,color:'#cbd5e1'}}>€</span>
+            </div>
+<button style={{ ...tinyBlueButton, marginLeft:'auto' }} disabled={lucySportLoading} onClick={() => generaLucySport(agendaOggi)}>
             {lucySportLoading ? '⏳ Lucy sta calcolando…' : '⚽ PREPARA INCROCI SPORT'}
           </button>
             <button onClick={()=>setLucyTabellaAperta(true)} disabled={!lucySportProposte.length}
@@ -4611,7 +4643,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                   <span style={{fontWeight:900,color:'#f8fafc'}}>Incrocio #{idx+1}</span>
                   <span style={{fontSize:11,color:'#38bdf8'}}>{p.home} – {p.away}</span>
                   <span style={{fontSize:10,color:'#a78bfa',background:'rgba(167,139,250,.12)',padding:'2px 6px',borderRadius:6}}>{p.mercato}</span>
-                  <span style={{fontSize:10,color:'#64748b'}}>{p.lega}</span>
+                  <span style={{fontSize:10,color:'#64748b'}}>{p.lega}</span><span style={{fontSize:10,color:'#38bdf8',fontWeight:900}}>🕒 {p.orario||'—'}</span>
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(210px,1fr))',gap:5}}>
                   {p.assegnazioni.map((a,i)=>(
@@ -4672,6 +4704,14 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
       )}
 
       
+      
+      {lucyRinviate.length>0 && (
+        <div style={{background:'rgba(120,53,15,.14)',border:'1px solid rgba(251,191,36,.35)',borderRadius:10,padding:'9px 10px',marginBottom:10}}>
+          <div style={{fontSize:11,fontWeight:900,color:'#fbbf24'}}>🕒 RINVIATE PER BUDGET COSTO — {lucyRinviate.length} incroci</div>
+          <div style={{fontSize:10,color:'#94a3b8',marginTop:3}}>Non vengono forzati oggi. Lucy li riprenderà nei successivi calcoli insieme ai target ancora incompleti.</div>
+        </div>
+      )}
+
       {/* ARCHIVIO LUCY SPORT */}
       <div style={{background:'#071525',border:'1px solid #1e3a5f',borderRadius:12,padding:12,marginBottom:12}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}}>
@@ -4791,8 +4831,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 
             <div style={{padding:'10px 12px',background:'#e2e8f0',borderTop:'2px solid #64748b',display:'flex',gap:18,flexWrap:'wrap',fontSize:11}}>
               <b>Puntato confermato oggi: {confermateOggiLucy().reduce((s,x)=>s+Number(x.stake||0),0).toFixed(2)} €</b>
-              <b style={{color:costoTeoricoSportOggi()<0?'#b91c1c':'#166534'}}>P/L teorico profilazione Sport: {costoTeoricoSportOggi().toFixed(2)} €</b>
-              <span style={{color:'#475569'}}>Il P/L è una stima sugli incroci/quote mostrati; il consuntivo reale dipende dagli esiti e dalle quote effettivamente giocate.</span>
+              <b style={{color:costoTeoricoSportOggi()<0?'#b91c1c':'#166534'}}>P/L teorico piano corrente: {costoTeoricoSportOggi().toFixed(2)} €</b>
+              <b style={{color:'#1d4ed8'}}>Costo massimo impostato: {Number(lucyCostoMax).toFixed(2)} €</b>
+              <b style={{color:'#166534'}}>Margine costo residuo: {Math.max(0,Number(lucyCostoMax)+costoTeoricoSportOggi()).toFixed(2)} €</b>
+              <span style={{color:'#475569'}}>Lucy rinvia gli incroci che farebbero superare il tetto di costo.</span>
             </div>
 
             {lucySportNonCollocate.length>0 && (
