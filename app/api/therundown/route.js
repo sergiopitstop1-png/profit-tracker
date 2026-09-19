@@ -6,28 +6,15 @@ export async function GET() {
 
     if (!apiKey) {
       return Response.json(
-        { ok: false, error: "THERUNDOWN_API_KEY non configurata" },
+        { ok: false, error: "THERUNDOWN_API_KEY mancante" },
         { status: 500 }
       );
     }
 
     const oggi = new Date().toISOString().slice(0, 10);
 
-    // EPL = 11
-    // 1 = Moneyline
-    // 2 = Handicap
-    // 3 = Totals
-    //
-    // 3  = Pinnacle
-    // 19 = DraftKings
-    // 23 = FanDuel
-
     const url =
-      `https://therundown.io/api/v2/sports/11/events/${oggi}` +
-      `?market_ids=1,2,3` +
-     `&affiliate_ids=22,19,23` +
-      `&main_line=true` +
-      `&hide_closed=true`;
+      `https://therundown.io/api/v2/sports/markets/${oggi}`;
 
     const res = await fetch(url, {
       headers: {
@@ -38,46 +25,44 @@ export async function GET() {
 
     const data = await res.json();
 
-    // Mostriamo solo la prima partita per non avere
-    // di nuovo 30 schermate di JSON :-)
-    const evento = data?.events?.[0] || null;
+    // Ci interessa SOLO EPL = sport 11
+    const epl =
+      data?.["11"] ||
+      data?.[11] ||
+      [];
 
     return Response.json({
       ok: res.ok,
-
       status: res.status,
+      data: oggi,
+
+      EPL: {
+        sport_id: 11,
+        numero_mercati: Array.isArray(epl) ? epl.length : 0,
+
+        mercati: Array.isArray(epl)
+          ? epl.map(m => ({
+              id: m.id,
+              nome: m.name,
+              descrizione: m.short_description,
+              periodo: m.period_id,
+              live: m.live_variant_id
+            }))
+          : epl
+      },
 
       quota: {
         usati: res.headers.get("x-datapoints"),
         remaining: res.headers.get("x-datapoints-remaining"),
-        limit: res.headers.get("x-datapoints-limit"),
-        delay_seconds: res.headers.get("x-data-delay-seconds"),
-      },
-
-      numero_eventi: data?.events?.length || 0,
-
-      esempio_evento: evento
-        ? {
-            event_id: evento.event_id,
-            data: evento.event_date,
-
-            squadre: evento.teams?.map(t => ({
-              id: t.team_id,
-              nome: t.name,
-              casa: t.is_home,
-              trasferta: t.is_away,
-            })),
-
-            markets: evento.markets,
-          }
-        : null,
+        limit: res.headers.get("x-datapoints-limit")
+      }
     });
 
   } catch (error) {
     return Response.json(
       {
         ok: false,
-        error: error?.message || String(error),
+        error: error?.message || String(error)
       },
       { status: 500 }
     );
