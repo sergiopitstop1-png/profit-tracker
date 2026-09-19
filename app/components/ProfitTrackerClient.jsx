@@ -132,6 +132,10 @@ const [showAgendaPopup, setShowAgendaPopup] = useState(false)
 const [agendaVista, setAgendaVista] = useState(false)
 const [agendaAperto, setAgendaAperto] = useState(null)
 const [popupAperto, setPopupAperto] = useState(null)
+const [lucySportLoading, setLucySportLoading] = useState(false)
+const [lucySportError, setLucySportError] = useState('')
+const [lucySportProposte, setLucySportProposte] = useState([])
+const [lucySportAggiornato, setLucySportAggiornato] = useState(null)
   const [clientePromoAperto, setClientePromoAperto] = useState(null)
   const [promoFiltri, setPromoFiltri] = useState({ priorita: '', stato: '', mittente: '' })
   const [matrice, setMatrice] = useState([])
@@ -1398,6 +1402,127 @@ Wallets disponibili: ${wallets.map(w => w.nome + ' (' + w.intestatario + ')').jo
 }
 const cleanN = (s) => (s || '').replace(/\s*\(.*?\)/g, '').trim().toLowerCase()
 const extInt = (s) => { const m = (s || '').match(/\(([^)]+)\)/); return m ? m[1].toLowerCase() : '' }
+async function generaLucySport(agendaItems = []) {
+  const sportItems = []
+  const sportRegex = /(sport|bet\b|scommess|superquote|doppia|exchange)/i
+  const casinoOnlyRegex = /(slot|casin[oò]|blackjack|roulette|numeri)/i
+  agendaItems.forEach(({ book, agenda }) => {
+    const azioniSport = (agenda?.azioni || []).filter(a => sportRegex.test(a) && !casinoOnlyRegex.test(a))
+    if (azioniSport.length) sportItems.push({ book, azione: azioniSport[0] })
+  })
+
+  if (!sportItems.length) {
+    setLucySportProposte([])
+    setLucySportError('Oggi Lucy non trova lavorazioni Sport da incrociare.')
+    return
+  }
+
+  setLucySportLoading(true)
+  setLucySportError('')
+  try {
+    // Stesse leghe/endpoint quote usati da PronoX. Per ora PronoX espone h2h + totals 2.5.
+    const leghe = [
+      ['Serie A','soccer_italy_serie_a'], ['Premier League','soccer_epl'],
+      ['Bundesliga','soccer_germany_bundesliga'], ['La Liga','soccer_spain_la_liga'],
+      ['Ligue 1','soccer_france_ligue_one'], ['Champions League','soccer_uefa_champs_league'],
+      ['Championship','soccer_efl_champ'], ['Eredivisie','soccer_netherlands_eredivisie'],
+      ['Serie B Brasile','soccer_brazil_campeonato'], ['World Cup','soccer_fifa_world_cup']
+    ]
+    const oggi = new Date()
+    const y = oggi.getFullYear(), m = String(oggi.getMonth()+1).padStart(2,'0'), d = String(oggi.getDate()).padStart(2,'0')
+    const dataOggi = `${y}-${m}-${d}`
+    const dayStart = new Date(dataOggi + 'T00:00:00').getTime()
+    const dayEnd = new Date(dataOggi + 'T23:59:59').getTime()
+
+    const risultati = await Promise.all(leghe.map(async ([lega, key]) => {
+      try {
+        const r = await fetch(`/api/odds?endpoint=sports/${key}/odds&regions=eu&markets=h2h,totals&dateFormat=iso&oddsFormat=decimal`)
+        const data = await r.json()
+        if (!Array.isArray(data)) return []
+        return data.filter(g => {
+          const t = new Date(g.commence_time).getTime()
+          return t >= dayStart && t <= dayEnd
+        }).map(g => ({ ...g, _lega: lega }))
+      } catch { return [] }
+    }))
+
+    const avg = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null
+    const eventi = risultati.flat().map(g => {
+      const q1=[], qx=[], q2=[], qo=[], qu=[]
+      ;(g.bookmakers || []).forEach(bk => (bk.markets || []).forEach(mkt => {
+        ;(mkt.outcomes || []).forEach(o => {
+          if (mkt.key === 'h2h') {
+            if (o.name === g.home_team) q1.push(Number(o.price))
+            else if (o.name === g.away_team) q2.push(Number(o.price))
+            else qx.push(Number(o.price))
+          }
+          if (mkt.key === 'totals' && Math.abs(Number(o.point)-2.5) < 0.01) {
+            if (o.name === 'Over') qo.push(Number(o.price))
+            if (o.name === 'Under') qu.push(Number(o.price))
+          }
+        })
+      }))
+      const mercati=[]
+      if (q1.length && qx.length && q2.length) mercati.push({ nome:'1X2', esiti:[['1',avg(q1)],['X',avg(qx)],['2',avg(q2)]] })
+      if (qo.length && qu.length) mercati.push({ nome:'Over/Under 2.5', esiti:[['Over 2.5',avg(qo)],['Under 2.5',avg(qu)]] })
+      return { lega:g._lega, home:g.home_team, away:g.away_team, ora:g.commence_time, mercati }
+    }).filter(e => e.mercati.length)
+
+    if (!eventi.length) throw new Error('Nessun evento/mercato PronoX disponibile oggi.')
+
+    // Punteggio indicativo: preferisce mercati con copertura completa e payout più uniforme.
+    const candidati=[]
+    eventi.forEach(ev => ev.mercati.forEach(merc => {
+      const inv = merc.esiti.reduce((s,[,q]) => s + (q ? 1/q : 99), 0)
+      const dispersione = Math.max(...merc.esiti.map(x=>x[1])) - Math.min(...merc.esiti.map(x=>x[1]))
+      candidati.push({ ...ev, mercato:merc.nome, esiti:merc.esiti, score:inv + dispersione*0.02 })
+    }))
+    candidati.sort((a,b)=>a.score-b.score)
+
+    const disponibili=[...sportItems]
+    const proposte=[]
+    let ci=0
+    while (disponibili.length && ci < candidati.length && proposte.length < 8) {
+      const c=candidati[ci++]
+      const nEsiti=c.esiti.length
+      if (disponibili.length < nEsiti) continue
+      // Gruppo: almeno un conto per esito; fino a 2 giri per evitare gruppi enormi.
+      const take=Math.min(disponibili.length, nEsiti*2)
+      const gruppo=disponibili.splice(0,take)
+      const assegnazioni=gruppo.map((x,i)=>({ ...x, esito:c.esiti[i % nEsiti][0], quota:c.esiti[i % nEsiti][1] }))
+      const stakeBase=10
+      const scenari=c.esiti.map(([esito])=>{
+        const vincite=assegnazioni.filter(a=>a.esito===esito).reduce((s,a)=>s+stakeBase*a.quota,0)
+        const giocato=assegnazioni.length*stakeBase
+        return { esito, netto:vincite-giocato }
+      })
+      proposte.push({ ...c, assegnazioni, stakeBase, scenari })
+    }
+    // Se avanzano conti, li aggancia al miglior evento distribuendoli sugli esiti.
+    if (disponibili.length && proposte.length) {
+      disponibili.forEach((x,i)=>{
+        const p=proposte[i % proposte.length]
+        const [esito,quota]=p.esiti[p.assegnazioni.length % p.esiti.length]
+        p.assegnazioni.push({ ...x, esito, quota })
+      })
+      proposte.forEach(p => {
+        p.scenari=p.esiti.map(([esito])=>{
+          const vincite=p.assegnazioni.filter(a=>a.esito===esito).reduce((s,a)=>s+p.stakeBase*a.quota,0)
+          const giocato=p.assegnazioni.length*p.stakeBase
+          return { esito, netto:vincite-giocato }
+        })
+      })
+    }
+    setLucySportProposte(proposte)
+    setLucySportAggiornato(new Date())
+  } catch (e) {
+    setLucySportProposte([])
+    setLucySportError(e?.message || String(e))
+  } finally {
+    setLucySportLoading(false)
+  }
+}
+
 async function executeVoiceCommand(cmd) {
   // MODALITÀ LISTA
   if (cmd.tipo === 'lista' && cmd.correzioni && cmd.correzioni.length > 0) {
@@ -4003,6 +4128,46 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           </div>
         </div>
 
+      </div>
+
+      {/* LUCY SPORT — proposta incroci dai dati PronoX */}
+      <div style={{ background: 'rgba(8,47,73,0.32)', border: '1px solid rgba(56,189,248,0.35)', borderRadius: 16, padding: '14px 16px', marginBottom: 16 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap', marginBottom:10 }}>
+          <div>
+            <div style={{ fontSize:14, fontWeight:900, color:'#e0f2fe' }}>🤖 Lucy Sport — Incroci automatici</div>
+            <div style={{ fontSize:11, color:'#94a3b8', marginTop:2 }}>Prende le lavorazioni Sport di oggi e cerca coperture complete usando le quote medie PronoX.</div>
+          </div>
+          <button style={{ ...tinyBlueButton, marginLeft:'auto' }} disabled={lucySportLoading} onClick={() => generaLucySport(agendaOggi)}>
+            {lucySportLoading ? '⏳ Lucy sta calcolando…' : '⚽ PREPARA INCROCI SPORT'}
+          </button>
+        </div>
+        {lucySportAggiornato && <div style={{fontSize:10,color:'#64748b',marginBottom:8}}>Ultimo calcolo: {lucySportAggiornato.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}</div>}
+        {lucySportError && <div style={{ color:'#fbbf24', fontSize:12, padding:'8px 10px', background:'rgba(251,191,36,0.08)', borderRadius:9 }}>{lucySportError}</div>}
+        {lucySportProposte.length > 0 && (
+          <div style={{display:'flex',flexDirection:'column',gap:9}}>
+            {lucySportProposte.map((p,idx)=>(
+              <div key={`${p.home}-${p.away}-${p.mercato}-${idx}`} style={{background:'rgba(11,18,32,0.82)',border:'1px solid rgba(51,65,85,0.8)',borderRadius:12,padding:'10px 12px'}}>
+                <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:7}}>
+                  <span style={{fontWeight:900,color:'#f8fafc'}}>Incrocio #{idx+1}</span>
+                  <span style={{fontSize:11,color:'#38bdf8'}}>{p.home} – {p.away}</span>
+                  <span style={{fontSize:10,color:'#a78bfa',background:'rgba(167,139,250,.12)',padding:'2px 6px',borderRadius:6}}>{p.mercato}</span>
+                  <span style={{fontSize:10,color:'#64748b'}}>{p.lega}</span>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(210px,1fr))',gap:5}}>
+                  {p.assegnazioni.map((a,i)=>(
+                    <div key={`${a.book.id}-${i}`} style={{fontSize:11,color:'#cbd5e1',padding:'5px 7px',background:'rgba(15,23,42,.75)',borderRadius:7}}>
+                      <b style={{color:'#e2e8f0'}}>{a.book.nome}</b> · {a.book.intestatario} → <b style={{color:'#4ade80'}}>{a.esito}</b> <span style={{color:'#64748b'}}>@ {a.quota?.toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:8}}>
+                  {p.scenari.map(sc=><span key={sc.esito} style={{fontSize:10,padding:'3px 7px',borderRadius:7,background:sc.netto>=0?'rgba(34,197,94,.12)':'rgba(239,68,68,.10)',color:sc.netto>=0?'#4ade80':'#fca5a5'}}>{sc.esito}: {sc.netto>=0?'+':''}{sc.netto.toFixed(2)}€*</span>)}
+                  <span style={{fontSize:10,color:'#64748b',padding:'3px 2px'}}>* simulazione a 10€/conto; gli importi reali li adatti tu</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div style={statsGridCompact}>
