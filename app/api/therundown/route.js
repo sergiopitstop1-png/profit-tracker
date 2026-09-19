@@ -13,11 +13,21 @@ export async function GET() {
 
     const oggi = new Date().toISOString().slice(0, 10);
 
-    // TEST SINGOLO:
-    // sport 11 = EPL
+    // EPL = 11
+    // 1 = Moneyline
+    // 2 = Handicap
+    // 3 = Totals
+    //
+    // 3  = Pinnacle
+    // 19 = DraftKings
+    // 23 = FanDuel
+
     const url =
       `https://therundown.io/api/v2/sports/11/events/${oggi}` +
-      `?main_line=true&hide_closed=true`;
+      `?market_ids=1,2,3` +
+      `&affiliate_ids=3,19,23` +
+      `&main_line=true` +
+      `&hide_closed=true`;
 
     const res = await fetch(url, {
       headers: {
@@ -26,55 +36,48 @@ export async function GET() {
       cache: "no-store",
     });
 
-    const testoOriginale = await res.text();
+    const data = await res.json();
 
-    let risposta;
-
-    try {
-      risposta = JSON.parse(testoOriginale);
-    } catch {
-      risposta = testoOriginale;
-    }
-
-    // Alcuni header utili per capire esattamente il 429
-    const headers = {};
-
-    for (const [key, value] of res.headers.entries()) {
-      if (
-        key.includes("rate") ||
-        key.includes("data") ||
-        key.includes("retry") ||
-        key.includes("limit")
-      ) {
-        headers[key] = value;
-      }
-    }
+    // Mostriamo solo la prima partita per non avere
+    // di nuovo 30 schermate di JSON :-)
+    const evento = data?.events?.[0] || null;
 
     return Response.json({
       ok: res.ok,
 
-      test: "EPL singolo - diagnostica 429",
+      status: res.status,
 
-      richiesta: {
-        sport_id: 11,
-        data: oggi,
+      quota: {
+        usati: res.headers.get("x-datapoints"),
+        remaining: res.headers.get("x-datapoints-remaining"),
+        limit: res.headers.get("x-datapoints-limit"),
+        delay_seconds: res.headers.get("x-data-delay-seconds"),
       },
 
-      risposta_http: {
-        status: res.status,
-        statusText: res.statusText,
-      },
+      numero_eventi: data?.events?.length || 0,
 
-      headers,
+      esempio_evento: evento
+        ? {
+            event_id: evento.event_id,
+            data: evento.event_date,
 
-      risposta_therundown: risposta,
+            squadre: evento.teams?.map(t => ({
+              id: t.team_id,
+              nome: t.name,
+              casa: t.is_home,
+              trasferta: t.is_away,
+            })),
+
+            markets: evento.markets,
+          }
+        : null,
     });
 
   } catch (error) {
     return Response.json(
       {
         ok: false,
-        errore_locale: error?.message || String(error),
+        error: error?.message || String(error),
       },
       { status: 500 }
     );
