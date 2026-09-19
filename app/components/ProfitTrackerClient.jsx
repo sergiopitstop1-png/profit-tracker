@@ -136,6 +136,8 @@ const [lucySportLoading, setLucySportLoading] = useState(false)
 const [lucySportError, setLucySportError] = useState('')
 const [lucySportProposte, setLucySportProposte] = useState([])
 const [lucySportAggiornato, setLucySportAggiornato] = useState(null)
+const [lucyLiveProposte, setLucyLiveProposte] = useState([])
+
   const [clientePromoAperto, setClientePromoAperto] = useState(null)
   const [promoFiltri, setPromoFiltri] = useState({ priorita: '', stato: '', mittente: '' })
   const [matrice, setMatrice] = useState([])
@@ -1402,14 +1404,122 @@ Wallets disponibili: ${wallets.map(w => w.nome + ' (' + w.intestatario + ')').jo
 }
 const cleanN = (s) => (s || '').replace(/\s*\(.*?\)/g, '').trim().toLowerCase()
 const extInt = (s) => { const m = (s || '').match(/\(([^)]+)\)/); return m ? m[1].toLowerCase() : '' }
+function getNumeroBetRichieste(azione = '') {
+  const a = String(azione).toLowerCase()
+  if (/3\s*\/\s*4\s*bet/.test(a) || /3-4\s*bet/.test(a)) return 4
+  if (/2\s*\/\s*3\s*bet/.test(a) || /2-3\s*bet/.test(a)) return 3
+  if (/10-15\s*bet/.test(a)) return 10
+  return 1
+}
+
+function getImportoSportIndicativo(book, azione = '') {
+  const nome = getNomeNormalizzato(book?.nome)
+  if (BOOK_GRUPPO_LOTTOMATICA.some(k => nome.includes(k))) return 25 // 100€ / 4 bet
+  if (nome.includes('betsson')) return 20
+  if (nome.includes('bwin')) return 25
+  if (nome.includes('stanleybet')) return 20
+  if (nome.includes('betfair') || nome.includes('betpoint')) return 10
+  const m = String(azione).match(/(\d+)\s*(?:a|-)\s*(\d+)\s*€/i)
+  if (m) return (Number(m[1]) + Number(m[2])) / 2
+  return 10
+}
+
+function getQuotaMinSport(book, azione = '') {
+  const nome = getNomeNormalizzato(book?.nome)
+  if (nome.includes('betsson')) return 2.50
+  const m = String(azione).match(/quota\s*(?:minima|min)\s*([0-9]+(?:[.,][0-9]+)?)/i)
+  if (m) return Number(m[1].replace(',', '.'))
+  if (BOOK_GRUPPO_LOTTOMATICA.some(k => nome.includes(k))) return 1.35
+  return 1.01
+}
+
+function generaLucyLive(agendaItems = []) {
+  const liveRegex = /(casin[oò]\s*live|live numeri|roulette|numeri)/i
+  const target = agendaItems.filter(({ agenda }) =>
+    (agenda?.azioni || []).some(a => liveRegex.test(a))
+  )
+
+  if (!target.length) {
+    setLucyLiveProposte([])
+    return
+  }
+
+  const attivi = books.filter(b => b.profilo_livello === 'attivo')
+  const usati = new Set()
+  const proposte = []
+
+  target.forEach(({ book, agenda }) => {
+    if (usati.has(book.id)) return
+
+    const nome = getNomeNormalizzato(book.nome)
+    const stessoGruppoLotto = BOOK_GRUPPO_LOTTOMATICA.some(k => nome.includes(k))
+    let pool = attivi.filter(b => b.id !== book.id && !usati.has(b.id))
+
+    // Per Lottomatica/GoldBet/Planetwin privilegia prima gli altri conti dello stesso gruppo.
+    if (stessoGruppoLotto) {
+      pool.sort((a,b) => {
+        const aa = BOOK_GRUPPO_LOTTOMATICA.some(k => getNomeNormalizzato(a.nome).includes(k)) ? 0 : 1
+        const bb = BOOK_GRUPPO_LOTTOMATICA.some(k => getNomeNormalizzato(b.nome).includes(k)) ? 0 : 1
+        return aa - bb
+      })
+    }
+
+    const amici = pool.slice(0, 3)
+    if (amici.length < 3) {
+      proposte.push({
+        target: book, azione: agenda.azioni.find(a => liveRegex.test(a)),
+        insufficiente: true, amici
+      })
+      return
+    }
+
+    const gruppo = [book, ...amici]
+    gruppo.forEach(b => usati.add(b.id))
+
+    // Matrice roulette indicativa 0-36: 10 numeri al target, 9 agli altri.
+    const numeri = Array.from({length: 37}, (_, i) => i)
+    const blocchi = [
+      numeri.slice(0,10),
+      numeri.slice(10,19),
+      numeri.slice(19,28),
+      numeri.slice(28,37)
+    ]
+
+    proposte.push({
+      target: book,
+      azione: agenda.azioni.find(a => liveRegex.test(a)),
+      gruppo: gruppo.map((b,i) => ({
+        book: b,
+        ruolo: i === 0 ? 'Conto da lavorare' : `Amico ${i}`,
+        numeri: blocchi[i],
+        budget: 100,
+        stakeNumeroIndicativo: 100 / blocchi[i].length
+      }))
+    })
+  })
+
+  setLucyLiveProposte(proposte)
+}
+
 async function generaLucySport(agendaItems = []) {
   const sportItems = []
   const sportRegex = /(sport|bet\b|scommess|superquote|doppia|exchange)/i
   const casinoOnlyRegex = /(slot|casin[oò]|blackjack|roulette|numeri)/i
+
   agendaItems.forEach(({ book, agenda }) => {
     const azioniSport = (agenda?.azioni || []).filter(a => sportRegex.test(a) && !casinoOnlyRegex.test(a))
-    if (azioniSport.length) sportItems.push({ book, azione: azioniSport[0] })
+    if (!azioniSport.length) return
+    const azione = azioniSport[0]
+    sportItems.push({
+      book,
+      azione,
+      betRichieste: getNumeroBetRichieste(azione),
+      importoIndicativo: getImportoSportIndicativo(book, azione),
+      quotaMin: getQuotaMinSport(book, azione)
+    })
   })
+
+  generaLucyLive(agendaItems)
 
   if (!sportItems.length) {
     setLucySportProposte([])
@@ -1420,7 +1530,6 @@ async function generaLucySport(agendaItems = []) {
   setLucySportLoading(true)
   setLucySportError('')
   try {
-    // Stesse leghe/endpoint quote usati da PronoX. Per ora PronoX espone h2h + totals 2.5.
     const leghe = [
       ['Serie A','soccer_italy_serie_a'], ['Premier League','soccer_epl'],
       ['Bundesliga','soccer_germany_bundesliga'], ['La Liga','soccer_spain_la_liga'],
@@ -1470,7 +1579,6 @@ async function generaLucySport(agendaItems = []) {
 
     if (!eventi.length) throw new Error('Nessun evento/mercato PronoX disponibile oggi.')
 
-    // Punteggio indicativo: preferisce mercati con copertura completa e payout più uniforme.
     const candidati=[]
     eventi.forEach(ev => ev.mercati.forEach(merc => {
       const inv = merc.esiti.reduce((s,[,q]) => s + (q ? 1/q : 99), 0)
@@ -1479,40 +1587,64 @@ async function generaLucySport(agendaItems = []) {
     }))
     candidati.sort((a,b)=>a.score-b.score)
 
-    const disponibili=[...sportItems]
+    // Ogni conto genera N "slot bet". Quindi Lottomatica 100€ su 3/4 bet compare su 4 partite diverse.
+    const slot = []
+    sportItems.forEach(item => {
+      for (let i=0; i<item.betRichieste; i++) slot.push({ ...item, betNumero:i+1 })
+    })
+
     const proposte=[]
-    let ci=0
-    while (disponibili.length && ci < candidati.length && proposte.length < 8) {
-      const c=candidati[ci++]
-      const nEsiti=c.esiti.length
-      if (disponibili.length < nEsiti) continue
-      // Gruppo: almeno un conto per esito; fino a 2 giri per evitare gruppi enormi.
-      const take=Math.min(disponibili.length, nEsiti*2)
-      const gruppo=disponibili.splice(0,take)
-      const assegnazioni=gruppo.map((x,i)=>({ ...x, esito:c.esiti[i % nEsiti][0], quota:c.esiti[i % nEsiti][1] }))
-      const stakeBase=10
-      const scenari=c.esiti.map(([esito])=>{
-        const vincite=assegnazioni.filter(a=>a.esito===esito).reduce((s,a)=>s+stakeBase*a.quota,0)
-        const giocato=assegnazioni.length*stakeBase
+    const eventiUsatiPerBook = new Map()
+    let giro = 0
+
+    while (slot.length && proposte.length < 20 && giro < candidati.length * 4) {
+      const c = candidati[giro % candidati.length]
+      giro++
+      const nEsiti = c.esiti.length
+
+      // Costruisce un gruppo con conti che non hanno già usato questa partita.
+      const gruppo = []
+      for (let i=0; i<slot.length && gruppo.length<nEsiti*2; i++) {
+        const s = slot[i]
+        const key = s.book.id
+        const eventoKey = `${c.home}|${c.away}`
+        const gia = eventiUsatiPerBook.get(key) || new Set()
+        if (gia.has(eventoKey)) continue
+
+        // Deve esistere almeno un esito che rispetta la quota minima del protocollo.
+        if (!c.esiti.some(([,q]) => q >= s.quotaMin)) continue
+        gruppo.push(s)
+      }
+      if (gruppo.length < nEsiti) continue
+
+      // Rimuove dal pool gli slot scelti.
+      gruppo.forEach(g => {
+        const idx = slot.findIndex(s => s.book.id===g.book.id && s.betNumero===g.betNumero)
+        if (idx >= 0) slot.splice(idx,1)
+      })
+
+      const assegnazioni = gruppo.map((x,i) => {
+        const compatibili = c.esiti.filter(([,q]) => q >= x.quotaMin)
+        const scelta = compatibili[i % compatibili.length]
+        const eventoKey = `${c.home}|${c.away}`
+        if (!eventiUsatiPerBook.has(x.book.id)) eventiUsatiPerBook.set(x.book.id, new Set())
+        eventiUsatiPerBook.get(x.book.id).add(eventoKey)
+        return { ...x, esito:scelta[0], quota:scelta[1], stake:x.importoIndicativo }
+      })
+
+      const scenari = c.esiti.map(([esito]) => {
+        const vincite = assegnazioni.filter(a=>a.esito===esito).reduce((s,a)=>s+a.stake*a.quota,0)
+        const giocato = assegnazioni.reduce((s,a)=>s+a.stake,0)
         return { esito, netto:vincite-giocato }
       })
-      proposte.push({ ...c, assegnazioni, stakeBase, scenari })
+
+      proposte.push({ ...c, assegnazioni, scenari })
     }
-    // Se avanzano conti, li aggancia al miglior evento distribuendoli sugli esiti.
-    if (disponibili.length && proposte.length) {
-      disponibili.forEach((x,i)=>{
-        const p=proposte[i % proposte.length]
-        const [esito,quota]=p.esiti[p.assegnazioni.length % p.esiti.length]
-        p.assegnazioni.push({ ...x, esito, quota })
-      })
-      proposte.forEach(p => {
-        p.scenari=p.esiti.map(([esito])=>{
-          const vincite=p.assegnazioni.filter(a=>a.esito===esito).reduce((s,a)=>s+p.stakeBase*a.quota,0)
-          const giocato=p.assegnazioni.length*p.stakeBase
-          return { esito, netto:vincite-giocato }
-        })
-      })
+
+    if (slot.length) {
+      setLucySportError(`Lucy ha preparato gli incroci possibili, ma restano ${slot.length} bet da collocare senza ripetere la stessa partita sullo stesso conto.`)
     }
+
     setLucySportProposte(proposte)
     setLucySportAggiornato(new Date())
   } catch (e) {
@@ -4156,14 +4288,53 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(210px,1fr))',gap:5}}>
                   {p.assegnazioni.map((a,i)=>(
                     <div key={`${a.book.id}-${i}`} style={{fontSize:11,color:'#cbd5e1',padding:'5px 7px',background:'rgba(15,23,42,.75)',borderRadius:7}}>
-                      <b style={{color:'#e2e8f0'}}>{a.book.nome}</b> · {a.book.intestatario} → <b style={{color:'#4ade80'}}>{a.esito}</b> <span style={{color:'#64748b'}}>@ {a.quota?.toFixed(2)}</span>
+                      <b style={{color:'#e2e8f0'}}>{a.book.nome}</b> · {a.book.intestatario} → <b style={{color:'#4ade80'}}>{a.esito}</b> <span style={{color:'#64748b'}}>@ {a.quota?.toFixed(2)}</span> <span style={{color:'#fbbf24'}}>· Bet {a.betNumero}/{a.betRichieste} · ~{a.stake.toFixed(0)}€</span>
                     </div>
                   ))}
                 </div>
                 <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:8}}>
                   {p.scenari.map(sc=><span key={sc.esito} style={{fontSize:10,padding:'3px 7px',borderRadius:7,background:sc.netto>=0?'rgba(34,197,94,.12)':'rgba(239,68,68,.10)',color:sc.netto>=0?'#4ade80':'#fca5a5'}}>{sc.esito}: {sc.netto>=0?'+':''}{sc.netto.toFixed(2)}€*</span>)}
-                  <span style={{fontSize:10,color:'#64748b',padding:'3px 2px'}}>* simulazione a 10€/conto; gli importi reali li adatti tu</span>
+                  <span style={{fontSize:10,color:'#64748b',padding:'3px 2px'}}>* simulazione con importi indicativi del protocollo; gli importi reali li adatti tu</span>
                 </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+
+      {/* LUCY LIVE — usa anche gli altri conti in Profilazione come copertura/amici */}
+      <div style={{ background:'rgba(76,29,149,0.16)', border:'1px solid rgba(167,139,250,0.35)', borderRadius:16, padding:'14px 16px', marginBottom:16 }}>
+        <div style={{fontSize:14,fontWeight:900,color:'#ede9fe'}}>🎰 Lucy Live — Incroci Casinò</div>
+        <div style={{fontSize:11,color:'#94a3b8',marginTop:2,marginBottom:10}}>
+          Se oggi un conto deve fare Casinò Live, Lucy cerca almeno 3 amici fra gli altri conti in Profilazione, anche se oggi non avevano una lavorazione propria.
+        </div>
+        {lucyLiveProposte.length === 0 ? (
+          <div style={{fontSize:11,color:'#64748b'}}>Premi “PREPARA INCROCI SPORT”: Lucy prepara insieme anche gli eventuali incroci Live di oggi.</div>
+        ) : (
+          <div style={{display:'flex',flexDirection:'column',gap:9}}>
+            {lucyLiveProposte.map((p,idx)=>(
+              <div key={`${p.target.id}-${idx}`} style={{background:'rgba(11,18,32,.82)',border:'1px solid rgba(71,85,105,.8)',borderRadius:12,padding:'10px 12px'}}>
+                <div style={{fontWeight:900,color:'#f8fafc',marginBottom:6}}>
+                  Incrocio Live #{idx+1} — {p.target.nome} · {p.target.intestatario}
+                </div>
+                <div style={{fontSize:10,color:'#a78bfa',marginBottom:8}}>{p.azione}</div>
+                {p.insufficiente ? (
+                  <div style={{fontSize:11,color:'#fbbf24'}}>⚠️ Trovati solo {p.amici.length} amici disponibili: ne servono almeno 3.</div>
+                ) : (
+                  <>
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))',gap:6}}>
+                      {p.gruppo.map((g,i)=>(
+                        <div key={`${g.book.id}-${i}`} style={{background:'rgba(15,23,42,.78)',borderRadius:8,padding:'7px 8px',fontSize:11,color:'#cbd5e1'}}>
+                          <div><b style={{color:i===0?'#4ade80':'#e2e8f0'}}>{g.ruolo}</b> — {g.book.nome} · {g.book.intestatario}</div>
+                          <div style={{marginTop:4,color:'#93c5fd'}}>Numeri: {g.numeri.join(', ')}</div>
+                          <div style={{marginTop:3,color:'#64748b'}}>Budget protocollo: {g.budget}€ · ~{g.stakeNumeroIndicativo.toFixed(2)}€/numero (indicativo)</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{fontSize:10,color:'#64748b',marginTop:7}}>Matrice 0–36 coperta completamente. Prima di giocare puoi adattare puntate/numeri ai limiti reali del tavolo.</div>
+                  </>
+                )}
               </div>
             ))}
           </div>
