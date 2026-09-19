@@ -138,6 +138,7 @@ const [lucySportProposte, setLucySportProposte] = useState([])
 const [lucySportAggiornato, setLucySportAggiornato] = useState(null)
 const [lucyLiveProposte, setLucyLiveProposte] = useState([])
 const [lucySportNonCollocate, setLucySportNonCollocate] = useState([])
+const [lucyTabellaAperta, setLucyTabellaAperta] = useState(false)
 const [lucyStorico, setLucyStorico] = useState(() => {
   try { return JSON.parse(localStorage.getItem('profittracker_lucy_storico') || '[]') } catch { return [] }
 })
@@ -4513,6 +4514,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           <button style={{ ...tinyBlueButton, marginLeft:'auto' }} disabled={lucySportLoading} onClick={() => generaLucySport(agendaOggi)}>
             {lucySportLoading ? '⏳ Lucy sta calcolando…' : '⚽ PREPARA INCROCI SPORT'}
           </button>
+            <button onClick={()=>setLucyTabellaAperta(true)} disabled={!lucySportProposte.length}
+              style={{background:lucySportProposte.length?'#0f766e':'#334155',color:'white',border:0,borderRadius:9,padding:'8px 11px',fontSize:10,fontWeight:900,cursor:lucySportProposte.length?'pointer':'default'}}>
+              📋 TABELLA BET
+            </button>
         </div>
         {lucySportAggiornato && <div style={{fontSize:10,color:'#64748b',marginBottom:8}}>Ultimo calcolo: {lucySportAggiornato.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}</div>}
         {lucySportError && <div style={{ color:'#fbbf24', fontSize:12, padding:'8px 10px', background:'rgba(251,191,36,0.08)', borderRadius:9 }}>{lucySportError}</div>}
@@ -4639,6 +4644,71 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           </div>
         )}
       </div>
+
+      
+      {lucyTabellaAperta && (
+        <div onClick={()=>setLucyTabellaAperta(false)}
+          style={{position:'fixed',inset:0,zIndex:9999,background:'rgba(2,6,23,.82)',display:'flex',alignItems:'center',justifyContent:'center',padding:18}}>
+          <div onClick={e=>e.stopPropagation()}
+            style={{width:'min(1450px,96vw)',maxHeight:'90vh',overflow:'auto',background:'#f8fafc',borderRadius:12,boxShadow:'0 24px 70px rgba(0,0,0,.55)',color:'#111827'}}>
+            <div style={{position:'sticky',top:0,zIndex:2,background:'#e2e8f0',borderBottom:'1px solid #94a3b8',padding:'10px 12px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div>
+                <div style={{fontSize:15,fontWeight:900}}>📋 Lucy Sport — Bet da piazzare</div>
+                <div style={{fontSize:10,color:'#475569'}}>Vista operativa stile Excel · una riga = una puntata</div>
+              </div>
+              <button onClick={()=>setLucyTabellaAperta(false)}
+                style={{background:'#dc2626',color:'white',border:0,borderRadius:7,padding:'7px 11px',fontWeight:900,cursor:'pointer'}}>✕ CHIUDI</button>
+            </div>
+
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+              <thead style={{position:'sticky',top:55,zIndex:1,background:'#cbd5e1'}}>
+                <tr>
+                  {['#','PARTITA','MERCATO','BOOK','INTESTATARIO','TIPO','ESITO','IMPORTO','QUOTA','BET','TARGET/CAP'].map(h=>
+                    <th key={h} style={{border:'1px solid #94a3b8',padding:'7px 6px',textAlign:'left',whiteSpace:'nowrap'}}>{h}</th>
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {lucySportProposte.flatMap((p,pi)=>{
+                  const rows=[
+                    ...(p.assegnazioni||[]).map(a=>({...a,tipoRiga:'PROFILAZIONE'})),
+                    ...(p.extraProfilazione||[]).map(a=>({...a,tipoRiga:'EXTRA PROF.'})),
+                    ...(p.integrazioni||[]).map(a=>({...a,tipoRiga:'MANTENIMENTO'}))
+                  ]
+                  return rows.map((a,ri)=>(
+                    <tr key={`${pi}-${ri}-${a.book.id}`} style={{background:ri%2===0?'#ffffff':'#f1f5f9'}}>
+                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:800}}>{pi+1}</td>
+                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:800,whiteSpace:'nowrap'}}>{p.home} – {p.away}</td>
+                      <td style={{border:'1px solid #cbd5e1',padding:6,whiteSpace:'nowrap'}}>{p.mercato||p.market||''}</td>
+                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:800}}>{a.book.nome}</td>
+                      <td style={{border:'1px solid #cbd5e1',padding:6,whiteSpace:'nowrap'}}>{a.book.intestatario}</td>
+                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:800}}>{a.tipoRiga}</td>
+                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:900}}>{a.esito}</td>
+                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:900,textAlign:'right'}}>{Number(a.stake||0).toFixed(2)} €</td>
+                      <td style={{border:'1px solid #cbd5e1',padding:6,textAlign:'right'}}>{Number(a.quota||0).toFixed(2)}</td>
+                      <td style={{border:'1px solid #cbd5e1',padding:6,whiteSpace:'nowrap'}}>{a.betNumero ? `${a.betNumero}/${a.betRichieste}` : '—'}</td>
+                      <td style={{border:'1px solid #cbd5e1',padding:6,whiteSpace:'nowrap'}}>
+                        {a.capGiornaliero ? `cap ${Number(a.capGiornaliero).toFixed(0)}€` : a.budgetTotale ? `${Number(a.budgetTotale).toFixed(0)}€` : '—'}
+                      </td>
+                    </tr>
+                  ))
+                })}
+              </tbody>
+            </table>
+
+            {lucySportNonCollocate.length>0 && (
+              <div style={{padding:12,background:'#fee2e2',borderTop:'2px solid #ef4444'}}>
+                <div style={{fontWeight:900,color:'#991b1b',marginBottom:6}}>🔴 DA COMPLETARE</div>
+                {lucySportNonCollocate.map((s,i)=>(
+                  <div key={i} style={{fontSize:11,color:'#7f1d1d',margin:'3px 0'}}>
+                    <b>{s.book.nome} · {s.book.intestatario}</b> — Bet {s.betNumero}/{s.betRichieste} — circa {Number(s.stake).toFixed(0)} € — da collocare su un'altra partita.
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* LUCY LIVE — usa anche gli altri conti in Profilazione come copertura/amici */}
       <div style={{ background:'rgba(76,29,149,0.16)', border:'1px solid rgba(167,139,250,0.35)', borderRadius:16, padding:'14px 16px', marginBottom:16 }}>
