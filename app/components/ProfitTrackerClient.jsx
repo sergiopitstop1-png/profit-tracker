@@ -142,6 +142,11 @@ const [lucyTabellaAperta, setLucyTabellaAperta] = useState(false)
 const [lucyLiveTabellaAperta, setLucyLiveTabellaAperta] = useState(false)
 const [lucyCostoMax, setLucyCostoMax] = useState(() => Number(localStorage.getItem('profittracker_lucy_costo_max') || 50))
 const [lucyRinviate, setLucyRinviate] = useState([])
+const [lucyOddsCrediti, setLucyOddsCrediti] = useState(() => {
+  try { return JSON.parse(localStorage.getItem('profittracker_lucy_odds_crediti') || 'null') } catch { return null }
+})
+const [lucyOddsCacheInfo, setLucyOddsCacheInfo] = useState(null)
+const [lucyForzaQuote, setLucyForzaQuote] = useState(false)
 const [lucyConfermate, setLucyConfermate] = useState(() => {
   try { return JSON.parse(localStorage.getItem('profittracker_lucy_confermate') || '[]') } catch { return [] }
 })
@@ -1730,7 +1735,7 @@ function costoPeggioreIncrocioLucy(p) {
   return Math.max(0,-Math.min(...vals))
 }
 
-async function generaLucySport(agendaItems = []) {
+async function generaLucySport(agendaItems = [], forzaQuote = false) {
   const sportItems = []
   const sportRegex = /(sport|bet\b|scommess|superquote|doppia|exchange)/i
   const casinoOnlyRegex = /(slot|casin[oò]|blackjack|roulette|numeri)/i
@@ -1807,7 +1812,18 @@ async function generaLucySport(agendaItems = []) {
 
         let odds=[]
         try {
-          const or=await fetch(`/api/odds?endpoint=sports/${oddsKey}/odds&regions=eu&markets=h2h,totals&dateFormat=iso&oddsFormat=decimal`, {cache:'no-store'})
+          const refreshParam = forzaQuote ? '&refresh=1' : ''
+          const or=await fetch(`/api/odds?endpoint=sports/${oddsKey}/odds&regions=eu&markets=h2h,totals&dateFormat=iso&oddsFormat=decimal${refreshParam}`, {cache:'no-store'})
+          const remaining=or.headers.get('x-odds-remaining')
+          const used=or.headers.get('x-odds-used')
+          const last=or.headers.get('x-odds-last')
+          const cacheStatus=or.headers.get('x-odds-cache')
+          const cacheAge=or.headers.get('x-odds-cache-age')
+          if(remaining!==null || used!==null || last!==null){
+            const info={remaining,used,last,at:new Date().toISOString()}
+            setLucyOddsCrediti(info); try{localStorage.setItem('profittracker_lucy_odds_crediti',JSON.stringify(info))}catch{}
+          }
+          if(cacheStatus) setLucyOddsCacheInfo({status:cacheStatus,age:Number(cacheAge||0),at:new Date()})
           const oj=await or.json()
           if(!or.ok || !Array.isArray(oj)) {
             const msg=oj?.error || oj?.message || `HTTP ${or.status}`
@@ -4684,15 +4700,26 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 ↺ AZZERA CONFERME OGGI
               </button>
             )}
-            <button style={{ ...tinyBlueButton, marginLeft:'auto' }} disabled={lucySportLoading} onClick={() => generaLucySport(agendaOggi)}>
+            <button style={{ ...tinyBlueButton, marginLeft:'auto' }} disabled={lucySportLoading} onClick={() => generaLucySport(agendaOggi, false)}>
             {lucySportLoading ? '⏳ Lucy sta calcolando…' : '⚽ PREPARA INCROCI SPORT'}
           </button>
+            <button disabled={lucySportLoading} onClick={()=>generaLucySport(agendaOggi, true)}
+              title="Ignora la cache di 15 minuti e richiede nuove quote a Odds API: usa nuovi crediti"
+              style={{background:'#7c3aed',color:'white',border:0,borderRadius:9,padding:'8px 11px',fontSize:10,fontWeight:900,cursor:lucySportLoading?'default':'pointer',opacity:lucySportLoading?.6:1}}>
+              🔄 AGGIORNA QUOTE
+            </button>
             <button onClick={()=>setLucyTabellaAperta(true)} disabled={!lucySportProposte.length}
               style={{background:lucySportProposte.length?'#0f766e':'#334155',color:'white',border:0,borderRadius:9,padding:'8px 11px',fontSize:10,fontWeight:900,cursor:lucySportProposte.length?'pointer':'default'}}>
               📋 TABELLA BET
             </button>
         </div>
-        {lucySportAggiornato && <div style={{fontSize:10,color:'#64748b',marginBottom:8}}>Ultimo calcolo: {lucySportAggiornato.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}</div>}
+        {lucySportAggiornato && <div style={{fontSize:10,color:'#64748b',marginBottom:4}}>Ultimo calcolo: {lucySportAggiornato.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}</div>}
+        <div style={{display:'flex',gap:10,flexWrap:'wrap',fontSize:10,color:'#94a3b8',marginBottom:8}}>
+          <span>🧊 Cache quote: 15 min</span>
+          {lucyOddsCacheInfo && <span>{lucyOddsCacheInfo.status==='HIT' ? `✓ cache usata (${Math.floor((lucyOddsCacheInfo.age||0)/60)} min)` : lucyOddsCacheInfo.status==='REFRESH' ? '↻ aggiornamento manuale' : '↻ quote appena scaricate'}</span>}
+          {lucyOddsCrediti?.remaining!=null && <span style={{color:Number(lucyOddsCrediti.remaining)<100?'#fca5a5':'#86efac',fontWeight:800}}>Odds API: {lucyOddsCrediti.remaining} crediti rimasti</span>}
+          {lucyOddsCrediti?.last!=null && <span>ultima chiamata: {lucyOddsCrediti.last} crediti</span>}
+        </div>
         {lucySportError && <div style={{ color:'#fbbf24', fontSize:12, padding:'8px 10px', background:'rgba(251,191,36,0.08)', borderRadius:9 }}>{lucySportError}</div>}
         {lucySportProposte.length > 0 && (
           <div style={{marginTop:9,display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap',
