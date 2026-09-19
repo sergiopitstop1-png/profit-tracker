@@ -1,417 +1,909 @@
-// app/api/therundown/route.js — V22
-// Risolve dinamicamente league -> sport_id dal catalogo TheRundown.
-// API key SOLO server-side: THERUNDOWN_API_KEY.
+// app/api/therundown/route.js
+// V23 DIAGNOSTICA + CONVERSIONE AMERICAN -> DECIMAL
+//
+// Esempi:
+// /api/therundown?league=Premier%20League&date=2026-09-20
+// /api/therundown?league=Serie%20A&date=2026-09-20
+// /api/therundown?league=La%20Liga&date=2026-09-20
+// /api/therundown?catalog=1
+//
+// ENV Vercel:
+// THERUNDOWN_API_KEY
 
 const CACHE_TTL = 15 * 60 * 1000
-const cache = globalThis.__therundownLucyCacheV22 || new Map()
-globalThis.__therundownLucyCacheV22 = cache
-let catalogCache = globalThis.__therundownLucySportsV22 || null
 
-const norm = s => String(s || '')
-  .toLowerCase()
-  .normalize('NFD')
-  .replace(/[\u0300-\u036f]/g,'')
-  .replace(/[^a-z0-9]/g,'')
+const cache =
+  globalThis.__therundownLucyCacheV23 ||
+  new Map()
 
-const ALIASES = {
-  epl: ['epl','englishpremierleague','premierleague'],
-  seriea: ['seriea','italyseriea','italianseriea'],
-  laliga: ['laliga','spainlaliga','spanishlaliga'],
-  bundesliga: ['bundesliga','germanybundesliga','germanbundesliga'],
-  ligue1: ['ligue1','franceligue1','frenchligue1'],
-  championsleague: [
-    'championsleague',
-    'uefachampionsleague',
-    'uefachamp',
-    'ucl'
-  ],
-  worldcup: ['worldcup','fifaworldcup'],
-  atp: ['atp','tennisatp'],
-  wta: ['wta','tenniswta'],
-  mls: ['mls','majorsoccerleague']
+globalThis.__therundownLucyCacheV23 = cache
+
+
+// ---------------------------------------------------------
+// NORMALIZZAZIONE
+// ---------------------------------------------------------
+
+function norm(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "")
 }
 
-function sportText(s) {
-  return norm([
-    s?.name,
-    s?.sport_name,
-    s?.league,
-    s?.abbreviation,
-    s?.code,
-    s?.key,
-    s?.description
-  ].filter(Boolean).join(' '))
-}
 
-function resolveSport(sports, league) {
-  const q = norm(league)
-  if (!q) return null
+// ---------------------------------------------------------
+// AMERICAN -> DECIMAL
+// ---------------------------------------------------------
 
-  const aliases = ALIASES[q] || [q]
+function americanToDecimal(american) {
+  const a = Number(american)
 
-  let hit = sports.find(s =>
-    aliases.includes(norm(s?.name)) ||
-    aliases.includes(norm(s?.abbreviation)) ||
-    aliases.includes(norm(s?.code))
-  )
-
-  if (hit) return hit
-
-  hit = sports.find(s =>
-    aliases.some(a =>
-      sportText(s).includes(a) ||
-      a.includes(sportText(s))
-    )
-  )
-
-  return hit || null
-}
-
-async function getSports(key) {
-  if (
-    catalogCache &&
-    Date.now() - catalogCache.at < 6 * 60 * 60 * 1000
-  ) {
-    return catalogCache.data
+  if (!Number.isFinite(a) || a === 0) {
+    return null
   }
 
-  const r = await fetch(
-    'https://therundown.io/api/v2/sports',
+  let decimal
+
+  if (a > 0) {
+    decimal = 1 + a / 100
+  } else {
+    decimal = 1 + 100 / Math.abs(a)
+  }
+
+  return Number(decimal.toFixed(3))
+}
+
+
+// ---------------------------------------------------------
+// PARSER PREZZO
+// ---------------------------------------------------------
+//
+// IMPORTANTE:
+// TheRundown normalmente espone price come American odds.
+// Se un domani restituisce esplicitamente price_decimal,
+// diamo precedenza a quello.
+//
+// NON consideriamo più 210 come quota decimale 210.
+// 210 American = 3.10 decimale.
+// -115 American = 1.87 decimale.
+// ---------------------------------------------------------
+
+function getDecimalPrice(priceObj) {
+
+  if (!priceObj) return null
+
+  // Campo esplicitamente decimale
+  const explicitDecimal =
+    priceObj.price_decimal ??
+    priceObj.decimal_price ??
+    priceObj.decimal
+
+  if (explicitDecimal !== undefined &&
+      explicitDecimal !== null) {
+
+    const d = Number(explicitDecimal)
+
+    if (Number.isFinite(d) && d > 1) {
+      return Number(d.toFixed(3))
+    }
+  }
+
+  // Campo price TheRundown:
+  // lo trattiamo come AMERICAN ODDS.
+  const american =
+    priceObj.price ??
+    priceObj.american ??
+    priceObj.american_price
+
+  if (american === undefined ||
+      american === null) {
+    return null
+  }
+
+  return americanToDecimal(american)
+}
+
+
+// ---------------------------------------------------------
+// MEDIA QUOTE
+// ---------------------------------------------------------
+
+function average(values) {
+
+  const valid = values.filter(
+    x => Number.isFinite(x) && x > 1
+  )
+
+  if (!valid.length) return null
+
+  const result =
+    valid.reduce((sum, x) => sum + x, 0) /
+    valid.length
+
+  return Number(result.toFixed(2))
+}
+
+
+// ---------------------------------------------------------
+// ALIAS LEGHE
+// ---------------------------------------------------------
+
+const LEAGUE_ALIASES = {
+
+  "premierleague": [
+    "epl",
+    "premierleague",
+    "englishpremierleague"
+  ],
+
+  "epl": [
+    "epl",
+    "premierleague",
+    "englishpremierleague"
+  ],
+
+  "seriea": [
+    "seriea",
+    "italianseriea",
+    "italyseriea"
+  ],
+
+  "laliga": [
+    "laliga",
+    "spanishlaliga",
+    "spainlaliga"
+  ],
+
+  "bundesliga": [
+    "bundesliga",
+    "germanbundesliga",
+    "germanybundesliga"
+  ],
+
+  "ligue1": [
+    "ligue1",
+    "frenchligue1",
+    "franceligue1"
+  ],
+
+  "championsleague": [
+    "championsleague",
+    "uefachampionsleague",
+    "uefachamp",
+    "ucl"
+  ],
+
+  "atp": [
+    "atp",
+    "tennisatp"
+  ],
+
+  "wta": [
+    "wta",
+    "tenniswta"
+  ],
+
+  "mls": [
+    "mls",
+    "majorsoccerleague"
+  ],
+
+  "worldcup": [
+    "worldcup",
+    "fifaworldcup"
+  ]
+}
+
+
+// ---------------------------------------------------------
+// TESTO SPORT
+// ---------------------------------------------------------
+
+function sportText(sport) {
+
+  return norm([
+    sport?.name,
+    sport?.sport_name,
+    sport?.league,
+    sport?.abbreviation,
+    sport?.code,
+    sport?.key,
+    sport?.description
+  ]
+    .filter(Boolean)
+    .join(" "))
+}
+
+
+// ---------------------------------------------------------
+// TROVA SPORT NEL CATALOGO
+// ---------------------------------------------------------
+
+function resolveSport(sports, league) {
+
+  const requested = norm(league)
+
+  if (!requested) return null
+
+  const aliases =
+    LEAGUE_ALIASES[requested] ||
+    [requested]
+
+  // Prima match esatto
+  let found = sports.find(sport => {
+
+    const candidates = [
+      norm(sport?.name),
+      norm(sport?.sport_name),
+      norm(sport?.abbreviation),
+      norm(sport?.code),
+      norm(sport?.key)
+    ]
+
+    return candidates.some(
+      c => aliases.includes(c)
+    )
+  })
+
+  if (found) return found
+
+
+  // Poi match parziale
+  found = sports.find(sport => {
+
+    const txt = sportText(sport)
+
+    return aliases.some(alias =>
+      txt.includes(alias) ||
+      alias.includes(txt)
+    )
+  })
+
+  return found || null
+}
+
+
+// ---------------------------------------------------------
+// CATALOGO SPORTS
+// ---------------------------------------------------------
+
+async function fetchSports(apiKey) {
+
+  const response = await fetch(
+    "https://therundown.io/api/v2/sports",
     {
       headers: {
-        'X-TheRundown-Key': key
+        "X-TheRundown-Key": apiKey
       },
-      cache: 'no-store'
+      cache: "no-store"
     }
   )
 
-  const j = await r.json().catch(() => null)
+  const json =
+    await response.json().catch(() => null)
 
-  if (!r.ok) {
+  if (!response.ok) {
+
     throw new Error(
-      j?.message ||
-      j?.error ||
-      `Catalogo TheRundown HTTP ${r.status}`
+      json?.message ||
+      json?.error ||
+      `Catalogo TheRundown HTTP ${response.status}`
     )
   }
 
-  const data = Array.isArray(j)
-    ? j
-    : (j?.sports || [])
-
-  catalogCache = {
-    at: Date.now(),
-    data
+  if (Array.isArray(json)) {
+    return json
   }
 
-  globalThis.__therundownLucySportsV22 = catalogCache
+  if (Array.isArray(json?.sports)) {
+    return json.sports
+  }
 
-  return data
+  return []
 }
 
-function decimalPrice(x) {
-  const v = Number(
-    x?.price_decimal ??
-    x?.decimal ??
-    x?.decimal_price ??
-    x?.price
-  )
 
-  if (!Number.isFinite(v)) return null
+// ---------------------------------------------------------
+// NOME PARTECIPANTE
+// ---------------------------------------------------------
 
-  // Se arriva American odds, non lo trasformiamo alla cieca.
-  return v > 1 ? v : null
-}
+function participantName(participant) {
 
-function participantName(p) {
   return (
-    p?.name ||
-    p?.participant_name ||
-    p?.label ||
-    p?.value ||
-    ''
+    participant?.name ||
+    participant?.participant_name ||
+    participant?.label ||
+    participant?.value ||
+    ""
   )
 }
+
+
+// ---------------------------------------------------------
+// ESTRAZIONE PRICE ROWS
+// ---------------------------------------------------------
 
 function collectPrices(market) {
-  const out = []
 
-  for (const p of (market?.participants || [])) {
-    const pname = participantName(p)
+  const result = []
 
-    const lines = Array.isArray(p?.lines)
-      ? p.lines
-      : Object.values(p?.lines || {})
+  if (!market) return result
 
-    for (const line of lines) {
-      const prices = Array.isArray(line?.prices)
-        ? line.prices
-        : Object.values(line?.prices || {})
+  const participants =
+    Array.isArray(market?.participants)
+      ? market.participants
+      : []
 
-      for (const pr of prices) {
-        const dec = decimalPrice(pr)
+  for (const participant of participants) {
 
-        if (dec) {
-          out.push({
-            participant: pname,
-            line: Number(
-              line?.value ??
-              line?.line ??
-              market?.line ??
-              NaN
-            ),
-            price: dec,
-            affiliate: pr?.affiliate_id
-          })
-        }
+    const pName =
+      participantName(participant)
+
+    let lines = []
+
+    if (Array.isArray(participant?.lines)) {
+      lines = participant.lines
+    } else if (
+      participant?.lines &&
+      typeof participant.lines === "object"
+    ) {
+      lines = Object.values(participant.lines)
+    }
+
+
+    // Alcuni payload possono avere prices
+    // direttamente nel participant.
+    if (!lines.length && participant?.prices) {
+
+      lines = [{
+        value:
+          participant?.line ??
+          market?.line,
+
+        prices:
+          participant.prices
+      }]
+    }
+
+
+    for (const lineObj of lines) {
+
+      let prices = []
+
+      if (Array.isArray(lineObj?.prices)) {
+        prices = lineObj.prices
+      } else if (
+        lineObj?.prices &&
+        typeof lineObj.prices === "object"
+      ) {
+        prices = Object.values(lineObj.prices)
+      }
+
+
+      for (const priceObj of prices) {
+
+        const decimal =
+          getDecimalPrice(priceObj)
+
+        if (!decimal) continue
+
+        const rawLine =
+          lineObj?.value ??
+          lineObj?.line ??
+          participant?.line ??
+          market?.line
+
+        const line =
+          rawLine === undefined ||
+          rawLine === null ||
+          rawLine === ""
+            ? null
+            : Number(rawLine)
+
+        result.push({
+
+          participant: pName,
+
+          line:
+            Number.isFinite(line)
+              ? line
+              : null,
+
+          decimal,
+
+          american:
+            priceObj?.price ??
+            priceObj?.american ??
+            priceObj?.american_price ??
+            null,
+
+          affiliate_id:
+            priceObj?.affiliate_id ??
+            lineObj?.affiliate_id ??
+            null
+        })
       }
     }
   }
 
-  return out
+  return result
 }
 
-function avg(vals) {
-  const a = vals.filter(
-    v => Number.isFinite(v) && v > 1
-  )
 
-  return a.length
-    ? a.reduce((s, v) => s + v, 0) / a.length
-    : null
+// ---------------------------------------------------------
+// TROVA TEAM HOME/AWAY
+// ---------------------------------------------------------
+
+function getTeams(event) {
+
+  const teams =
+    Array.isArray(event?.teams)
+      ? event.teams
+      : (
+          Array.isArray(event?.participants)
+            ? event.participants
+            : []
+        )
+
+  let home =
+    teams.find(t =>
+      t?.is_home === true ||
+      t?.home_away === "home" ||
+      t?.side === "home"
+    )
+
+  let away =
+    teams.find(t =>
+      t?.is_away === true ||
+      t?.home_away === "away" ||
+      t?.side === "away"
+    )
+
+  if (!home) home = teams[0]
+  if (!away) away = teams[1]
+
+  return {
+    home,
+    away
+  }
 }
 
-function parseEvent(ev) {
-  const teams = ev?.teams || ev?.participants || []
 
-  const home =
-    teams.find(t =>
-      t?.is_home ||
-      t?.home_away === 'home' ||
-      t?.side === 'home'
-    ) || teams[0]
+// ---------------------------------------------------------
+// PARSE EVENTO
+// ---------------------------------------------------------
 
-  const away =
-    teams.find(t =>
-      t?.is_away ||
-      t?.home_away === 'away' ||
-      t?.side === 'away'
-    ) || teams[1]
+function parseEvent(event) {
+
+  const { home, away } =
+    getTeams(event)
 
   const casa =
     home?.name ||
     home?.team_name ||
-    ''
+    ""
 
   const trasferta =
     away?.name ||
     away?.team_name ||
-    ''
+    ""
 
   const markets =
-    ev?.markets ||
-    ev?.lines ||
-    []
-
-  const m1 = markets.find(m =>
-    Number(m?.market_id ?? m?.id) === 1 ||
-    norm(m?.name) === 'moneyline'
-  )
-
-  const mt = markets.find(m =>
-    Number(m?.market_id ?? m?.id) === 3 ||
-    norm(m?.name) === 'totals'
-  )
-
-  const p1 = collectPrices(m1 || {})
-  const pt = collectPrices(mt || {})
-
-  const hnorm = norm(casa)
-  const anorm = norm(trasferta)
-
-  const qh = avg(
-    p1
-      .filter(x =>
-        norm(x.participant) === hnorm ||
-        norm(x.participant).includes(hnorm) ||
-        hnorm.includes(norm(x.participant))
-      )
-      .map(x => x.price)
-  )
-
-  const qa = avg(
-    p1
-      .filter(x =>
-        norm(x.participant) === anorm ||
-        norm(x.participant).includes(anorm) ||
-        anorm.includes(norm(x.participant))
-      )
-      .map(x => x.price)
-  )
-
-  const qx = avg(
-    p1
-      .filter(x =>
-        ['draw', 'tie', 'x'].includes(
-          norm(x.participant)
+    Array.isArray(event?.markets)
+      ? event.markets
+      : (
+          Array.isArray(event?.lines)
+            ? event.lines
+            : []
         )
-      )
-      .map(x => x.price)
-  )
 
-  const lines = [
+
+  // MONEYLINE
+  const moneyline =
+    markets.find(m =>
+      Number(
+        m?.market_id ??
+        m?.id
+      ) === 1
+    ) ||
+    markets.find(m =>
+      norm(m?.name) === "moneyline"
+    )
+
+
+  // TOTALS
+  const totals =
+    markets.find(m =>
+      Number(
+        m?.market_id ??
+        m?.id
+      ) === 3
+    ) ||
+    markets.find(m =>
+      ["totals", "total"].includes(
+        norm(m?.name)
+      )
+    )
+
+
+  const mlPrices =
+    collectPrices(moneyline)
+
+  const totalPrices =
+    collectPrices(totals)
+
+  const homeNorm =
+    norm(casa)
+
+  const awayNorm =
+    norm(trasferta)
+
+
+  // HOME
+  const homeOdds =
+    average(
+      mlPrices
+        .filter(x => {
+
+          const p =
+            norm(x.participant)
+
+          return (
+            p === homeNorm ||
+            p.includes(homeNorm) ||
+            homeNorm.includes(p) ||
+            p === "home"
+          )
+        })
+        .map(x => x.decimal)
+    )
+
+
+  // AWAY
+  const awayOdds =
+    average(
+      mlPrices
+        .filter(x => {
+
+          const p =
+            norm(x.participant)
+
+          return (
+            p === awayNorm ||
+            p.includes(awayNorm) ||
+            awayNorm.includes(p) ||
+            p === "away"
+          )
+        })
+        .map(x => x.decimal)
+    )
+
+
+  // DRAW
+  const drawOdds =
+    average(
+      mlPrices
+        .filter(x => {
+
+          const p =
+            norm(x.participant)
+
+          return (
+            p === "draw" ||
+            p === "tie" ||
+            p === "x"
+          )
+        })
+        .map(x => x.decimal)
+    )
+
+
+  // -------------------------------------------------------
+  // TOTALS
+  // -------------------------------------------------------
+
+  const availableLines = [
     ...new Set(
-      pt
+      totalPrices
         .map(x => x.line)
-        .filter(Number.isFinite)
+        .filter(x => Number.isFinite(x))
     )
   ]
 
-  const over_under = lines
-    .map(line => ({
-      linea: line,
 
-      over: avg(
-        pt
-          .filter(x =>
-            x.line === line &&
-            norm(x.participant).includes('over')
-          )
-          .map(x => x.price)
-      ),
+  const overUnder =
+    availableLines
+      .map(line => {
 
-      under: avg(
-        pt
-          .filter(x =>
-            x.line === line &&
-            norm(x.participant).includes('under')
+        const over =
+          average(
+            totalPrices
+              .filter(x =>
+                x.line === line &&
+                norm(x.participant)
+                  .includes("over")
+              )
+              .map(x => x.decimal)
           )
-          .map(x => x.price)
+
+        const under =
+          average(
+            totalPrices
+              .filter(x =>
+                x.line === line &&
+                norm(x.participant)
+                  .includes("under")
+              )
+              .map(x => x.decimal)
+          )
+
+        return {
+          linea: line,
+          over,
+          under
+        }
+      })
+      .filter(x =>
+        x.over &&
+        x.under
       )
-    }))
-    .filter(x => x.over && x.under)
+
 
   return {
+
     event_id:
-      ev?.event_id ||
-      ev?.id,
+      event?.event_id ??
+      event?.id ??
+      null,
 
     sport_id:
-      ev?.sport_id,
+      event?.sport_id ??
+      null,
 
     data:
-      ev?.event_date ||
-      ev?.start_time ||
-      ev?.commence_time ||
-      ev?.scheduled,
+      event?.event_date ??
+      event?.start_time ??
+      event?.commence_time ??
+      event?.scheduled ??
+      null,
 
     casa,
     trasferta,
 
     quote: {
+
       esito_1x2: {
-        '1': qh,
-        X: qx,
-        '2': qa
+        "1": homeOdds,
+        "X": drawOdds,
+        "2": awayOdds
       },
 
-      over_under
+      over_under:
+        overUnder
+    },
+
+
+    // Diagnostica temporanea
+    debug: {
+
+      numero_mercati:
+        markets.length,
+
+      moneyline_rows:
+        mlPrices.length,
+
+      totals_rows:
+        totalPrices.length,
+
+      moneyline_raw:
+        mlPrices,
+
+      totals_raw:
+        totalPrices
     }
   }
 }
 
-export async function GET(request) {
-  const { searchParams } = new URL(request.url)
 
-  const key =
+// ---------------------------------------------------------
+// GET
+// ---------------------------------------------------------
+
+export async function GET(request) {
+
+  const {
+    searchParams
+  } = new URL(request.url)
+
+
+  const apiKey =
     process.env.THERUNDOWN_API_KEY
 
-  if (!key) {
+
+  if (!apiKey) {
+
     return Response.json(
       {
         ok: false,
         error:
-          'THERUNDOWN_API_KEY mancante su Vercel'
+          "THERUNDOWN_API_KEY mancante su Vercel"
       },
-      { status: 500 }
+      {
+        status: 500
+      }
     )
   }
 
+
   const date =
-    searchParams.get('date') ||
-    new Date().toISOString().slice(0, 10)
+    searchParams.get("date") ||
+    new Date()
+      .toISOString()
+      .slice(0, 10)
+
 
   const league =
-    searchParams.get('league')
+    searchParams.get("league")
 
-  let sportId =
-    Number(searchParams.get('sport_id')) ||
-    null
+
+  const requestedSportId =
+    searchParams.get("sport_id")
+
+
+  const catalogMode =
+    searchParams.get("catalog") === "1"
+
 
   const force =
-    searchParams.get('force') === '1'
+    searchParams.get("force") === "1"
+
 
   try {
-    let sport = null
 
-    // Se ProfitTracker non passa sport_id,
-    // cerchiamo automaticamente la lega
-    // nel catalogo TheRundown.
-    if (!sportId) {
-      const sports =
-        await getSports(key)
+    // -----------------------------------------------------
+    // CARICA CATALOGO
+    // -----------------------------------------------------
 
-      sport =
-        resolveSport(sports, league)
+    const sports =
+      await fetchSports(apiKey)
 
-      if (!sport) {
-        return Response.json(
-          {
-            ok: false,
 
-            error:
-              `Lega non trovata nel catalogo TheRundown: ${league}`,
+    // -----------------------------------------------------
+    // SOLO CATALOGO
+    // -----------------------------------------------------
 
-            available: sports
-              .map(s => ({
-                id:
-                  s.id ||
-                  s.sport_id,
+    if (catalogMode) {
 
-                name:
-                  s.name ||
-                  s.sport_name,
+      return Response.json({
 
-                code:
-                  s.code ||
-                  s.abbreviation
-              }))
-              .slice(0, 50)
-          },
-          { status: 404 }
-        )
-      }
+        ok: true,
 
-      sportId =
-        Number(
-          sport.id ??
-          sport.sport_id
-        )
+        numero_sport:
+          sports.length,
+
+        sports:
+          sports.map(s => ({
+
+            id:
+              s?.sport_id ??
+              s?.id ??
+              null,
+
+            name:
+              s?.name ??
+              s?.sport_name ??
+              null,
+
+            abbreviation:
+              s?.abbreviation ??
+              s?.code ??
+              null,
+
+            raw:
+              s
+          }))
+      })
     }
 
-    const ck =
+
+    // -----------------------------------------------------
+    // RISOLVI SPORT
+    // -----------------------------------------------------
+
+    let sportId = null
+    let resolvedSport = null
+
+
+    if (requestedSportId) {
+
+      sportId =
+        Number(requestedSportId)
+
+      resolvedSport =
+        sports.find(s =>
+          Number(
+            s?.sport_id ??
+            s?.id
+          ) === sportId
+        ) || null
+
+    } else {
+
+      resolvedSport =
+        resolveSport(
+          sports,
+          league
+        )
+
+      if (resolvedSport) {
+
+        sportId =
+          Number(
+            resolvedSport?.sport_id ??
+            resolvedSport?.id
+          )
+      }
+    }
+
+
+    if (!sportId) {
+
+      return Response.json(
+        {
+
+          ok: false,
+
+          error:
+            `Campionato non trovato nel catalogo TheRundown: ${league || "nessuno"}`,
+
+          richiesta: {
+            league,
+            date
+          },
+
+          catalogo:
+            sports.map(s => ({
+              id:
+                s?.sport_id ??
+                s?.id,
+
+              name:
+                s?.name ??
+                s?.sport_name,
+
+              abbreviation:
+                s?.abbreviation ??
+                s?.code
+            }))
+        },
+        {
+          status: 404
+        }
+      )
+    }
+
+
+    // -----------------------------------------------------
+    // CACHE
+    // -----------------------------------------------------
+
+    const cacheKey =
       `${sportId}|${date}`
 
+
     const cached =
-      cache.get(ck)
+      cache.get(cacheKey)
+
 
     if (
       !force &&
       cached &&
-      Date.now() - cached.at < CACHE_TTL
+      Date.now() - cached.time < CACHE_TTL
     ) {
+
       return Response.json({
-        ...cached.body,
+        ...cached.data,
 
         cache: {
           hit: true,
@@ -420,130 +912,219 @@ export async function GET(request) {
       })
     }
 
-    // Solo Moneyline + Totals.
-    // main_line evita di scaricare tutte
-    // le linee alternative inutilmente.
-    const url =
+
+    // -----------------------------------------------------
+    // THE RUNDOWN
+    // -----------------------------------------------------
+    //
+    // SOLO:
+    // 1 = MONEYLINE
+    // 3 = TOTALS
+    //
+    // main_line=true
+    // hide_closed=true
+    // -----------------------------------------------------
+
+    const apiUrl =
       `https://therundown.io/api/v2/sports/${sportId}/events/${date}` +
       `?market_ids=1,3&main_line=true&hide_closed=true`
 
-    const r = await fetch(
-      url,
-      {
-        headers: {
-          'X-TheRundown-Key': key
-        },
-        cache: 'no-store'
-      }
-    )
 
-    const j =
-      await r.json().catch(() => null)
+    const response =
+      await fetch(
+        apiUrl,
+        {
+          headers: {
+            "X-TheRundown-Key":
+              apiKey
+          },
 
-    if (!r.ok) {
+          cache: "no-store"
+        }
+      )
+
+
+    const json =
+      await response
+        .json()
+        .catch(() => null)
+
+
+    if (!response.ok) {
+
       return Response.json(
         {
+
           ok: false,
 
           error:
-            j?.message ||
-            j?.error ||
-            `TheRundown HTTP ${r.status}`,
+            json?.message ||
+            json?.error ||
+            `TheRundown HTTP ${response.status}`,
 
-          sport_id: sportId,
-          league
+          sport_id:
+            sportId,
+
+          league,
+
+          url_chiamata:
+            apiUrl,
+
+          upstream_status:
+            response.status
         },
         {
-          status: r.status
+          status:
+            response.status
         }
       )
     }
 
+
     const events =
-      Array.isArray(j?.events)
-        ? j.events
+      Array.isArray(json?.events)
+        ? json.events
         : (
-            Array.isArray(j)
-              ? j
+            Array.isArray(json)
+              ? json
               : []
           )
 
+
+    const parsed =
+      events.map(parseEvent)
+
+
+    // -----------------------------------------------------
+    // RISPOSTA
+    // -----------------------------------------------------
+
     const body = {
+
       ok: true,
 
       provider:
-        'TheRundown',
+        "TheRundown",
 
-      sport_id:
-        sportId,
+      versione:
+        "V23-diagnostic",
 
-      league:
-        league ||
-        sport?.name ||
-        null,
+      richiesta: {
+        league,
+        date,
+        sport_id:
+          requestedSportId || null
+      },
+
+      sport_risolto: {
+
+        sport_id:
+          sportId,
+
+        name:
+          resolvedSport?.name ??
+          resolvedSport?.sport_name ??
+          null,
+
+        abbreviation:
+          resolvedSport?.abbreviation ??
+          resolvedSport?.code ??
+          null
+      },
 
       data:
         date,
 
-      numero_partite:
+      eventi_trovati:
         events.length,
 
+      eventi_con_1x2:
+        parsed.filter(p =>
+          p?.quote?.esito_1x2?.["1"] &&
+          p?.quote?.esito_1x2?.["2"]
+        ).length,
+
+      eventi_con_totals:
+        parsed.filter(p =>
+          p?.quote?.over_under?.length
+        ).length,
+
       partite:
-        events.map(parseEvent),
+        parsed,
 
       quota_api: {
+
         usati:
-          r.headers.get('x-datapoints-used') ||
-          r.headers.get('x-datapoints'),
+          response.headers.get(
+            "x-datapoints"
+          ) ||
+          response.headers.get(
+            "x-datapoints-used"
+          ),
 
         remaining:
-          r.headers.get('x-datapoints-remaining'),
+          response.headers.get(
+            "x-datapoints-remaining"
+          ),
 
         limit:
-          r.headers.get('x-datapoints-limit'),
+          response.headers.get(
+            "x-datapoints-limit"
+          ),
 
         monthly_remaining:
-          r.headers.get(
-            'x-datapoints-monthly-remaining'
+          response.headers.get(
+            "x-datapoints-monthly-remaining"
           ),
 
         delay_seconds:
-          r.headers.get(
-            'x-data-delay-seconds'
+          response.headers.get(
+            "x-data-delay-seconds"
           )
       },
-
-      aggiornato_il:
-        new Date().toISOString(),
 
       cache: {
         hit: false,
         minuti: 15
-      }
+      },
+
+      aggiornato_il:
+        new Date().toISOString()
     }
 
+
     cache.set(
-      ck,
+      cacheKey,
       {
-        at: Date.now(),
-        body
+        time:
+          Date.now(),
+
+        data:
+          body
       }
     )
 
+
     return Response.json(body)
 
-  } catch (e) {
+  } catch (error) {
+
     return Response.json(
       {
+
         ok: false,
 
-        error:
-          e?.message ||
-          'Errore TheRundown',
+        versione:
+          "V23-diagnostic",
 
-        league,
-        sport_id:
-          sportId
+        error:
+          error?.message ||
+          "Errore sconosciuto TheRundown",
+
+        richiesta: {
+          league,
+          date
+        }
       },
       {
         status: 502
