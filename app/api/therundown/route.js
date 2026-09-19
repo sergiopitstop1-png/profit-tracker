@@ -11,47 +11,72 @@ export async function GET() {
       );
     }
 
-    // Aston Villa - Tottenham trovato dal test precedente
-    const eventId = "f19d35f3ce0ce4fd80a928fc1cfe06c8";
+    const oggi = new Date().toISOString().slice(0, 10);
 
-    const url =
-      `https://therundown.io/api/v2/events/${eventId}` +
-      `?market_ids=1` +
-      `&main_line=true` +
-      `&hide_closed=true`;
+    // 1. Prendiamo gli eventi EPL di oggi
+    const eventiRes = await fetch(
+      `https://therundown.io/api/v2/sports/11/events/${oggi}`,
+      {
+        headers: {
+          "X-TheRundown-Key": apiKey,
+        },
+        cache: "no-store",
+      }
+    );
 
-    const res = await fetch(url, {
-      headers: {
-        "X-TheRundown-Key": apiKey,
-      },
-      cache: "no-store",
-    });
+    const eventiData = await eventiRes.json();
+    const eventi = eventiData?.events || [];
 
-    const text = await res.text();
+    // Cerchiamo una partita non terminata
+    const evento =
+      eventi.find(
+        e =>
+          e.event_status !== "STATUS_FULL_TIME" &&
+          new Date(e.event_date).getTime() > Date.now()
+      ) ||
+      eventi.find(e => e.event_status !== "STATUS_FULL_TIME");
 
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = text;
+    if (!evento) {
+      return Response.json({
+        ok: false,
+        message: "Nessuna partita EPL futura/non terminata trovata oggi",
+        eventi_trovati: eventi.length
+      });
     }
 
+    // 2. Interroghiamo quella partita per Moneyline
+    const quoteRes = await fetch(
+      `https://therundown.io/api/v2/events/${evento.event_id}?market_ids=1&main_line=true&hide_closed=true`,
+      {
+        headers: {
+          "X-TheRundown-Key": apiKey,
+        },
+        cache: "no-store",
+      }
+    );
+
+    const quoteData = await quoteRes.json();
+
     return Response.json({
-      ok: res.ok,
-      status: res.status,
+      ok: quoteRes.ok,
 
-      test: "SINGOLO EVENTO - MONEYLINE SENZA FILTRO BOOK",
-
-      event_id: eventId,
-
-      quota: {
-        usati: res.headers.get("x-datapoints"),
-        remaining: res.headers.get("x-datapoints-remaining"),
-        limit: res.headers.get("x-datapoints-limit"),
-        delay_seconds: res.headers.get("x-data-delay-seconds")
+      partita_scelta: {
+        event_id: evento.event_id,
+        data: evento.event_date,
+        stato: evento.event_status,
+        squadre: evento.teams?.map(t => t.name)
       },
 
-      risposta: data
+      numero_mercati: quoteData?.markets?.length || 0,
+
+      markets: quoteData?.markets || [],
+
+      quota: {
+        usati: quoteRes.headers.get("x-datapoints"),
+        remaining: quoteRes.headers.get("x-datapoints-remaining"),
+        limit: quoteRes.headers.get("x-datapoints-limit"),
+        delay_seconds: quoteRes.headers.get("x-data-delay-seconds")
+      }
     });
 
   } catch (error) {
