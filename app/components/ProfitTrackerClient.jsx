@@ -1725,36 +1725,66 @@ async function generaLucySport(agendaItems = []) {
         return { ...x, esito:scelta[0], quota:scelta[1], stake:x.importoIndicativo }
       })
 
-      // Integra gli esiti più scoperti con piccoli stake da conti in Mantenimento.
+      // INTEGRAZIONE PROGRESSIVA:
+      // 1) il mantenimento copre il residuo a blocchi da max 10€ (es. 27 = 10+10+7);
+      // 2) fino a 30€ Lucy può usare più conti di mantenimento;
+      // 3) oltre 30€ NON crea una lunga catena: assegna il residuo come puntata EXTRA
+      //    a un conto già in Profilazione, anche se così supera il target giornaliero.
       const ritorniBase = c.esiti.map(([esito,quota]) => ({
         esito, quota,
         ritorno: assegnazioni.filter(a=>a.esito===esito).reduce((s,a)=>s+a.stake*a.quota,0)
       }))
       const targetRitorno = Math.max(...ritorniBase.map(r=>r.ritorno))
       const integrazioni=[]
+      const extraProfilazione=[]
       const contiProfilo = new Set(assegnazioni.map(a=>a.book.id))
+
       ritorniBase.forEach(r=>{
         let necessario=Math.max(0,(targetRitorno-r.ritorno)/r.quota)
-        while(necessario>=2){
-          const candidato=poolMantenimento.find(b=>{
-            const k=`${b.id}|${c.home}|${c.away}`
-            return !contiProfilo.has(b.id) && !usoMant.has(k)
-          })
-          if(!candidato) break
-          const stakeMant=Math.min(15,Math.max(5,Math.round(Math.min(necessario,10))))
-          integrazioni.push({book:candidato,esito:r.esito,quota:r.quota,stake:stakeMant,giaInAgenda:idsMantOggi.has(candidato.id)})
-          usoMant.add(`${candidato.id}|${c.home}|${c.away}`)
-          necessario-=stakeMant
+        if(necessario < 2) return
+
+        if(necessario <= 30){
+          // Esempio 27€ -> 10 + 10 + 7 su tre conti distinti di mantenimento.
+          while(necessario >= 2){
+            const candidato=poolMantenimento.find(b=>{
+              const k=`${b.id}|${c.home}|${c.away}`
+              return !contiProfilo.has(b.id) && !usoMant.has(k)
+            })
+            if(!candidato) break
+            const stakeMant = necessario > 10 ? 10 : Math.max(2,Math.round(necessario))
+            integrazioni.push({
+              book:candidato,esito:r.esito,quota:r.quota,stake:stakeMant,
+              giaInAgenda:idsMantOggi.has(candidato.id)
+            })
+            usoMant.add(`${candidato.id}|${c.home}|${c.away}`)
+            necessario-=stakeMant
+          }
+        } else {
+          // Buco >30€: una sola puntata extra di Profilazione, invece di 4+ mantenimenti.
+          // Deve essere un conto di profilazione che NON è già stato usato su questa partita,
+          // così resta valida la regola "un conto = un solo esito per evento".
+          const candidatoExtra = sportItems
+            .map(x=>x.book)
+            .find(b => !contiProfilo.has(b.id))
+          if(candidatoExtra){
+            extraProfilazione.push({
+              book:candidatoExtra,esito:r.esito,quota:r.quota,
+              stake:Math.round(necessario),extra:true
+            })
+            contiProfilo.add(candidatoExtra.id)
+          }
         }
       })
-      const giocato=assegnazioni.reduce((s,a)=>s+a.stake,0)+integrazioni.reduce((s,a)=>s+a.stake,0)
+
+      const giocato=assegnazioni.reduce((s,a)=>s+a.stake,0)+integrazioni.reduce((s,a)=>s+a.stake,0)+extraProfilazione.reduce((s,a)=>s+a.stake,0)
       const scenari=c.esiti.map(([esito])=>{
         const vp=assegnazioni.filter(a=>a.esito===esito).reduce((s,a)=>s+a.stake*a.quota,0)
         const vm=integrazioni.filter(a=>a.esito===esito).reduce((s,a)=>s+a.stake*a.quota,0)
-        return {esito,netto:vp+vm-giocato}
+        const vx=extraProfilazione.filter(a=>a.esito===esito).reduce((s,a)=>s+a.stake*a.quota,0)
+        return {esito,netto:vp+vm+vx-giocato}
       })
 
-      proposte.push({ ...c, assegnazioni, integrazioni, scenari })
+      proposte.push({ ...c, assegnazioni, integrazioni, extraProfilazione, scenari })
     }
 
     setLucySportNonCollocate(slot.map(s => ({
@@ -4412,9 +4442,21 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                     </div>
                   ))}
                 </div>
+                {p.extraProfilazione?.length > 0 && (
+                  <div style={{marginTop:7,padding:'7px 8px',borderRadius:8,background:'rgba(59,130,246,.08)',border:'1px solid rgba(59,130,246,.25)'}}>
+                    <div style={{fontSize:10,fontWeight:900,color:'#93c5fd',marginBottom:4}}>🔵 EXTRA PROFILAZIONE — SUPERAMENTO TARGET</div>
+                    <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                      {p.extraProfilazione.map((a,i)=>(
+                        <span key={`${a.book.id}-${a.esito}-${i}`} style={{fontSize:10,color:'#bfdbfe',background:'rgba(15,23,42,.8)',padding:'4px 6px',borderRadius:6}}>
+                          {a.book.nome} · {a.book.intestatario} → <b>{a.esito}</b> {a.stake.toFixed(0)}€ @ {a.quota?.toFixed(2)} · EXTRA
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {p.integrazioni?.length > 0 && (
                   <div style={{marginTop:7,padding:'7px 8px',borderRadius:8,background:'rgba(245,158,11,.08)',border:'1px solid rgba(245,158,11,.22)'}}>
-                    <div style={{fontSize:10,fontWeight:900,color:'#fbbf24',marginBottom:4}}>🟡 INTEGRAZIONI DA MANTENIMENTO</div>
+                    <div style={{fontSize:10,fontWeight:900,color:'#fbbf24',marginBottom:4}}>🟡 INTEGRAZIONE DA MANTENIMENTO</div>
                     <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
                       {p.integrazioni.map((a,i)=>(
                         <span key={`${a.book.id}-${a.esito}-${i}`} style={{fontSize:10,color:'#fde68a',background:'rgba(15,23,42,.8)',padding:'4px 6px',borderRadius:6}}>
@@ -4426,7 +4468,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 )}
                 <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:8}}>
                   {p.scenari.map(sc=><span key={sc.esito} style={{fontSize:10,padding:'3px 7px',borderRadius:7,background:sc.netto>=0?'rgba(34,197,94,.12)':'rgba(239,68,68,.10)',color:sc.netto>=0?'#4ade80':'#fca5a5'}}>{sc.esito}: {sc.netto>=0?'+':''}{sc.netto.toFixed(2)}€*</span>)}
-                  <span style={{fontSize:10,color:'#64748b',padding:'3px 2px'}}>* budget giornaliero variabile e indipendente per conto; simulazione indicativa, gli importi reali li adatti tu</span>
+                  <span style={{fontSize:10,color:'#64748b',padding:'3px 2px'}}>* integrazione progressiva: mantenimento fino a 30€ a blocchi max 10€; oltre 30€ Lucy può usare una puntata extra di Profilazione</span>
                 </div>
               </div>
             ))}
