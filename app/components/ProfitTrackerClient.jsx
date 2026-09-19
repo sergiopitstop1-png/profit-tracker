@@ -1735,6 +1735,40 @@ function costoPeggioreIncrocioLucy(p) {
   return Math.max(0,-Math.min(...vals))
 }
 
+function protezionePronoxLucy(prob) {
+  const p=Number(prob||0)
+  if(p>=0.75) return 0.70
+  if(p>=0.68) return 0.80
+  if(p>=0.62) return 0.90
+  return 1.00
+}
+
+function feedPronoxLucy(dataOggi) {
+  try {
+    const x=JSON.parse(localStorage.getItem('pronox_lucy_feed_v1')||'null')
+    if(!x || x.date!==dataOggi || !Array.isArray(x.matches)) return null
+    return x
+  } catch { return null }
+}
+
+function segnalePronoxPerMercatoLucy(match, mercato) {
+  if(!match) return null
+  const sig=(match.signals||[]).filter(s=>Number(s?.prob)>0 && !s?.isSuspicious)
+  let s=null, preferito=null
+  if(mercato==='1X2') {
+    s=sig.find(x=>x.type==='1X2' || /CASA VINCE|OSPITE VINCE/i.test(x.label||''))
+    if(s) preferito=/CASA VINCE/i.test(s.label||'')?'1':/OSPITE VINCE/i.test(s.label||'')?'2':null
+  } else if(mercato==='Over/Under 2.5') {
+    s=sig.find(x=>/OVER 2\.5|UNDER 2\.5/i.test(x.label||''))
+    if(s) preferito=/OVER 2\.5/i.test(s.label||'')?'Over 2.5':'Under 2.5'
+  } else if(mercato==='Tennis Vincente') {
+    s=sig.find(x=>x.type==='TENNIS_ML' || / vince$/i.test(x.label||''))
+    if(s) preferito=String(s.label||'').replace(/\s+vince$/i,'').trim()
+  }
+  if(!s || !preferito) return null
+  return {label:s.label,prob:Number(s.prob),preferito,protezione:protezionePronoxLucy(s.prob),strong:!!s.strong,isValue:!!s.isValue}
+}
+
 async function generaLucySport(agendaItems = [], forzaQuote = false) {
   const sportItems = []
   const sportRegex = /(sport|bet\b|scommess|superquote|doppia|exchange)/i
@@ -1766,50 +1800,53 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
   setLucySportError('')
   try {
     // Football-Data resta la fonte del calendario PronoX.
-    // TheRundown fornisce le quote medie reali. Sul piano Free le chiamate
-    // vengono eseguite in sequenza per rispettare il limite di 1 req/sec.
-    // Gli ID verificati nel catalogo TheRundown sono: EPL=11, Champions=16.
+    // TheRundown fornisce le quote. V22 NON hardcoda gli sport_id:
+    // passa il nome lega alla route, che lo risolve dal catalogo /api/v2/sports.
+    // Così Lucy può usare tutti i principali campionati europei supportati.
     const leghe = [
-      ['Serie A','SA',null], ['Premier League','PL',11],
-      ['Bundesliga','BL1',null], ['La Liga','PD',null],
-      ['Ligue 1','FL1',null], ['Champions League','CL',16],
-      ['Championship','ELC',null], ['Eredivisie','DED',null],
-      ['Serie B Brasile','BSA',null], ['World Cup','WC',null]
+      ['Serie A','SA','Serie A'], ['Premier League','PL','EPL'],
+      ['Bundesliga','BL1','Bundesliga'], ['La Liga','PD','La Liga'],
+      ['Ligue 1','FL1','Ligue 1'], ['Champions League','CL','Champions League'],
+      // Queste restano nel calendario PronoX; se TheRundown non le espone oggi
+      // la route restituisce semplicemente nessuna quota, senza inventare dati.
+      ['Championship','ELC','Championship'], ['Eredivisie','DED','Eredivisie'],
+      ['Serie B Brasile','BSA','Brazil'], ['World Cup','WC','World Cup']
     ]
     const oggi = new Date()
     const y = oggi.getFullYear(), m = String(oggi.getMonth()+1).padStart(2,'0'), d = String(oggi.getDate()).padStart(2,'0')
     const dataOggi = `${y}-${m}-${d}`
+    const pronoxFeed=feedPronoxLucy(dataOggi)
     const normTeam=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\b(fc|cf|ac|as|calcio|club)\b/g,'').replace(/[^a-z0-9]/g,'')
     const sleepLucy = ms => new Promise(resolve=>setTimeout(resolve,ms))
 
     // Prima prendiamo tutti i calendari Football-Data, senza consumare datapoint TheRundown.
-    const fixturesPerLega = await Promise.all(leghe.map(async ([lega,fdCode,trId]) => {
+    const fixturesPerLega = await Promise.all(leghe.map(async ([lega,fdCode,trLeague]) => {
       try {
         const fr=await fetch(`/api/footballdata?endpoint=competitions/${fdCode}/matches&dateFrom=${dataOggi}&dateTo=${dataOggi}`)
         const fj=await fr.json()
-        return {lega,fdCode,trId,fixtures:Array.isArray(fj?.matches)?fj.matches:[]}
+        return {lega,fdCode,trLeague,fixtures:Array.isArray(fj?.matches)?fj.matches:[]}
       } catch(e) {
-        return {lega,fdCode,trId,fixtures:[],errore:e?.message||'errore Football-Data'}
+        return {lega,fdCode,trLeague,fixtures:[],errore:e?.message||'errore Football-Data'}
       }
     }))
 
     const erroriQuote=[]
     const quotePerSport = new Map()
-    const sportDaChiamare = [...new Set(fixturesPerLega.filter(x=>x.fixtures.length && x.trId).map(x=>x.trId))]
+    const sportDaChiamare = [...new Set(fixturesPerLega.filter(x=>x.fixtures.length && x.trLeague).map(x=>x.trLeague))]
 
     for (let i=0;i<sportDaChiamare.length;i++) {
-      const trId=sportDaChiamare[i]
+      const trLeague=sportDaChiamare[i]
       if(i>0) await sleepLucy(1200)
       try {
         const forceParam=forzaQuote?'&force=1':''
-        const rr=await fetch(`/api/therundown?sport_id=${trId}&date=${dataOggi}${forceParam}`, {cache:'no-store'})
+        const rr=await fetch(`/api/therundown?league=${encodeURIComponent(trLeague)}&date=${dataOggi}${forceParam}`, {cache:'no-store'})
         const rj=await rr.json()
         if(!rr.ok || !rj?.ok) {
-          erroriQuote.push(`TheRundown ${trId}: ${rj?.error||rj?.message||`HTTP ${rr.status}`}`)
-          quotePerSport.set(trId,[])
+          erroriQuote.push(`TheRundown ${trLeague}: ${rj?.error||rj?.message||`HTTP ${rr.status}`}`)
+          quotePerSport.set(trLeague,[])
           continue
         }
-        quotePerSport.set(trId,Array.isArray(rj?.partite)?rj.partite:[])
+        quotePerSport.set(trLeague,Array.isArray(rj?.partite)?rj.partite:[])
         const qa=rj?.quota_api||{}
         if(qa.remaining!=null || qa.usati!=null) {
           const info={remaining:qa.remaining,used:qa.usati,last:qa.usati,monthly_remaining:qa.monthly_remaining,delay_seconds:qa.delay_seconds,at:new Date().toISOString()}
@@ -1818,12 +1855,12 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
         if(rj?.cache) setLucyOddsCacheInfo({status:rj.cache.hit?'HIT':(forzaQuote?'REFRESH':'MISS'),age:0,at:new Date()})
       } catch(e) {
         erroriQuote.push(`TheRundown ${trId}: ${e?.message||'errore rete'}`)
-        quotePerSport.set(trId,[])
+        quotePerSport.set(trLeague,[])
       }
     }
 
-    const risultati = fixturesPerLega.map(({lega,trId,fixtures}) => {
-      const odds=trId ? (quotePerSport.get(trId)||[]) : []
+    const risultati = fixturesPerLega.map(({lega,trLeague,fixtures}) => {
+      const odds=trLeague ? (quotePerSport.get(trLeague)||[]) : []
       return fixtures.map(f=>{
         const hn=f?.homeTeam?.name||'', an=f?.awayTeam?.name||''
         const h=normTeam(hn), a=normTeam(an)
@@ -1850,10 +1887,24 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
 
     const candidati=[]
     eventi.forEach(ev => ev.mercati.forEach(merc => {
+      const pm=(pronoxFeed?.matches||[]).find(x=>x.sport==='calcio' && normTeam(x.home)===normTeam(ev.home) && normTeam(x.away)===normTeam(ev.away))
+      const pronox=segnalePronoxPerMercatoLucy(pm,merc.nome)
       const inv = merc.esiti.reduce((s,[,q]) => s + (q ? 1/q : 99), 0)
       const dispersione = Math.max(...merc.esiti.map(x=>x[1])) - Math.min(...merc.esiti.map(x=>x[1]))
-      candidati.push({ ...ev, mercato:merc.nome, esiti:merc.esiti, score:inv + dispersione*0.02 })
+      candidati.push({ ...ev, mercato:merc.nome, esiti:merc.esiti, pronox, score:inv + dispersione*0.02 - (pronox?0.015:0) })
     }))
+
+    // Tennis: PronoX esporta già giocatori, probabilità e quote del suo feed tennis.
+    // Finché non scopriamo dinamicamente gli ID ATP/WTA TheRundown, Lucy usa queste quote
+    // SOLO quando PronoX le ha realmente disponibili: nessuna quota viene inventata.
+    ;(pronoxFeed?.matches||[]).filter(x=>x.sport==='tennis' && x.tennisOdds?.a && x.tennisOdds?.b).forEach(tm=>{
+      const merc='Tennis Vincente'
+      const pronox=segnalePronoxPerMercatoLucy(tm,merc)
+      const esiti=[[tm.home,Number(tm.tennisOdds.a)],[tm.away,Number(tm.tennisOdds.b)]].filter(x=>x[1]>1)
+      if(esiti.length!==2) return
+      const inv=esiti.reduce((z,[,q])=>z+1/q,0)
+      candidati.push({lega:tm.league||'Tennis',home:tm.home,away:tm.away,ora:tm.time,mercato:merc,esiti,pronox,_provider:'PronoX Tennis',score:inv-(pronox?0.015:0)})
+    })
     candidati.sort((a,b)=>a.score-b.score)
 
     // Ogni conto genera N "slot bet". Quindi Lottomatica 100€ su 3/4 bet compare su 4 partite diverse.
@@ -1891,6 +1942,10 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
 
     const proposte=[]
     const eventiUsatiPerBook = new Map()
+    // V22: stesso BOOKMAKER + stessa PARTITA = un solo esito, anche con intestatari diversi.
+    // Esempio: se Bwin è già su 1 in Bournemouth-Liverpool, nessun altro Bwin può andare su X/2.
+    const esitoPerBookmakerEvento = new Map()
+    const bookNomeKeyLucy = b => String(b?.nome || b?.bookmaker || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'')
     // Totale Sport già assegnato oggi per singolo conto: impedisce che gli EXTRA
     // si accumulino su Federico/Michela/etc. attraverso più incroci.
     const totaleSportPerBook = new Map()
@@ -1929,13 +1984,24 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
       })
 
       const assegnazioni = gruppo.map((x,i) => {
-        const compatibili = c.esiti.filter(([,q]) => q >= x.quotaMin)
-        const scelta = compatibili[i % compatibili.length]
         const eventoKey = `${c.home}|${c.away}`
+        const bookmakerEventoKey = `${bookNomeKeyLucy(x.book)}|${eventoKey}`
+        const esitoGiaBookmaker = esitoPerBookmakerEvento.get(bookmakerEventoKey)
+        let compatibili = c.esiti.filter(([,q]) => q >= x.quotaMin)
+        // Se lo stesso bookmaker è già presente sull'evento, può usare SOLO lo stesso esito.
+        if(esitoGiaBookmaker) compatibili = compatibili.filter(([esito])=>esito===esitoGiaBookmaker)
+        if(!compatibili.length) return null
+        const scelta = compatibili[i % compatibili.length]
+        esitoPerBookmakerEvento.set(bookmakerEventoKey, scelta[0])
         if (!eventiUsatiPerBook.has(x.book.id)) eventiUsatiPerBook.set(x.book.id, new Set())
         eventiUsatiPerBook.get(x.book.id).add(eventoKey)
         return { ...x, esito:scelta[0], quota:scelta[1], stake:x.importoIndicativo }
-      })
+      }).filter(Boolean)
+      if(assegnazioni.length < nEsiti) {
+        // Non forziamo mai un incrocio che richiederebbe un esito opposto sullo stesso bookmaker.
+        gruppo.forEach(g=>slot.push(g))
+        continue
+      }
       assegnazioni.forEach(a=>{
         totaleSportPerBook.set(a.book.id,(totaleSportPerBook.get(a.book.id)||0)+Number(a.stake||0))
       })
@@ -1956,6 +2022,10 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
 
       ritorniBase.forEach(r=>{
         let necessario=Math.max(0,(targetRitorno-r.ritorno)/r.quota)
+        // Se PronoX ha un segnale sul mercato, riduciamo SOLO la copertura dell'esito
+        // contrario al pronostico. Esempio: copertura neutra 70€, protezione 80% => 56€.
+        // Il rischio aggiuntivo resta visibile negli scenari/P-L e quindi nel CAP costo.
+        if(c.pronox?.preferito && r.esito!==c.pronox.preferito) necessario*=Number(c.pronox.protezione||1)
         if(necessario < 2) return
 
         if(necessario <= 30){
@@ -1963,7 +2033,9 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
           while(necessario >= 2){
             const candidato=poolMantenimento.find(b=>{
               const k=`${b.id}|${c.home}|${c.away}`
-              return !contiProfilo.has(b.id) && !usoMant.has(k)
+              const bk=`${bookNomeKeyLucy(b)}|${c.home}|${c.away}`
+              const esitoGia=esitoPerBookmakerEvento.get(bk)
+              return !contiProfilo.has(b.id) && !usoMant.has(k) && (!esitoGia || esitoGia===r.esito)
             })
             if(!candidato) break
             const stakeMant = necessario > 10 ? 10 : Math.max(2,Math.round(necessario))
@@ -1972,6 +2044,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
               giaInAgenda:idsMantOggi.has(candidato.id)
             })
             usoMant.add(`${candidato.id}|${c.home}|${c.away}`)
+            esitoPerBookmakerEvento.set(`${bookNomeKeyLucy(candidato)}|${c.home}|${c.away}`, r.esito)
             necessario-=stakeMant
           }
         } else {
@@ -1982,6 +2055,10 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
             .map(x=>x.book)
             .filter((b,i,arr)=>arr.findIndex(z=>z.id===b.id)===i)
             .filter(b=>!contiProfilo.has(b.id))
+            .filter(b=>{
+              const esitoGia=esitoPerBookmakerEvento.get(`${bookNomeKeyLucy(b)}|${c.home}|${c.away}`)
+              return !esitoGia || esitoGia===r.esito
+            })
             .map(b=>{
               const target=budgetTargetPerBook.get(b.id)||getBudgetSportTotale(b,'')
               const cap=getCapSportGiornaliero(b,target)
@@ -2002,6 +2079,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
                 totalePrima:scelto.usato,capGiornaliero:scelto.cap
               })
               totaleSportPerBook.set(scelto.book.id,scelto.usato+stakeExtra)
+              esitoPerBookmakerEvento.set(`${bookNomeKeyLucy(scelto.book)}|${c.home}|${c.away}`, r.esito)
               contiProfilo.add(scelto.book.id)
             }
           }
@@ -4670,7 +4748,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap', marginBottom:10 }}>
           <div>
             <div style={{ fontSize:14, fontWeight:900, color:'#e0f2fe' }}>🤖 Lucy Sport — Incroci automatici</div>
-            <div style={{ fontSize:11, color:'#94a3b8', marginTop:2 }}>Prende le lavorazioni Sport di oggi e cerca coperture complete usando le quote medie TheRundown. Regola: lo stesso conto non riceve mai due esiti della stessa partita.</div>
+            <div style={{ fontSize:11, color:'#94a3b8', marginTop:2 }}>Prende le lavorazioni Sport di oggi e cerca coperture complete usando le quote medie TheRundown. Regole: stesso conto mai due esiti; stesso bookmaker + stessa partita = un solo esito anche con intestatari diversi.</div>
           </div>
           
             <div style={{display:'flex',alignItems:'center',gap:6,background:'rgba(15,23,42,.75)',border:'1px solid #334155',borderRadius:9,padding:'5px 8px'}}>
@@ -4703,6 +4781,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         {lucySportAggiornato && <div style={{fontSize:10,color:'#64748b',marginBottom:4}}>Ultimo calcolo: {lucySportAggiornato.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}</div>}
         <div style={{display:'flex',gap:10,flexWrap:'wrap',fontSize:10,color:'#94a3b8',marginBottom:8}}>
           <span>🧊 Cache quote: 15 min</span>
+          <span style={{color:'#7dd3fc'}}>🧠 PronoX: segnale letto dal feed locale quando disponibile</span>
           {lucyOddsCacheInfo && <span>{lucyOddsCacheInfo.status==='HIT' ? `✓ cache usata (${Math.floor((lucyOddsCacheInfo.age||0)/60)} min)` : lucyOddsCacheInfo.status==='REFRESH' ? '↻ aggiornamento manuale' : '↻ quote appena scaricate'}</span>}
           {lucyOddsCrediti?.remaining!=null && <span style={{color:Number(lucyOddsCrediti.remaining)<100?'#fca5a5':'#86efac',fontWeight:800}}>TheRundown: {lucyOddsCrediti.remaining} datapoint rimasti</span>}
           {lucyOddsCrediti?.last!=null && <span>ultima chiamata: {lucyOddsCrediti.last} datapoint</span>}
@@ -4804,7 +4883,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             <div style={{position:'sticky',top:0,zIndex:2,background:'#e2e8f0',borderBottom:'1px solid #94a3b8',padding:'10px 12px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
               <div>
                 <div style={{fontSize:15,fontWeight:900}}>📋 Lucy Sport — Bet da piazzare</div>
-                <div style={{fontSize:10,color:'#475569'}}>Vista operativa stile Excel · una riga = una puntata</div>
+                <div style={{fontSize:10,color:'#475569'}}>Vista operativa stile Excel · PronoX orienta la copertura · una riga = una puntata</div>
               </div>
               <button onClick={()=>setLucyTabellaAperta(false)}
                 style={{background:'#dc2626',color:'white',border:0,borderRadius:7,padding:'7px 11px',fontWeight:900,cursor:'pointer'}}>✕ CHIUDI</button>
@@ -4813,7 +4892,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
               <thead style={{position:'sticky',top:55,zIndex:1,background:'#cbd5e1'}}>
                 <tr>
-                  {['#','PARTITA','ORARIO','MERCATO','BOOK','INTESTATARIO','TIPO','ESITO','IMPORTO','QUOTA','BET','TARGET/CAP','STATO'].map(h=>
+                  {['#','PARTITA','ORARIO','MERCATO','PRONOX','CONF.','COPERTURA','BOOK','INTESTATARIO','TIPO','ESITO','IMPORTO','QUOTA','BET','TARGET/CAP','STATO'].map(h=>
                     <th key={h} style={{border:'1px solid #94a3b8',padding:'7px 6px',textAlign:'left',whiteSpace:'nowrap'}}>{h}</th>
                   )}
                 </tr>
@@ -4831,6 +4910,9 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                       <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:800,whiteSpace:'nowrap'}}>{p.home} – {p.away}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:900,textAlign:'center',whiteSpace:'nowrap'}}>{p.orario||'—'}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,whiteSpace:'nowrap'}}>{p.mercato||p.market||''}</td>
+                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:900,color:p.pronox?'#0f766e':'#64748b',whiteSpace:'nowrap'}}>{p.pronox?.preferito||'—'}</td>
+                      <td style={{border:'1px solid #cbd5e1',padding:6,textAlign:'right',fontWeight:800}}>{p.pronox?`${(p.pronox.prob*100).toFixed(1)}%`:'—'}</td>
+                      <td style={{border:'1px solid #cbd5e1',padding:6,textAlign:'center',fontWeight:900,color:p.pronox&&p.pronox.protezione<1?'#b45309':'#475569'}}>{p.pronox?`${Math.round(p.pronox.protezione*100)}%`:'100%'}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:800}}>{a.book.nome}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,whiteSpace:'nowrap'}}>{a.book.intestatario}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:800}}>{a.tipoRiga}</td>
