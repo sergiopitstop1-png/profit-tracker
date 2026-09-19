@@ -1796,6 +1796,7 @@ async function generaLucySport(agendaItems = []) {
       return {q1:avg(q1),qx:avg(qx),q2:avg(q2),qo:avg(qo),qu:avg(qu)}
     }
 
+    const erroriOdds=[]
     const risultati = await Promise.all(leghe.map(async ([lega,fdCode,oddsKey]) => {
       try {
         // È la stessa sorgente fixture usata dalla pagina PronoX.
@@ -1806,13 +1807,19 @@ async function generaLucySport(agendaItems = []) {
 
         let odds=[]
         try {
-          const or=await fetch(`/api/odds?endpoint=sports/${oddsKey}/odds&regions=eu&markets=h2h,totals&dateFormat=iso&oddsFormat=decimal`)
+          const or=await fetch(`/api/odds?endpoint=sports/${oddsKey}/odds&regions=eu&markets=h2h,totals&dateFormat=iso&oddsFormat=decimal`, {cache:'no-store'})
           const oj=await or.json()
-          odds=Array.isArray(oj)?oj.filter(g=>{
-            const tt=new Date(g.commence_time).getTime()
-            return tt>=dayStartUTC && tt<=dayEndUTC
-          }):[]
-        } catch {}
+          if(!or.ok || !Array.isArray(oj)) {
+            const msg=oj?.error || oj?.message || `HTTP ${or.status}`
+            erroriOdds.push(`${lega}: ${msg}${oj?.code ? ` (${oj.code})` : ''}`)
+            odds=[]
+          } else {
+            odds=oj.filter(g=>{
+              const tt=new Date(g.commence_time).getTime()
+              return tt>=dayStartUTC && tt<=dayEndUTC
+            })
+          }
+        } catch(e) { erroriOdds.push(`${lega}: ${e?.message || 'errore rete'}`) }
 
         return fixtures.map(f=>{
           const hn=f?.homeTeam?.name||'', an=f?.awayTeam?.name||''
@@ -1833,7 +1840,10 @@ async function generaLucySport(agendaItems = []) {
     const tuttePartite=risultati.flat()
     const eventi=tuttePartite.filter(e=>e.mercati.length)
     if (!tuttePartite.length) throw new Error('PronoX/Football-Data non restituisce partite per oggi.')
-    if (!eventi.length) throw new Error(`PronoX vede ${tuttePartite.length} partite oggi, ma in questo momento Odds API non restituisce quote utilizzabili per 1X2/Over-Under. Riprova più tardi.`)
+    if (!eventi.length) {
+      const dettaglio=[...new Set(erroriOdds)].slice(0,3).join(' · ')
+      throw new Error(`PronoX vede ${tuttePartite.length} partite oggi, ma Odds API non restituisce quote utilizzabili.${dettaglio ? ` Dettaglio: ${dettaglio}` : ' Nessun errore API esplicito: il feed ha risposto senza quote abbinabili.'}`)
+    }
 
     const candidati=[]
     eventi.forEach(ev => ev.mercati.forEach(merc => {
