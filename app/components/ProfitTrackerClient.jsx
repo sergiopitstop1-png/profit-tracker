@@ -1760,35 +1760,27 @@ async function generaLucySport(agendaItems = []) {
   setLucySportLoading(true)
   setLucySportError('')
   try {
+    // Stesso flusso di PronoX: Football-Data stabilisce QUALI partite ci sono oggi;
+    // Odds API serve solo per agganciare le quote medie. In questo modo Lucy non decide
+    // l'esistenza delle partite guardando direttamente il feed quote.
     const leghe = [
-      ['Serie A','soccer_italy_serie_a'], ['Premier League','soccer_epl'],
-      ['Bundesliga','soccer_germany_bundesliga'], ['La Liga','soccer_spain_la_liga'],
-      ['Ligue 1','soccer_france_ligue_one'], ['Champions League','soccer_uefa_champs_league'],
-      ['Championship','soccer_efl_champ'], ['Eredivisie','soccer_netherlands_eredivisie'],
-      ['Serie B Brasile','soccer_brazil_campeonato'], ['World Cup','soccer_fifa_world_cup']
+      ['Serie A','SA','soccer_italy_serie_a'], ['Premier League','PL','soccer_epl'],
+      ['Bundesliga','BL1','soccer_germany_bundesliga'], ['La Liga','PD','soccer_spain_la_liga'],
+      ['Ligue 1','FL1','soccer_france_ligue_one'], ['Champions League','CL','soccer_uefa_champs_league'],
+      ['Championship','ELC','soccer_efl_champ'], ['Eredivisie','DED','soccer_netherlands_eredivisie'],
+      ['Serie B Brasile','BSA','soccer_brazil_campeonato'], ['World Cup','WC','soccer_fifa_world_cup']
     ]
     const oggi = new Date()
     const y = oggi.getFullYear(), m = String(oggi.getMonth()+1).padStart(2,'0'), d = String(oggi.getDate()).padStart(2,'0')
     const dataOggi = `${y}-${m}-${d}`
-    const dayStart = new Date(dataOggi + 'T00:00:00').getTime()
-    const dayEnd = new Date(dataOggi + 'T23:59:59').getTime()
+    const dayStartUTC = new Date(dataOggi + 'T00:00:00Z').getTime()
+    const dayEndUTC = new Date(dataOggi + 'T23:59:59Z').getTime()
 
-    const risultati = await Promise.all(leghe.map(async ([lega, key]) => {
-      try {
-        const r = await fetch(`/api/odds?endpoint=sports/${key}/odds&regions=eu&markets=h2h,totals&dateFormat=iso&oddsFormat=decimal`)
-        const data = await r.json()
-        if (!Array.isArray(data)) return []
-        return data.filter(g => {
-          const t = new Date(g.commence_time).getTime()
-          return t >= dayStart && t <= dayEnd
-        }).map(g => ({ ...g, _lega: lega }))
-      } catch { return [] }
-    }))
-
+    const normTeam=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\b(fc|cf|ac|as|calcio|club)\b/g,'').replace(/[^a-z0-9]/g,'')
     const avg = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null
-    const eventi = risultati.flat().map(g => {
+    const estraiQuote = g => {
       const q1=[], qx=[], q2=[], qo=[], qu=[]
-      ;(g.bookmakers || []).forEach(bk => (bk.markets || []).forEach(mkt => {
+      ;(g?.bookmakers || []).forEach(bk => (bk.markets || []).forEach(mkt => {
         ;(mkt.outcomes || []).forEach(o => {
           if (mkt.key === 'h2h') {
             if (o.name === g.home_team) q1.push(Number(o.price))
@@ -1801,13 +1793,47 @@ async function generaLucySport(agendaItems = []) {
           }
         })
       }))
-      const mercati=[]
-      if (q1.length && qx.length && q2.length) mercati.push({ nome:'1X2', esiti:[['1',avg(q1)],['X',avg(qx)],['2',avg(q2)]] })
-      if (qo.length && qu.length) mercati.push({ nome:'Over/Under 2.5', esiti:[['Over 2.5',avg(qo)],['Under 2.5',avg(qu)]] })
-      return { lega:g._lega, home:g.home_team, away:g.away_team, ora:g.commence_time, mercati }
-    }).filter(e => e.mercati.length)
+      return {q1:avg(q1),qx:avg(qx),q2:avg(q2),qo:avg(qo),qu:avg(qu)}
+    }
 
-    if (!eventi.length) throw new Error('Nessun evento/mercato PronoX disponibile oggi.')
+    const risultati = await Promise.all(leghe.map(async ([lega,fdCode,oddsKey]) => {
+      try {
+        // È la stessa sorgente fixture usata dalla pagina PronoX.
+        const fr=await fetch(`/api/footballdata?endpoint=competitions/${fdCode}/matches&dateFrom=${dataOggi}&dateTo=${dataOggi}`)
+        const fj=await fr.json()
+        const fixtures=Array.isArray(fj?.matches)?fj.matches:[]
+        if(!fixtures.length) return []
+
+        let odds=[]
+        try {
+          const or=await fetch(`/api/odds?endpoint=sports/${oddsKey}/odds&regions=eu&markets=h2h,totals&dateFormat=iso&oddsFormat=decimal`)
+          const oj=await or.json()
+          odds=Array.isArray(oj)?oj.filter(g=>{
+            const tt=new Date(g.commence_time).getTime()
+            return tt>=dayStartUTC && tt<=dayEndUTC
+          }):[]
+        } catch {}
+
+        return fixtures.map(f=>{
+          const hn=f?.homeTeam?.name||'', an=f?.awayTeam?.name||''
+          const h=normTeam(hn), a=normTeam(an)
+          const og=odds.find(g=>{
+            const gh=normTeam(g.home_team), ga=normTeam(g.away_team)
+            return (gh===h || gh.includes(h) || h.includes(gh)) && (ga===a || ga.includes(a) || a.includes(ga))
+          })
+          const q=og?estraiQuote(og):{}
+          const mercati=[]
+          if(q.q1 && q.qx && q.q2) mercati.push({nome:'1X2',esiti:[['1',q.q1],['X',q.qx],['2',q.q2]]})
+          if(q.qo && q.qu) mercati.push({nome:'Over/Under 2.5',esiti:[['Over 2.5',q.qo],['Under 2.5',q.qu]]})
+          return {lega,home:hn,away:an,ora:f.utcDate,mercati,_haQuote:mercati.length>0}
+        })
+      } catch { return [] }
+    }))
+
+    const tuttePartite=risultati.flat()
+    const eventi=tuttePartite.filter(e=>e.mercati.length)
+    if (!tuttePartite.length) throw new Error('PronoX/Football-Data non restituisce partite per oggi.')
+    if (!eventi.length) throw new Error(`PronoX vede ${tuttePartite.length} partite oggi, ma in questo momento Odds API non restituisce quote utilizzabili per 1X2/Over-Under. Riprova più tardi.`)
 
     const candidati=[]
     eventi.forEach(ev => ev.mercati.forEach(merc => {
