@@ -1,5 +1,8 @@
 export const dynamic = "force-dynamic";
 
+const sleep = (ms) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
 export async function GET() {
   try {
     const apiKey = process.env.THERUNDOWN_API_KEY;
@@ -11,10 +14,12 @@ export async function GET() {
       );
     }
 
-    // TEST: EPL del 20 settembre 2026
     const dataTest = "2026-09-20";
 
-    // 1. Recupera gli eventi EPL della giornata
+    // =====================================================
+    // 1. RECUPERA EVENTI EPL
+    // =====================================================
+
     const eventiUrl =
       `https://therundown.io/api/v2/sports/11/events/${dataTest}`;
 
@@ -26,7 +31,6 @@ export async function GET() {
     });
 
     const eventiData = await eventiRes.json();
-    const eventi = eventiData?.events || [];
 
     if (!eventiRes.ok) {
       return Response.json({
@@ -37,15 +41,17 @@ export async function GET() {
       });
     }
 
+    const eventi = eventiData?.events || [];
+
     if (eventi.length === 0) {
       return Response.json({
         ok: false,
         data_test: dataTest,
-        message: "Nessuna partita EPL trovata per questa data",
+        message: "Nessuna partita EPL trovata",
       });
     }
 
-    // 2. Prende la prima partita NON terminata
+    // Prima partita non terminata
     const evento = eventi.find(
       (e) => e.event_status !== "STATUS_FULL_TIME"
     );
@@ -54,19 +60,23 @@ export async function GET() {
       return Response.json({
         ok: false,
         data_test: dataTest,
-        message: "Tutte le partite trovate risultano terminate",
+        message: "Nessuna partita non terminata",
         numero_eventi: eventi.length,
-        eventi: eventi.map((e) => ({
-          event_id: e.event_id,
-          data: e.event_date,
-          stato: e.event_status,
-          squadre: e.teams?.map((t) => t.name),
-        })),
       });
     }
 
-    // 3. Chiede il MONEYLINE (mercato 1) della singola partita
-    // Nessun filtro bookmaker per questo test
+    // =====================================================
+    // IMPORTANTE:
+    // FREE TIER = 1 RICHIESTA AL SECONDO
+    // Aspettiamo 1,2 secondi prima della seconda richiesta
+    // =====================================================
+
+    await sleep(1200);
+
+    // =====================================================
+    // 2. RECUPERA MONEYLINE DELLA PARTITA
+    // =====================================================
+
     const quoteUrl =
       `https://therundown.io/api/v2/events/${evento.event_id}` +
       `?market_ids=1` +
@@ -82,9 +92,42 @@ export async function GET() {
 
     const quoteData = await quoteRes.json();
 
-    // 4. Risposta diagnostica
+    // Se la seconda chiamata fallisce,
+    // mostriamo chiaramente l'errore.
+    if (!quoteRes.ok) {
+      return Response.json({
+        ok: false,
+
+        fase: "RECUPERO QUOTE",
+
+        partita_scelta: {
+          event_id: evento.event_id,
+          data: evento.event_date,
+          stato: evento.event_status,
+          squadre: evento.teams?.map((t) => t.name),
+        },
+
+        status_quote: quoteRes.status,
+
+        errore_quote: quoteData,
+
+        quota: {
+          remaining:
+            quoteRes.headers.get("x-datapoints-remaining"),
+          limit:
+            quoteRes.headers.get("x-datapoints-limit"),
+          delay_seconds:
+            quoteRes.headers.get("x-data-delay-seconds"),
+        },
+      });
+    }
+
+    // =====================================================
+    // 3. RISULTATO
+    // =====================================================
+
     return Response.json({
-      ok: quoteRes.ok,
+      ok: true,
 
       data_test: dataTest,
 
@@ -94,6 +137,7 @@ export async function GET() {
         event_id: evento.event_id,
         data: evento.event_date,
         stato: evento.event_status,
+
         squadre: evento.teams?.map((t) => ({
           nome: t.name,
           casa: t.is_home,
@@ -101,19 +145,30 @@ export async function GET() {
         })),
       },
 
-      numero_mercati: quoteData?.markets?.length || 0,
+      numero_mercati:
+        quoteData?.markets?.length || 0,
 
-      markets: quoteData?.markets || [],
+      markets:
+        quoteData?.markets || [],
 
-      risposta_completa: quoteData,
+      risposta_completa:
+        quoteData,
 
       quota: {
-        usati: quoteRes.headers.get("x-datapoints"),
-        remaining: quoteRes.headers.get("x-datapoints-remaining"),
-        limit: quoteRes.headers.get("x-datapoints-limit"),
-        delay_seconds: quoteRes.headers.get("x-data-delay-seconds"),
+        usati:
+          quoteRes.headers.get("x-datapoints"),
+
+        remaining:
+          quoteRes.headers.get("x-datapoints-remaining"),
+
+        limit:
+          quoteRes.headers.get("x-datapoints-limit"),
+
+        delay_seconds:
+          quoteRes.headers.get("x-data-delay-seconds"),
       },
     });
+
   } catch (error) {
     return Response.json(
       {
