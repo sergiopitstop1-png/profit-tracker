@@ -138,6 +138,9 @@ const [lucySportProposte, setLucySportProposte] = useState([])
 const [lucySportAggiornato, setLucySportAggiornato] = useState(null)
 const [lucyLiveProposte, setLucyLiveProposte] = useState([])
 const [lucySportNonCollocate, setLucySportNonCollocate] = useState([])
+const [lucyStorico, setLucyStorico] = useState(() => {
+  try { return JSON.parse(localStorage.getItem('profittracker_lucy_storico') || '[]') } catch { return [] }
+})
 
   const [clientePromoAperto, setClientePromoAperto] = useState(null)
   const [promoFiltri, setPromoFiltri] = useState({ priorita: '', stato: '', mittente: '' })
@@ -1576,6 +1579,58 @@ function generaLucyLive(agendaItems = []) {
   })
 
   setLucyLiveProposte(proposte)
+}
+
+
+function salvaLucyStorico(next) {
+  setLucyStorico(next)
+  try { localStorage.setItem('profittracker_lucy_storico', JSON.stringify(next)) } catch {}
+}
+
+function confermaGiocateLucy() {
+  if (!lucySportProposte.length) return
+  const righe = new Map()
+  const aggiungi = (a, tipo, incrocio) => {
+    if (!a?.book || !Number(a.stake)) return
+    const key = `${a.book.id}|${a.book.nome}|${a.book.intestatario}`
+    if (!righe.has(key)) righe.set(key,{
+      bookId:a.book.id, book:a.book.nome, intestatario:a.book.intestatario,
+      profilazione:0, extraProfilazione:0, mantenimento:0, totale:0, dettagli:[]
+    })
+    const r=righe.get(key)
+    const v=Number(a.stake)
+    if(tipo==='profilazione') r.profilazione+=v
+    if(tipo==='extra') r.extraProfilazione+=v
+    if(tipo==='mantenimento') r.mantenimento+=v
+    r.totale+=v
+    r.dettagli.push({incrocio,esito:a.esito,stake:v,quota:a.quota,tipo})
+  }
+  lucySportProposte.forEach((p,idx)=>{
+    const nome=`${p.home} - ${p.away}`
+    ;(p.assegnazioni||[]).forEach(a=>aggiungi(a,'profilazione',nome))
+    ;(p.extraProfilazione||[]).forEach(a=>aggiungi(a,'extra',nome))
+    ;(p.integrazioni||[]).forEach(a=>aggiungi(a,'mantenimento',nome))
+  })
+  const oggi=new Date().toISOString().slice(0,10)
+  const record={
+    id:`${Date.now()}`, data:oggi, creato:new Date().toISOString(),
+    righe:[...righe.values()].sort((a,b)=>b.totale-a.totale),
+    totale:[...righe.values()].reduce((s,r)=>s+r.totale,0)
+  }
+  // Una conferma successiva nello stesso giorno sostituisce la fotografia precedente,
+  // evitando doppioni accidentali.
+  const next=[record,...lucyStorico.filter(x=>x.data!==oggi)]
+  salvaLucyStorico(next)
+}
+
+function cancellaGiornataLucy(id) {
+  if (!window.confirm('Cancellare questa giornata dallo storico Lucy?')) return
+  salvaLucyStorico(lucyStorico.filter(x=>x.id!==id))
+}
+
+function cancellaTuttoStoricoLucy() {
+  if (!window.confirm('Cancellare TUTTO lo storico Lucy? Questa operazione non è annullabile.')) return
+  salvaLucyStorico([])
 }
 
 async function generaLucySport(agendaItems = []) {
@@ -4492,6 +4547,62 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           </div>
         </div>
       )}
+
+      
+      {/* ARCHIVIO LUCY SPORT */}
+      <div style={{background:'#071525',border:'1px solid #1e3a5f',borderRadius:12,padding:12,marginBottom:12}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+          <div>
+            <div style={{fontSize:13,fontWeight:900,color:'#e2e8f0'}}>📚 Storico Lucy — puntato giornaliero</div>
+            <div style={{fontSize:10,color:'#64748b',marginTop:2}}>Archivia solo quando confermi che le giocate proposte sono state effettivamente piazzate.</div>
+          </div>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+            <button onClick={confermaGiocateLucy} disabled={!lucySportProposte.length}
+              style={{background:lucySportProposte.length?'#16a34a':'#334155',color:'white',border:0,borderRadius:8,padding:'7px 10px',fontSize:10,fontWeight:900,cursor:lucySportProposte.length?'pointer':'default'}}>
+              ✓ CONFERMA GIOCATE E ARCHIVIA
+            </button>
+            {lucyStorico.length>0 && <button onClick={cancellaTuttoStoricoLucy}
+              style={{background:'#7f1d1d',color:'#fecaca',border:'1px solid #991b1b',borderRadius:8,padding:'7px 10px',fontSize:10,fontWeight:900,cursor:'pointer'}}>
+              CANCELLA TUTTO
+            </button>}
+          </div>
+        </div>
+
+        {lucyStorico.length===0 ? (
+          <div style={{fontSize:10,color:'#475569',marginTop:9}}>Nessuna giornata archiviata.</div>
+        ) : (
+          <div style={{display:'grid',gap:8,marginTop:10}}>
+            {lucyStorico.map(g=>(
+              <details key={g.id} style={{background:'#0b1728',border:'1px solid #1e293b',borderRadius:9,padding:'8px 9px'}}>
+                <summary style={{cursor:'pointer',color:'#f8fafc',fontSize:11,fontWeight:900}}>
+                  {new Date(g.data+'T12:00:00').toLocaleDateString('it-IT')} · totale giornata {Number(g.totale).toFixed(2)}€ · {g.righe.length} conti
+                </summary>
+                <div style={{display:'grid',gap:5,marginTop:8}}>
+                  {g.righe.map((r,i)=>(
+                    <details key={`${r.bookId}-${i}`} style={{background:'#07111f',borderRadius:7,padding:'6px 8px'}}>
+                      <summary style={{cursor:'pointer',fontSize:10,color:'#cbd5e1'}}>
+                        <b style={{color:'#f8fafc'}}>{r.book} · {r.intestatario}</b> → <b style={{color:'#86efac'}}>{Number(r.totale).toFixed(2)}€</b>
+                        <span style={{color:'#64748b'}}> · prof {Number(r.profilazione).toFixed(0)}€ · extra {Number(r.extraProfilazione).toFixed(0)}€ · mant {Number(r.mantenimento).toFixed(0)}€</span>
+                      </summary>
+                      <div style={{marginTop:5,display:'grid',gap:3}}>
+                        {r.dettagli.map((d,j)=>(
+                          <div key={j} style={{fontSize:9,color:'#94a3b8'}}>
+                            {d.incrocio} · {d.esito} · {Number(d.stake).toFixed(2)}€ @ {Number(d.quota||0).toFixed(2)} · {d.tipo}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  ))}
+                </div>
+                <button onClick={()=>cancellaGiornataLucy(g.id)}
+                  style={{marginTop:8,background:'transparent',color:'#fca5a5',border:'1px solid #7f1d1d',borderRadius:6,padding:'5px 8px',fontSize:9,fontWeight:800,cursor:'pointer'}}>
+                  Cancella giornata
+                </button>
+              </details>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* LUCY LIVE — usa anche gli altri conti in Profilazione come copertura/amici */}
       <div style={{ background:'rgba(76,29,149,0.16)', border:'1px solid rgba(167,139,250,0.35)', borderRadius:16, padding:'14px 16px', marginBottom:16 }}>
