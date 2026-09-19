@@ -25,7 +25,7 @@ export async function GET() {
     const url =
       `https://therundown.io/api/v2/sports/11/events/${oggi}` +
       `?market_ids=1,2,3` +
-      `&affiliate_ids=3,19,23` +
+     `&affiliate_ids=22,19,23` +
       `&main_line=true` +
       `&hide_closed=true`;
 
