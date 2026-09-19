@@ -137,6 +137,7 @@ const [lucySportError, setLucySportError] = useState('')
 const [lucySportProposte, setLucySportProposte] = useState([])
 const [lucySportAggiornato, setLucySportAggiornato] = useState(null)
 const [lucyLiveProposte, setLucyLiveProposte] = useState([])
+const [lucySportNonCollocate, setLucySportNonCollocate] = useState([])
 
   const [clientePromoAperto, setClientePromoAperto] = useState(null)
   const [promoFiltri, setPromoFiltri] = useState({ priorita: '', stato: '', mittente: '' })
@@ -1469,6 +1470,16 @@ function getQuotaMinSport(book, azione = '') {
   return 1.01
 }
 
+function isLiveSoloSestine(book) {
+  const n=getNomeNormalizzato(book?.nome)
+  return n.includes('lottomatica') || n.includes('goldbet')
+}
+const SESTINE_ROULETTE = [
+ [1,2,3,4,5,6],[4,5,6,7,8,9],[7,8,9,10,11,12],[10,11,12,13,14,15],
+ [13,14,15,16,17,18],[16,17,18,19,20,21],[19,20,21,22,23,24],
+ [22,23,24,25,26,27],[25,26,27,28,29,30],[28,29,30,31,32,33],[31,32,33,34,35,36]
+]
+
 function generaLucyLive(agendaItems = []) {
   const liveRegex = /(casin[oò]\s*live|live numeri|roulette|numeri)/i
   const target = agendaItems.filter(({ agenda }) =>
@@ -1532,25 +1543,34 @@ function generaLucyLive(agendaItems = []) {
       const j = Math.floor(rnd() * (i+1))
       ;[numeri[i], numeri[j]] = [numeri[j], numeri[i]]
     }
-    // 37 numeri / 6 conti: 7 numeri al primo, 6 a ciascuno degli altri cinque.
-    const blocchi = [
-      numeri.slice(0,7).sort((a,b)=>a-b),
-      numeri.slice(7,13).sort((a,b)=>a-b),
-      numeri.slice(13,19).sort((a,b)=>a-b),
-      numeri.slice(19,25).sort((a,b)=>a-b),
-      numeri.slice(25,31).sort((a,b)=>a-b),
-      numeri.slice(31,37).sort((a,b)=>a-b)
-    ]
+    // Lottomatica/GoldBet ricevono sestine REALI; gli altri si dividono i numeri residui.
+    const speciali = gruppo.filter(isLiveSoloSestine)
+    const normali = gruppo.filter(b => !isLiveSoloSestine(b))
+    const sestineMix=[...SESTINE_ROULETTE]
+    for(let i=sestineMix.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[sestineMix[i],sestineMix[j]]=[sestineMix[j],sestineMix[i]]}
+    const occupati=new Set(), assegnazioniLive=[]
+    speciali.forEach(b=>{
+      const s=sestineMix.find(x=>x.every(n=>!occupati.has(n)))
+      if(s){s.forEach(n=>occupati.add(n));assegnazioniLive.push({book:b,tipo:'Sestina',numeri:[...s]})}
+    })
+    const residui=numeri.filter(n=>!occupati.has(n))
+    let pos=0
+    normali.forEach((b,i)=>{
+      const quanti=Math.min(7,Math.ceil((residui.length-pos)/(normali.length-i)))
+      assegnazioniLive.push({book:b,tipo:'Numeri',numeri:residui.slice(pos,pos+quanti).sort((a,b)=>a-b)})
+      pos+=quanti
+    })
 
     proposte.push({
       target: book,
       azione: agenda.azioni.find(a => liveRegex.test(a)),
-      gruppo: gruppo.map((b,i) => ({
-        book: b,
-        ruolo: i === 0 ? 'Conto da lavorare' : `Amico ${i}`,
-        numeri: blocchi[i],
-        budget: 100,
-        stakeNumeroIndicativo: 100 / blocchi[i].length
+      gruppo: assegnazioniLive.map((g,i) => ({
+        book:g.book,
+        ruolo:g.book.id===book.id ? 'Conto da lavorare' : 'Amico',
+        tipo:g.tipo,
+        numeri:g.numeri,
+        budget:100,
+        stakeNumeroIndicativo:100/Math.max(1,g.numeri.length)
       }))
     })
   })
@@ -1737,8 +1757,12 @@ async function generaLucySport(agendaItems = []) {
       proposte.push({ ...c, assegnazioni, integrazioni, scenari })
     }
 
+    setLucySportNonCollocate(slot.map(s => ({
+      book:s.book, betNumero:s.betNumero, betRichieste:s.betRichieste,
+      stake:s.importoIndicativo, budgetTotale:s.budgetTotale
+    })))
     if (slot.length) {
-      setLucySportError(`Lucy ha preparato gli incroci possibili, ma restano ${slot.length} bet da collocare senza ripetere la stessa partita sullo stesso conto.`)
+      setLucySportError(`Lucy ha preparato gli incroci possibili, ma restano ${slot.length} bet da collocare: vedi “DA COMPLETARE”.`)
     }
 
     setLucySportProposte(proposte)
@@ -4411,6 +4435,22 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
       </div>
 
 
+      
+      {lucySportNonCollocate.length > 0 && (
+        <div style={{background:'rgba(127,29,29,.16)',border:'1px solid rgba(248,113,113,.35)',borderRadius:12,padding:'10px 12px',marginBottom:12}}>
+          <div style={{fontSize:11,fontWeight:900,color:'#fca5a5',marginBottom:6}}>🔴 DA COMPLETARE — BET NON ANCORA COLLOCATE</div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(250px,1fr))',gap:6}}>
+            {lucySportNonCollocate.map((s,i)=>(
+              <div key={`${s.book.id}-${s.betNumero}-${i}`} style={{background:'rgba(15,23,42,.8)',borderRadius:7,padding:'7px 8px',fontSize:11}}>
+                <b style={{color:'#f8fafc'}}>{s.book.nome} · {s.book.intestatario}</b>
+                <div style={{color:'#fbbf24',marginTop:3}}>Bet {s.betNumero}/{s.betRichieste} · ~{s.stake.toFixed(0)}€ · target {s.budgetTotale.toFixed(0)}€</div>
+                <div style={{color:'#64748b',marginTop:3}}>Da collocare su un'altra partita compatibile.</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* LUCY LIVE — usa anche gli altri conti in Profilazione come copertura/amici */}
       <div style={{ background:'rgba(76,29,149,0.16)', border:'1px solid rgba(167,139,250,0.35)', borderRadius:16, padding:'14px 16px', marginBottom:16 }}>
         <div style={{fontSize:14,fontWeight:900,color:'#ede9fe'}}>🎰 Lucy Live — Incroci Casinò</div>
@@ -4435,12 +4475,12 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                       {p.gruppo.map((g,i)=>(
                         <div key={`${g.book.id}-${i}`} style={{background:'rgba(15,23,42,.78)',borderRadius:8,padding:'7px 8px',fontSize:11,color:'#cbd5e1'}}>
                           <div><b style={{color:i===0?'#4ade80':'#e2e8f0'}}>{g.ruolo}</b> — {g.book.nome} · {g.book.intestatario}</div>
-                          <div style={{marginTop:4,color:'#93c5fd'}}>Numeri: {g.numeri.join(', ')}</div>
+                          <div style={{marginTop:4,color:'#93c5fd'}}>{g.tipo==='Sestina'?'Sestina':'Numeri'}: {g.numeri.join(', ')}</div>
                           <div style={{marginTop:3,color:'#64748b'}}>Budget protocollo: {g.budget}€ · ~{g.stakeNumeroIndicativo.toFixed(2)}€/numero (indicativo)</div>
                         </div>
                       ))}
                     </div>
-                    <div style={{fontSize:10,color:'#64748b',marginTop:7}}>Matrice 0–36 coperta completamente · 6 conti · massimo 6/7 numeri ciascuno · numeri randomizzati e non duplicati. Prima di giocare puoi adattare puntate/numeri ai limiti reali del tavolo.</div>
+                    <div style={{fontSize:10,color:'#64748b',marginTop:7}}>Copertura 0–36: Lottomatica/GoldBet su sestine; gli altri book sui numeri residui randomizzati. Prima di giocare puoi adattare puntate/numeri ai limiti reali del tavolo.</div>
                   </>
                 )}
               </div>
