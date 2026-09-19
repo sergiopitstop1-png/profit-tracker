@@ -1412,16 +1412,52 @@ function getNumeroBetRichieste(azione = '') {
   return 1
 }
 
-function getImportoSportIndicativo(book, azione = '') {
+function getBudgetSportTotale(book, azione = '') {
   const nome = getNomeNormalizzato(book?.nome)
-  if (BOOK_GRUPPO_LOTTOMATICA.some(k => nome.includes(k))) return 25 // 100€ / 4 bet
-  if (nome.includes('betsson')) return 20
-  if (nome.includes('bwin')) return 25
-  if (nome.includes('stanleybet')) return 20
-  if (nome.includes('betfair') || nome.includes('betpoint')) return 10
+  if (BOOK_GRUPPO_LOTTOMATICA.some(k => nome.includes(k))) return 100
+  if (nome.includes('betsson')) return 80
+  if (nome.includes('bwin')) return 75
+  if (nome.includes('stanleybet')) return 60
+  if (nome.includes('betfair') || nome.includes('betpoint')) return 30
   const m = String(azione).match(/(\d+)\s*(?:a|-)\s*(\d+)\s*€/i)
-  if (m) return (Number(m[1]) + Number(m[2])) / 2
-  return 10
+  if (m) return ((Number(m[1]) + Number(m[2])) / 2) * getNumeroBetRichieste(azione)
+  return 10 * getNumeroBetRichieste(azione)
+}
+
+function variaBudgetGiornaliero(book, budgetBase) {
+  // Ogni conto ha una variazione indipendente e stabile per la giornata.
+  // Esempio su base 100€: 90 / 95 / 100 / 105 / 110.
+  // Il seed include il conto, quindi Michela e Massimiliano possono avere target diversi lo stesso giorno.
+  if (!budgetBase || budgetBase <= 0) return budgetBase
+  const seedText = `${new Date().toISOString().slice(0,10)}|budget|${book.id}|${book.nome}|${book.intestatario}`
+  let seed = 2166136261
+  for (let i=0;i<seedText.length;i++){ seed ^= seedText.charCodeAt(i); seed=Math.imul(seed,16777619) }
+  seed += 0x6D2B79F5
+  let x=seed
+  x=Math.imul(x^(x>>>15),x|1); x^=x+Math.imul(x^(x>>>7),x|61)
+  const r=((x^(x>>>14))>>>0)/4294967296
+  const fattori=[0.90,0.95,1.00,1.05,1.10]
+  const fattore=fattori[Math.min(fattori.length-1,Math.floor(r*fattori.length))]
+  return Math.max(5, Math.round((budgetBase*fattore)/5)*5)
+}
+
+function distribuisciStakeVariabili(book, nBet, budgetTotale) {
+  if (nBet <= 1) return [budgetTotale]
+  const seedText = `${new Date().toISOString().slice(0,10)}|sport|${book.id}|${book.nome}|${book.intestatario}`
+  let seed = 2166136261
+  for (let i=0;i<seedText.length;i++){ seed ^= seedText.charCodeAt(i); seed=Math.imul(seed,16777619) }
+  const rnd=()=>{ seed+=0x6D2B79F5; let x=seed; x=Math.imul(x^(x>>>15),x|1); x^=x+Math.imul(x^(x>>>7),x|61); return ((x^(x>>>14))>>>0)/4294967296 }
+  const min = Math.max(5, Math.round((budgetTotale/nBet)*0.55/5)*5)
+  let resto=budgetTotale; const out=[]
+  for(let i=0;i<nBet-1;i++){
+    const rim=nBet-i-1, media=resto/(rim+1)
+    const lo=Math.min(min,resto-min*rim), hi=Math.max(lo,Math.min(resto-min*rim,media*1.65))
+    let v=Math.round((lo+rnd()*(hi-lo))/5)*5
+    v=Math.max(lo,Math.min(v,resto-min*rim)); out.push(v); resto-=v
+  }
+  out.push(resto)
+  for(let i=out.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[out[i],out[j]]=[out[j],out[i]]}
+  return out
 }
 
 function getQuotaMinSport(book, azione = '') {
@@ -1464,11 +1500,11 @@ function generaLucyLive(agendaItems = []) {
       })
     }
 
-    const amici = pool.slice(0, 3)
-    if (amici.length < 3) {
+    const amici = pool.slice(0, 5)
+    if (amici.length < 5) {
       proposte.push({
         target: book, azione: agenda.azioni.find(a => liveRegex.test(a)),
-        insufficiente: true, amici
+        insufficiente: true, amici, amiciRichiesti:5
       })
       return
     }
@@ -1496,11 +1532,14 @@ function generaLucyLive(agendaItems = []) {
       const j = Math.floor(rnd() * (i+1))
       ;[numeri[i], numeri[j]] = [numeri[j], numeri[i]]
     }
+    // 37 numeri / 6 conti: 7 numeri al primo, 6 a ciascuno degli altri cinque.
     const blocchi = [
-      numeri.slice(0,10).sort((a,b)=>a-b),
-      numeri.slice(10,19).sort((a,b)=>a-b),
-      numeri.slice(19,28).sort((a,b)=>a-b),
-      numeri.slice(28,37).sort((a,b)=>a-b)
+      numeri.slice(0,7).sort((a,b)=>a-b),
+      numeri.slice(7,13).sort((a,b)=>a-b),
+      numeri.slice(13,19).sort((a,b)=>a-b),
+      numeri.slice(19,25).sort((a,b)=>a-b),
+      numeri.slice(25,31).sort((a,b)=>a-b),
+      numeri.slice(31,37).sort((a,b)=>a-b)
     ]
 
     proposte.push({
@@ -1528,11 +1567,12 @@ async function generaLucySport(agendaItems = []) {
     const azioniSport = (agenda?.azioni || []).filter(a => sportRegex.test(a) && !casinoOnlyRegex.test(a))
     if (!azioniSport.length) return
     const azione = azioniSport[0]
+    const betRichieste = getNumeroBetRichieste(azione)
+    const budgetBase = getBudgetSportTotale(book, azione)
+    const budgetTotale = variaBudgetGiornaliero(book, budgetBase)
     sportItems.push({
-      book,
-      azione,
-      betRichieste: getNumeroBetRichieste(azione),
-      importoIndicativo: getImportoSportIndicativo(book, azione),
+      book, azione, betRichieste, budgetBase, budgetTotale,
+      stakeVariabili: distribuisciStakeVariabili(book, betRichieste, budgetTotale),
       quotaMin: getQuotaMinSport(book, azione)
     })
   })
@@ -1608,8 +1648,19 @@ async function generaLucySport(agendaItems = []) {
     // Ogni conto genera N "slot bet". Quindi Lottomatica 100€ su 3/4 bet compare su 4 partite diverse.
     const slot = []
     sportItems.forEach(item => {
-      for (let i=0; i<item.betRichieste; i++) slot.push({ ...item, betNumero:i+1 })
+      for (let i=0; i<item.betRichieste; i++) {
+        slot.push({ ...item, betNumero:i+1, importoIndicativo:item.stakeVariabili[i] })
+      }
     })
+
+    // Filler: conti in Mantenimento. Priorità a quelli già in agenda oggi.
+    const idsMantOggi = new Set(
+      agendaItems.filter(x => String(x.agenda?.tipo || '').toLowerCase().includes('manten')).map(x => x.book.id)
+    )
+    const poolMantenimento = books
+      .filter(b => b.profilo_livello && String(b.profilo_livello).startsWith('mantenimento'))
+      .sort((a,b) => Number(idsMantOggi.has(b.id)) - Number(idsMantOggi.has(a.id)))
+    const usoMant = new Set()
 
     const proposte=[]
     const eventiUsatiPerBook = new Map()
@@ -1654,13 +1705,36 @@ async function generaLucySport(agendaItems = []) {
         return { ...x, esito:scelta[0], quota:scelta[1], stake:x.importoIndicativo }
       })
 
-      const scenari = c.esiti.map(([esito]) => {
-        const vincite = assegnazioni.filter(a=>a.esito===esito).reduce((s,a)=>s+a.stake*a.quota,0)
-        const giocato = assegnazioni.reduce((s,a)=>s+a.stake,0)
-        return { esito, netto:vincite-giocato }
+      // Integra gli esiti più scoperti con piccoli stake da conti in Mantenimento.
+      const ritorniBase = c.esiti.map(([esito,quota]) => ({
+        esito, quota,
+        ritorno: assegnazioni.filter(a=>a.esito===esito).reduce((s,a)=>s+a.stake*a.quota,0)
+      }))
+      const targetRitorno = Math.max(...ritorniBase.map(r=>r.ritorno))
+      const integrazioni=[]
+      const contiProfilo = new Set(assegnazioni.map(a=>a.book.id))
+      ritorniBase.forEach(r=>{
+        let necessario=Math.max(0,(targetRitorno-r.ritorno)/r.quota)
+        while(necessario>=2){
+          const candidato=poolMantenimento.find(b=>{
+            const k=`${b.id}|${c.home}|${c.away}`
+            return !contiProfilo.has(b.id) && !usoMant.has(k)
+          })
+          if(!candidato) break
+          const stakeMant=Math.min(15,Math.max(5,Math.round(Math.min(necessario,10))))
+          integrazioni.push({book:candidato,esito:r.esito,quota:r.quota,stake:stakeMant,giaInAgenda:idsMantOggi.has(candidato.id)})
+          usoMant.add(`${candidato.id}|${c.home}|${c.away}`)
+          necessario-=stakeMant
+        }
+      })
+      const giocato=assegnazioni.reduce((s,a)=>s+a.stake,0)+integrazioni.reduce((s,a)=>s+a.stake,0)
+      const scenari=c.esiti.map(([esito])=>{
+        const vp=assegnazioni.filter(a=>a.esito===esito).reduce((s,a)=>s+a.stake*a.quota,0)
+        const vm=integrazioni.filter(a=>a.esito===esito).reduce((s,a)=>s+a.stake*a.quota,0)
+        return {esito,netto:vp+vm-giocato}
       })
 
-      proposte.push({ ...c, assegnazioni, scenari })
+      proposte.push({ ...c, assegnazioni, integrazioni, scenari })
     }
 
     if (slot.length) {
@@ -4310,13 +4384,25 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(210px,1fr))',gap:5}}>
                   {p.assegnazioni.map((a,i)=>(
                     <div key={`${a.book.id}-${i}`} style={{fontSize:11,color:'#cbd5e1',padding:'5px 7px',background:'rgba(15,23,42,.75)',borderRadius:7}}>
-                      <b style={{color:'#e2e8f0'}}>{a.book.nome}</b> · {a.book.intestatario} → <b style={{color:'#4ade80'}}>{a.esito}</b> <span style={{color:'#64748b'}}>@ {a.quota?.toFixed(2)}</span> <span style={{color:'#fbbf24'}}>· Bet {a.betNumero}/{a.betRichieste} · ~{a.stake.toFixed(0)}€</span>
+                      <b style={{color:'#e2e8f0'}}>{a.book.nome}</b> · {a.book.intestatario} → <b style={{color:'#4ade80'}}>{a.esito}</b> <span style={{color:'#64748b'}}>@ {a.quota?.toFixed(2)}</span> <span style={{color:'#fbbf24'}}>· Bet {a.betNumero}/{a.betRichieste} · ~{a.stake.toFixed(0)}€</span><span style={{color:'#64748b'}}> · target giorno {a.budgetTotale.toFixed(0)}€</span>
                     </div>
                   ))}
                 </div>
+                {p.integrazioni?.length > 0 && (
+                  <div style={{marginTop:7,padding:'7px 8px',borderRadius:8,background:'rgba(245,158,11,.08)',border:'1px solid rgba(245,158,11,.22)'}}>
+                    <div style={{fontSize:10,fontWeight:900,color:'#fbbf24',marginBottom:4}}>🟡 INTEGRAZIONI DA MANTENIMENTO</div>
+                    <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                      {p.integrazioni.map((a,i)=>(
+                        <span key={`${a.book.id}-${a.esito}-${i}`} style={{fontSize:10,color:'#fde68a',background:'rgba(15,23,42,.8)',padding:'4px 6px',borderRadius:6}}>
+                          {a.book.nome} · {a.book.intestatario} → <b>{a.esito}</b> {a.stake.toFixed(0)}€ @ {a.quota?.toFixed(2)}{a.giaInAgenda?' · già in agenda':' · filler'}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:8}}>
                   {p.scenari.map(sc=><span key={sc.esito} style={{fontSize:10,padding:'3px 7px',borderRadius:7,background:sc.netto>=0?'rgba(34,197,94,.12)':'rgba(239,68,68,.10)',color:sc.netto>=0?'#4ade80':'#fca5a5'}}>{sc.esito}: {sc.netto>=0?'+':''}{sc.netto.toFixed(2)}€*</span>)}
-                  <span style={{fontSize:10,color:'#64748b',padding:'3px 2px'}}>* simulazione con importi indicativi del protocollo; gli importi reali li adatti tu</span>
+                  <span style={{fontSize:10,color:'#64748b',padding:'3px 2px'}}>* budget giornaliero variabile e indipendente per conto; simulazione indicativa, gli importi reali li adatti tu</span>
                 </div>
               </div>
             ))}
@@ -4329,7 +4415,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
       <div style={{ background:'rgba(76,29,149,0.16)', border:'1px solid rgba(167,139,250,0.35)', borderRadius:16, padding:'14px 16px', marginBottom:16 }}>
         <div style={{fontSize:14,fontWeight:900,color:'#ede9fe'}}>🎰 Lucy Live — Incroci Casinò</div>
         <div style={{fontSize:11,color:'#94a3b8',marginTop:2,marginBottom:10}}>
-          Se oggi un conto deve fare Casinò Live, Lucy cerca almeno 3 amici fra gli altri conti in Profilazione, anche se oggi non avevano una lavorazione propria.
+          Se oggi un conto deve fare Casinò Live, Lucy cerca 5 amici fra gli altri conti in Profilazione, anche se oggi non avevano una lavorazione propria.
         </div>
         {lucyLiveProposte.length === 0 ? (
           <div style={{fontSize:11,color:'#64748b'}}>Premi “PREPARA INCROCI SPORT”: Lucy prepara insieme anche gli eventuali incroci Live di oggi.</div>
@@ -4342,7 +4428,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 </div>
                 <div style={{fontSize:10,color:'#a78bfa',marginBottom:8}}>{p.azione}</div>
                 {p.insufficiente ? (
-                  <div style={{fontSize:11,color:'#fbbf24'}}>⚠️ Trovati solo {p.amici.length} amici disponibili: ne servono almeno 3.</div>
+                  <div style={{fontSize:11,color:'#fbbf24'}}>⚠️ Trovati solo {p.amici.length} amici disponibili: ne servono 5 per formare un incrocio da 6 conti.</div>
                 ) : (
                   <>
                     <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))',gap:6}}>
@@ -4354,7 +4440,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                         </div>
                       ))}
                     </div>
-                    <div style={{fontSize:10,color:'#64748b',marginTop:7}}>Matrice 0–36 coperta completamente · numeri randomizzati e non duplicati fra i 4 conti. Prima di giocare puoi adattare puntate/numeri ai limiti reali del tavolo.</div>
+                    <div style={{fontSize:10,color:'#64748b',marginTop:7}}>Matrice 0–36 coperta completamente · 6 conti · massimo 6/7 numeri ciascuno · numeri randomizzati e non duplicati. Prima di giocare puoi adattare puntate/numeri ai limiti reali del tavolo.</div>
                   </>
                 )}
               </div>
