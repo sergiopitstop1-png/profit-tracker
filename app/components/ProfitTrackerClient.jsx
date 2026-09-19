@@ -1476,13 +1476,31 @@ function generaLucyLive(agendaItems = []) {
     const gruppo = [book, ...amici]
     gruppo.forEach(b => usati.add(b.id))
 
-    // Matrice roulette indicativa 0-36: 10 numeri al target, 9 agli altri.
+    // Matrice roulette 0-36 RANDOM ma senza duplicati.
+    // Seed = data + conto target: resta stabile durante la giornata, cambia nei giorni/cicli successivi.
+    const seedText = `${new Date().toISOString().slice(0,10)}|${book.id}|${book.nome}|${book.intestatario}`
+    let seed = 2166136261
+    for (let i=0; i<seedText.length; i++) {
+      seed ^= seedText.charCodeAt(i)
+      seed = Math.imul(seed, 16777619)
+    }
+    const rnd = () => {
+      seed += 0x6D2B79F5
+      let t = seed
+      t = Math.imul(t ^ (t >>> 15), t | 1)
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+    }
     const numeri = Array.from({length: 37}, (_, i) => i)
+    for (let i=numeri.length-1; i>0; i--) {
+      const j = Math.floor(rnd() * (i+1))
+      ;[numeri[i], numeri[j]] = [numeri[j], numeri[i]]
+    }
     const blocchi = [
-      numeri.slice(0,10),
-      numeri.slice(10,19),
-      numeri.slice(19,28),
-      numeri.slice(28,37)
+      numeri.slice(0,10).sort((a,b)=>a-b),
+      numeri.slice(10,19).sort((a,b)=>a-b),
+      numeri.slice(19,28).sort((a,b)=>a-b),
+      numeri.slice(28,37).sort((a,b)=>a-b)
     ]
 
     proposte.push({
@@ -1602,18 +1620,22 @@ async function generaLucySport(agendaItems = []) {
       giro++
       const nEsiti = c.esiti.length
 
-      // Costruisce un gruppo con conti che non hanno già usato questa partita.
+      // Costruisce un gruppo: REGOLA ASSOLUTA = un solo esito per conto sulla stessa partita.
+      // Quindi lo stesso book+intestatario non può mai comparire due volte nello stesso incrocio/evento.
       const gruppo = []
+      const contiNelGruppo = new Set()
+      const eventoKey = `${c.home}|${c.away}`
       for (let i=0; i<slot.length && gruppo.length<nEsiti*2; i++) {
         const s = slot[i]
         const key = s.book.id
-        const eventoKey = `${c.home}|${c.away}`
         const gia = eventiUsatiPerBook.get(key) || new Set()
         if (gia.has(eventoKey)) continue
+        if (contiNelGruppo.has(key)) continue
 
         // Deve esistere almeno un esito che rispetta la quota minima del protocollo.
         if (!c.esiti.some(([,q]) => q >= s.quotaMin)) continue
         gruppo.push(s)
+        contiNelGruppo.add(key)
       }
       if (gruppo.length < nEsiti) continue
 
@@ -4267,7 +4289,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap', marginBottom:10 }}>
           <div>
             <div style={{ fontSize:14, fontWeight:900, color:'#e0f2fe' }}>🤖 Lucy Sport — Incroci automatici</div>
-            <div style={{ fontSize:11, color:'#94a3b8', marginTop:2 }}>Prende le lavorazioni Sport di oggi e cerca coperture complete usando le quote medie PronoX.</div>
+            <div style={{ fontSize:11, color:'#94a3b8', marginTop:2 }}>Prende le lavorazioni Sport di oggi e cerca coperture complete usando le quote medie PronoX. Regola: lo stesso conto non riceve mai due esiti della stessa partita.</div>
           </div>
           <button style={{ ...tinyBlueButton, marginLeft:'auto' }} disabled={lucySportLoading} onClick={() => generaLucySport(agendaOggi)}>
             {lucySportLoading ? '⏳ Lucy sta calcolando…' : '⚽ PREPARA INCROCI SPORT'}
@@ -4332,7 +4354,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                         </div>
                       ))}
                     </div>
-                    <div style={{fontSize:10,color:'#64748b',marginTop:7}}>Matrice 0–36 coperta completamente. Prima di giocare puoi adattare puntate/numeri ai limiti reali del tavolo.</div>
+                    <div style={{fontSize:10,color:'#64748b',marginTop:7}}>Matrice 0–36 coperta completamente · numeri randomizzati e non duplicati fra i 4 conti. Prima di giocare puoi adattare puntate/numeri ai limiti reali del tavolo.</div>
                   </>
                 )}
               </div>
