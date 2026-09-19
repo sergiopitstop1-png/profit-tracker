@@ -11,10 +11,14 @@ export async function GET() {
       );
     }
 
-    const oggi = new Date().toISOString().slice(0, 10);
+    // Aston Villa - Tottenham trovato dal test precedente
+    const eventId = "f19d35f3ce0ce4fd80a928fc1cfe06c8";
 
     const url =
-      `https://therundown.io/api/v2/sports/markets/${oggi}`;
+      `https://therundown.io/api/v2/events/${eventId}` +
+      `?market_ids=1` +
+      `&main_line=true` +
+      `&hide_closed=true`;
 
     const res = await fetch(url, {
       headers: {
@@ -23,39 +27,31 @@ export async function GET() {
       cache: "no-store",
     });
 
-    const data = await res.json();
+    const text = await res.text();
 
-    // Ci interessa SOLO EPL = sport 11
-    const epl =
-      data?.["11"] ||
-      data?.[11] ||
-      [];
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = text;
+    }
 
     return Response.json({
       ok: res.ok,
       status: res.status,
-      data: oggi,
 
-      EPL: {
-        sport_id: 11,
-        numero_mercati: Array.isArray(epl) ? epl.length : 0,
+      test: "SINGOLO EVENTO - MONEYLINE SENZA FILTRO BOOK",
 
-        mercati: Array.isArray(epl)
-          ? epl.map(m => ({
-              id: m.id,
-              nome: m.name,
-              descrizione: m.short_description,
-              periodo: m.period_id,
-              live: m.live_variant_id
-            }))
-          : epl
-      },
+      event_id: eventId,
 
       quota: {
         usati: res.headers.get("x-datapoints"),
         remaining: res.headers.get("x-datapoints-remaining"),
-        limit: res.headers.get("x-datapoints-limit")
-      }
+        limit: res.headers.get("x-datapoints-limit"),
+        delay_seconds: res.headers.get("x-data-delay-seconds")
+      },
+
+      risposta: data
     });
 
   } catch (error) {
