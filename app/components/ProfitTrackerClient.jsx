@@ -4659,52 +4659,18 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         {lucySportAggiornato && <div style={{fontSize:10,color:'#64748b',marginBottom:8}}>Ultimo calcolo: {lucySportAggiornato.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}</div>}
         {lucySportError && <div style={{ color:'#fbbf24', fontSize:12, padding:'8px 10px', background:'rgba(251,191,36,0.08)', borderRadius:9 }}>{lucySportError}</div>}
         {lucySportProposte.length > 0 && (
-          <div style={{display:'flex',flexDirection:'column',gap:9}}>
-            {lucySportProposte.map((p,idx)=>(
-              <div key={`${p.home}-${p.away}-${p.mercato}-${idx}`} style={{background:'rgba(11,18,32,0.82)',border:'1px solid rgba(51,65,85,0.8)',borderRadius:12,padding:'10px 12px'}}>
-                <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:7}}>
-                  <span style={{fontWeight:900,color:'#f8fafc'}}>Incrocio #{idx+1}</span>
-                  <span style={{fontSize:11,color:'#38bdf8'}}>{p.home} – {p.away}</span>
-                  <span style={{fontSize:10,color:'#a78bfa',background:'rgba(167,139,250,.12)',padding:'2px 6px',borderRadius:6}}>{p.mercato}</span>
-                  <span style={{fontSize:10,color:'#64748b'}}>{p.lega}</span><span style={{fontSize:10,color:'#38bdf8',fontWeight:900}}>🕒 {p.orario||'—'}</span>
-                </div>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(210px,1fr))',gap:5}}>
-                  {p.assegnazioni.map((a,i)=>(
-                    <div key={`${a.book.id}-${i}`} style={{fontSize:11,color:'#cbd5e1',padding:'5px 7px',background:'rgba(15,23,42,.75)',borderRadius:7}}>
-                      <b style={{color:'#e2e8f0'}}>{a.book.nome}</b> · {a.book.intestatario} → <b style={{color:'#4ade80'}}>{a.esito}</b> <span style={{color:'#64748b'}}>@ {a.quota?.toFixed(2)}</span> <span style={{color:'#fbbf24'}}>· Bet {a.betNumero}/{a.betRichieste} · ~{a.stake.toFixed(0)}€</span><span style={{color:'#64748b'}}> · target giorno {a.budgetTotale.toFixed(0)}€</span>
-                    </div>
-                  ))}
-                </div>
-                {p.extraProfilazione?.length > 0 && (
-                  <div style={{marginTop:7,padding:'7px 8px',borderRadius:8,background:'rgba(59,130,246,.08)',border:'1px solid rgba(59,130,246,.25)'}}>
-                    <div style={{fontSize:10,fontWeight:900,color:'#93c5fd',marginBottom:4}}>🔵 EXTRA PROFILAZIONE — SUPERAMENTO TARGET</div>
-                    <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-                      {p.extraProfilazione.map((a,i)=>(
-                        <span key={`${a.book.id}-${a.esito}-${i}`} style={{fontSize:10,color:'#bfdbfe',background:'rgba(15,23,42,.8)',padding:'4px 6px',borderRadius:6}}>
-                          {a.book.nome} · {a.book.intestatario} → <b>{a.esito}</b> {a.stake.toFixed(0)}€ @ {a.quota?.toFixed(2)} · EXTRA · totale dopo {(Number(a.totalePrima||0)+Number(a.stake||0)).toFixed(0)}€ / cap {Number(a.capGiornaliero||0).toFixed(0)}€
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {p.integrazioni?.length > 0 && (
-                  <div style={{marginTop:7,padding:'7px 8px',borderRadius:8,background:'rgba(245,158,11,.08)',border:'1px solid rgba(245,158,11,.22)'}}>
-                    <div style={{fontSize:10,fontWeight:900,color:'#fbbf24',marginBottom:4}}>🟡 INTEGRAZIONE DA MANTENIMENTO</div>
-                    <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-                      {p.integrazioni.map((a,i)=>(
-                        <span key={`${a.book.id}-${a.esito}-${i}`} style={{fontSize:10,color:'#fde68a',background:'rgba(15,23,42,.8)',padding:'4px 6px',borderRadius:6}}>
-                          {a.book.nome} · {a.book.intestatario} → <b>{a.esito}</b> {a.stake.toFixed(0)}€ @ {a.quota?.toFixed(2)}{a.giaInAgenda?' · già in agenda':' · filler'}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:8}}>
-                  {p.scenari.map(sc=><span key={sc.esito} style={{fontSize:10,padding:'3px 7px',borderRadius:7,background:sc.netto>=0?'rgba(34,197,94,.12)':'rgba(239,68,68,.10)',color:sc.netto>=0?'#4ade80':'#fca5a5'}}>{sc.esito}: {sc.netto>=0?'+':''}{sc.netto.toFixed(2)}€*</span>)}
-                  <span style={{fontSize:10,color:'#64748b',padding:'3px 2px'}}>* integrazione progressiva: mantenimento fino a 30€; oltre 30€ Extra Profilazione con controllo del totale giornaliero e cap per protocollo</span>
-                </div>
+          <div style={{marginTop:9,display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap',
+            background:'rgba(22,163,74,.10)',border:'1px solid rgba(34,197,94,.35)',borderRadius:10,padding:'10px 12px'}}>
+            <div>
+              <div style={{fontSize:13,fontWeight:900,color:'#86efac'}}>✓ INCROCI PRONTI</div>
+              <div style={{fontSize:10,color:'#94a3b8',marginTop:2}}>
+                {lucySportProposte.length} incroci preparati · costo teorico {Math.abs(costoTeoricoSportOggi()).toFixed(2)}€ / max {Number(lucyCostoMax).toFixed(2)}€
               </div>
-            ))}
+            </div>
+            <button onClick={()=>setLucyTabellaAperta(true)}
+              style={{background:'#2563eb',color:'white',border:0,borderRadius:8,padding:'8px 12px',fontSize:10,fontWeight:900,cursor:'pointer'}}>
+              📋 APRI TABELLA BET
+            </button>
           </div>
         )}
       </div>
@@ -4712,26 +4678,11 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 
       
       {lucySportNonCollocate.length > 0 && (
-        <div style={{background:'rgba(127,29,29,.16)',border:'1px solid rgba(248,113,113,.35)',borderRadius:12,padding:'10px 12px',marginBottom:12}}>
-          <div style={{fontSize:11,fontWeight:900,color:'#fca5a5',marginBottom:6}}>🔴 DA COMPLETARE — BET NON ANCORA COLLOCATE</div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(250px,1fr))',gap:6}}>
-            {lucySportNonCollocate.map((s,i)=>(
-              <div key={`${s.book.id}-${s.betNumero}-${i}`} style={{background:'rgba(15,23,42,.8)',borderRadius:7,padding:'7px 8px',fontSize:11}}>
-                <b style={{color:'#f8fafc'}}>{s.book.nome} · {s.book.intestatario}</b>
-                <div style={{color:'#fbbf24',marginTop:3}}>Bet {s.betNumero}/{s.betRichieste} · ~{s.stake.toFixed(0)}€ · target {s.budgetTotale.toFixed(0)}€</div>
-                <div style={{color:'#64748b',marginTop:3}}>
-                    {s.motivo==='rinviata per budget costo'
-                      ? 'Rinviata perché il piano superava il costo massimo impostato.'
-                      : 'Da collocare su un’altra partita compatibile.'}
-                  </div>
-              </div>
-            ))}
-          </div>
+        <div style={{fontSize:10,color:'#fca5a5',margin:'7px 0 10px'}}>
+          🔴 {lucySportNonCollocate.length} bet da completare/rinviate — dettagli nella Tabella Bet.
         </div>
       )}
 
-      
-      
       {lucyRinviate.length>0 && (
         <div style={{background:'rgba(120,53,15,.14)',border:'1px solid rgba(251,191,36,.35)',borderRadius:10,padding:'9px 10px',marginBottom:10}}>
           <div style={{fontSize:11,fontWeight:900,color:'#fbbf24'}}>🕒 RINVIATE PER BUDGET COSTO — {lucyRinviate.length} incroci</div>
