@@ -1630,7 +1630,6 @@ function annullaSingolaBetLucy(key) {
   salvaLucyConfermate(lucyConfermate.filter(x=>x.key!==key))
 }
 
-
 function azzeraConfermeOggiLucy() {
   if (!window.confirm('Azzerare SOLO le conferme di oggi? Lo storico delle altre giornate non viene toccato.')) return
   const oggi=lucyOggi()
@@ -4642,7 +4641,14 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 style={{width:70,background:'#020617',color:'#f8fafc',border:'1px solid #475569',borderRadius:6,padding:'5px 6px',fontWeight:900,textAlign:'right'}} />
               <span style={{fontSize:11,color:'#cbd5e1'}}>€</span>
             </div>
-<button style={{ ...tinyBlueButton, marginLeft:'auto' }} disabled={lucySportLoading} onClick={() => generaLucySport(agendaOggi)}>
+{confermateOggiLucy().length>0 && (
+              <button onClick={azzeraConfermeOggiLucy}
+                style={{background:'#7f1d1d',color:'#fecaca',border:'1px solid #991b1b',borderRadius:8,padding:'7px 9px',fontSize:9,fontWeight:900,cursor:'pointer'}}
+                title="Cancella solo la memoria operativa delle bet confermate oggi">
+                ↺ AZZERA CONFERME OGGI
+              </button>
+            )}
+            <button style={{ ...tinyBlueButton, marginLeft:'auto' }} disabled={lucySportLoading} onClick={() => generaLucySport(agendaOggi)}>
             {lucySportLoading ? '⏳ Lucy sta calcolando…' : '⚽ PREPARA INCROCI SPORT'}
           </button>
             <button onClick={()=>setLucyTabellaAperta(true)} disabled={!lucySportProposte.length}
@@ -4713,7 +4719,11 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               <div key={`${s.book.id}-${s.betNumero}-${i}`} style={{background:'rgba(15,23,42,.8)',borderRadius:7,padding:'7px 8px',fontSize:11}}>
                 <b style={{color:'#f8fafc'}}>{s.book.nome} · {s.book.intestatario}</b>
                 <div style={{color:'#fbbf24',marginTop:3}}>Bet {s.betNumero}/{s.betRichieste} · ~{s.stake.toFixed(0)}€ · target {s.budgetTotale.toFixed(0)}€</div>
-                <div style={{color:'#64748b',marginTop:3}}>{s.motivo==='rinviata per budget costo' ? 'Rinviata perché il piano superava il costo massimo impostato.' : 'Da collocare su un’altra partita compatibile.'}</div>
+                <div style={{color:'#64748b',marginTop:3}}>
+                    {s.motivo==='rinviata per budget costo'
+                      ? 'Rinviata perché il piano superava il costo massimo impostato.'
+                      : 'Da collocare su un’altra partita compatibile.'}
+                  </div>
               </div>
             ))}
           </div>
@@ -6780,12 +6790,4 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
   </div>
     )
 }
-
-            {confermateOggiLucy().length>0 && (
-              <button onClick={azzeraConfermeOggiLucy}
-                style={{background:'#7f1d1d',color:'#fecaca',border:'1px solid #991b1b',borderRadius:8,padding:'7px 9px',fontSize:9,fontWeight:900,cursor:'pointer'}}
-                title="Utile durante i test: cancella solo la memoria operativa delle bet confermate oggi">
-                ↺ AZZERA CONFERME OGGI
-              </button>
-            )}
 
