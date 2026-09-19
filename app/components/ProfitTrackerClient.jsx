@@ -1445,6 +1445,18 @@ function variaBudgetGiornaliero(book, budgetBase) {
   return Math.max(5, Math.round((budgetBase*fattore)/5)*5)
 }
 
+function getCapSportGiornaliero(book, budgetTotale=100) {
+  const nome=getNomeNormalizzato(book?.nome)
+  // Sisal ha un protocollo sport/volume più alto: non applichiamo il tetto standard 150€.
+  // Per lo Sport di Lucy gli concediamo fino a 300€ al giorno, restando comunque sotto controllo.
+  if (nome.includes('sisal')) return 300
+  // Bet365 ha un protocollo Sport Expert/fedeltà distinto e può avere volumi molto superiori.
+  if (nome.includes('bet365')) return Math.max(800, budgetTotale)
+  // Per i protocolli normali: circa +40% sul target, ma sui target ~100 non oltre 150€.
+  const cap=Math.ceil((budgetTotale*1.40)/5)*5
+  return budgetTotale<=120 ? Math.min(150,Math.max(budgetTotale,cap)) : Math.max(budgetTotale,cap)
+}
+
 function distribuisciStakeVariabili(book, nBet, budgetTotale) {
   if (nBet <= 1) return [budgetTotale]
   const seedText = `${new Date().toISOString().slice(0,10)}|sport|${book.id}|${book.nome}|${book.intestatario}`
@@ -1739,6 +1751,10 @@ async function generaLucySport(agendaItems = []) {
 
     const proposte=[]
     const eventiUsatiPerBook = new Map()
+    // Totale Sport già assegnato oggi per singolo conto: impedisce che gli EXTRA
+    // si accumulino su Federico/Michela/etc. attraverso più incroci.
+    const totaleSportPerBook = new Map()
+    const budgetTargetPerBook = new Map(sportItems.map(x=>[x.book.id,x.budgetTotale]))
     let giro = 0
 
     while (slot.length && proposte.length < 20 && giro < candidati.length * 4) {
@@ -1779,6 +1795,9 @@ async function generaLucySport(agendaItems = []) {
         eventiUsatiPerBook.get(x.book.id).add(eventoKey)
         return { ...x, esito:scelta[0], quota:scelta[1], stake:x.importoIndicativo }
       })
+      assegnazioni.forEach(a=>{
+        totaleSportPerBook.set(a.book.id,(totaleSportPerBook.get(a.book.id)||0)+Number(a.stake||0))
+      })
 
       // INTEGRAZIONE PROGRESSIVA:
       // 1) il mantenimento copre il residuo a blocchi da max 10€ (es. 27 = 10+10+7);
@@ -1818,15 +1837,32 @@ async function generaLucySport(agendaItems = []) {
           // Buco >30€: una sola puntata extra di Profilazione, invece di 4+ mantenimenti.
           // Deve essere un conto di profilazione che NON è già stato usato su questa partita,
           // così resta valida la regola "un conto = un solo esito per evento".
-          const candidatoExtra = sportItems
+          const candidatiExtra = sportItems
             .map(x=>x.book)
-            .find(b => !contiProfilo.has(b.id))
-          if(candidatoExtra){
-            extraProfilazione.push({
-              book:candidatoExtra,esito:r.esito,quota:r.quota,
-              stake:Math.round(necessario),extra:true
+            .filter((b,i,arr)=>arr.findIndex(z=>z.id===b.id)===i)
+            .filter(b=>!contiProfilo.has(b.id))
+            .map(b=>{
+              const target=budgetTargetPerBook.get(b.id)||getBudgetSportTotale(b,'')
+              const cap=getCapSportGiornaliero(b,target)
+              const usato=totaleSportPerBook.get(b.id)||0
+              return {book:b,target,cap,usato,disponibile:Math.max(0,cap-usato)}
             })
-            contiProfilo.add(candidatoExtra.id)
+            .filter(x=>x.disponibile>=2)
+            // Prima il conto che può assorbire l'extra senza avvicinarsi troppo al cap.
+            .sort((a,b)=>b.disponibile-a.disponibile)
+
+          const scelto=candidatiExtra[0]
+          if(scelto){
+            const stakeExtra=Math.min(Math.round(necessario),Math.floor(scelto.disponibile))
+            if(stakeExtra>=2){
+              extraProfilazione.push({
+                book:scelto.book,esito:r.esito,quota:r.quota,
+                stake:stakeExtra,extra:true,
+                totalePrima:scelto.usato,capGiornaliero:scelto.cap
+              })
+              totaleSportPerBook.set(scelto.book.id,scelto.usato+stakeExtra)
+              contiProfilo.add(scelto.book.id)
+            }
           }
         }
       })
@@ -4503,7 +4539,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                     <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
                       {p.extraProfilazione.map((a,i)=>(
                         <span key={`${a.book.id}-${a.esito}-${i}`} style={{fontSize:10,color:'#bfdbfe',background:'rgba(15,23,42,.8)',padding:'4px 6px',borderRadius:6}}>
-                          {a.book.nome} · {a.book.intestatario} → <b>{a.esito}</b> {a.stake.toFixed(0)}€ @ {a.quota?.toFixed(2)} · EXTRA
+                          {a.book.nome} · {a.book.intestatario} → <b>{a.esito}</b> {a.stake.toFixed(0)}€ @ {a.quota?.toFixed(2)} · EXTRA · totale dopo {(Number(a.totalePrima||0)+Number(a.stake||0)).toFixed(0)}€ / cap {Number(a.capGiornaliero||0).toFixed(0)}€
                         </span>
                       ))}
                     </div>
@@ -4523,7 +4559,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 )}
                 <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:8}}>
                   {p.scenari.map(sc=><span key={sc.esito} style={{fontSize:10,padding:'3px 7px',borderRadius:7,background:sc.netto>=0?'rgba(34,197,94,.12)':'rgba(239,68,68,.10)',color:sc.netto>=0?'#4ade80':'#fca5a5'}}>{sc.esito}: {sc.netto>=0?'+':''}{sc.netto.toFixed(2)}€*</span>)}
-                  <span style={{fontSize:10,color:'#64748b',padding:'3px 2px'}}>* integrazione progressiva: mantenimento fino a 30€ a blocchi max 10€; oltre 30€ Lucy può usare una puntata extra di Profilazione</span>
+                  <span style={{fontSize:10,color:'#64748b',padding:'3px 2px'}}>* integrazione progressiva: mantenimento fino a 30€; oltre 30€ Extra Profilazione con controllo del totale giornaliero e cap per protocollo</span>
                 </div>
               </div>
             ))}
