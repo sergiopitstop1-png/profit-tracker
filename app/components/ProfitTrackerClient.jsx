@@ -1765,100 +1765,87 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
   setLucySportLoading(true)
   setLucySportError('')
   try {
-    // Stesso flusso di PronoX: Football-Data stabilisce QUALI partite ci sono oggi;
-    // Odds API serve solo per agganciare le quote medie. In questo modo Lucy non decide
-    // l'esistenza delle partite guardando direttamente il feed quote.
+    // Football-Data resta la fonte del calendario PronoX.
+    // TheRundown fornisce le quote medie reali. Sul piano Free le chiamate
+    // vengono eseguite in sequenza per rispettare il limite di 1 req/sec.
+    // Gli ID verificati nel catalogo TheRundown sono: EPL=11, Champions=16.
     const leghe = [
-      ['Serie A','SA','soccer_italy_serie_a'], ['Premier League','PL','soccer_epl'],
-      ['Bundesliga','BL1','soccer_germany_bundesliga'], ['La Liga','PD','soccer_spain_la_liga'],
-      ['Ligue 1','FL1','soccer_france_ligue_one'], ['Champions League','CL','soccer_uefa_champs_league'],
-      ['Championship','ELC','soccer_efl_champ'], ['Eredivisie','DED','soccer_netherlands_eredivisie'],
-      ['Serie B Brasile','BSA','soccer_brazil_campeonato'], ['World Cup','WC','soccer_fifa_world_cup']
+      ['Serie A','SA',null], ['Premier League','PL',11],
+      ['Bundesliga','BL1',null], ['La Liga','PD',null],
+      ['Ligue 1','FL1',null], ['Champions League','CL',16],
+      ['Championship','ELC',null], ['Eredivisie','DED',null],
+      ['Serie B Brasile','BSA',null], ['World Cup','WC',null]
     ]
     const oggi = new Date()
     const y = oggi.getFullYear(), m = String(oggi.getMonth()+1).padStart(2,'0'), d = String(oggi.getDate()).padStart(2,'0')
     const dataOggi = `${y}-${m}-${d}`
-    const dayStartUTC = new Date(dataOggi + 'T00:00:00Z').getTime()
-    const dayEndUTC = new Date(dataOggi + 'T23:59:59Z').getTime()
-
     const normTeam=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\b(fc|cf|ac|as|calcio|club)\b/g,'').replace(/[^a-z0-9]/g,'')
-    const avg = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null
-    const estraiQuote = g => {
-      const q1=[], qx=[], q2=[], qo=[], qu=[]
-      ;(g?.bookmakers || []).forEach(bk => (bk.markets || []).forEach(mkt => {
-        ;(mkt.outcomes || []).forEach(o => {
-          if (mkt.key === 'h2h') {
-            if (o.name === g.home_team) q1.push(Number(o.price))
-            else if (o.name === g.away_team) q2.push(Number(o.price))
-            else qx.push(Number(o.price))
-          }
-          if (mkt.key === 'totals' && Math.abs(Number(o.point)-2.5) < 0.01) {
-            if (o.name === 'Over') qo.push(Number(o.price))
-            if (o.name === 'Under') qu.push(Number(o.price))
-          }
-        })
-      }))
-      return {q1:avg(q1),qx:avg(qx),q2:avg(q2),qo:avg(qo),qu:avg(qu)}
-    }
+    const sleepLucy = ms => new Promise(resolve=>setTimeout(resolve,ms))
 
-    const erroriOdds=[]
-    const risultati = await Promise.all(leghe.map(async ([lega,fdCode,oddsKey]) => {
+    // Prima prendiamo tutti i calendari Football-Data, senza consumare datapoint TheRundown.
+    const fixturesPerLega = await Promise.all(leghe.map(async ([lega,fdCode,trId]) => {
       try {
-        // È la stessa sorgente fixture usata dalla pagina PronoX.
         const fr=await fetch(`/api/footballdata?endpoint=competitions/${fdCode}/matches&dateFrom=${dataOggi}&dateTo=${dataOggi}`)
         const fj=await fr.json()
-        const fixtures=Array.isArray(fj?.matches)?fj.matches:[]
-        if(!fixtures.length) return []
-
-        let odds=[]
-        try {
-          const refreshParam = forzaQuote ? '&refresh=1' : ''
-          const or=await fetch(`/api/odds?endpoint=sports/${oddsKey}/odds&regions=eu&markets=h2h,totals&dateFormat=iso&oddsFormat=decimal${refreshParam}`, {cache:'no-store'})
-          const remaining=or.headers.get('x-odds-remaining')
-          const used=or.headers.get('x-odds-used')
-          const last=or.headers.get('x-odds-last')
-          const cacheStatus=or.headers.get('x-odds-cache')
-          const cacheAge=or.headers.get('x-odds-cache-age')
-          if(remaining!==null || used!==null || last!==null){
-            const info={remaining,used,last,at:new Date().toISOString()}
-            setLucyOddsCrediti(info); try{localStorage.setItem('profittracker_lucy_odds_crediti',JSON.stringify(info))}catch{}
-          }
-          if(cacheStatus) setLucyOddsCacheInfo({status:cacheStatus,age:Number(cacheAge||0),at:new Date()})
-          const oj=await or.json()
-          if(!or.ok || !Array.isArray(oj)) {
-            const msg=oj?.error || oj?.message || `HTTP ${or.status}`
-            erroriOdds.push(`${lega}: ${msg}${oj?.code ? ` (${oj.code})` : ''}`)
-            odds=[]
-          } else {
-            odds=oj.filter(g=>{
-              const tt=new Date(g.commence_time).getTime()
-              return tt>=dayStartUTC && tt<=dayEndUTC
-            })
-          }
-        } catch(e) { erroriOdds.push(`${lega}: ${e?.message || 'errore rete'}`) }
-
-        return fixtures.map(f=>{
-          const hn=f?.homeTeam?.name||'', an=f?.awayTeam?.name||''
-          const h=normTeam(hn), a=normTeam(an)
-          const og=odds.find(g=>{
-            const gh=normTeam(g.home_team), ga=normTeam(g.away_team)
-            return (gh===h || gh.includes(h) || h.includes(gh)) && (ga===a || ga.includes(a) || a.includes(ga))
-          })
-          const q=og?estraiQuote(og):{}
-          const mercati=[]
-          if(q.q1 && q.qx && q.q2) mercati.push({nome:'1X2',esiti:[['1',q.q1],['X',q.qx],['2',q.q2]]})
-          if(q.qo && q.qu) mercati.push({nome:'Over/Under 2.5',esiti:[['Over 2.5',q.qo],['Under 2.5',q.qu]]})
-          return {lega,home:hn,away:an,ora:f.utcDate,mercati,_haQuote:mercati.length>0}
-        })
-      } catch { return [] }
+        return {lega,fdCode,trId,fixtures:Array.isArray(fj?.matches)?fj.matches:[]}
+      } catch(e) {
+        return {lega,fdCode,trId,fixtures:[],errore:e?.message||'errore Football-Data'}
+      }
     }))
+
+    const erroriQuote=[]
+    const quotePerSport = new Map()
+    const sportDaChiamare = [...new Set(fixturesPerLega.filter(x=>x.fixtures.length && x.trId).map(x=>x.trId))]
+
+    for (let i=0;i<sportDaChiamare.length;i++) {
+      const trId=sportDaChiamare[i]
+      if(i>0) await sleepLucy(1200)
+      try {
+        const forceParam=forzaQuote?'&force=1':''
+        const rr=await fetch(`/api/therundown?sport_id=${trId}&date=${dataOggi}${forceParam}`, {cache:'no-store'})
+        const rj=await rr.json()
+        if(!rr.ok || !rj?.ok) {
+          erroriQuote.push(`TheRundown ${trId}: ${rj?.error||rj?.message||`HTTP ${rr.status}`}`)
+          quotePerSport.set(trId,[])
+          continue
+        }
+        quotePerSport.set(trId,Array.isArray(rj?.partite)?rj.partite:[])
+        const qa=rj?.quota_api||{}
+        if(qa.remaining!=null || qa.usati!=null) {
+          const info={remaining:qa.remaining,used:qa.usati,last:qa.usati,monthly_remaining:qa.monthly_remaining,delay_seconds:qa.delay_seconds,at:new Date().toISOString()}
+          setLucyOddsCrediti(info); try{localStorage.setItem('profittracker_lucy_odds_crediti',JSON.stringify(info))}catch{}
+        }
+        if(rj?.cache) setLucyOddsCacheInfo({status:rj.cache.hit?'HIT':(forzaQuote?'REFRESH':'MISS'),age:0,at:new Date()})
+      } catch(e) {
+        erroriQuote.push(`TheRundown ${trId}: ${e?.message||'errore rete'}`)
+        quotePerSport.set(trId,[])
+      }
+    }
+
+    const risultati = fixturesPerLega.map(({lega,trId,fixtures}) => {
+      const odds=trId ? (quotePerSport.get(trId)||[]) : []
+      return fixtures.map(f=>{
+        const hn=f?.homeTeam?.name||'', an=f?.awayTeam?.name||''
+        const h=normTeam(hn), a=normTeam(an)
+        const og=odds.find(g=>{
+          const gh=normTeam(g.casa), ga=normTeam(g.trasferta)
+          return (gh===h || gh.includes(h) || h.includes(gh)) && (ga===a || ga.includes(a) || a.includes(ga))
+        })
+        const mercati=[]
+        const q=og?.quote?.esito_1x2
+        if(q?.['1'] && q?.X && q?.['2']) mercati.push({nome:'1X2',esiti:[['1',Number(q['1'])],['X',Number(q.X)],['2',Number(q['2'])]]})
+        const ou25=(og?.quote?.over_under||[]).find(x=>Math.abs(Number(x?.linea)-2.5)<0.01)
+        if(ou25?.over && ou25?.under) mercati.push({nome:'Over/Under 2.5',esiti:[['Over 2.5',Number(ou25.over)],['Under 2.5',Number(ou25.under)]]})
+        return {lega,home:hn,away:an,ora:f.utcDate,mercati,_haQuote:mercati.length>0,_provider:og?'TheRundown':null}
+      })
+    })
 
     const tuttePartite=risultati.flat()
     const eventi=tuttePartite.filter(e=>e.mercati.length)
     if (!tuttePartite.length) throw new Error('PronoX/Football-Data non restituisce partite per oggi.')
     if (!eventi.length) {
-      const dettaglio=[...new Set(erroriOdds)].slice(0,3).join(' · ')
-      throw new Error(`PronoX vede ${tuttePartite.length} partite oggi, ma Odds API non restituisce quote utilizzabili.${dettaglio ? ` Dettaglio: ${dettaglio}` : ' Nessun errore API esplicito: il feed ha risposto senza quote abbinabili.'}`)
+      const dettaglio=[...new Set(erroriQuote)].slice(0,3).join(' · ')
+      throw new Error(`PronoX vede ${tuttePartite.length} partite oggi, ma TheRundown non restituisce quote utilizzabili per le leghe collegate.${dettaglio ? ` Dettaglio: ${dettaglio}` : ''}`)
     }
 
     const candidati=[]
@@ -4683,7 +4670,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap', marginBottom:10 }}>
           <div>
             <div style={{ fontSize:14, fontWeight:900, color:'#e0f2fe' }}>🤖 Lucy Sport — Incroci automatici</div>
-            <div style={{ fontSize:11, color:'#94a3b8', marginTop:2 }}>Prende le lavorazioni Sport di oggi e cerca coperture complete usando le quote medie PronoX. Regola: lo stesso conto non riceve mai due esiti della stessa partita.</div>
+            <div style={{ fontSize:11, color:'#94a3b8', marginTop:2 }}>Prende le lavorazioni Sport di oggi e cerca coperture complete usando le quote medie TheRundown. Regola: lo stesso conto non riceve mai due esiti della stessa partita.</div>
           </div>
           
             <div style={{display:'flex',alignItems:'center',gap:6,background:'rgba(15,23,42,.75)',border:'1px solid #334155',borderRadius:9,padding:'5px 8px'}}>
@@ -4704,7 +4691,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             {lucySportLoading ? '⏳ Lucy sta calcolando…' : '⚽ PREPARA INCROCI SPORT'}
           </button>
             <button disabled={lucySportLoading} onClick={()=>generaLucySport(agendaOggi, true)}
-              title="Ignora la cache di 15 minuti e richiede nuove quote a Odds API: usa nuovi crediti"
+              title="Ignora la cache di 15 minuti e richiede nuove quote a TheRundown: usa nuovi datapoint"
               style={{background:'#7c3aed',color:'white',border:0,borderRadius:9,padding:'8px 11px',fontSize:10,fontWeight:900,cursor:lucySportLoading?'default':'pointer',opacity:lucySportLoading?.6:1}}>
               🔄 AGGIORNA QUOTE
             </button>
@@ -4717,8 +4704,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         <div style={{display:'flex',gap:10,flexWrap:'wrap',fontSize:10,color:'#94a3b8',marginBottom:8}}>
           <span>🧊 Cache quote: 15 min</span>
           {lucyOddsCacheInfo && <span>{lucyOddsCacheInfo.status==='HIT' ? `✓ cache usata (${Math.floor((lucyOddsCacheInfo.age||0)/60)} min)` : lucyOddsCacheInfo.status==='REFRESH' ? '↻ aggiornamento manuale' : '↻ quote appena scaricate'}</span>}
-          {lucyOddsCrediti?.remaining!=null && <span style={{color:Number(lucyOddsCrediti.remaining)<100?'#fca5a5':'#86efac',fontWeight:800}}>Odds API: {lucyOddsCrediti.remaining} crediti rimasti</span>}
-          {lucyOddsCrediti?.last!=null && <span>ultima chiamata: {lucyOddsCrediti.last} crediti</span>}
+          {lucyOddsCrediti?.remaining!=null && <span style={{color:Number(lucyOddsCrediti.remaining)<100?'#fca5a5':'#86efac',fontWeight:800}}>TheRundown: {lucyOddsCrediti.remaining} datapoint rimasti</span>}
+          {lucyOddsCrediti?.last!=null && <span>ultima chiamata: {lucyOddsCrediti.last} datapoint</span>}
         </div>
         {lucySportError && <div style={{ color:'#fbbf24', fontSize:12, padding:'8px 10px', background:'rgba(251,191,36,0.08)', borderRadius:9 }}>{lucySportError}</div>}
         {lucySportProposte.length > 0 && (
