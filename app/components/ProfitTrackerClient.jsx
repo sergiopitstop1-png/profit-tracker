@@ -2204,21 +2204,36 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
     // vengono escluse (non si può più giocare pre-partita). TheRundown: una chiamata per lega e per giorno.
     const adessoMs = Date.now()
     const giornoLocaleLucy = utc => { try { return new Date(utc).toLocaleDateString('sv-SE') } catch { return '' } }
+    // V40: Football-Data ha un limite di 10 richieste al minuto e Lucy ne fa 10 a ogni pressione: due pressioni
+    // ravvicinate potevano restituire "nessuna partita" senza dire perché. Ora i calendari si tengono 10 minuti
+    // in memoria del browser (se Football-Data risponde con un errore si usa l'ultima copia) e gli errori si vedono.
+    const fdCacheKey = code => `profittracker_lucy_fd_${code}_${dataOggi}`
+    const fdCacheGet = code => { try { const o=JSON.parse(localStorage.getItem(fdCacheKey(code))||'null'); return o && Array.isArray(o.matches) ? o : null } catch { return null } }
+    const fdCacheSet = (code,matches) => { try { localStorage.setItem(fdCacheKey(code),JSON.stringify({t:Date.now(),matches})) } catch {} }
+    const erroriFD=[]
     const fixturesPerLega = await Promise.all(leghe.map(async ([lega,fdCode,trLeague,trSportId]) => {
-      try {
-        const fr=await fetch(`/api/footballdata?endpoint=competitions/${fdCode}/matches&dateFrom=${dataOggi}&dateTo=${dataDomani}`)
-        const fj=await fr.json()
-        const tutte=Array.isArray(fj?.matches)?fj.matches:[]
-        const fixtures=tutte.filter(f=>{
-          const g=giornoLocaleLucy(f?.utcDate)
-          if(g!==dataOggi && g!==dataDomani) return false
-          if(f?.status && !['SCHEDULED','TIMED'].includes(f.status)) return false
-          return new Date(f.utcDate).getTime() > adessoMs + 5*60000
-        }).map(f=>({...f,_giorno:giornoLocaleLucy(f.utcDate)===dataOggi?'oggi':'domani'}))
-        return {lega,fdCode,trLeague,trSportId,fixtures}
-      } catch(e) {
-        return {lega,fdCode,trLeague,trSportId,fixtures:[],errore:e?.message||'errore Football-Data'}
+      const cached=fdCacheGet(fdCode)
+      let tutte=[]
+      if(cached && Date.now()-cached.t < 10*60000) {
+        tutte=cached.matches
+      } else {
+        try {
+          const fr=await fetch(`/api/footballdata?endpoint=competitions/${fdCode}/matches&dateFrom=${dataOggi}&dateTo=${dataDomani}`)
+          const fj=await fr.json()
+          if(Array.isArray(fj?.matches)) { tutte=fj.matches; fdCacheSet(fdCode,tutte) }
+          else { erroriFD.push(`${lega}: ${fj?.message||fj?.error||`HTTP ${fr.status}`}`); tutte=cached?cached.matches:[] }
+        } catch(e) {
+          erroriFD.push(`${lega}: ${e?.message||'errore di rete'}`)
+          tutte=cached?cached.matches:[]
+        }
       }
+      const fixtures=tutte.filter(f=>{
+        const g=giornoLocaleLucy(f?.utcDate)
+        if(g!==dataOggi && g!==dataDomani) return false
+        if(f?.status && !['SCHEDULED','TIMED'].includes(f.status)) return false
+        return new Date(f.utcDate).getTime() > adessoMs + 5*60000
+      }).map(f=>({...f,_giorno:giornoLocaleLucy(f.utcDate)===dataOggi?'oggi':'domani'}))
+      return {lega,fdCode,trLeague,trSportId,fixtures,grezze:tutte.length}
     }))
 
     const erroriQuote=[]
@@ -2281,7 +2296,13 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
 
     const tuttePartite=risultati.flat()
     const eventi=tuttePartite.filter(e=>e.mercati.length)
-    if (!tuttePartite.length) throw new Error('Football-Data non restituisce partite ancora da giocare per oggi e domani.')
+    if (!tuttePartite.length) {
+      const grezze=fixturesPerLega.reduce((s,x)=>s+x.grezze,0)
+      throw new Error('Nessuna partita ancora da giocare per oggi e domani nei campionati collegati. '
+        +(erroriFD.length ? `Football-Data ha risposto con errori: ${erroriFD.join(' · ')}. Aspetta un minuto e riprova (limite 10 richieste al minuto).`
+          : grezze>0 ? `Football-Data ne elenca ${grezze} ma sono già iniziate o finite.`
+          : 'Football-Data non ne elenca nessuna: nei campionati collegati (Serie A, Premier, Bundesliga, La Liga, Ligue 1, Champions, Championship, Eredivisie, Brasile, Mondiali) oggi e domani non risultano partite.'))
+    }
     // V38: senza quote Lucy NON si ferma: prepara comunque gli incroci in modalità manuale (vedi sotto).
     const senzaQuote=tuttePartite.filter(e=>!e.mercati.length)
     const avvisiQuote=[]
@@ -5465,7 +5486,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             {lucyPronoxDiag.erroriQuote?.length>0 && <div style={{color:'#fdba74',marginBottom:4}}>⚠️ Quote non disponibili per: {lucyPronoxDiag.erroriQuote.join(' · ')}</div>}
             <div style={{color:'#93c5fd',marginBottom:4}}>🎾 Tennis TheRundown (ATP/WTA, oggi e domani): {lucyPronoxDiag.tennisRd??0} partite con quote dei due giocatori.</div>
             🧠 PronoX server: {lucyPronoxDiag.feedCalcio} pronostici calcio oggi · {lucyPronoxDiag.matchMercati} mercati abbinati alle partite con quote.
-            {lucyPronoxDiag.feedErrore ? ` Tabella segnali non leggibile (${lucyPronoxDiag.feedErrore}): Lucy resta neutra, coperture al 100%.` : lucyPronoxDiag.feedCalcio===0 ? ' Nessun segnale PronoX per oggi: Lucy resta neutra, coperture al 100%.' : lucyPronoxDiag.matchMercati===0 ? ' Nessun segnale PronoX è utilizzabile nelle partite/mercati con quote: Lucy resta neutra al 100%.' : ''}
+            {lucyPronoxDiag.feedErrore ? ` Tabella segnali non leggibile (${lucyPronoxDiag.feedErrore}): Lucy resta neutra, coperture al 100%.` : lucyPronoxDiag.feedCalcio===0 ? ' Nessun segnale PronoX per oggi e domani: la cron li scrive ogni giorno verso le 16:00 per il giorno dopo, quindi per i giorni non ancora elaborati è normale. Lucy resta neutra, coperture al 100%, e gli incroci si fanno lo stesso.' : lucyPronoxDiag.matchMercati===0 ? ' Nessun segnale PronoX è utilizzabile nelle partite/mercati con quote: Lucy resta neutra al 100%.' : ''}
           </div>
         )}
         {lucySportError && <div style={{ color:'#fbbf24', fontSize:12, padding:'8px 10px', background:'rgba(251,191,36,0.08)', borderRadius:9 }}>{lucySportError}</div>}
