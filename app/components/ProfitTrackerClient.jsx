@@ -2223,7 +2223,8 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
       matchMercati:candidatiConPronox.length,
       eventiQuote:eventi.length,
       feedErrore:pronoxFeed?.errore||'',
-      erroriQuote:[...new Set(erroriQuote)],
+      // Championship, Eredivisie e Brasile non esistono nel catalogo TheRundown del tuo account: non è un guasto, niente avviso
+      erroriQuote:[...new Set(erroriQuote)].filter(e=>!/^(Championship|Eredivisie|Brazil):/.test(e)),
       picks:pronoxCalcioOggi.map(x=>`${x.home} - ${x.away}`),
       matched:[...new Set(candidatiConPronox.map(x=>`${x.home} - ${x.away} · ${x.mercato}`))]
     })
