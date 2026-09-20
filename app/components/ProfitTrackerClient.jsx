@@ -1777,6 +1777,23 @@ function calcolaRecuperiLucy(righe, dataOggi) {
   return out
 }
 
+// V34: scrive su Supabase le bet attese di oggi (istantanea dell'ultima preparazione) solo se la giornata è "vera",
+// cioè c'è almeno una conferma. Idempotente: le chiavi già presenti non vengono toccate.
+async function salvaAtteseOggiLucy() {
+  try {
+    const raw=localStorage.getItem('profittracker_lucy_attese_oggi')
+    if(!raw) return
+    const snap=JSON.parse(raw)
+    if(!snap || snap.data!==lucyOggi() || snap.salvato || !Array.isArray(snap.righe) || !snap.righe.length) return
+    const uid=await lucyUserIdSync()
+    const { error } = await supabase.from('lucy_bet_attese').upsert(snap.righe.map(r=>({...r,user_id:uid})),{onConflict:'user_id,key',ignoreDuplicates:true})
+    if(error) throw error
+    localStorage.setItem('profittracker_lucy_attese_oggi',JSON.stringify({...snap,salvato:true}))
+  } catch(e) {
+    console.warn('[Lucy V34] salvataggio bet attese fallito:',e?.message||e)
+  }
+}
+
 // Riepilogo della "rete 60 giorni" sui conti in mantenimento
 function riepilogoMantenimento60Lucy() {
   const mant=books.filter(b=>b.profilo_livello && String(b.profilo_livello).startsWith('mantenimento'))
@@ -1815,6 +1832,7 @@ function confermaSingolaBetLucy(p,a,tipo='profilazione') {
     recupero:!!a.recupero,recuperoKey:a.recuperoKey||null,dataOrigine:a.dataOrigine||null
   }
   salvaLucyConfermate([...lucyConfermate,rec])
+  salvaAtteseOggiLucy()
 }
 
 function annullaSingolaBetLucy(key) {
@@ -1825,6 +1843,9 @@ function azzeraConfermeOggiLucy() {
   if (!window.confirm('Azzerare SOLO le conferme di oggi? Lo storico delle altre giornate non viene toccato.')) return
   const oggi=lucyOggi()
   salvaLucyConfermate(lucyConfermate.filter(x=>x.data!==oggi || x.tipo==='manuale'))
+  // V34: azzerare la giornata cancella anche le bet attese di oggi (su Supabase e in locale)
+  try { localStorage.removeItem('profittracker_lucy_attese_oggi') } catch {}
+  ;(async()=>{ try { const uid=await lucyUserIdSync(); await supabase.from('lucy_bet_attese').delete().eq('user_id',uid).eq('data',oggi) } catch {} })()
   setLucySportProposte([])
   setLucySportNonCollocate([])
   setLucyRinviate([])
@@ -1893,6 +1914,7 @@ function confermaGiocateLucy() {
   // evitando doppioni accidentali.
   const next=[record,...lucyStorico.filter(x=>x.data!==oggi)]
   salvaLucyStorico(next)
+  salvaAtteseOggiLucy()
 }
 
 function cancellaGiornataLucy(id) {
@@ -2246,16 +2268,15 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
     // Se la tabella non esiste o Supabase non risponde Lucy va avanti senza recuperi.
     let recuperi=[]
     try {
-      const uidR=await lucyUserIdSync()
       const attese=slot.filter(s=>!s.recupero && s.tipoConto!=='mantenimento').map(s=>({
-        user_id:uidR, key:`${dataOggi}|${s.book.id}|${s.betNumero}`, data:dataOggi, book_id:String(s.book.id),
+        key:`${dataOggi}|${s.book.id}|${s.betNumero}`, data:dataOggi, book_id:String(s.book.id),
         bet_numero:s.betNumero, bet_richieste:s.betRichieste||null, stake:Number(s.importoIndicativo||0),
         budget_totale:Number(s.budgetTotale||0), azione:s.azione||'', rec:{book:s.book.nome,intestatario:s.book.intestatario}
       }))
-      if(attese.length) {
-        const { error:errW } = await supabase.from('lucy_bet_attese').upsert(attese,{onConflict:'user_id,key',ignoreDuplicates:true})
-        if(errW) throw errW
-      }
+      // V34: PREPARA INCROCI non scrive nulla su Supabase. Le bet attese restano in un'istantanea locale e vanno
+      // sul database solo quando confermi almeno una bet oggi: le prove senza conferme non lasciano tracce.
+      try { localStorage.setItem('profittracker_lucy_attese_oggi',JSON.stringify({data:dataOggi,righe:attese,salvato:false})) } catch {}
+      if(lucyConfermate.some(x=>x?.data===dataOggi && x.tipo!=='manuale')) await salvaAtteseOggiLucy()
       const { data:righeAttese, error:errR } = await supabase.from('lucy_bet_attese')
         .select('key,data,book_id,bet_numero,bet_richieste,stake,budget_totale,azione')
         .gte('data',aggiungiGiorniLucy(dataOggi,-LUCY_RECUPERO_MAX_GG)).lt('data',dataOggi)
