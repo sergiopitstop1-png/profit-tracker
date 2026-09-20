@@ -8,6 +8,13 @@ import RisultatiPanel from './RisultatiPanel'
 import CollaboratoriManager from './CollaboratoriManager'
 import { PostItTab, PostItFloatingWidget } from './PostItWidget'
 import MemoTab from './MemoTab'
+
+// V32 — rete di sicurezza 60 giorni sui conti in MANTENIMENTO
+const MANT_LIMITE_GG = 60        // limite massimo tra due movimentazioni dello stesso conto
+const MANT_ANTICIPO_GG = 15      // si comincia a proporre il conto dopo (60 - 15) = 45 giorni dall'ultimo movimento
+const MANT_GIORNO_ZERO = '2026-09-19' // partenza del protocollo: prima scadenza dei conti senza storico = giorno zero + offset stabile (0-59)
+const giorniTraLucy = (a, b) => Math.floor((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000)
+const aggiungiGiorniLucy = (d, n) => new Date(new Date(d + 'T00:00:00').getTime() + n * 86400000).toLocaleDateString('sv-SE')
 import DashboardTab from './DashboardTab'
 import AccantonamentiTab from './AccantonamentiTab'
 import SmsTab from './SmsTab'
@@ -875,13 +882,23 @@ function getAzioniOggi(book) {
   if (livello === 'mantenimento' || livello === 'mantenimento-a' || livello === 'mantenimento-b' || livello === 'mantenimento-c') {
     // Mantenimento unico: 10€ ogni 60 giorni, distribuito in modo stabile per account.
     // Gli stati legacy A/B/C vengono trattati come semplice Mantenimento finché non vengono aggiornati.
-    const GIORNO_ZERO = new Date('2026-09-19T00:00:00')
-    const giorniDaZero = Math.floor((oggi - GIORNO_ZERO) / 86400000)
+    // V32: il conto torna in agenda quando sono passati (60 - 15) = 45 giorni dall'ultimo movimento
+    // registrato (bet confermata in Lucy o ✓ fatto manuale) e ci resta ogni giorno finché non viene
+    // movimentato. Prima bastava saltare il giorno esatto per restare fermi altri 60 giorni.
+    // Senza storico vale la prima scadenza del protocollo: giorno zero + offset stabile del conto.
+    const oggiStr = lucyOggi()
     const offset = hashBook(book.id, 6060) % 60
-    const isAzioneDay = ((giorniDaZero - offset) % 60 + 60) % 60 === 0
-    if (!isAzioneDay) return null
-    if (isSoloCasino(book.nome)) return { tipo: 'mantenimento', azioni: ['Sessione Casinò/slot da 10€'], badge: '🟡 Mantenimento' }
-    return { tipo: 'mantenimento', azioni: ['1 bet sportiva da 10€'], badge: '🟡 Mantenimento' }
+    const dovutoIniziale = aggiungiGiorniLucy(MANT_GIORNO_ZERO, offset)
+    const ultimo = ultimoMovimentoBookLucy(book.id)
+    const prossima = ultimo ? aggiungiGiorniLucy(ultimo, MANT_LIMITE_GG - MANT_ANTICIPO_GG) : dovutoIniziale
+    if (oggiStr < prossima) return null
+    // "scaduto" solo se c'è uno storico che lo prova (≥ 60 giorni dall'ultimo movimento). Senza storico non si
+    // può sapere da quanto il conto è fermo: se la prima scadenza del protocollo è passata è solo "in ritardo".
+    const scaduto = ultimo ? giorniTraLucy(ultimo, oggiStr) >= MANT_LIMITE_GG : false
+    const ritardo = !ultimo && oggiStr > dovutoIniziale
+    const badge = scaduto ? '🔴 Mantenimento SCADUTO' : ritardo ? '🟠 Mantenimento in ritardo' : '🟡 Mantenimento'
+    if (isSoloCasino(book.nome)) return { tipo: 'mantenimento', scaduto, ritardo, azioni: ['Sessione Casinò/slot da 10€'], badge }
+    return { tipo: 'mantenimento', scaduto, ritardo, azioni: ['1 bet sportiva da 10€'], badge }
   }
   return null
 }
@@ -1719,6 +1736,38 @@ async function sincronizzaLucyGiornate(prev,next) {
   }
 }
 
+// V32: ultimo movimento di un conto = data dell'ultima bet confermata (qualsiasi tipo) o segnata a mano
+function ultimoMovimentoBookLucy(bookId) {
+  let ultimo=''
+  lucyConfermate.forEach(x=>{ if(x?.bookId===bookId && String(x.data)>ultimo) ultimo=String(x.data) })
+  return ultimo||null
+}
+
+// Movimentazione fatta fuori da Lucy (es. bet di protocollo giocata a mano): conta come uso del conto.
+function segnaMovimentatoLucy(book) {
+  const key=`manuale|${lucyOggi()}|${book.id}`
+  if(lucyConfermate.some(x=>x.key===key)) return
+  const rec={
+    key,data:lucyOggi(),creato:new Date().toISOString(),tipo:'manuale',
+    bookId:book.id,book:book.nome,intestatario:book.intestatario,
+    partita:'Movimentazione manuale',orario:'—',mercato:'—',esito:'—',stake:0,quota:0
+  }
+  salvaLucyConfermate([...lucyConfermate,rec])
+}
+
+// Riepilogo della "rete 60 giorni" sui conti in mantenimento
+function riepilogoMantenimento60Lucy() {
+  const mant=books.filter(b=>b.profilo_livello && String(b.profilo_livello).startsWith('mantenimento'))
+  let ok=0, daFare=0, scaduti=0, inAttesa=0
+  mant.forEach(b=>{
+    const a=getAzioniOggi(b)
+    if(a) { a.scaduto ? scaduti++ : daFare++ }
+    else if(!ultimoMovimentoBookLucy(b.id)) inAttesa++
+    else ok++
+  })
+  return { totale:mant.length, ok, daFare, scaduti, inAttesa }
+}
+
 function salvaLucyConfermate(next) {
   const prev=lucyConfermate
   setLucyConfermate(next)
@@ -1752,7 +1801,7 @@ function annullaSingolaBetLucy(key) {
 function azzeraConfermeOggiLucy() {
   if (!window.confirm('Azzerare SOLO le conferme di oggi? Lo storico delle altre giornate non viene toccato.')) return
   const oggi=lucyOggi()
-  salvaLucyConfermate(lucyConfermate.filter(x=>x.data!==oggi))
+  salvaLucyConfermate(lucyConfermate.filter(x=>x.data!==oggi || x.tipo==='manuale'))
   setLucySportProposte([])
   setLucySportNonCollocate([])
   setLucyRinviate([])
@@ -4968,6 +5017,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         {/* AGENDA rimpicciolita */}
         <div style={{ background: 'rgba(29,78,216,0.10)', border: '1px solid rgba(29,78,216,0.30)', borderRadius: 16, padding: '14px 16px' }}>
           <div style={{ fontSize: 13, fontWeight: 800, color: '#93c5fd', marginBottom: 10 }}>📋 {giornoLabel} — {agendaOggi.length} account da movimentare oggi <span style={{ fontSize: 11, fontWeight: 400, color: '#64748b' }}>({agendaOggi.filter(x => x.agenda.tipo === 'attivo').length} attivi · {agendaOggi.filter(x => x.agenda.tipo !== 'attivo').length} mantenimento)</span></div>
+          {(() => { const r = riepilogoMantenimento60Lucy(); return (
+            <div style={{ fontSize: 11, marginBottom: 8, padding: '6px 9px', borderRadius: 8, background: r.scaduti > 0 ? 'rgba(239,68,68,.10)' : 'rgba(34,197,94,.08)', border: r.scaduti > 0 ? '1px solid rgba(239,68,68,.35)' : '1px solid rgba(34,197,94,.30)', color: r.scaduti > 0 ? '#fca5a5' : '#86efac' }}>
+              🛡️ Rete {MANT_LIMITE_GG} giorni · {r.totale} conti in mantenimento: {r.ok} in regola · {r.daFare} da movimentare (≥{MANT_LIMITE_GG - MANT_ANTICIPO_GG} gg) · <b>{r.scaduti} scaduti (≥{MANT_LIMITE_GG} gg)</b> · {r.inAttesa} senza storico, prima scadenza da protocollo
+            </div>) })()}
           {agendaOggi.length === 0 ? (
             <div style={{ color: '#64748b', fontSize: 13 }}>Nessuna azione per oggi</div>
           ) : (() => {
@@ -4975,16 +5028,16 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             agendaOggi.forEach(({ book, agenda }) => {
               agenda.azioni.forEach(az => {
                 if (!gruppi[az]) gruppi[az] = []
-                gruppi[az].push({ book, badge: agenda.badge })
+                gruppi[az].push({ book, badge: agenda.badge, mant: agenda.tipo === 'mantenimento', scaduto: !!agenda.scaduto, ritardo: !!agenda.ritardo })
               })
             })
             return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                 {Object.entries(gruppi).map(([azione, items]) => {
                   const perBook = {}
-                  items.forEach(({ book }) => {
+                  items.forEach(({ book, mant, scaduto, ritardo }) => {
                     if (!perBook[book.nome]) perBook[book.nome] = []
-                    perBook[book.nome].push(book.intestatario)
+                    perBook[book.nome].push({ book, nome: book.intestatario, mant, scaduto, ritardo })
                   })
                   const isOpen = agendaAperto === azione
                   return (
@@ -5001,7 +5054,13 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                             <div key={bookNome} style={{ fontSize: 11, color: '#cbd5e1', padding: '2px 0' }}>
                               <span style={{ color: '#38bdf8', fontWeight: 700 }}>{bookNome}</span>
                               <span style={{ color: '#64748b' }}> — </span>
-                              <span style={{ color: '#94a3b8' }}>{intestatari.join(', ')}</span>
+                              <span style={{ color: '#94a3b8' }}>{intestatari.map((it, ix) => (
+                                <span key={ix}>{ix > 0 ? ', ' : ''}{it.nome}
+                                  {it.scaduto && <b style={{ color: '#f87171' }}> ⚠ SCADUTO</b>}
+                                  {it.ritardo && <b style={{ color: '#fb923c' }}> in ritardo</b>}
+                                  {it.mant && <button onClick={() => segnaMovimentatoLucy(it.book)} title="Segna il conto come movimentato oggi (bet fatta fuori da Lucy)"
+                                    style={{ marginLeft: 5, background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.5)', color: '#86efac', borderRadius: 6, fontSize: 10, padding: '0 6px', cursor: 'pointer' }}>✓ fatto</button>}
+                                </span>))}</span>
                             </div>
                           ))}
                         </div>
