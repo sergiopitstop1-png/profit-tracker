@@ -2107,10 +2107,14 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
     // TheRundown fornisce le quote. V26 mantiene invariata la route quote:
     // passa il nome lega alla route, che lo risolve dal catalogo /api/v2/sports.
     // Così Lucy può usare tutti i principali campionati europei supportati.
+    // V35: ogni lega porta anche l'ID sport TheRundown (Premier 11, Ligue 1 12, Bundesliga 13, LaLiga 14,
+    // Serie A 15, Champions 16). Con l'ID la route salta la ricerca per nome nel catalogo, che per
+    // Bundesliga, La Liga e Ligue 1 non trovava nulla. Se l'account non li include, la risposta di
+    // TheRundown dirà perché e Lucy lo mostra.
     const leghe = [
-      ['Serie A','SA','Serie A'], ['Premier League','PL','EPL'],
-      ['Bundesliga','BL1','Bundesliga'], ['La Liga','PD','La Liga'],
-      ['Ligue 1','FL1','Ligue 1'], ['Champions League','CL','Champions League'],
+      ['Serie A','SA','Serie A',15], ['Premier League','PL','EPL',11],
+      ['Bundesliga','BL1','Bundesliga',13], ['La Liga','PD','La Liga',14],
+      ['Ligue 1','FL1','Ligue 1',12], ['Champions League','CL','Champions League',16],
       // Queste restano nel calendario PronoX; se TheRundown non le espone oggi
       // la route restituisce semplicemente nessuna quota, senza inventare dati.
       ['Championship','ELC','Championship'], ['Eredivisie','DED','Eredivisie'],
@@ -2132,29 +2136,31 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
     const sleepLucy = ms => new Promise(resolve=>setTimeout(resolve,ms))
 
     // Prima prendiamo tutti i calendari Football-Data, senza consumare datapoint TheRundown.
-    const fixturesPerLega = await Promise.all(leghe.map(async ([lega,fdCode,trLeague]) => {
+    const fixturesPerLega = await Promise.all(leghe.map(async ([lega,fdCode,trLeague,trSportId]) => {
       try {
         const fr=await fetch(`/api/footballdata?endpoint=competitions/${fdCode}/matches&dateFrom=${dataOggi}&dateTo=${dataOggi}`)
         const fj=await fr.json()
-        return {lega,fdCode,trLeague,fixtures:Array.isArray(fj?.matches)?fj.matches:[]}
+        return {lega,fdCode,trLeague,trSportId,fixtures:Array.isArray(fj?.matches)?fj.matches:[]}
       } catch(e) {
-        return {lega,fdCode,trLeague,fixtures:[],errore:e?.message||'errore Football-Data'}
+        return {lega,fdCode,trLeague,trSportId,fixtures:[],errore:e?.message||'errore Football-Data'}
       }
     }))
 
     const erroriQuote=[]
     const quotePerSport = new Map()
     const sportDaChiamare = [...new Set(fixturesPerLega.filter(x=>x.fixtures.length && x.trLeague).map(x=>x.trLeague))]
+    const sportIdPerTrLeague = new Map(fixturesPerLega.filter(x=>x.trLeague && x.trSportId).map(x=>[x.trLeague,x.trSportId]))
 
     for (let i=0;i<sportDaChiamare.length;i++) {
       const trLeague=sportDaChiamare[i]
       if(i>0) await sleepLucy(1200)
       try {
         const forceParam=forzaQuote?'&force=1':''
-        const rr=await fetch(`/api/therundown?league=${encodeURIComponent(trLeague)}&date=${dataOggi}${forceParam}`, {cache:'no-store'})
+        const sidParam=sportIdPerTrLeague.get(trLeague)?`&sport_id=${sportIdPerTrLeague.get(trLeague)}`:''
+        const rr=await fetch(`/api/therundown?league=${encodeURIComponent(trLeague)}&date=${dataOggi}${sidParam}${forceParam}`, {cache:'no-store'})
         const rj=await rr.json()
         if(!rr.ok || !rj?.ok) {
-          erroriQuote.push(`TheRundown ${trLeague}: ${rj?.error||rj?.message||`HTTP ${rr.status}`}`)
+          erroriQuote.push(`${trLeague}: ${rj?.error||rj?.message||'errore'} (HTTP ${rr.status})`)
           quotePerSport.set(trLeague,[])
           continue
         }
@@ -2193,7 +2199,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
     const eventi=tuttePartite.filter(e=>e.mercati.length)
     if (!tuttePartite.length) throw new Error('PronoX/Football-Data non restituisce partite per oggi.')
     if (!eventi.length) {
-      const dettaglio=[...new Set(erroriQuote)].slice(0,3).join(' · ')
+      const dettaglio=[...new Set(erroriQuote)].slice(0,8).join(' · ')
       throw new Error(`PronoX vede ${tuttePartite.length} partite oggi, ma TheRundown non restituisce quote utilizzabili per le leghe collegate.${dettaglio ? ` Dettaglio: ${dettaglio}` : ''}`)
     }
 
@@ -2217,6 +2223,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
       matchMercati:candidatiConPronox.length,
       eventiQuote:eventi.length,
       feedErrore:pronoxFeed?.errore||'',
+      erroriQuote:[...new Set(erroriQuote)],
       picks:pronoxCalcioOggi.map(x=>`${x.home} - ${x.away}`),
       matched:[...new Set(candidatiConPronox.map(x=>`${x.home} - ${x.away} · ${x.mercato}`))]
     })
@@ -5226,6 +5233,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             background:lucyPronoxDiag.matchMercati>0?'rgba(16,185,129,.10)':'rgba(245,158,11,.10)',
             border:lucyPronoxDiag.matchMercati>0?'1px solid rgba(16,185,129,.35)':'1px solid rgba(245,158,11,.35)',
             color:lucyPronoxDiag.matchMercati>0?'#86efac':'#fbbf24'}}>
+            {lucyPronoxDiag.erroriQuote?.length>0 && <div style={{color:'#fdba74',marginBottom:4}}>⚠️ Quote non disponibili per: {lucyPronoxDiag.erroriQuote.join(' · ')}</div>}
             🧠 PronoX server: {lucyPronoxDiag.feedCalcio} pronostici calcio oggi · {lucyPronoxDiag.matchMercati} mercati abbinati alle partite con quote.
             {lucyPronoxDiag.feedErrore ? ` Tabella segnali non leggibile (${lucyPronoxDiag.feedErrore}): Lucy resta neutra, coperture al 100%.` : lucyPronoxDiag.feedCalcio===0 ? ' Nessun segnale PronoX per oggi: Lucy resta neutra, coperture al 100%.' : lucyPronoxDiag.matchMercati===0 ? ' Nessun segnale PronoX è utilizzabile nelle partite/mercati con quote: Lucy resta neutra al 100%.' : ''}
           </div>
