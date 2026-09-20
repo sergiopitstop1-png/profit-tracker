@@ -2396,7 +2396,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
       // degli eventi senza segnale. Il vecchio bonus -0.015 era troppo piccolo e Lucy finiva
       // per scegliere quasi sempre il dutching matematicamente piu economico ignorando PronoX.
       const prioritaPronox = pronox ? -100 : 0
-      candidati.push({ ...ev, mercato:merc.nome, esiti:merc.esiti, pronox, score:prioritaPronox + inv + dispersione*0.02 + (ev.giorno==='domani'?1000:0) })
+      candidati.push({ ...ev, mercato:merc.nome, esiti:merc.esiti, pronox, tier:0, score:prioritaPronox + inv + dispersione*0.02 + (ev.giorno==='domani'?1000:0) })
     }))
 
     const pronoxCalcioOggi=(pronoxFeed?.matches||[]).filter(x=>x.sport==='calcio')
@@ -2428,11 +2428,14 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
     extraRd.forEach(ev=>{
       const sp=ev.sp
       const lega=`${sp.icona} ${sp.nome}`
+      // V44 — PRECEDENZA: 0 = calcio vero (leghe principali, Champions, Europa League), 1 = MLS/Liga MX/J-League,
+      // 2 = tennis, 3 = MLB/NFL/NHL. Dentro ogni fascia prima oggi poi domani, poi il dutching più economico.
+      const tier=({'Europa League':0,MLS:1,'Liga MX':1,'J-League':1,ATP:2,WTA:2,MLB:3,NFL:3,NHL:3})[sp.nome] ?? 3
       const aggiungi=(merc,esiti,pronox=null)=>{
         const inv=esiti.reduce((z,[,q])=>z+1/q,0)
         const qs=esiti.map(x=>x[1])
-        candidati.push({lega,home:ev.home,away:ev.away,ora:ev.ora,giorno:ev.giorno,mercato:merc,esiti,pronox,_provider:`TheRundown ${sp.nome}`,
-          score:(pronox?-100:0)+inv+(Math.max(...qs)-Math.min(...qs))*0.02+(ev.giorno==='domani'?1000:0)})
+        candidati.push({lega,home:ev.home,away:ev.away,ora:ev.ora,giorno:ev.giorno,mercato:merc,esiti,pronox,tier,_provider:`TheRundown ${sp.nome}`,
+          score:tier*10000+(pronox?-100:0)+inv+(Math.max(...qs)-Math.min(...qs))*0.02+(ev.giorno==='domani'?1000:0)})
       }
       if(sp.tipo==='tennis') {
         const merc='Tennis Vincente'
@@ -2465,7 +2468,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
       const pronox=segnalePronoxPerMercatoLucy(tm,merc,esiti)
       if(esiti.length!==2) return
       const inv=esiti.reduce((z,[,q])=>z+1/q,0)
-      candidati.push({lega:tm.league||'Tennis',home:tm.home,away:tm.away,ora:tm.time,giorno:tm.giorno||'oggi',mercato:merc,esiti,pronox,_provider:'PronoX Tennis',score:inv-(pronox?0.015:0)+(tm.giorno==='domani'?1000:0)})
+      candidati.push({lega:tm.league||'Tennis',home:tm.home,away:tm.away,ora:tm.time,giorno:tm.giorno||'oggi',mercato:merc,esiti,pronox,tier:2,_provider:'PronoX Tennis',score:20000+inv-(pronox?0.015:0)+(tm.giorno==='domani'?1000:0)})
     })
     candidati.sort((a,b)=>a.score-b.score)
 
@@ -2736,7 +2739,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
 
     // Applica il budget massimo di COSTO della giornata.
     // Lucy tiene gli incroci migliori finché il peggior P/L cumulativo resta nel tetto scelto.
-    const ordinate=[...proposte].sort((a,b)=>costoPeggioreIncrocioLucy(a)-costoPeggioreIncrocioLucy(b))
+    const ordinate=[...proposte].sort((a,b)=>((a.tier||0)-(b.tier||0)) || (costoPeggioreIncrocioLucy(a)-costoPeggioreIncrocioLucy(b)))
     const accettate=[], rinviate=[]
     let costoUsato=0
     ordinate.forEach(p=>{
