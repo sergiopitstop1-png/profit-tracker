@@ -1816,7 +1816,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
 
   const bookSoloCasinoProfilazioneLucy = b => /^(sisal|snai|pokerstars)$/i.test(String(b?.nome||'').toLowerCase().replace(/[^a-z0-9]/g,''))
   agendaItems.forEach(({ book, agenda }) => {
-    // HARD RULE V26: Sisal, SNAI e PokerStars NON entrano MAI nel pool PROFILAZIONE SPORT.
+    // HARD RULE V27: Sisal, SNAI e PokerStars NON entrano MAI nel pool PROFILAZIONE SPORT.
     // Il vecchio controllo dipendeva da agenda.tipo e poteva lasciarli passare quando il campo
     // non era valorizzato in modo coerente. Qui il filtro e' sul bookmaker, prima di creare lo slot.
     if(bookSoloCasinoProfilazioneLucy(book)) return
@@ -1936,7 +1936,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
       const pronox=segnalePronoxPerMercatoLucy(pm,merc.nome)
       const inv = merc.esiti.reduce((s,[,q]) => s + (q ? 1/q : 99), 0)
       const dispersione = Math.max(...merc.esiti.map(x=>x[1])) - Math.min(...merc.esiti.map(x=>x[1]))
-      // V26: se PronoX ha un segnale reale per questo mercato, l'evento deve venire PRIMA
+      // V27: se PronoX ha un segnale reale per questo mercato, l'evento deve venire PRIMA
       // degli eventi senza segnale. Il vecchio bonus -0.015 era troppo piccolo e Lucy finiva
       // per scegliere quasi sempre il dutching matematicamente piu economico ignorando PronoX.
       const prioritaPronox = pronox ? -100 : 0
@@ -1945,7 +1945,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
 
     const pronoxCalcioOggi=(pronoxFeed?.matches||[]).filter(x=>x.sport==='calcio')
     const candidatiConPronox=candidati.filter(x=>x.pronox)
-    console.info('[Lucy V26] PronoX server feed', {
+    console.info('[Lucy V27] PronoX server feed', {
       data:dataOggi,
       pronoxCalcio:pronoxCalcioOggi.length,
       mercatiAbbinati:candidatiConPronox.length,
@@ -2023,12 +2023,16 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
       const gruppo = []
       const contiNelGruppo = new Set()
       const eventoKey = `${c.home}|${c.away}`
-      for (let i=0; i<slot.length && gruppo.length<nEsiti*2; i++) {
+      for (let i=0; i<slot.length && gruppo.length<nEsiti; i++) {
         const s = slot[i]
         const key = s.book.id
         const gia = eventiUsatiPerBook.get(key) || new Set()
         if (gia.has(eventoKey)) continue
         if (contiNelGruppo.has(key)) continue
+        // V27: distribuzione. Nello stesso incrocio preferiamo un solo conto per bookmaker.
+        // Evita concentrazioni tipo due Bwin sulla stessa partita quando esistono alternative.
+        const bookmakerKey = bookNomeKeyLucy(s.book)
+        if (gruppo.some(g => bookNomeKeyLucy(g.book) === bookmakerKey)) continue
 
         // Deve esistere almeno un esito che rispetta la quota minima del protocollo.
         if (!c.esiti.some(([,q]) => q >= s.quotaMin)) continue
@@ -2051,7 +2055,15 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
         // Se lo stesso bookmaker è già presente sull'evento, può usare SOLO lo stesso esito.
         if(esitoGiaBookmaker) compatibili = compatibili.filter(([esito])=>esito===esitoGiaBookmaker)
         if(!compatibili.length) return null
-        const scelta = compatibili[i % compatibili.length]
+        // V27: se PronoX esiste, le puntate base vengono orientate sul pronostico.
+        // La copertura viene poi costruita sull'esito opposto: ridurla lascia quindi
+        // esposizione NELLA direzione indicata da PronoX (non contro il pronostico).
+        let scelta
+        if (c.pronox?.preferito) {
+          scelta = compatibili.find(([esito]) => esito === c.pronox.preferito) || compatibili[i % compatibili.length]
+        } else {
+          scelta = compatibili[i % compatibili.length]
+        }
         esitoPerBookmakerEvento.set(bookmakerEventoKey, scelta[0])
         if (!eventiUsatiPerBook.has(x.book.id)) eventiUsatiPerBook.set(x.book.id, new Set())
         eventiUsatiPerBook.get(x.book.id).add(eventoKey)
@@ -2099,7 +2111,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
               return !contiProfilo.has(b.id) && !usoMant.has(k) && (!esitoGia || esitoGia===r.esito)
             })
             if(!candidato) break
-            const stakeMant = necessario > 10 ? 10 : Math.max(2,Math.round(necessario))
+            const stakeMant = necessario > 10 ? 10 : Math.max(2,Math.round(necessario*100)/100)
             integrazioni.push({
               book:candidato,esito:r.esito,quota:r.quota,stake:stakeMant,
               coperturaSuggeritaTotale:necessarioSuggerito,copertura100Totale:necessario100,
@@ -2133,7 +2145,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
 
           const scelto=candidatiExtra[0]
           if(scelto){
-            const stakeExtra=Math.min(Math.round(necessario),Math.floor(scelto.disponibile))
+            const stakeExtra=Math.min(Math.round(necessario*100)/100,Math.floor(scelto.disponibile*100)/100)
             if(stakeExtra>=2){
               extraProfilazione.push({
                 book:scelto.book,esito:r.esito,quota:r.quota,
