@@ -662,6 +662,35 @@ export default function Oggi() {
       }
     }
 
+    // Feed locale per Lucy: esporta ESATTAMENTE i pronostici calcolati da PronoX
+    // (stesso dominio/browser, nessuna nuova API e nessuna duplicazione del modello).
+    try {
+      const lucyFeed = {
+        version: 1,
+        date,
+        generatedAt: new Date().toISOString(),
+        matches: all.map(m => ({
+          sport: m.isTennis ? 'tennis' : 'calcio',
+          id: m.id,
+          league: m.league?.name || '',
+          time: m.time || '',
+          home: m.home?.name || '',
+          away: m.away?.name || '',
+          signals: (m.signals || []).filter(x => !x?.isSuspicious).map(x => ({
+            label: x.label, type: x.type || (m.isTennis ? 'TENNIS_ML' : ''),
+            prob: Number(x.prob || 0), strong: !!x.strong, isValue: !!x.isValue,
+            fairOdds: Number(x.fairOdds || 0), bookOdds: Number(x.bookOdds || 0) || null
+          })),
+          probs: m.probs || null,
+          tennisOdds: m.isTennis && m.oddsData ? {
+            a: Number(m.oddsData.o1 || 0) || null,
+            b: Number(m.oddsData.o2 || 0) || null
+          } : null
+        }))
+      };
+      localStorage.setItem('pronox_lucy_feed_v1', JSON.stringify(lucyFeed));
+    } catch (e) { console.warn('Feed Lucy non salvato:', e); }
+
     setMatches(all);
     setLoading(false);
     setProgress("");
