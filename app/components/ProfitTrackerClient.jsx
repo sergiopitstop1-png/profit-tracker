@@ -158,6 +158,7 @@ const [lucyPronoxDiag, setLucyPronoxDiag] = useState(null)
 const [lucyForzaQuote, setLucyForzaQuote] = useState(false)
 const [lucySync, setLucySync] = useState({ stato: 'init', msg: '' })
 const [lucyRecuperi, setLucyRecuperi] = useState([])
+const [lucyQuoteManuali, setLucyQuoteManuali] = useState({})
 const [lucyConfermate, setLucyConfermate] = useState(() => {
   try { return JSON.parse(localStorage.getItem('profittracker_lucy_confermate') || '[]') } catch { return [] }
 })
@@ -1955,6 +1956,7 @@ function normalizzaProbPronoxLucy(prob) {
 const LUCY_MANT_MIN = 5          // puntata minima su un conto di mantenimento
 const LUCY_MANT_MAX = 30         // puntata massima su un conto di mantenimento
 const LUCY_MANT_MAX_TOT = 90     // oltre questo buco totale: una sola puntata extra su un conto in profilazione
+const LUCY_MANUALI_MAX = 12         // V38: massimo incroci in modalità manuale (senza quote) per volta
 const LUCY_RECUPERO_MAX_GG = 3     // V33: per quanti giorni una bet arretrata di profilazione viene ancora riproposta
 const LUCY_MANT_RIPOSO_GG = 28   // giorni di riposo tra due usi dello stesso conto (soglia inattività 45)
 
@@ -2003,15 +2005,17 @@ function protezionePronoxLucy(prob, sport='calcio') {
   return Math.round((1-(1-copMin)*forza)*1000)/1000
 }
 
-async function caricaFeedPronoxAutomaticoLucy(dataOggi) {
+async function caricaFeedPronoxAutomaticoLucy(dateRichieste) {
+  const dateLista=Array.isArray(dateRichieste)?dateRichieste:[dateRichieste]
+  const dataOggi=dateLista[0]
   // V29: Lucy legge SOLO la tabella pronox_lucy_signals (tutti i segnali del modello corretto,
   // con dati di affidabilità). pronox_daily_picks non viene più usata: conteneva i 5+3 pick
   // dell'email, scelti per probabilità più alta, cioè proprio i valori più estremi del modello.
   // Se la tabella non c'è o è vuota, Lucy resta neutra (coperture al 100%) e non si blocca.
   const { data, error } = await supabase
     .from('pronox_lucy_signals')
-    .select('sport,league,home_team,away_team,match_time,market,selection,label,probability,clamped,odds_a,odds_b')
-    .eq('pick_date', dataOggi)
+    .select('pick_date,sport,league,home_team,away_team,match_time,market,selection,label,probability,clamped,odds_a,odds_b')
+    .in('pick_date', dateLista)
     .eq('clamped', false)
   if(error) {
     console.warn('[Lucy V29] feed PronoX non leggibile:', error.message)
@@ -2024,6 +2028,7 @@ async function caricaFeedPronoxAutomaticoLucy(dataOggi) {
     const k=`${sport}|${r.home_team||''}|${r.away_team||''}`
     if(!grouped.has(k)) grouped.set(k,{
       sport, league:r.league||'', home:r.home_team||'', away:r.away_team||'', time:r.match_time||'',
+      giorno: r.pick_date===dataOggi ? 'oggi' : 'domani',
       signals:[], tennisOdds:null
     })
     const m=grouped.get(k)
@@ -2064,6 +2069,65 @@ function segnalePronoxPerMercatoLucy(match, mercato, esiti) {
   if(pModello-pMercato>0.30) return null                  // divario incredibile: segnale inaffidabile
   const prob=0.5*pModello+0.5*pMercato
   return {label:s.label,prob,probModello:pModello,probMercato:pMercato,preferito,protezione:protezionePronoxLucy(prob,match.sport),strong:prob>=0.80,isValue:!!s.isValue,sport:match.sport||'calcio'}
+}
+
+// ── V38: MODALITÀ MANUALE (partite senza quote) ─────────────────────────────
+// Pronostico PronoX solo come informazione (senza quote non si può mescolare col mercato).
+function preferitoPronoxManualeLucy(pm, mercato) {
+  if(!pm) return null
+  const sig=pm.signals||[]
+  if(mercato==='1X2') {
+    const s=sig.find(x=>/CASA VINCE|OSPITE VINCE/i.test(x.label||''))
+    return s ? (/CASA VINCE/i.test(s.label)?'1':'2') : null
+  }
+  if(mercato==='Over/Under 2.5') {
+    const s=sig.find(x=>/OVER 2\.5|UNDER 2\.5/i.test(x.label||''))
+    return s ? (/OVER 2\.5/i.test(s.label)?'Over 2.5':'Under 2.5') : null
+  }
+  return null
+}
+
+// Quota inserita a mano per una riga (0 = mancante o non valida)
+function quotaManualeLucy(pi, a) {
+  const v=String(lucyQuoteManuali[`${pi}|${a.rid}`]??'').replace(',','.')
+  const q=Number(v)
+  return q>1 ? q : 0
+}
+
+// Calcola quote e stake delle coperture dalle quote inserite.
+// R = ritorno massimo delle bet base; copertura sull'esito e = (R - ritorno base su e) / quota del conto di copertura.
+function righeManualiLucy(p, pi, righe) {
+  const basi=righe.filter(a=>a.tipoRiga!=='MANTENIMENTO')
+  const okBasi=basi.length>0 && basi.every(a=>quotaManualeLucy(pi,a)>0)
+  const ritorno=e=>basi.filter(a=>a.esito===e).reduce((s,a)=>s+Number(a.stake||0)*quotaManualeLucy(pi,a),0)
+  const R=okBasi ? Math.max(...p.esiti.map(([e])=>ritorno(e))) : 0
+  return righe.map(a=>{
+    const q=quotaManualeLucy(pi,a)
+    if(a.tipoRiga!=='MANTENIMENTO') return {...a,quota:q}
+    if(!okBasi || !q) return {...a,quota:q,stake:null}
+    let c=(R-ritorno(a.esito))/q
+    c = c<2 ? 0 : c<LUCY_MANT_MIN ? LUCY_MANT_MIN : Math.round(c)
+    return {...a,quota:q,stake:c}
+  })
+}
+
+function riepilogoManualeLucy(p, pi, righe) {
+  const basi=righe.filter(a=>a.tipoRiga!=='MANTENIMENTO')
+  const coperture=righe.filter(a=>a.tipoRiga==='MANTENIMENTO')
+  const warn=[]
+  if(!(basi.length>0 && basi.every(a=>a.quota>0))) return {completo:false,costo:0,nets:[0],warn}
+  const esiti=p.esiti.map(([e])=>e)
+  const baseRit=e=>basi.filter(a=>a.esito===e).reduce((s,a)=>s+a.stake*a.quota,0)
+  const R=Math.max(...esiti.map(baseRit))
+  esiti.forEach(e=>{
+    if(!coperture.some(a=>a.esito===e) && baseRit(e)<R-0.5)
+      warn.push(`Manca un conto di copertura su ${e}: servono ≈ ${(R-baseRit(e)).toFixed(2)} € di ritorno in più (stake = questo importo ÷ quota del conto che usi). Aggiungi un conto di mantenimento.`)
+  })
+  const ritorno=e=>righe.filter(a=>a.esito===e && a.stake>0 && a.quota>0).reduce((s,a)=>s+a.stake*a.quota,0)
+  const S=righe.reduce((s,a)=>s+(a.stake>0?a.stake:0),0)
+  const nets=esiti.map(e=>ritorno(e)-S)
+  const completo=coperture.every(a=>a.stake!==null)
+  return {completo,costo:Math.max(0,-Math.min(...nets)),nets,warn}
 }
 
 async function generaLucySport(agendaItems = [], forzaQuote = false) {
@@ -2123,7 +2187,8 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
     const oggi = new Date()
     const y = oggi.getFullYear(), m = String(oggi.getMonth()+1).padStart(2,'0'), d = String(oggi.getDate()).padStart(2,'0')
     const dataOggi = `${y}-${m}-${d}`
-    const pronoxFeed=await caricaFeedPronoxAutomaticoLucy(dataOggi)
+    const dataDomani = aggiungiGiorniLucy(dataOggi,1)
+    const pronoxFeed=await caricaFeedPronoxAutomaticoLucy([dataOggi,dataDomani])
     const normTeam=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\b(fc|cf|ac|as|calcio|club|cfc|afc|ud|bc|1913|1908|1899)\b/g,'').replace(/[^a-z0-9]/g,'')
     const teamMatchLucy=(a,b)=>{
       const x=normTeam(a), y=normTeam(b)
@@ -2135,36 +2200,54 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
     }
     const sleepLucy = ms => new Promise(resolve=>setTimeout(resolve,ms))
 
-    // Prima prendiamo tutti i calendari Football-Data, senza consumare datapoint TheRundown.
+    // V38: OGGI + DOMANI. Football-Data in una sola chiamata per lega (i due giorni); le partite già iniziate
+    // vengono escluse (non si può più giocare pre-partita). TheRundown: una chiamata per lega e per giorno.
+    const adessoMs = Date.now()
+    const giornoLocaleLucy = utc => { try { return new Date(utc).toLocaleDateString('sv-SE') } catch { return '' } }
     const fixturesPerLega = await Promise.all(leghe.map(async ([lega,fdCode,trLeague,trSportId]) => {
       try {
-        const fr=await fetch(`/api/footballdata?endpoint=competitions/${fdCode}/matches&dateFrom=${dataOggi}&dateTo=${dataOggi}`)
+        const fr=await fetch(`/api/footballdata?endpoint=competitions/${fdCode}/matches&dateFrom=${dataOggi}&dateTo=${dataDomani}`)
         const fj=await fr.json()
-        return {lega,fdCode,trLeague,trSportId,fixtures:Array.isArray(fj?.matches)?fj.matches:[]}
+        const tutte=Array.isArray(fj?.matches)?fj.matches:[]
+        const fixtures=tutte.filter(f=>{
+          const g=giornoLocaleLucy(f?.utcDate)
+          if(g!==dataOggi && g!==dataDomani) return false
+          if(f?.status && !['SCHEDULED','TIMED'].includes(f.status)) return false
+          return new Date(f.utcDate).getTime() > adessoMs + 5*60000
+        }).map(f=>({...f,_giorno:giornoLocaleLucy(f.utcDate)===dataOggi?'oggi':'domani'}))
+        return {lega,fdCode,trLeague,trSportId,fixtures}
       } catch(e) {
         return {lega,fdCode,trLeague,trSportId,fixtures:[],errore:e?.message||'errore Football-Data'}
       }
     }))
 
     const erroriQuote=[]
+    const riepilogoLeghe=[]
     const quotePerSport = new Map()
-    const sportDaChiamare = [...new Set(fixturesPerLega.filter(x=>x.fixtures.length && x.trLeague).map(x=>x.trLeague))]
-    const sportIdPerTrLeague = new Map(fixturesPerLega.filter(x=>x.trLeague && x.trSportId).map(x=>[x.trLeague,x.trSportId]))
+    const chiamate=[]
+    fixturesPerLega.filter(x=>x.trLeague).forEach(x=>{
+      ;['oggi','domani'].forEach(g=>{
+        if(x.fixtures.some(f=>f._giorno===g) && !chiamate.some(c=>c.trLeague===x.trLeague && c.giorno===g))
+          chiamate.push({trLeague:x.trLeague,trSportId:x.trSportId,giorno:g,data:g==='oggi'?dataOggi:dataDomani})
+      })
+    })
 
-    for (let i=0;i<sportDaChiamare.length;i++) {
-      const trLeague=sportDaChiamare[i]
+    for (let i=0;i<chiamate.length;i++) {
+      const ch=chiamate[i]
       if(i>0) await sleepLucy(1200)
+      const chiave=`${ch.trLeague}|${ch.giorno}`
       try {
         const forceParam=forzaQuote?'&force=1':''
-        const sidParam=sportIdPerTrLeague.get(trLeague)?`&sport_id=${sportIdPerTrLeague.get(trLeague)}`:''
-        const rr=await fetch(`/api/therundown?league=${encodeURIComponent(trLeague)}&date=${dataOggi}${sidParam}${forceParam}`, {cache:'no-store'})
+        const sidParam=ch.trSportId?`&sport_id=${ch.trSportId}`:''
+        const rr=await fetch(`/api/therundown?league=${encodeURIComponent(ch.trLeague)}&date=${ch.data}${sidParam}${forceParam}`, {cache:'no-store'})
         const rj=await rr.json()
         if(!rr.ok || !rj?.ok) {
-          erroriQuote.push(`${trLeague}: ${rj?.error||rj?.message||'errore'} (HTTP ${rr.status})`)
-          quotePerSport.set(trLeague,[])
+          erroriQuote.push(`${ch.trLeague}: ${rj?.error||rj?.message||'errore'} (HTTP ${rr.status})`)
+          quotePerSport.set(chiave,[])
           continue
         }
-        quotePerSport.set(trLeague,Array.isArray(rj?.partite)?rj.partite:[])
+        quotePerSport.set(chiave,Array.isArray(rj?.partite)?rj.partite:[])
+        riepilogoLeghe.push({lega:`${ch.trLeague} ${ch.giorno}`,eventi:Number(rj?.eventi_trovati??(Array.isArray(rj?.partite)?rj.partite.length:0)),con1x2:Number(rj?.eventi_con_1x2??0)})
         const qa=rj?.quota_api||{}
         if(qa.remaining!=null || qa.usati!=null) {
           const info={remaining:qa.remaining,used:qa.usati,last:qa.usati,monthly_remaining:qa.monthly_remaining,delay_seconds:qa.delay_seconds,at:new Date().toISOString()}
@@ -2172,13 +2255,14 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
         }
         if(rj?.cache) setLucyOddsCacheInfo({status:rj.cache.hit?'HIT':(forzaQuote?'REFRESH':'MISS'),age:0,at:new Date()})
       } catch(e) {
-        erroriQuote.push(`TheRundown ${trLeague}: ${e?.message||'errore rete'}`)
-        quotePerSport.set(trLeague,[])
+        erroriQuote.push(`TheRundown ${ch.trLeague}: ${e?.message||'errore rete'}`)
+        quotePerSport.set(chiave,[])
       }
     }
 
     const risultati = fixturesPerLega.map(({lega,trLeague,fixtures}) => {
-      const odds=trLeague ? (quotePerSport.get(trLeague)||[]) : []
+      // le quote di oggi e di domani si cercano insieme: una partita di notte può stare nel giorno UTC accanto
+      const odds=trLeague ? [...(quotePerSport.get(`${trLeague}|oggi`)||[]),...(quotePerSport.get(`${trLeague}|domani`)||[])] : []
       return fixtures.map(f=>{
         const hn=f?.homeTeam?.name||'', an=f?.awayTeam?.name||''
         const h=normTeam(hn), a=normTeam(an)
@@ -2191,16 +2275,23 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
         if(q?.['1'] && q?.X && q?.['2']) mercati.push({nome:'1X2',esiti:[['1',Number(q['1'])],['X',Number(q.X)],['2',Number(q['2'])]]})
         const ou25=(og?.quote?.over_under||[]).find(x=>Math.abs(Number(x?.linea)-2.5)<0.01)
         if(ou25?.over && ou25?.under) mercati.push({nome:'Over/Under 2.5',esiti:[['Over 2.5',Number(ou25.over)],['Under 2.5',Number(ou25.under)]]})
-        return {lega,home:hn,away:an,ora:f.utcDate,mercati,_haQuote:mercati.length>0,_provider:og?'TheRundown':null}
+        return {lega,home:hn,away:an,ora:f.utcDate,giorno:f._giorno,mercati,_haQuote:mercati.length>0,_provider:og?'TheRundown':null}
       })
     })
 
     const tuttePartite=risultati.flat()
     const eventi=tuttePartite.filter(e=>e.mercati.length)
-    if (!tuttePartite.length) throw new Error('PronoX/Football-Data non restituisce partite per oggi.')
+    if (!tuttePartite.length) throw new Error('Football-Data non restituisce partite ancora da giocare per oggi e domani.')
+    // V38: senza quote Lucy NON si ferma: prepara comunque gli incroci in modalità manuale (vedi sotto).
+    const senzaQuote=tuttePartite.filter(e=>!e.mercati.length)
+    const avvisiQuote=[]
     if (!eventi.length) {
-      const dettaglio=[...new Set(erroriQuote)].slice(0,8).join(' · ')
-      throw new Error(`PronoX vede ${tuttePartite.length} partite oggi, ma TheRundown non restituisce quote utilizzabili per le leghe collegate.${dettaglio ? ` Dettaglio: ${dettaglio}` : ''}`)
+      // Championship, Eredivisie e Brasile non sono nel catalogo del tuo account: non contano come errore
+      const dettaglio=[...new Set(erroriQuote)].filter(e=>!/^(Championship|Eredivisie|Brazil):/.test(e)).slice(0,8).join(' · ')
+      const risp=riepilogoLeghe.map(r=>`${r.lega} ${r.eventi} eventi`).join(' · ')
+      avvisiQuote.push(`Nessuna quota TheRundown per le ${tuttePartite.length} partite di oggi e domani.`
+        +(risp?` TheRundown ha risposto: ${risp}.`:'')
+        +(dettaglio?` Errori: ${dettaglio}.`:''))
     }
 
     const candidati=[]
@@ -2213,7 +2304,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
       // degli eventi senza segnale. Il vecchio bonus -0.015 era troppo piccolo e Lucy finiva
       // per scegliere quasi sempre il dutching matematicamente piu economico ignorando PronoX.
       const prioritaPronox = pronox ? -100 : 0
-      candidati.push({ ...ev, mercato:merc.nome, esiti:merc.esiti, pronox, score:prioritaPronox + inv + dispersione*0.02 })
+      candidati.push({ ...ev, mercato:merc.nome, esiti:merc.esiti, pronox, score:prioritaPronox + inv + dispersione*0.02 + (ev.giorno==='domani'?1000:0) })
     }))
 
     const pronoxCalcioOggi=(pronoxFeed?.matches||[]).filter(x=>x.sport==='calcio')
@@ -2244,7 +2335,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
       const pronox=segnalePronoxPerMercatoLucy(tm,merc,esiti)
       if(esiti.length!==2) return
       const inv=esiti.reduce((z,[,q])=>z+1/q,0)
-      candidati.push({lega:tm.league||'Tennis',home:tm.home,away:tm.away,ora:tm.time,mercato:merc,esiti,pronox,_provider:'PronoX Tennis',score:inv-(pronox?0.015:0)})
+      candidati.push({lega:tm.league||'Tennis',home:tm.home,away:tm.away,ora:tm.time,giorno:tm.giorno||'oggi',mercato:merc,esiti,pronox,_provider:'PronoX Tennis',score:inv-(pronox?0.015:0)+(tm.giorno==='domani'?1000:0)})
     })
     candidati.sort((a,b)=>a.score-b.score)
 
@@ -2510,7 +2601,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
         return {esito,netto:vp+vm+vx-giocato}
       })
 
-      proposte.push({ ...c, orario:getOrarioPartitaLucy(c), assegnazioni, integrazioni, extraProfilazione, scenari })
+      proposte.push({ ...c, orario:(c.giorno==='domani'?'dom ':'')+getOrarioPartitaLucy(c), assegnazioni, integrazioni, extraProfilazione, scenari })
     }
 
     // Applica il budget massimo di COSTO della giornata.
@@ -2525,6 +2616,77 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
       } else rinviate.push({...p,costoStimato:costo})
     })
 
+    // V38 — MODALITÀ MANUALE: partite senza quote (oggi e domani). Le bet base restano quelle di protocollo
+    // (importo noto); le quote e le coperture le inserisci tu nella tabella e le coperture si calcolano da sole.
+    // Ogni partita è usata con Over/Under 2.5 (2 esiti) e poi con 1X2 (3 esiti). Prima oggi, poi domani.
+    const manProposte=[]
+    if(slot.length && senzaQuote.length) {
+      const partiteMan=[...senzaQuote].sort((x,y)=>new Date(x.ora)-new Date(y.ora))
+      const defEsiti={'Over/Under 2.5':[['Over 2.5',null],['Under 2.5',null]],'1X2':[['1',null],['X',null],['2',null]]}
+      const manCand=['Over/Under 2.5','1X2'].flatMap(m=>['oggi','domani'].flatMap(g=>
+        partiteMan.filter(e=>e.giorno===g).map(ev=>({...ev,mercato:m,esiti:defEsiti[m]}))))
+      let gm=0
+      while(slot.length && manProposte.length<LUCY_MANUALI_MAX && gm<manCand.length) {
+        const c=manCand[gm]; gm++
+        const nEsiti=c.esiti.length
+        const eventoKey=`${c.home}|${c.away}`
+        const gruppo=[]; const contiNelGruppo=new Set()
+        for(let i=0;i<slot.length && gruppo.length<nEsiti;i++){
+          const s=slot[i]; const key=s.book.id
+          const gia=eventiUsatiPerBook.get(key)||new Set()
+          if(gia.has(eventoKey)) continue
+          if(contiNelGruppo.has(key)) continue
+          const bk=bookNomeKeyLucy(s.book)
+          if(gruppo.some(g=>bookNomeKeyLucy(g.book)===bk)) continue
+          if(esitoPerBookmakerEvento.has(`${bk}|${eventoKey}`)) continue
+          gruppo.push(s); contiNelGruppo.add(key)
+        }
+        if(gruppo.length<nEsiti) continue
+        gruppo.forEach(g=>{ const idx=slot.indexOf(g); if(idx>=0) slot.splice(idx,1) })
+
+        const pm=(pronoxFeed?.matches||[]).find(x=>x.sport==='calcio' && teamMatchLucy(x.home,c.home) && teamMatchLucy(x.away,c.away))
+        const pref=preferitoPronoxManualeLucy(pm,c.mercato)
+        const nomiEsiti=c.esiti.map(([e])=>e)
+        const ordineEsiti=pref ? [pref,...nomiEsiti.filter(e=>e!==pref)] : nomiEsiti
+        // la puntata più grossa va sull'esito preferito (o sul primo): riduce le coperture necessarie
+        const perStake=[...gruppo].sort((x,y)=>Number(y.importoIndicativo||0)-Number(x.importoIndicativo||0))
+        const assegnazioni=perStake.map((x,i)=>{
+          const esito=ordineEsiti[i]
+          esitoPerBookmakerEvento.set(`${bookNomeKeyLucy(x.book)}|${eventoKey}`,esito)
+          if(!eventiUsatiPerBook.has(x.book.id)) eventiUsatiPerBook.set(x.book.id,new Set())
+          eventiUsatiPerBook.get(x.book.id).add(eventoKey)
+          totaleSportPerBook.set(x.book.id,(totaleSportPerBook.get(x.book.id)||0)+Number(x.importoIndicativo||0))
+          return {...x,esito,quota:null,stake:x.importoIndicativo,rid:`B|${x.book.id}`}
+        })
+
+        // "Ancora" = esito con il ritorno massimo (puntata × quota): non richiede un conto di copertura.
+        // Le quote reali non ci sono ancora: si usano quote tipiche (favorito ~1.6, pareggio ~3.8, sfavorito ~5.5;
+        // senza pronostico 2.2 / 3.4 / 3.6; Over/Under ~1.9). Se dopo l'inserimento risulta sbagliata la tabella avvisa.
+        const quoteTipiche = c.mercato==='Over/Under 2.5'
+          ? {'Over 2.5':1.9,'Under 2.5':1.9}
+          : (pref ? {[pref]:1.6,X:3.8,[pref==='1'?'2':'1']:5.5} : {'1':2.2,X:3.4,'2':3.6})
+        const ancora = assegnazioni.reduce((best,a)=>{
+          const r=Number(a.stake||0)*(quoteTipiche[a.esito]||2)
+          return (!best || r>best.r) ? {esito:a.esito,r} : best
+        },null)?.esito
+        const contiProfilo=new Set(assegnazioni.map(a=>a.book.id))
+        const integrazioni=[]
+        nomiEsiti.filter(e=>e!==ancora).forEach(esito=>{
+          const cand=poolMantenimento.find(b=>{
+            const bk=bookNomeKeyLucy(b)
+            return !contiProfilo.has(b.id) && !usoMant.has(`${b.id}|${c.home}|${c.away}`) && !usatiMantOggiLucy.has(b.id) && !esitoPerBookmakerEvento.has(`${bk}|${eventoKey}`)
+          })
+          if(!cand) return
+          integrazioni.push({book:cand,esito,quota:null,stake:null,rid:`C|${cand.id}`,giaInAgenda:idsMantOggi.has(cand.id)})
+          usoMant.add(`${cand.id}|${c.home}|${c.away}`)
+          usatiMantOggiLucy.add(cand.id)
+          contiProfilo.add(cand.id)
+          esitoPerBookmakerEvento.set(`${bookNomeKeyLucy(cand)}|${eventoKey}`,esito)
+        })
+        manProposte.push({...c,orario:(c.giorno==='domani'?'dom ':'')+getOrarioPartitaLucy(c),assegnazioni,integrazioni,extraProfilazione:[],scenari:[],manuale:true,pronoxManuale:pref||null,ancora})
+      }
+    }
+
     const nonCollocate=[
       ...slot.map(s => ({
         book:s.book, betNumero:s.betNumero, betRichieste:s.betRichieste,
@@ -2538,11 +2700,18 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
     setLucySportNonCollocate(nonCollocate)
     setLucyRinviate(rinviate)
 
+    let msgErr=''
     if (nonCollocate.length || rinviate.length) {
-      setLucySportError(`Lucy resta entro il costo massimo di ${Number(lucyCostoMax).toFixed(0)}€. ${rinviate.length} incroci rinviati; ${nonCollocate.length} bet restano da completare. Le bet già confermate oggi non vengono riproposte.`)
+      msgErr=`Lucy resta entro il costo massimo di ${Number(lucyCostoMax).toFixed(0)}€. ${rinviate.length} incroci rinviati; ${nonCollocate.length} bet restano da completare. Le bet già confermate oggi non vengono riproposte.`
     }
+    const msgManuale=manProposte.length
+      ? `${manProposte.length} incroci in MODALITÀ MANUALE (partite senza quote): nella tabella inserisci la quota che vedi sul book di ogni riga e le coperture si calcolano da sole. Le bet base hanno l'importo di protocollo.`
+      : ''
+    const msgTutti=[msgErr,...avvisiQuote,msgManuale].filter(Boolean).join(' ')
+    if (msgTutti) setLucySportError(msgTutti)
 
-    setLucySportProposte(accettate)
+    setLucyQuoteManuali({})
+    setLucySportProposte([...accettate,...manProposte])
     setLucySportAggiornato(new Date())
   } catch (e) {
     setLucySportProposte([])
@@ -5352,18 +5521,30 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               </thead>
               <tbody>
                 {lucySportProposte.flatMap((p,pi)=>{
-                  const rows=[
+                  const rows0=[
                     ...(p.assegnazioni||[]).map(a=>({...a,tipoRiga:a.recupero?'RECUPERO PROF.':a.tipoConto==='mantenimento'?'MANT. PROTOCOLLO':'PROFILAZIONE'})),
                     ...(p.extraProfilazione||[]).map(a=>({...a,tipoRiga:'EXTRA PROF.'})),
                     ...(p.integrazioni||[]).map(a=>({...a,tipoRiga:'MANTENIMENTO'}))
                   ]
-                  return rows.map((a,ri)=>(
+                  const rows=p.manuale?righeManualiLucy(p,pi,rows0):rows0
+                  const riep=p.manuale?riepilogoManualeLucy(p,pi,rows):null
+                  const noteRow=p.manuale ? (
+                    <tr key={`man-${pi}`}>
+                      <td colSpan={18} style={{border:'1px solid #f59e0b',background:'#fffbeb',padding:'6px 10px',fontSize:10,color:'#92400e'}}>
+                        🧮 <b>Incrocio senza quote</b> · scrivi nella colonna QUOTA la quota che vedi sul book di ogni riga: le coperture si calcolano da sole
+                        (copertura = (ritorno massimo − ritorno già coperto) ÷ quota del conto). Nel campo vuoto delle bet base compare la quota minima del protocollo.
+                        {riep && riep.completo ? <> · <b>Costo se piazzi tutto: {riep.costo.toFixed(2)} €</b> (peggior esito {Math.min(...riep.nets).toFixed(2)} €)</> : null}
+                        {riep && riep.warn.map((w,wi)=><div key={wi} style={{color:'#b91c1c',fontWeight:800}}>⚠ {w}</div>)}
+                      </td>
+                    </tr>
+                  ) : null
+                  return [...rows.map((a,ri)=>(
                     <tr key={`${pi}-${ri}-${a.book.id}`} style={{background:ri%2===0?'#ffffff':'#f1f5f9'}}>
                       <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:800}}>{pi+1}</td>
-                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:800,whiteSpace:'nowrap'}}>{p.home} – {p.away}</td>
+                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:800,whiteSpace:'nowrap'}}>{p.home} – {p.away}{p.manuale && <span style={{marginLeft:6,fontSize:9,background:'#fde68a',color:'#92400e',borderRadius:4,padding:'1px 5px'}}>🧮 SENZA QUOTE</span>}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:900,textAlign:'center',whiteSpace:'nowrap'}}>{p.orario||'—'}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,whiteSpace:'nowrap'}}>{p.mercato||p.market||''}</td>
-                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:900,color:p.pronox?'#0f766e':'#64748b',whiteSpace:'nowrap'}}>{p.pronox?.preferito||'—'}</td>
+                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:900,color:(p.pronox||p.pronoxManuale)?'#0f766e':'#64748b',whiteSpace:'nowrap'}}>{p.pronox?.preferito||p.pronoxManuale||'—'}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,textAlign:'right',fontWeight:800}}><span title={p.pronox?`modello ${(p.pronox.probModello*100).toFixed(1)}% · mercato ${(p.pronox.probMercato*100).toFixed(1)}%`:''}>{p.pronox?`${(p.pronox.prob*100).toFixed(1)}%`:'—'}</span></td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,textAlign:'center',fontWeight:900,color:p.pronox&&p.pronox.protezione<1?'#b45309':'#475569'}}>{p.pronox?`${Math.round(p.pronox.protezione*100)}%`:'100%'}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,textAlign:'right',fontWeight:900,color:'#b45309'}}>{a.coperturaSuggeritaTotale!=null?`${Number(a.coperturaSuggeritaTotale).toFixed(2)} €`:'—'}</td>
@@ -5372,8 +5553,19 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                       <td style={{border:'1px solid #cbd5e1',padding:6,whiteSpace:'nowrap'}}>{a.book.intestatario}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:800}}>{a.tipoRiga}{a.recupero&&a.dataOrigine?<div style={{fontSize:9,color:'#b45309'}}>dal {String(a.dataOrigine).slice(5).split('-').reverse().join('/')}</div>:null}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:900}}>{a.esito}</td>
-                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:900,textAlign:'right'}}>{Number(a.stake||0).toFixed(2)} €</td>
-                      <td style={{border:'1px solid #cbd5e1',padding:6,textAlign:'right'}}>{Number(a.quota||0).toFixed(2)}</td>
+                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:900,textAlign:'right'}}>
+                        {a.stake===null ? <i style={{color:'#64748b',fontWeight:600}}>da calcolare</i>
+                          : a.stake===0 ? <span style={{color:'#64748b'}}>0 · non serve</span>
+                          : <>{Number(a.stake||0).toFixed(2)} €{p.manuale && a.tipoRiga==='MANTENIMENTO' && a.stake>LUCY_MANT_MAX ? <div style={{fontSize:9,color:'#b91c1c'}}>⚠ oltre {LUCY_MANT_MAX}€: aggiungi un conto</div> : null}</>}
+                      </td>
+                      <td style={{border:'1px solid #cbd5e1',padding:p.manuale?3:6,textAlign:'right'}}>
+                        {p.manuale
+                          ? <input type="text" inputMode="decimal" value={lucyQuoteManuali[`${pi}|${a.rid}`]??''}
+                              placeholder={a.tipoRiga==='MANTENIMENTO' ? 'quota' : (a.quotaMin?`min ${a.quotaMin}`:'quota')}
+                              onChange={e=>{const v=e.target.value; setLucyQuoteManuali(prev=>({...prev,[`${pi}|${a.rid}`]:v}))}}
+                              style={{width:64,textAlign:'right',border:'1px solid #94a3b8',borderRadius:4,padding:'3px 4px',fontWeight:800,background:'#fffbeb'}} />
+                          : Number(a.quota||0).toFixed(2)}
+                      </td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,whiteSpace:'nowrap'}}>{a.betNumero ? `${a.betNumero}/${a.betRichieste}` : '—'}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,whiteSpace:'nowrap'}}>
                         {a.capGiornaliero ? `cap ${Number(a.capGiornaliero).toFixed(0)}€` : a.budgetTotale ? `${Number(a.budgetTotale).toFixed(0)}€` : '—'}
@@ -5382,13 +5574,14 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                         {(()=>{
                           const tipo=(a.tipoRiga==='PROFILAZIONE'||a.tipoRiga==='RECUPERO PROF.')?'profilazione':a.tipoRiga==='EXTRA PROF.'?'extra':'mantenimento'
                           const k=keyBetLucy(p,a,tipo), ok=lucyConfermate.some(x=>x.key===k)
+                          const pronta=!p.manuale || (Number(a.stake)>0 && Number(a.quota)>0)
                           return ok
                             ? <button onClick={()=>annullaSingolaBetLucy(k)} style={{background:'#16a34a',color:'white',border:0,borderRadius:6,padding:'5px 7px',fontSize:9,fontWeight:900,cursor:'pointer'}}>✓ FATTA</button>
-                            : <button onClick={()=>confermaSingolaBetLucy(p,a,tipo)} style={{background:'#2563eb',color:'white',border:0,borderRadius:6,padding:'5px 7px',fontSize:9,fontWeight:900,cursor:'pointer'}}>CONFERMA</button>
+                            : <button disabled={!pronta} title={pronta?'':'Inserisci le quote per calcolare lo stake'} onClick={()=>confermaSingolaBetLucy(p,a,tipo)} style={{background:pronta?'#2563eb':'#94a3b8',color:'white',border:0,borderRadius:6,padding:'5px 7px',fontSize:9,fontWeight:900,cursor:pronta?'pointer':'not-allowed'}}>CONFERMA</button>
                         })()}
                       </td>
                     </tr>
-                  ))
+                  )), ...(noteRow?[noteRow]:[])]
                 })}
               </tbody>
             </table>
