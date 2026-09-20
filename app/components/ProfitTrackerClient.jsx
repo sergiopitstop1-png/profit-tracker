@@ -1751,6 +1751,36 @@ function feedPronoxLucy(dataOggi) {
   } catch { return null }
 }
 
+async function caricaFeedPronoxAutomaticoLucy(dataOggi) {
+  // Se il feed di oggi esiste già lo riutilizziamo.
+  const pronto=feedPronoxLucy(dataOggi)
+  if(pronto) return pronto
+
+  // Avvia PronoX in background nello STESSO dominio/browser.
+  // In questo modo Lucy usa esattamente il motore PronoX reale, senza duplicarlo.
+  // PronoX V21 salva pronox_lucy_feed_v1 quando ha finito i calcoli.
+  if(typeof document==='undefined') return null
+  const iframe=document.createElement('iframe')
+  iframe.src=`/oggi?lucy_auto=1&date=${encodeURIComponent(dataOggi)}&t=${Date.now()}`
+  iframe.setAttribute('aria-hidden','true')
+  iframe.tabIndex=-1
+  iframe.style.cssText='position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;left:-9999px;top:-9999px;border:0'
+  document.body.appendChild(iframe)
+
+  try {
+    const timeout=120000
+    const start=Date.now()
+    while(Date.now()-start < timeout) {
+      await new Promise(r=>setTimeout(r,1000))
+      const feed=feedPronoxLucy(dataOggi)
+      if(feed) return feed
+    }
+    return null
+  } finally {
+    try{iframe.remove()}catch{}
+  }
+}
+
 function segnalePronoxPerMercatoLucy(match, mercato) {
   if(!match) return null
   const sig=(match.signals||[]).filter(s=>Number(s?.prob)>0 && !s?.isSuspicious)
@@ -1815,7 +1845,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
     const oggi = new Date()
     const y = oggi.getFullYear(), m = String(oggi.getMonth()+1).padStart(2,'0'), d = String(oggi.getDate()).padStart(2,'0')
     const dataOggi = `${y}-${m}-${d}`
-    const pronoxFeed=feedPronoxLucy(dataOggi)
+    const pronoxFeed=await caricaFeedPronoxAutomaticoLucy(dataOggi)
     const normTeam=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\b(fc|cf|ac|as|calcio|club)\b/g,'').replace(/[^a-z0-9]/g,'')
     const sleepLucy = ms => new Promise(resolve=>setTimeout(resolve,ms))
 
@@ -1854,7 +1884,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
         }
         if(rj?.cache) setLucyOddsCacheInfo({status:rj.cache.hit?'HIT':(forzaQuote?'REFRESH':'MISS'),age:0,at:new Date()})
       } catch(e) {
-        erroriQuote.push(`TheRundown ${trId}: ${e?.message||'errore rete'}`)
+        erroriQuote.push(`TheRundown ${trLeague}: ${e?.message||'errore rete'}`)
         quotePerSport.set(trLeague,[])
       }
     }
