@@ -46,11 +46,12 @@ function dixonColesCorr(i, j, lH, lA, rho = -0.13) {
 }
 
 function calcProbs(lH, lA, max = 8) {
-  let h = 0, d = 0, a = 0, o25 = 0, btts = 0;
+  let h = 0, d = 0, a = 0, o25 = 0, btts = 0, mass = 0;
   for (let i = 0; i <= max; i++) {
     for (let j = 0; j <= max; j++) {
       const corr = dixonColesCorr(i, j, lH, lA);
       const p = poisson(i, lH) * poisson(j, lA) * corr;
+      mass += p;
       if (i > j) h += p;
       else if (i === j) d += p;
       else a += p;
@@ -58,9 +59,53 @@ function calcProbs(lH, lA, max = 8) {
       if (i > 0 && j > 0) btts += p;
     }
   }
+  // V2: normalizziamo TUTTI i mercati sulla massa effettivamente calcolata.
+  // Prima 1X2 veniva normalizzato, mentre Over/Under e BTTS no: con Dixon-Coles
+  // e la griglia troncata questo poteva gonfiare soprattutto gli UNDER estremi.
+  const tot = mass > 0 ? mass : (h + d + a || 1);
+  const o25n = o25 / tot;
+  const bttsn = btts / tot;
   const o05ht = Math.min(0.18 + (lH + lA) * 0.14, 0.96);
-  const tot = h + d + a;
-  return { h: h/tot, d: d/tot, a: a/tot, o25, u25: 1 - o25, btts, o05ht };
+  return { h: h/tot, d: d/tot, a: a/tot, o25: o25n, u25: 1 - o25n, btts: bttsn, o05ht };
+}
+
+// ─── PRONOX CALCIO V2: confidence prudenziale ───────────────────
+// I prior sotto derivano dallo storico verificato corrente di PronoX.
+// Non sostituiscono il modello: servono a impedire che una probabilità Poisson
+// estrema venga mostrata come certezza quando quel mercato non l'ha dimostrata.
+const FOOTBALL_MARKET_PRIORS = {
+  "CASA VINCE":   { hit: 15/23, n: 23 },
+  "OSPITE VINCE": { hit:  8/14, n: 14 },
+  "OVER 2.5":     { hit:  9/16, n: 16 },
+  "UNDER 2.5":    { hit: 24/47, n: 47 },
+  "BTTS SÌ":      { hit:  6/9,  n:  9 },
+};
+
+function devigTwoWay(oddsFor, oddsAgainst) {
+  if (!oddsFor || !oddsAgainst || oddsFor <= 1 || oddsAgainst <= 1) return null;
+  const a = 1 / oddsFor, b = 1 / oddsAgainst;
+  return a / (a + b);
+}
+
+function calibrateFootballProbability(label, rawProb, oddsData) {
+  const prior = FOOTBALL_MARKET_PRIORS[label];
+  if (!prior) return Math.min(0.90, Math.max(0.10, rawProb));
+
+  // Più storico abbiamo su un mercato, più chiediamo al modello di rispettare
+  // ciò che è successo davvero. Il peso resta volutamente conservativo.
+  const historyWeight = Math.min(0.55, 0.20 + prior.n / 120);
+  let calibrated = rawProb * (1 - historyWeight) + prior.hit * historyWeight;
+
+  // Se abbiamo entrambe le quote del mercato, usiamo la probabilità bookmaker
+  // senza margine come ulteriore ancora. Il mercato NON decide il pronostico:
+  // riduce soltanto l'eccesso di sicurezza del modello.
+  let marketProb = null;
+  if (label === "UNDER 2.5") marketProb = devigTwoWay(oddsData?.oUnder25, oddsData?.oOver25);
+  if (label === "OVER 2.5")  marketProb = devigTwoWay(oddsData?.oOver25, oddsData?.oUnder25);
+  if (marketProb !== null) calibrated = calibrated * 0.75 + marketProb * 0.25;
+
+  // Niente 97-99% finché lo storico non giustifica livelli simili.
+  return Math.min(0.90, Math.max(0.10, calibrated));
 }
 
 function timeWeight(matchDate, refDate) {
@@ -569,9 +614,18 @@ export default function Oggi() {
             else if (s.label === "OVER 2.5") bookOdds = oddsData.oOver25;
             else if (s.label === "UNDER 2.5") bookOdds = oddsData.oUnder25;
           }
-          const ev = bookOdds ? calcEV(s.prob, bookOdds) : null;
-          const isValue = ev !== null && ev > 0.03; // almeno 3% EV
-          return { ...s, bookOdds, ev, isValue };
+          const rawProb = s.prob;
+          const calibratedProb = calibrateFootballProbability(s.label, rawProb, oddsData);
+          const ev = bookOdds ? calcEV(calibratedProb, bookOdds) : null;
+          const isValue = ev !== null && ev > 0.03; // almeno 3% EV sulla confidence V2
+          return {
+            ...s,
+            rawProb,
+            prob: calibratedProb,
+            fairOdds: 1 / calibratedProb,
+            strong: calibratedProb >= 0.72,
+            bookOdds, ev, isValue,
+          };
         });
 
         const hasValue = signalsWithEV.some(s => s.isValue);
