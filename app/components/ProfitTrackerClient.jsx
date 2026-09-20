@@ -2296,17 +2296,10 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
 
     const tuttePartite=risultati.flat()
     const eventi=tuttePartite.filter(e=>e.mercati.length)
-    if (!tuttePartite.length) {
-      const grezze=fixturesPerLega.reduce((s,x)=>s+x.grezze,0)
-      throw new Error('Nessuna partita ancora da giocare per oggi e domani nei campionati collegati. '
-        +(erroriFD.length ? `Football-Data ha risposto con errori: ${erroriFD.join(' · ')}. Aspetta un minuto e riprova (limite 10 richieste al minuto).`
-          : grezze>0 ? `Football-Data ne elenca ${grezze} ma sono già iniziate o finite.`
-          : 'Football-Data non ne elenca nessuna: nei campionati collegati (Serie A, Premier, Bundesliga, La Liga, Ligue 1, Champions, Championship, Eredivisie, Brasile, Mondiali) oggi e domani non risultano partite.'))
-    }
     // V38: senza quote Lucy NON si ferma: prepara comunque gli incroci in modalità manuale (vedi sotto).
     const senzaQuote=tuttePartite.filter(e=>!e.mercati.length)
     const avvisiQuote=[]
-    if (!eventi.length) {
+    if (tuttePartite.length && !eventi.length) {
       // Championship, Eredivisie e Brasile non sono nel catalogo del tuo account: non contano come errore
       const dettaglio=[...new Set(erroriQuote)].filter(e=>!/^(Championship|Eredivisie|Brazil):/.test(e)).slice(0,8).join(' · ')
       const risp=riepilogoLeghe.map(r=>`${r.lega} ${r.eventi} eventi`).join(' · ')
@@ -2315,25 +2308,36 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
         +(dettaglio?` Errori: ${dettaglio}.`:''))
     }
 
-    // V39 — TENNIS da TheRundown (ATP = sport 38, WTA = sport 39), oggi e domani, quote reali dei due giocatori.
-    // TheRundown mette il giocatore di casa in '1' e quello ospite in '2' (la 'X' nel tennis non esiste).
+    // V42 — ALTRI SPORT da TheRundown, oggi e domani, con quote reali (utili quando il calcio delle leghe
+    // principali è fermo, per esempio nelle pause per le Nazionali). TheRundown è sia calendario sia quote:
+    //  · tennis ATP (38) e WTA (39): 2 esiti = i due giocatori ('1' casa, '2' ospite; la 'X' non esiste)
+    //  · MLB (3), NFL (2), NHL (6): 2 esiti (vincente) + Over/Under sulla linea principale
+    //  · MLS (10), Liga MX (34), J-League (19), Europa League (33): 1X2 + Over/Under 2.5, come il calcio
     const cognomeLucy = s => { const t=String(s||'').trim().split(/\s+/).filter(Boolean); return normTeam(t[t.length-1]||'') }
-    const tennisRd=[]
+    const sportExtra=[
+      {tipo:'tennis',nome:'ATP',id:38,icona:'🎾'},{tipo:'tennis',nome:'WTA',id:39,icona:'🎾'},
+      {tipo:'due',nome:'MLB',id:3,icona:'⚾'},{tipo:'due',nome:'NFL',id:2,icona:'🏈'},{tipo:'due',nome:'NHL',id:6,icona:'🏒'},
+      {tipo:'calcio',nome:'MLS',id:10,icona:'⚽'},{tipo:'calcio',nome:'Liga MX',id:34,icona:'⚽'},
+      {tipo:'calcio',nome:'J-League',id:19,icona:'⚽'},{tipo:'calcio',nome:'Europa League',id:33,icona:'⚽'}
+    ]
+    const extraRd=[]
     try {
       const visti=new Set()
-      for (const [tour,sid] of [['ATP',38],['WTA',39]]) {
+      let serveAttesa=chiamate.length>0
+      for (const sp of sportExtra) {
         for (const [giorno,data] of [['oggi',dataOggi],['domani',dataDomani]]) {
-          await sleepLucy(1200)
+          if(serveAttesa) await sleepLucy(1000)
           try {
-            const rr=await fetch(`/api/therundown?league=${tour}&date=${data}&sport_id=${sid}${forzaQuote?'&force=1':''}`,{cache:'no-store'})
+            const rr=await fetch(`/api/therundown?league=${encodeURIComponent(sp.nome)}&date=${data}&sport_id=${sp.id}${forzaQuote?'&force=1':''}`,{cache:'no-store'})
             const rj=await rr.json()
-            if(!rr.ok || !rj?.ok) { erroriQuote.push(`${tour}: ${rj?.error||rj?.message||'errore'} (HTTP ${rr.status})`); continue }
+            serveAttesa=!(rj?.cache?.hit)
+            if(!rr.ok || !rj?.ok) { erroriQuote.push(`${sp.nome}: ${rj?.error||rj?.message||'errore'} (HTTP ${rr.status})`); serveAttesa=true; continue }
             const lista=Array.isArray(rj?.partite)?rj.partite:[]
-            riepilogoLeghe.push({lega:`${tour} ${giorno}`,eventi:lista.length,con1x2:0})
+            riepilogoLeghe.push({lega:`${sp.nome} ${giorno}`,eventi:lista.length,con1x2:0})
             lista.forEach(g=>{
-              const q=g?.quote?.esito_1x2
-              const a=Number(q?.['1']), b=Number(q?.['2'])
-              if(!(a>1 && b>1) || !g?.casa || !g?.trasferta) return
+              if(!g?.casa || !g?.trasferta) return
+              const q=g?.quote?.esito_1x2||{}
+              const h=Number(q['1']), d=Number(q.X), a=Number(q['2'])
               let giornoEv=giorno
               const t=Date.parse(g?.data)
               if(!Number.isNaN(t)) {
@@ -2341,15 +2345,36 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
                 const gl=giornoLocaleLucy(g.data)
                 if(gl===dataOggi) giornoEv='oggi'; else if(gl===dataDomani) giornoEv='domani'; else return
               }
-              const k=`${cognomeLucy(g.casa)}|${cognomeLucy(g.trasferta)}`
-              if(visti.has(k)) return
-              visti.add(k)
-              tennisRd.push({tour,home:g.casa,away:g.trasferta,ora:Number.isNaN(t)?null:g.data,giorno:giornoEv,a,b})
+              const chiave = sp.tipo==='tennis' ? `${sp.nome}|${cognomeLucy(g.casa)}|${cognomeLucy(g.trasferta)}` : `${sp.nome}|${normTeam(g.casa)}|${normTeam(g.trasferta)}`
+              if(visti.has(chiave)) return
+              const righeOu=(Array.isArray(g?.quote?.over_under)?g.quote.over_under:[]).filter(x=>Number(x?.over)>1 && Number(x?.under)>1)
+              let ou=null
+              if(sp.tipo==='calcio') ou=righeOu.find(x=>Math.abs(Number(x.linea)-2.5)<0.01)||null
+              else if(sp.tipo==='due') ou=[...righeOu].sort((x,y)=>Math.abs(x.over-x.under)-Math.abs(y.over-y.under))[0]||null   // linea principale = la più equilibrata
+              const ok2 = h>1 && a>1
+              const ok3 = ok2 && d>1
+              if(sp.tipo==='calcio' ? !(ok3 || ou) : sp.tipo==='tennis' ? !ok2 : !(ok2 || ou)) return   // niente quote utilizzabili
+              visti.add(chiave)
+              extraRd.push({sp,home:g.casa,away:g.trasferta,ora:Number.isNaN(t)?null:g.data,giorno:giornoEv,h,d,a,ou,ok2,ok3})
             })
-          } catch(e) { erroriQuote.push(`TheRundown ${tour}: ${e?.message||'errore rete'}`) }
+          } catch(e) { erroriQuote.push(`TheRundown ${sp.nome}: ${e?.message||'errore rete'}`); serveAttesa=true }
         }
       }
-    } catch(e) { console.warn('[Lucy V39] tennis TheRundown non disponibile:',e?.message||e) }
+    } catch(e) { console.warn('[Lucy V42] altri sport TheRundown non disponibili:',e?.message||e) }
+    const tennisRd=extraRd.filter(x=>x.sp.tipo==='tennis')
+    const altriSportRd=extraRd.filter(x=>x.sp.tipo!=='tennis')
+
+    // V41: si ferma SOLO se non c'è né calcio né tennis (prima usciva subito quando il calcio era vuoto,
+    // per esempio nelle pause per le Nazionali, senza nemmeno provare il tennis).
+    if (!tuttePartite.length && !extraRd.length) {
+      const grezze=fixturesPerLega.reduce((s,x)=>s+x.grezze,0)
+      const errTennis=[...new Set(erroriQuote)].filter(e=>/^(TheRundown )?(ATP|WTA|MLB|NFL|NHL|MLS|Liga MX|J-League|Europa League):/.test(e)||/^TheRundown (ATP|WTA|MLB|NFL|NHL|MLS|Liga MX|J-League|Europa League)/.test(e))
+      throw new Error('Nessuna partita ancora da giocare per oggi e domani. '
+        +'Calcio: '+(erroriFD.length ? `Football-Data ha risposto con errori: ${erroriFD.join(' · ')} (limite 10 richieste al minuto, riprova tra un minuto). `
+          : grezze>0 ? `Football-Data ne elenca ${grezze} ma sono già iniziate o finite. `
+          : 'nessuna nei campionati collegati (se sono in corso le pause per le Nazionali è normale). ')
+        +'Altri sport TheRundown (tennis, MLB, NFL, NHL, MLS, Liga MX, J-League, Europa League): '+(errTennis.length ? `errori ${errTennis.join(' · ')}.` : 'nessuna partita con quote nelle prossime ore.'))
+    }
 
     const candidati=[]
     eventi.forEach(ev => ev.mercati.forEach(merc => {
@@ -2372,6 +2397,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
       eventiQuote:eventi.length,
       feedErrore:pronoxFeed?.errore||'',
       tennisRd:tennisRd.length,
+      altriSport:altriSportRd.length,
       // Championship, Eredivisie e Brasile non esistono nel catalogo TheRundown del tuo account: non è un guasto, niente avviso
       erroriQuote:[...new Set(erroriQuote)].filter(e=>!/^(Championship|Eredivisie|Brazil):/.test(e)),
       picks:pronoxCalcioOggi.map(x=>`${x.home} - ${x.away}`),
@@ -2387,25 +2413,39 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
     // Tennis: PronoX esporta già giocatori, probabilità e quote del suo feed tennis.
     // Finché non scopriamo dinamicamente gli ID ATP/WTA TheRundown, Lucy usa queste quote
     // SOLO quando PronoX le ha realmente disponibili: nessuna quota viene inventata.
-    // V39: tennis da TheRundown come candidati (con pronostico PronoX abbinato per cognomi, se c'è)
+    // V42: candidati dagli altri sport TheRundown (tennis con pronostico PronoX abbinato per cognomi, se c'è)
     const tennisChiaviRd=new Set(tennisRd.map(t=>`${cognomeLucy(t.home)}|${cognomeLucy(t.away)}`))
-    tennisRd.forEach(t=>{
-      const merc='Tennis Vincente'
-      const esiti=[[t.home,t.a],[t.away,t.b]]
-      const pmT=(pronoxFeed?.matches||[]).find(x=>x.sport==='tennis' && (
-        (cognomeLucy(x.home)===cognomeLucy(t.home) && cognomeLucy(x.away)===cognomeLucy(t.away)) ||
-        (cognomeLucy(x.home)===cognomeLucy(t.away) && cognomeLucy(x.away)===cognomeLucy(t.home))))
-      let pronox=null
-      const sigT=(pmT?.signals||[]).find(s=>/ vince$/i.test(s.label||''))
-      if(sigT) {
-        // si rimappa il favorito PronoX sul nome usato da TheRundown
-        const cogFav=cognomeLucy(String(sigT.label).replace(/\s+vince$/i,''))
-        const nomeRd=cognomeLucy(t.home)===cogFav ? t.home : (cognomeLucy(t.away)===cogFav ? t.away : null)
-        if(nomeRd) pronox=segnalePronoxPerMercatoLucy({sport:'tennis',signals:[{type:'TENNIS_ML',label:`${nomeRd} vince`,prob:sigT.prob}]},merc,esiti)
+    extraRd.forEach(ev=>{
+      const sp=ev.sp
+      const lega=`${sp.icona} ${sp.nome}`
+      const aggiungi=(merc,esiti,pronox=null)=>{
+        const inv=esiti.reduce((z,[,q])=>z+1/q,0)
+        const qs=esiti.map(x=>x[1])
+        candidati.push({lega,home:ev.home,away:ev.away,ora:ev.ora,giorno:ev.giorno,mercato:merc,esiti,pronox,_provider:`TheRundown ${sp.nome}`,
+          score:(pronox?-100:0)+inv+(Math.max(...qs)-Math.min(...qs))*0.02+(ev.giorno==='domani'?1000:0)})
       }
-      const inv=esiti.reduce((z,[,q])=>z+1/q,0)
-      candidati.push({lega:`🎾 ${t.tour}`,home:t.home,away:t.away,ora:t.ora,giorno:t.giorno,mercato:merc,esiti,pronox,_provider:'TheRundown Tennis',
-        score:(pronox?-100:0)+inv+Math.abs(t.a-t.b)*0.02+(t.giorno==='domani'?1000:0)})
+      if(sp.tipo==='tennis') {
+        const merc='Tennis Vincente'
+        const esiti=[[ev.home,ev.h],[ev.away,ev.a]]
+        const pmT=(pronoxFeed?.matches||[]).find(x=>x.sport==='tennis' && (
+          (cognomeLucy(x.home)===cognomeLucy(ev.home) && cognomeLucy(x.away)===cognomeLucy(ev.away)) ||
+          (cognomeLucy(x.home)===cognomeLucy(ev.away) && cognomeLucy(x.away)===cognomeLucy(ev.home))))
+        let pronox=null
+        const sigT=(pmT?.signals||[]).find(s=>/ vince$/i.test(s.label||''))
+        if(sigT) {
+          // si rimappa il favorito PronoX sul nome usato da TheRundown
+          const cogFav=cognomeLucy(String(sigT.label).replace(/\s+vince$/i,''))
+          const nomeRd=cognomeLucy(ev.home)===cogFav ? ev.home : (cognomeLucy(ev.away)===cogFav ? ev.away : null)
+          if(nomeRd) pronox=segnalePronoxPerMercatoLucy({sport:'tennis',signals:[{type:'TENNIS_ML',label:`${nomeRd} vince`,prob:sigT.prob}]},merc,esiti)
+        }
+        aggiungi(merc,esiti,pronox)
+      } else if(sp.tipo==='due') {
+        if(ev.ok2) aggiungi('Vincente',[[ev.home,ev.h],[ev.away,ev.a]])
+        if(ev.ou) aggiungi(`Over/Under ${ev.ou.linea}`,[[`Over ${ev.ou.linea}`,Number(ev.ou.over)],[`Under ${ev.ou.linea}`,Number(ev.ou.under)]])
+      } else {
+        if(ev.ok3) aggiungi('1X2',[['1',ev.h],['X',ev.d],['2',ev.a]])
+        if(ev.ou) aggiungi('Over/Under 2.5',[['Over 2.5',Number(ev.ou.over)],['Under 2.5',Number(ev.ou.under)]])
+      }
     })
     ;(pronoxFeed?.matches||[]).filter(x=>x.sport==='tennis' && x.tennisOdds?.a && x.tennisOdds?.b)
       .filter(tm=>!tennisChiaviRd.has(`${cognomeLucy(tm.home)}|${cognomeLucy(tm.away)}`) && !tennisChiaviRd.has(`${cognomeLucy(tm.away)}|${cognomeLucy(tm.home)}`))
@@ -5484,7 +5524,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             border:lucyPronoxDiag.matchMercati>0?'1px solid rgba(16,185,129,.35)':'1px solid rgba(245,158,11,.35)',
             color:lucyPronoxDiag.matchMercati>0?'#86efac':'#fbbf24'}}>
             {lucyPronoxDiag.erroriQuote?.length>0 && <div style={{color:'#fdba74',marginBottom:4}}>⚠️ Quote non disponibili per: {lucyPronoxDiag.erroriQuote.join(' · ')}</div>}
-            <div style={{color:'#93c5fd',marginBottom:4}}>🎾 Tennis TheRundown (ATP/WTA, oggi e domani): {lucyPronoxDiag.tennisRd??0} partite con quote dei due giocatori.</div>
+            <div style={{color:'#93c5fd',marginBottom:4}}>🎾 Tennis (ATP/WTA): {lucyPronoxDiag.tennisRd??0} partite con quote · 🏟️ Altri sport TheRundown (MLB, NFL, NHL, MLS, Liga MX, J-League, Europa League): {lucyPronoxDiag.altriSport??0} partite con quote — oggi e domani.</div>
             🧠 PronoX server: {lucyPronoxDiag.feedCalcio} pronostici calcio oggi · {lucyPronoxDiag.matchMercati} mercati abbinati alle partite con quote.
             {lucyPronoxDiag.feedErrore ? ` Tabella segnali non leggibile (${lucyPronoxDiag.feedErrore}): Lucy resta neutra, coperture al 100%.` : lucyPronoxDiag.feedCalcio===0 ? ' Nessun segnale PronoX per oggi e domani: la cron li scrive ogni giorno verso le 16:00 per il giorno dopo, quindi per i giorni non ancora elaborati è normale. Lucy resta neutra, coperture al 100%, e gli incroci si fanno lo stesso.' : lucyPronoxDiag.matchMercati===0 ? ' Nessun segnale PronoX è utilizzabile nelle partite/mercati con quote: Lucy resta neutra al 100%.' : ''}
           </div>
