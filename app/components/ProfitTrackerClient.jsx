@@ -1816,8 +1816,10 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
 
   const bookSoloCasinoProfilazioneLucy = b => /^(sisal|snai|pokerstars)$/i.test(String(b?.nome||'').toLowerCase().replace(/[^a-z0-9]/g,''))
   agendaItems.forEach(({ book, agenda }) => {
-    // HARD RULE: Sisal, SNAI e PokerStars fanno profilazione Casino/Slot, mai Sport.
-    if(bookSoloCasinoProfilazioneLucy(book) && !String(agenda?.tipo||'').toLowerCase().includes('manten')) return
+    // HARD RULE V26: Sisal, SNAI e PokerStars NON entrano MAI nel pool PROFILAZIONE SPORT.
+    // Il vecchio controllo dipendeva da agenda.tipo e poteva lasciarli passare quando il campo
+    // non era valorizzato in modo coerente. Qui il filtro e' sul bookmaker, prima di creare lo slot.
+    if(bookSoloCasinoProfilazioneLucy(book)) return
     const azioniSport = (agenda?.azioni || []).filter(a => sportRegex.test(a) && !casinoOnlyRegex.test(a))
     if (!azioniSport.length) return
     const azione = azioniSport[0]
@@ -1843,7 +1845,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
   setLucySportError('')
   try {
     // Football-Data resta la fonte del calendario PronoX.
-    // TheRundown fornisce le quote. V25 mantiene invariata la route quote:
+    // TheRundown fornisce le quote. V26 mantiene invariata la route quote:
     // passa il nome lega alla route, che lo risolve dal catalogo /api/v2/sports.
     // Così Lucy può usare tutti i principali campionati europei supportati.
     const leghe = [
@@ -1934,8 +1936,21 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
       const pronox=segnalePronoxPerMercatoLucy(pm,merc.nome)
       const inv = merc.esiti.reduce((s,[,q]) => s + (q ? 1/q : 99), 0)
       const dispersione = Math.max(...merc.esiti.map(x=>x[1])) - Math.min(...merc.esiti.map(x=>x[1]))
-      candidati.push({ ...ev, mercato:merc.nome, esiti:merc.esiti, pronox, score:inv + dispersione*0.02 - (pronox?0.015:0) })
+      // V26: se PronoX ha un segnale reale per questo mercato, l'evento deve venire PRIMA
+      // degli eventi senza segnale. Il vecchio bonus -0.015 era troppo piccolo e Lucy finiva
+      // per scegliere quasi sempre il dutching matematicamente piu economico ignorando PronoX.
+      const prioritaPronox = pronox ? -100 : 0
+      candidati.push({ ...ev, mercato:merc.nome, esiti:merc.esiti, pronox, score:prioritaPronox + inv + dispersione*0.02 })
     }))
+
+    const pronoxCalcioOggi=(pronoxFeed?.matches||[]).filter(x=>x.sport==='calcio')
+    const candidatiConPronox=candidati.filter(x=>x.pronox)
+    console.info('[Lucy V26] PronoX server feed', {
+      data:dataOggi,
+      pronoxCalcio:pronoxCalcioOggi.length,
+      mercatiAbbinati:candidatiConPronox.length,
+      picks:pronoxCalcioOggi.map(x=>`${x.home} - ${x.away}`)
+    })
 
     // Tennis: PronoX esporta già giocatori, probabilità e quote del suo feed tennis.
     // Finché non scopriamo dinamicamente gli ID ATP/WTA TheRundown, Lucy usa queste quote
