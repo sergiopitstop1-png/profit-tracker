@@ -1749,10 +1749,34 @@ const LUCY_MANT_MAX = 30         // puntata massima su un conto di mantenimento
 const LUCY_MANT_MAX_TOT = 90     // oltre questo buco totale: una sola puntata extra su un conto in profilazione
 const LUCY_MANT_RIPOSO_GG = 28   // giorni di riposo tra due usi dello stesso conto (soglia inattività 45)
 
+// V30: assegnazione degli esiti ai conti di profilazione a COSTO MINIMO (solo senza segnale PronoX).
+// Con coperture complete il costo dell'incrocio è R*(somma(1/quota)-1), dove R = max sugli esiti di
+// (puntata base sull'esito * quota). Quindi si sceglie l'assegnazione che minimizza R: la puntata grossa
+// va sull'esito a quota bassa, quelle piccole sugli altri. Prova tutte le combinazioni (max 3^3).
+// stakes[i] = importo del conto i; opzioni[i] = esiti [[esito,quota],...] ammessi per quel conto.
+function assegnaEsitiCostoMinimoLucy(stakes, opzioni) {
+  if(!stakes.length || opzioni.length!==stakes.length || opzioni.some(o=>!o.length)) return null
+  let best=null
+  const cur=[]
+  const rec=i=>{
+    if(i===stakes.length){
+      const B=new Map(); const Q=new Map()
+      cur.forEach(([e,q],k)=>{B.set(e,(B.get(e)||0)+Number(stakes[k]||0)); Q.set(e,q)})
+      let R=0; B.forEach((b,e)=>{R=Math.max(R,b*Q.get(e))})
+      if(!best || R<best.R-1e-9) best={R,scelte:cur.slice()}
+      return
+    }
+    opzioni[i].forEach(sc=>{cur.push(sc);rec(i+1);cur.pop()})
+  }
+  rec(0)
+  return best?best.scelte:null
+}
+
 // Divide il totale in poche puntate intere tra 5 e 30 €: 83 -> 28+28+27, 23 -> 23, 31 -> 16+15.
 function pianoStakeMantenimentoLucy(totale) {
   const tot=Math.round(Number(totale)||0)
-  if(tot<LUCY_MANT_MIN) return []
+  if((Number(totale)||0)<2) return []            // sotto 2€ non vale la pena
+  if(tot<LUCY_MANT_MIN) return [LUCY_MANT_MIN]   // tra 2 e 5€: una puntata minima da 5€, meglio di un esito scoperto
   const n=Math.max(1,Math.ceil(tot/LUCY_MANT_MAX))
   const base=Math.floor(tot/n)
   const resto=tot-base*n
@@ -2104,6 +2128,17 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
         if (idx >= 0) slot.splice(idx,1)
       })
 
+      // V30: senza segnale PronoX, esiti assegnati a costo minimo invece che a rotazione.
+      let scelteOttime = null
+      if(!c.pronox?.preferito) {
+        const opzioniGruppo = gruppo.map(x=>{
+          const esitoGia = esitoPerBookmakerEvento.get(`${bookNomeKeyLucy(x.book)}|${eventoKey}`)
+          let comp = c.esiti.filter(([,q]) => q >= x.quotaMin)
+          if(esitoGia) comp = comp.filter(([esito])=>esito===esitoGia)
+          return comp
+        })
+        scelteOttime = assegnaEsitiCostoMinimoLucy(gruppo.map(x=>Number(x.importoIndicativo||0)), opzioniGruppo)
+      }
       const assegnazioni = gruppo.map((x,i) => {
         const eventoKey = `${c.home}|${c.away}`
         const bookmakerEventoKey = `${bookNomeKeyLucy(x.book)}|${eventoKey}`
@@ -2119,7 +2154,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
         if (c.pronox?.preferito) {
           scelta = compatibili.find(([esito]) => esito === c.pronox.preferito) || compatibili[i % compatibili.length]
         } else {
-          scelta = compatibili[i % compatibili.length]
+          scelta = (scelteOttime?.[i] && compatibili.find(([esito])=>esito===scelteOttime[i][0])) || compatibili[i % compatibili.length]
         }
         esitoPerBookmakerEvento.set(bookmakerEventoKey, scelta[0])
         if (!eventiUsatiPerBook.has(x.book.id)) eventiUsatiPerBook.set(x.book.id, new Set())
@@ -2156,7 +2191,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
         // anche l'importo neutro 100%, mostrato accanto all'importo suggerito.
         if(c.pronox?.preferito && r.esito!==c.pronox.preferito) necessario*=Number(c.pronox.protezione||1)
         const necessarioSuggerito=necessario
-        if(necessario < LUCY_MANT_MIN) return
+        if(necessario < 2) return
 
         if(necessario <= LUCY_MANT_MAX_TOT){
           // V29: puntate intere tra 5 e 30 €, il minor numero di conti possibile.
