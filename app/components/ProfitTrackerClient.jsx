@@ -1817,6 +1817,16 @@ function salvaLucyConfermate(next) {
 
 function lucyOggi() { return new Date().toLocaleDateString('sv-SE') }
 
+// V43: etichetta "sport · campionato" per la tabella (es. "🏈 Football americano · NFL")
+function sportLabelLucy(p) {
+  const raw=String(p?.lega||'').replace(/^[\u{1F300}-\u{1FAFF}\u2600-\u27BF]\uFE0F?\s*/u,'').trim()
+  const tab={ATP:'🎾 Tennis · ATP',WTA:'🎾 Tennis · WTA',MLB:'⚾ Baseball · MLB',NFL:'🏈 Football americano · NFL',NHL:'🏒 Hockey · NHL',
+    MLS:'⚽ Calcio · MLS','Liga MX':'⚽ Calcio · Liga MX','J-League':'⚽ Calcio · J-League','Europa League':'⚽ Calcio · Europa League'}
+  if(tab[raw]) return tab[raw]
+  if(p?.mercato==='Tennis Vincente') return `🎾 Tennis${raw && raw!=='Tennis'?` · ${raw}`:''}`
+  return `⚽ Calcio${raw?` · ${raw}`:''}`
+}
+
 function keyBetLucy(p,a,tipo='profilazione') {
   return `${lucyOggi()}|${p.home}|${p.away}|${p.mercato}|${a.book.id}|${a.esito}|${Number(a.stake||0).toFixed(2)}|${tipo}`
 }
@@ -1827,7 +1837,7 @@ function confermaSingolaBetLucy(p,a,tipo='profilazione') {
   const rec={
     key,data:lucyOggi(),creato:new Date().toISOString(),tipo,
     bookId:a.book.id,book:a.book.nome,intestatario:a.book.intestatario,
-    partita:`${p.home} - ${p.away}`,orario:p.orario||'—',mercato:p.mercato,esito:a.esito,
+    partita:`${p.home} - ${p.away}`,sport:sportLabelLucy(p),orario:p.orario||'—',mercato:p.mercato,esito:a.esito,
     stake:Number(a.stake||0),quota:Number(a.quota||0),
     betNumero:a.betNumero||null,betRichieste:a.betRichieste||null,
     recupero:!!a.recupero,recuperoKey:a.recuperoKey||null,dataOrigine:a.dataOrigine||null
@@ -5635,7 +5645,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
               <thead style={{position:'sticky',top:55,zIndex:1,background:'#cbd5e1'}}>
                 <tr>
-                  {['#','PARTITA','ORARIO','MERCATO','PRONOX','CONF.','COPERTURA','€ SUGG.','€ 100%','BOOK','INTESTATARIO','TIPO','ESITO','IMPORTO','QUOTA','BET','TARGET/CAP','STATO'].map(h=>
+                  {['#','PARTITA','ORARIO','SPORT','MERCATO','PRONOX','CONF.','COPERTURA','€ SUGG.','€ 100%','BOOK','INTESTATARIO','TIPO','ESITO','IMPORTO','QUOTA','BET','TARGET/CAP','STATO'].map(h=>
                     <th key={h} style={{border:'1px solid #94a3b8',padding:'7px 6px',textAlign:'left',whiteSpace:'nowrap'}}>{h}</th>
                   )}
                 </tr>
@@ -5651,7 +5661,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                   const riep=p.manuale?riepilogoManualeLucy(p,pi,rows):null
                   const noteRow=p.manuale ? (
                     <tr key={`man-${pi}`}>
-                      <td colSpan={18} style={{border:'1px solid #f59e0b',background:'#fffbeb',padding:'6px 10px',fontSize:10,color:'#92400e'}}>
+                      <td colSpan={19} style={{border:'1px solid #f59e0b',background:'#fffbeb',padding:'6px 10px',fontSize:10,color:'#92400e'}}>
                         🧮 <b>Incrocio senza quote</b> · scrivi nella colonna QUOTA la quota che vedi sul book di ogni riga: le coperture si calcolano da sole
                         (copertura = (ritorno massimo − ritorno già coperto) ÷ quota del conto). Nel campo vuoto delle bet base compare la quota minima del protocollo.
                         {riep && riep.completo ? <> · <b>Costo se piazzi tutto: {riep.costo.toFixed(2)} €</b> (peggior esito {Math.min(...riep.nets).toFixed(2)} €)</> : null}
@@ -5664,6 +5674,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                       <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:800}}>{pi+1}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:800,whiteSpace:'nowrap'}}>{p.home} – {p.away}{p.manuale && <span style={{marginLeft:6,fontSize:9,background:'#fde68a',color:'#92400e',borderRadius:4,padding:'1px 5px'}}>🧮 SENZA QUOTE</span>}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:900,textAlign:'center',whiteSpace:'nowrap'}}>{p.orario||'—'}</td>
+                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:800,whiteSpace:'nowrap',color:'#1e3a8a'}}>{sportLabelLucy(p)}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,whiteSpace:'nowrap'}}>{p.mercato||p.market||''}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:900,color:(p.pronox||p.pronoxManuale)?'#0f766e':'#64748b',whiteSpace:'nowrap'}}>{p.pronox?.preferito||p.pronoxManuale||'—'}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,textAlign:'right',fontWeight:800}}><span title={p.pronox?`modello ${(p.pronox.probModello*100).toFixed(1)}% · mercato ${(p.pronox.probMercato*100).toFixed(1)}%`:''}>{p.pronox?`${(p.pronox.prob*100).toFixed(1)}%`:'—'}</span></td>
