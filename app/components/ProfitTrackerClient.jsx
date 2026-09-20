@@ -159,6 +159,8 @@ const [lucyForzaQuote, setLucyForzaQuote] = useState(false)
 const [lucySync, setLucySync] = useState({ stato: 'init', msg: '' })
 const [lucyRecuperi, setLucyRecuperi] = useState([])
 const [lucyQuoteManuali, setLucyQuoteManuali] = useState({})
+const [lucyTabFiltro, setLucyTabFiltro] = useState('tutte')
+const [lucyTabSport, setLucyTabSport] = useState('tutti')
 const [lucyConfermate, setLucyConfermate] = useState(() => {
   try { return JSON.parse(localStorage.getItem('profittracker_lucy_confermate') || '[]') } catch { return [] }
 })
@@ -247,8 +249,39 @@ function getClasseBook(nomeBook) {
   return 'C'
 }
 function isSoloCasino(nomeBook) {
-  const nome = (nomeBook || '').toLowerCase().replace(/\.it$/, '').trim()
-  return (CLASSI_BOOK['B_CASINO'] || []).some(k => nome.includes(k))
+  // V45: confronto senza spazi né segni ("GiocoDigitale" = "gioco digitale", "Star Casino" = "starcasino")
+  const nome = String(nomeBook || '').toLowerCase().replace(/\.it$/, '').replace(/[^a-z0-9]/g, '')
+  return (CLASSI_BOOK['B_CASINO'] || []).some(k => nome.includes(String(k).replace(/[^a-z0-9]/g, '')))
+}
+
+// ══ LUCY SPORT — BOOK CHE NON DEVONO MAI GIOCARE SPORT ═══════════════════════════════
+// Vale per le bet base, per le coperture di mantenimento, per gli extra e per i recuperi.
+// Sono i SOLO-CASINÒ della classe B_CASINO qui sopra (gioco digitale, starcasino, betflag,
+// tombola, zonagioco) più gli eventuali altri elencati in LUCY_BOOK_MAI_SPORT_EXTRA.
+// Se un book di B_CASINO invece può fare sport, scrivilo in LUCY_BOOK_SPORT_CONSENTITI
+// (nome senza spazi, minuscolo, es. 'betflag').
+// ══ LUCY — REGOLE PER LA PROFILAZIONE (V49) ══════════════════════════════════════════════
+//  · NetBet non va mai in profilazione (per ora): Lucy non lo usa né per lo sport né per il Live.
+//  · Betsson in profilazione fa SOLO casinò: niente bet sportive di profilazione; in mantenimento
+//    invece può fare bet sportive (protocollo e coperture).
+const LUCY_BOOK_MAI_PROFILAZIONE = ['netbet']
+const LUCY_BOOK_PROFILAZIONE_SOLO_CASINO = ['betsson']
+const LUCY_BOOK_MAI_SPORT_EXTRA = []
+const LUCY_BOOK_SPORT_CONSENTITI = []
+const normBookMaiSportLucy = s => String(s || '').toLowerCase().replace(/\.it$/, '').replace(/[^a-z0-9]/g, '')
+function lucyMaiProfilazione(book) {
+  const n = normBookMaiSportLucy(book?.nome)
+  return !!n && LUCY_BOOK_MAI_PROFILAZIONE.some(k => n.includes(normBookMaiSportLucy(k)))
+}
+function lucyNoSportInProfilazione(book) {
+  const n = normBookMaiSportLucy(book?.nome)
+  return lucyMaiProfilazione(book) || (!!n && LUCY_BOOK_PROFILAZIONE_SOLO_CASINO.some(k => n.includes(normBookMaiSportLucy(k))))
+}
+function lucyMaiSport(book) {
+  const n = normBookMaiSportLucy(book?.nome)
+  if (!n) return false
+  if (LUCY_BOOK_SPORT_CONSENTITI.some(k => n.includes(normBookMaiSportLucy(k)))) return false
+  return [...(CLASSI_BOOK.B_CASINO || []), ...LUCY_BOOK_MAI_SPORT_EXTRA].some(k => n.includes(normBookMaiSportLucy(k)))
 }
 const AZIONI_ATTIVO = {
   'snai': {
@@ -387,9 +420,9 @@ const BOOK_STANDARD = [
 const PROTOCOLLO_GRUPPO_LOTTOMATICA = {
   ricarica: '100€', live: '100€', slot: '100€', sport: '100€', settimane: 4,
   azioni: [
-    'Ricarica almeno 100€ a inizio settimana',
-    'Un giorno gioca 100€ Casinò Live con almeno 3 amici; chi vince raddoppia + 100€ slot spin basso',
-    'Un altro giorno gioca 100€ Sport su 3/4 bet',
+    'Ricarica almeno 100€ a inizio settimana (lun/mar/mer a rotazione casuale, non tutti lo stesso giorno) e muovi il conto lo stesso giorno: 2 bet sport',
+    'A metà settimana (mer/gio) Casinò Live con almeno 3 amici: 10€ a numero, 60€ a sestina, ripeti almeno 3 volte; chi vince raddoppia + 100€ slot spin basso',
+    'Verso il weekend (ven/sab/dom) gioca 1-2 bet sport: in tutto 3/4 bet sport a settimana su 100€',
     'Usa tutte le valide per tutti',
     'Ripeti per 4 settimane',
     'Dopo il ciclo controlla le riservate ogni 7 giorni',
@@ -459,7 +492,7 @@ const AZIONI_VIP_LOTTO = {
 
 const PROTOCOLLO_STARCASINO = {
   ricarica: 500, live: 1000, slot: '200-300',
-  fase1: ['Deposita almeno 500', 'Gioca 1000 totale (due colpi da 500) al Casinò Live', 'Fai volume di 200-300 slot scelte consigliate', 'Lascia conto fermo 14gg', "Consigliato iniziare Lunedì/Martedì", 'SE VINCI: dopo aver terminato il volume preleva e lascia meno di 50 — lascia conto fermo', 'SE PERDI: lascia conto fermo', 'Nei 14gg di fermo: se il conto risponde subito con promo Free Spin/Ricarica procedi a portarlo a casa; se il conto non risponde subito procedi col passaggio successivo', 'Una volta terminato: se il conto risponde, procedi a ripetere SOLO quando non arrivano promozioni in generale per almeno 1 mese; se il conto NON risponde, dai priorità ad altri conti e più avanti riprova'],
+  fase1: ['Deposita almeno 500', 'Casinò Live: numeri/sestine — 10€ a numero, 60€ a sestina, ripeti almeno 3 volte', 'Fai volume di 200-300 slot scelte consigliate', 'Lascia conto fermo 14gg', "Consigliato iniziare Lunedì/Martedì", 'SE VINCI: dopo aver terminato il volume preleva e lascia meno di 50 — lascia conto fermo', 'SE PERDI: lascia conto fermo', 'Nei 14gg di fermo: se il conto risponde subito con promo Free Spin/Ricarica procedi a portarlo a casa; se il conto non risponde subito procedi col passaggio successivo', 'Una volta terminato: se il conto risponde, procedi a ripetere SOLO quando non arrivano promozioni in generale per almeno 1 mese; se il conto NON risponde, dai priorità ad altri conti e più avanti riprova'],
   gestioneConto: ['Se il conto dà parecchie promozioni settimanali (2 ricarica e free spin), salta qualche promozione ad esempio quella della domenica', 'Prima di prelevare fai un volume offline piccolo', "Quando è terminata la profilazione, evita di prelevare subito dopo il live", 'Prelievi consigliati quando ti servono i fondi, in quanto il prelievo è veloce'],
   recuperoContiLimitati: ['Limita solo la parte bonus', 'Puoi provare il recupero stile Lottomatica facendo un volume blando e richiedendo valutazione', 'Chiudere e riaprire al momento NON è consigliato', 'Quando parli con gli operatori fai lo gnorri', 'Cerca di far capire che vuoi giocare al loro sito su slot e giochi NON copribili', 'Accetta le promozioni anche se NON ti arriveranno i bonus']
 }
@@ -494,8 +527,9 @@ const PROTOCOLLO_BET365 = {
 
 const PROTOCOLLI_EXPERT = {
   'betsson': {
+    // V54: in profilazione Betsson fa SOLO casinò (niente bet sportive: quelle stanno nel mantenimento)
     label: 'Betsson Expert',
-    azioni: ['3/4 sessioni/promozioni Casinò a settimana mixando Blackjack e numeri Roulette', 'Cashback 100%', 'Almeno 2 ricariche a settimana da 50€ in su', '2-3 bet Sport da 15-25€ — quota minima 2.50', 'Appena ricevi le riservate, continua a fare le VXT + ricariche']
+    azioni: ['3/4 sessioni/promozioni Casinò a settimana mixando Blackjack e numeri Roulette (Casinò Live: 10€ a numero, 60€ a sestina, ripeti almeno 3 volte)', 'Cashback 100%', 'Almeno 2 ricariche a settimana da 50€ in su', 'Appena ricevi le riservate, continua a fare le VXT + ricariche']
   },
   'william hill': {
     label: 'William Hill Expert',
@@ -536,10 +570,29 @@ function getTipoProtocolloAttivo(nomeBook) {
   return null
 }
 
+// V48 — GIORNATA DI RICARICA: se oggi un conto ricarica e l'agenda non elenca altre azioni sport, la ricarica serve per
+// giocare, quindi il conto entra nella tabella con il protocollo sport del suo bookmaker. Vale per Bwin, Stanleybet e
+// Betfair Exchange. Il gruppo Lottomatica (Lottomatica/Goldbet/Planetwin365) non serve qui: la sua azione di ricarica
+// contiene già lo sport del giorno stesso ("... + muovi il conto lo stesso giorno: Sport 50€ su 2 bet").
+const SPORT_DOPO_RICARICA_LUCY = {
+  bwin: 'Gioca 3/4 bet da 15 a 50€ max su incontri che giochi entro sera/gg dopo',
+  stanleybet: 'Gioca 3/4 bet da 10 a 30€ max — quota minima 1.35',
+  betfair_exchange: '2-3 scommesse Exchange da 5-20€ (sport)'
+}
+function azioneSportDopoRicaricaLucy(book, agenda) {
+  const azioni = agenda?.azioni || []
+  if (!azioni.some(a => /ricaric/i.test(a))) return null
+  if (azioni.some(a => /(slot|casin[oò]|blackjack|roulette|numeri)/i.test(a))) return null   // ricarica per il casinò
+  return SPORT_DOPO_RICARICA_LUCY[getTipoProtocolloAttivo(book?.nome)] || null
+}
+
 function getAgendaAttivoV2(book, giorno, settimana) {
   const nome = getNomeNormalizzato(book.nome)
   const tipo = getTipoProtocolloAttivo(book.nome)
   if (!tipo) return null
+  // V52: giorno di ricarica casuale (lun/mar/mer) per conto e per settimana, in TUTTI i protocolli con ricarica:
+  // non ricaricano tutti lo stesso giorno (se capita a più conti insieme non è un problema).
+  const hsTipo = k => hashStrLucy(`${book.id}|${book.nome}|${book.intestatario}|sett${settimana}|${tipo}|${k}`)
 
   if (tipo === 'standard') {
     const giornoRicarica = [1, 2, 3][hashBook(book.id, settimana * 10 + 50) % 3]
@@ -558,15 +611,17 @@ function getAgendaAttivoV2(book, giorno, settimana) {
     const chiave = Object.keys(PROTOCOLLI_VIP_FASE12).find(k => nome.includes(k))
     const p = PROTOCOLLI_VIP_FASE12[chiave]
     if (!p) return null
-    const giornoRicarica = 1
-    const startVolume = [2, 3, 4][hashBook(book.id, settimana * 10 + 53) % 3]
+    const giornoRicarica = [1, 2, 3][hsTipo('ric') % 3]
+    const startVolume = [giornoRicarica + 1, giornoRicarica + 2, giornoRicarica + 3][hashBook(book.id, settimana * 10 + 53) % 3]   // i giorni di volume seguono la ricarica
     const giorniVolume = [startVolume, startVolume + 1 > 6 ? 0 : startVolume + 1]
     const giorniRimanenti = [0, 1, 2, 3, 4, 5, 6].filter(g => g !== giornoRicarica && !giorniVolume.includes(g))
     const giornoSport = giorniRimanenti[hashBook(book.id, settimana * 10 + 54) % giorniRimanenti.length]
     const mostraSportOggi = giorno === giornoSport && (hashBook(book.id, settimana + 700) % 2 === 0)
 
     if (giorno === giornoRicarica) return [`Ricarica ${p.ricaricaSett} (movimenta, compresa la ricarica)`]
-    if (giorniVolume.includes(giorno)) return [`Gioca ${p.giocatoSett} offline e Cas. Live (2/3gg consecutivi)`]
+    // V54: il gruppo Sisal entra nel Casinò Live (numeri/sestine): primo giorno volume offline, secondo giorno Live
+    if (giorno === giorniVolume[0]) return [`Gioca ${p.giocatoSett} offline (slot spin bassi, valide per tutti)`]
+    if (giorno === giorniVolume[1]) return ['Casinò Live: numeri/sestine — 10€ a numero, 60€ a sestina, ripeti almeno 3 volte']
     if (mostraSportOggi) return [`Copri Sport da ${p.sportMese}`]
     return null
   }
@@ -575,9 +630,10 @@ function getAgendaAttivoV2(book, giorno, settimana) {
     const chiave = Object.keys(PROTOCOLLI_VIP_LOTTO).find(k => nome.includes(k))
     const p = PROTOCOLLI_VIP_LOTTO[chiave]
     if (!p) return null
-    const giornoRicarica = 1
-    const gg1 = 2, gg2 = 3, gg3 = 4
-    const giornoSport = [5, 6, 0][hashBook(book.id, settimana * 10 + 55) % 3]
+    const giornoRicarica = [1, 2, 3][hsTipo('ric') % 3]
+    const gg1 = giornoRicarica + 1, gg2 = giornoRicarica + 2, gg3 = giornoRicarica + 3   // GG1-GG3 = i tre giorni dopo la ricarica
+    const giorniSportPossibili = [5, 6, 0].filter(g => g !== gg1 && g !== gg2 && g !== gg3)
+    const giornoSport = giorniSportPossibili[hashBook(book.id, settimana * 10 + 55) % giorniSportPossibili.length]
 
     if (giorno === giornoRicarica) return [`Ricarica ${p.ricarica} (anche su diverse ricariche)`]
     if (giorno === gg1) return ['GG1: 300€ casinò live + 200€ giochi offline (slot, bj, spin basso)']
@@ -594,7 +650,7 @@ function getAgendaAttivoV2(book, giorno, settimana) {
     const giornoSlot = giorniSlot[hashBook(book.id, settimana * 10 + 57) % giorniSlot.length]
 
     if (giorno === giornoRicarica) return [`Deposita almeno ${PROTOCOLLO_STARCASINO.ricarica}€ (Lun/Mar consigliato)`]
-    if (giorno === giornoLive) return [`Gioca ${PROTOCOLLO_STARCASINO.live}€ totale (due colpi da 500) al Casinò Live`]
+    if (giorno === giornoLive) return ['Casinò Live: numeri/sestine — 10€ a numero, 60€ a sestina, ripeti almeno 3 volte']
     if (giorno === giornoSlot) return [`Volume ${PROTOCOLLO_STARCASINO.slot}€ slot scelte consigliate`]
     return null
   }
@@ -637,16 +693,25 @@ function getAgendaAttivoV2(book, giorno, settimana) {
     const oggi = new Date()
     const giorniCiclo = Math.max(0, Math.floor((oggi - inizio) / 86400000))
 
-    // Prime 4 settimane: protocollo operativo.
+    // Prime 4 settimane: protocollo operativo (V51: giorni casuali per conto e per settimana).
+    //  · ricarica a inizio settimana ma NON sempre lunedì: lun/mar/mer a rotazione, diversa per ogni conto
+    //    e ogni settimana, così i conti non ricaricano tutti lo stesso giorno (se coincidono va bene);
+    //  · sport 3 o 4 bet a settimana: 2 nel giorno di ricarica (chi versa muove il conto) e 1-2 nel weekend
+    //    (ven/sab/dom); il budget sport di 100€/sett si divide in proporzione alle bet;
+    //  · Casinò Live a metà settimana (mer/gio), mai nel giorno di ricarica.
     if (giorniCiclo < 28) {
-      const giornoRicarica = 1
-      const giorniRestanti = [0, 2, 3, 4, 5, 6]
-      const giornoLive = giorniRestanti[hashBook(book.id, settimana * 10 + 80) % giorniRestanti.length]
-      const giorniSportPossibili = giorniRestanti.filter(g => g !== giornoLive)
-      const giornoSport = giorniSportPossibili[hashBook(book.id, settimana * 10 + 81) % giorniSportPossibili.length]
-      if (giorno === giornoRicarica) return ['Ricarica almeno 100€ a inizio settimana']
-      if (giorno === giornoLive) return ['Casinò Live 100€ con almeno 3 amici; chi vince raddoppia + 100€ slot spin basso']
-      if (giorno === giornoSport) return ['Sport 100€ suddivisi su 3/4 bet']
+      const hs = k => hashStrLucy(`${book.id}|${book.nome}|${book.intestatario}|sett${settimana}|lotto|${k}`)
+      const giornoRicarica = [1, 2, 3][hs('ric') % 3]
+      const candLive = [3, 4].filter(g => g !== giornoRicarica)
+      const giornoLive = candLive[hs('live') % candLive.length]
+      const giornoSportWE = [5, 6, 0][hs('we') % 3]
+      const betSett = 3 + (hs('nbet') % 2)            // 3 o 4 bet a settimana
+      const betWE = betSett - 2
+      const budgetRic = Math.round((100 * 2 / betSett) / 5) * 5
+      const budgetWE = 100 - budgetRic
+      if (giorno === giornoRicarica) return [`Ricarica almeno 100€ (giorno variabile lun-mer) + muovi il conto lo stesso giorno: Sport ${budgetRic}€ su 2 bet`]
+      if (giorno === giornoLive) return ['Casinò Live con almeno 3 amici: 10€ a numero, 60€ a sestina, ripeti almeno 3 volte; chi vince raddoppia + 100€ slot spin basso']
+      if (giorno === giornoSportWE) return [`Sport ${budgetWE}€ su ${betWE} bet (weekend)`]
       return null
     }
 
@@ -667,9 +732,9 @@ function getAgendaAttivoV2(book, giorno, settimana) {
   }
 
   if (tipo === 'stanleybet') {
-    const giornoRicarica = 1 // "a inizio settimana"
-    const giorniRestanti = [0, 2, 3, 4, 5, 6]
-    const giornoAzione = giorniRestanti[hashBook(book.id, settimana * 10 + 83) % giorniRestanti.length] // giorno dopo ricarica, bet o slot
+    const giornoRicarica = [1, 2, 3][hsTipo('ric') % 3] // a inizio settimana, ma non sempre lunedì
+    const giorniRestanti = [0, 1, 2, 3, 4, 5, 6].filter(g => g !== giornoRicarica)
+    const giornoAzione = giorniRestanti[hashBook(book.id, settimana * 10 + 83) % giorniRestanti.length] // altro giorno: bet o slot
     const usaSlot = hashBook(book.id, settimana + 900) % 2 === 0 // alterna bet sportiva / slot tra le settimane
 
     if (giorno === giornoRicarica) return ['Ricarica almeno 50€ a inizio settimana']
@@ -680,8 +745,8 @@ function getAgendaAttivoV2(book, giorno, settimana) {
   }
 
   if (tipo === 'bwin') {
-    const giornoRicarica = 1
-    const giorniRestanti = [0, 2, 3, 4, 5, 6]
+    const giornoRicarica = [1, 2, 3][hsTipo('ric') % 3]
+    const giorniRestanti = [0, 1, 2, 3, 4, 5, 6].filter(g => g !== giornoRicarica)
     const giornoBet = giorniRestanti[hashBook(book.id, settimana * 10 + 84) % giorniRestanti.length]
     if (giorno === giornoRicarica) return ['Ricarica almeno 30€ a inizio settimana']
     if (giorno === giornoBet) return ['Gioca 3/4 bet da 15 a 50€ max su incontri che giochi entro sera/gg dopo']
@@ -689,8 +754,8 @@ function getAgendaAttivoV2(book, giorno, settimana) {
   }
 
   if (tipo === 'betfair_exchange') {
-    const giornoRicarica = 1
-    const giorniRestanti = [0, 2, 3, 4, 5, 6]
+    const giornoRicarica = [1, 2, 3][hsTipo('ric') % 3]
+    const giorniRestanti = [0, 1, 2, 3, 4, 5, 6].filter(g => g !== giornoRicarica)
     const giornoAzione = giorniRestanti[hashBook(book.id, settimana * 10 + 85) % giorniRestanti.length]
     if (giorno === giornoRicarica) return ['Ricarica almeno 20€ (usa solo Exchange)']
     if (giorno === giornoAzione) return ['2-3 scommesse Exchange da 5-20€ (sport) o 10-20€ slot 3gg consecutivi (casinò) — verifica promo, non manda mail']
@@ -835,6 +900,55 @@ function getSettimanaAnno() {
   return Math.ceil(((now - start) / 86400000 + start.getDay() + 1) / 7)
 }
 
+// V53 — FINE CICLO DI PROFILAZIONE: durata di ogni protocollo (giorni). I protocolli "continuativi" (Bet365, Eurobet,
+// Betsson, William Hill, Admiral, NetBet, VIP...) non hanno una fine e non compaiono qui. Per aggiungere o cambiare
+// una durata basta modificare questa tabella.
+// V54 — CASINÒ LIVE (roulette): puntata fissa 10€ a numero, 60€ a sestina, da ripetere almeno 3 volte nel giorno del live.
+const LUCY_LIVE_EURO_NUMERO = 10
+const LUCY_LIVE_EURO_SESTINA = 60
+const LUCY_LIVE_RIPETIZIONI = 3
+const DURATA_CICLO_PROFILAZIONE_GG = { gruppo_lottomatica: 28, stanleybet: 30, bwin: 21, betfair_exchange: 21, quigioco: 14 }
+const RISERVATE_CONTROLLO_GG = 7        // dopo la fine del ciclo: controllo riservate ogni 7 giorni
+const RISERVATE_ATTESA_GG = 30          // se per 30 giorni non arrivano riservate: riprendi il ciclo
+const RICHIAMO_NUOVO_CICLO_GG = 60      // in ogni caso: nuovo ciclo ogni 60 giorni dalla fine del ciclo
+
+// Promemoria dopo la fine del ciclo. `oggiStr` = 'AAAA-MM-GG'. Restituisce null se il ciclo è ancora in corso
+// (o il protocollo non ha una fine); altrimenti { azioni, badge, riprendi, giorniDalFine, giorniSenzaRiservata }
+// (azioni vuote = oggi nessun promemoria).
+function getPromemoriaPostCiclo(book, oggiStr, tipo) {
+  const durata = DURATA_CICLO_PROFILAZIONE_GG[tipo]
+  if (!durata || !book?.profilo_ciclo_inizio) return null
+  const fine = aggiungiGiorniLucy(String(book.profilo_ciclo_inizio).slice(0, 10), durata)
+  const giorniDalFine = giorniTraLucy(fine, oggiStr)
+  if (giorniDalFine < 0) return null                                   // ciclo ancora in corso
+  const ultima = book.profilo_ultima_riservata ? String(book.profilo_ultima_riservata).slice(0, 10) : null
+  const base = ultima && ultima > fine ? ultima : fine                 // conteggio dei 30 giorni dall'ultima riservata (o dalla fine del ciclo)
+  const giorniSenzaRiservata = giorniTraLucy(base, oggiStr)
+  const azioni = []
+  let riprendi = false
+  if (giorniDalFine >= RICHIAMO_NUOVO_CICLO_GG) {
+    azioni.push(`🔴 Richiamo: sono passati ${giorniDalFine} giorni dalla fine del ciclo — riprendi il ciclo di profilazione`)
+    riprendi = true
+  } else if (giorniSenzaRiservata >= RISERVATE_ATTESA_GG) {
+    azioni.push(`🟠 Nessuna riservata da ${giorniSenzaRiservata} giorni — riprendi il ciclo di profilazione`)
+    riprendi = true
+  } else if (giorniDalFine === 0) {
+    azioni.push('✅ Ciclo di profilazione finito: verifica se arrivano riservate (mail, inbox del conto)')
+  } else if (giorniDalFine % RISERVATE_CONTROLLO_GG === 0) {
+    azioni.push(`👁️ Controlla riservate / inbox del conto${ultima ? ` (ultima riservata: ${ultima})` : ''}`)
+  }
+  return { azioni, badge: riprendi ? '🟠 Riprendi ciclo' : '🟣 Fine ciclo', riprendi, giorniDalFine, giorniSenzaRiservata }
+}
+
+// V51: hash su testo (FNV-1a, sempre positivo): serve per scegliere giorni casuali ma stabili per conto e per settimana
+function hashStrLucy(testo) {
+  let h = 2166136261
+  const t = String(testo)
+  for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619) }
+  h ^= h >>> 15; h = Math.imul(h, 2246822507); h ^= h >>> 13
+  return h >>> 0
+}
+
 function hashBook(bookId, settimana) {
   let h = (bookId * 2654435761 + settimana * 40503) >>> 0
   h = ((h ^ (h >> 16)) * 0x45d9f3b) >>> 0
@@ -861,6 +975,12 @@ function getAzioniOggi(book) {
     // Nuovo sistema (Profiliamo, luglio 2026): prova prima i protocolli ri-profilati
     const tipoNuovo = getTipoProtocolloAttivo(book.nome)
     if (tipoNuovo) {
+      // V53: ciclo finito -> promemoria riservate / ripresa del ciclo al posto del protocollo operativo
+      const post = getPromemoriaPostCiclo(book, lucyOggi(), tipoNuovo)
+      if (post) {
+        if (!post.azioni.length) return null
+        return { tipo: 'attivo', label: ['Dom','Lun','Mar','Mer','Gio','Ven','Sab'][giorno], azioni: post.azioni, badge: post.badge, postCiclo: true, riprendi: post.riprendi }
+      }
       const azioniV2 = getAgendaAttivoV2(book, giorno, settimana)
       if (!azioniV2 || azioniV2.length === 0) return null
       return {
@@ -899,8 +1019,8 @@ function getAzioniOggi(book) {
     const scaduto = ultimo ? giorniTraLucy(ultimo, oggiStr) >= MANT_LIMITE_GG : false
     const ritardo = !ultimo && oggiStr > dovutoIniziale
     const badge = scaduto ? '🔴 Mantenimento SCADUTO' : ritardo ? '🟠 Mantenimento in ritardo' : '🟡 Mantenimento'
-    if (isSoloCasino(book.nome)) return { tipo: 'mantenimento', scaduto, ritardo, azioni: ['Sessione Casinò/slot da 10€'], badge }
-    return { tipo: 'mantenimento', scaduto, ritardo, azioni: ['1 bet sportiva da 10€'], badge }
+    if (isSoloCasino(book.nome)) return { tipo: 'mantenimento', scaduto, ritardo, azioni: ['Sessione Casinò/slot da 5-30€'], badge }
+    return { tipo: 'mantenimento', scaduto, ritardo, azioni: ['1 bet sportiva da 5-30€'], badge }
   }
   return null
 }
@@ -1448,12 +1568,16 @@ function getNumeroBetRichieste(azione = '') {
   if (/3\s*\/\s*4\s*bet/.test(a) || /3-4\s*bet/.test(a)) return 4
   if (/2\s*\/\s*3\s*bet/.test(a) || /2-3\s*bet/.test(a)) return 3
   if (/10-15\s*bet/.test(a)) return 10
+  if (/\b2\s*bet\b/.test(a)) return 2      // V51: "Sport 50€ su 2 bet"
   return 1
 }
 
 function getBudgetSportTotale(book, azione = '') {
   const nome = getNomeNormalizzato(book?.nome)
-  if (BOOK_GRUPPO_LOTTOMATICA.some(k => nome.includes(k))) return 100
+  if (BOOK_GRUPPO_LOTTOMATICA.some(k => nome.includes(k))) {
+    const mSport = String(azione).match(/Sport\s*(\d+)\s*€/i)   // V51: "Sport 50€ su 2 bet" = 50€ per quella giornata
+    return mSport ? Number(mSport[1]) : 100
+  }
   if (nome.includes('betsson')) return 80
   if (nome.includes('bwin')) return 75
   if (nome.includes('stanleybet')) return 60
@@ -1541,7 +1665,7 @@ function generaLucyLive(agendaItems = []) {
     return
   }
 
-  const attivi = books.filter(b => b.profilo_livello === 'attivo')
+  const attivi = books.filter(b => b.profilo_livello === 'attivo' && !lucyMaiProfilazione(b))
   const usati = new Set()
   const proposte = []
 
@@ -1614,14 +1738,20 @@ function generaLucyLive(agendaItems = []) {
     proposte.push({
       target: book,
       azione: agenda.azioni.find(a => liveRegex.test(a)),
-      gruppo: assegnazioniLive.map((g,i) => ({
-        book:g.book,
-        ruolo:g.book.id===book.id ? 'Conto da lavorare' : 'Amico',
-        tipo:g.tipo,
-        numeri:g.numeri,
-        budget:100,
-        stakeNumeroIndicativo:100/Math.max(1,g.numeri.length)
-      }))
+      // V54: 10€ a numero, 60€ a sestina, da ripetere almeno 3 volte nel giorno del live
+      gruppo: assegnazioniLive.map((g,i) => {
+        const perGiro = g.tipo==='Sestina' ? LUCY_LIVE_EURO_SESTINA : LUCY_LIVE_EURO_NUMERO*g.numeri.length
+        return {
+          book:g.book,
+          ruolo:g.book.id===book.id ? 'Conto da lavorare' : 'Amico',
+          tipo:g.tipo,
+          numeri:g.numeri,
+          budget:perGiro,
+          stakeNumeroIndicativo:LUCY_LIVE_EURO_NUMERO,
+          ripetizioni:LUCY_LIVE_RIPETIZIONI,
+          budgetTotale:perGiro*LUCY_LIVE_RIPETIZIONI
+        }
+      })
     })
   })
 
@@ -1768,7 +1898,7 @@ function calcolaRecuperiLucy(righe, dataOggi) {
     if(!r || r.data>=dataOggi) return
     if(giorniTraLucy(r.data,dataOggi)>LUCY_RECUPERO_MAX_GG) return
     const book=books.find(b=>String(b.id)===String(r.book_id))
-    if(!book || book.profilo_livello!=='attivo') return          // ciclo finito o conto cambiato di stato
+    if(!book || book.profilo_livello!=='attivo' || lucyMaiSport(book) || lucyNoSportInProfilazione(book)) return          // ciclo finito, conto cambiato di stato o solo-casinò
     const fatte=lucyConfermate.filter(x=>String(x?.bookId)===String(r.book_id) && x.data===r.data && x.tipo==='profilazione' && !x.recupero).length
     if(fatte>=Number(r.bet_numero)) return                        // già coperta dalle bet confermate quel giorno
     if(lucyConfermate.some(x=>x?.recuperoKey===r.key)) return     // già recuperata
@@ -1793,6 +1923,44 @@ async function salvaAtteseOggiLucy() {
   } catch(e) {
     console.warn('[Lucy V34] salvataggio bet attese fallito:',e?.message||e)
   }
+}
+
+// V53: registra che è arrivata una riservata (riparte il conteggio dei 30 giorni)
+async function segnaRiservataRicevuta(book) {
+  const oggi = lucyOggi()
+  const { error } = await supabase.from('books').update({ profilo_ultima_riservata: oggi }).eq('id', book.id)
+  if (error) {
+    setErrorMessage(`Non riesco a salvare la riservata (${error.message}). Su Supabase esegui: alter table books add column if not exists profilo_ultima_riservata date;`)
+    return
+  }
+  setBooks(prev => prev.map(b => b.id === book.id ? { ...b, profilo_ultima_riservata: oggi } : b))
+  setMessage(`📩 Riservata registrata per ${book.nome} · ${book.intestatario}: i 30 giorni ripartono da oggi.`)
+}
+
+// V53: riparte il ciclo di profilazione da oggi
+async function riavviaCicloProfilo(book) {
+  if (!window.confirm(`Riavviare da oggi il ciclo di profilazione di ${book.nome} · ${book.intestatario}?`)) return
+  const oggi = lucyOggi()
+  const { error } = await supabase.from('books').update({ profilo_ciclo_inizio: oggi }).eq('id', book.id)
+  if (error) { setErrorMessage(`Non riesco a riavviare il ciclo: ${error.message}`); return }
+  await supabase.from('books').update({ profilo_ultima_riservata: null }).eq('id', book.id)   // se la colonna non c'è, non importa
+  setBooks(prev => prev.map(b => b.id === book.id ? { ...b, profilo_ciclo_inizio: oggi, profilo_ultima_riservata: null } : b))
+  setMessage(`↻ Ciclo di profilazione riavviato da oggi per ${book.nome} · ${book.intestatario}.`)
+}
+
+// V53: quanti conti in profilazione sono in ciclo, a fine ciclo o da riavviare
+function riepilogoPostCicloLucy() {
+  const oggiStr = lucyOggi()
+  let inCiclo = 0, fineCiclo = 0, daRiavviare = 0
+  books.filter(b => b.profilo_livello === 'attivo').forEach(b => {
+    const tipo = getTipoProtocolloAttivo(b.nome)
+    if (!DURATA_CICLO_PROFILAZIONE_GG[tipo] || !b.profilo_ciclo_inizio) return
+    const p = getPromemoriaPostCiclo(b, oggiStr, tipo)
+    if (!p) inCiclo++
+    else if (p.riprendi) daRiavviare++
+    else fineCiclo++
+  })
+  return { inCiclo, fineCiclo, daRiavviare }
 }
 
 // Riepilogo della "rete 60 giorni" sui conti in mantenimento
@@ -1825,6 +1993,119 @@ function sportLabelLucy(p) {
   if(tab[raw]) return tab[raw]
   if(p?.mercato==='Tennis Vincente') return `🎾 Tennis${raw && raw!=='Tennis'?` · ${raw}`:''}`
   return `⚽ Calcio${raw?` · ${raw}`:''}`
+}
+
+// ── V47: tabella bet a BLOCCHI — un riquadro per incrocio, colori per esito, filtri ───────────────
+function righeIncrocioLucy(p, pi) {
+  const rows0=[
+    ...(p.assegnazioni||[]).map(a=>({...a,tipoRiga:a.recupero?'RECUPERO PROF.':a.tipoConto==='mantenimento'?'MANT. PROTOCOLLO':'PROFILAZIONE'})),
+    ...(p.extraProfilazione||[]).map(a=>({...a,tipoRiga:'EXTRA PROF.'})),
+    ...(p.integrazioni||[]).map(a=>({...a,tipoRiga:'MANTENIMENTO'}))
+  ]
+  const rows=p.manuale?righeManualiLucy(p,pi,rows0):rows0
+  const riep=p.manuale?riepilogoManualeLucy(p,pi,rows):null
+  const dettagli=rows.map(a=>{
+    const tipo=(a.tipoRiga==='PROFILAZIONE'||a.tipoRiga==='RECUPERO PROF.')?'profilazione':a.tipoRiga==='EXTRA PROF.'?'extra':'mantenimento'
+    const key=keyBetLucy(p,a,tipo)
+    return {a,tipo,key,ok:lucyConfermate.some(x=>x.key===key),pronta:!p.manuale||(Number(a.stake)>0&&Number(a.quota)>0)}
+  })
+  return {dettagli,riep}
+}
+
+function bloccoIncrocioLucy(p, pi, numero) {
+  const {dettagli,riep}=righeIncrocioLucy(p,pi)
+  const palette=[{bg:'#dbeafe',bd:'#60a5fa',tx:'#1e3a8a'},{bg:'#fce7f3',bd:'#f472b6',tx:'#831843'},{bg:'#dcfce7',bd:'#4ade80',tx:'#14532d'}]
+  const col=e=>palette[Math.max(0,(p.esiti||[]).findIndex(([n])=>n===e))%palette.length]
+  const ruoli={
+    'PROFILAZIONE':{t:'Profilazione',bg:'#dcfce7',tx:'#166534'},
+    'RECUPERO PROF.':{t:'Recupero',bg:'#ffedd5',tx:'#9a3412'},
+    'MANT. PROTOCOLLO':{t:'Mant. protocollo',bg:'#fef3c7',tx:'#92400e'},
+    'MANTENIMENTO':{t:'Copertura',bg:'#e0e7ff',tx:'#3730a3'},
+    'EXTRA PROF.':{t:'Extra',bg:'#f3e8ff',tx:'#6b21a8'}
+  }
+  const fatte=dettagli.filter(d=>d.ok).length
+  const costo = p.manuale ? (riep&&riep.completo?riep.costo:null) : costoPeggioreIncrocioLucy(p)
+  const scenari = p.manuale ? (riep&&riep.completo ? (p.esiti||[]).map(([e],i)=>({esito:e,netto:riep.nets[i]})) : []) : (p.scenari||[])
+  const th={padding:'4px 8px',textAlign:'left',fontSize:9,color:'#64748b',fontWeight:800,borderBottom:'1px solid #e2e8f0',background:'#f8fafc'}
+  return (
+    <div key={`inc-${pi}`} style={{border:'1px solid #94a3b8',borderRadius:10,overflow:'hidden',background:'#fff',marginBottom:12,boxShadow:'0 1px 3px rgba(0,0,0,.08)'}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',padding:'7px 10px',background:'#e2e8f0',borderBottom:'1px solid #cbd5e1'}}>
+        <span style={{background:'#1e293b',color:'#fff',borderRadius:6,padding:'2px 8px',fontWeight:900,fontSize:12}}>#{numero}</span>
+        <span style={{fontWeight:800,color:'#1e3a8a',fontSize:11}}>{sportLabelLucy(p)}</span>
+        <span style={{fontWeight:900,fontSize:13}}>{p.home} – {p.away}</span>
+        <span style={{background:'#fff',border:'1px solid #94a3b8',borderRadius:6,padding:'1px 7px',fontWeight:900,fontSize:11}}>🕒 {p.orario||'—'}</span>
+        <span style={{background:'#fff',border:'1px solid #94a3b8',borderRadius:6,padding:'1px 7px',fontWeight:700,fontSize:11}}>{p.mercato||''}</span>
+        {p.manuale && <span style={{background:'#fde68a',color:'#92400e',borderRadius:6,padding:'1px 7px',fontWeight:800,fontSize:10}}>🧮 SENZA QUOTE</span>}
+        <span style={{marginLeft:'auto',display:'flex',gap:10,alignItems:'center',fontSize:11}}>
+          <span style={{fontWeight:800,color:fatte===dettagli.length&&dettagli.length>0?'#166534':'#475569'}}>{fatte}/{dettagli.length} fatte</span>
+          <span style={{fontWeight:900,color:costo==null?'#92400e':(costo>0.005?'#b91c1c':'#166534')}}>{costo==null?'quote da inserire':`costo max ${Number(costo).toFixed(2)} €`}</span>
+        </span>
+      </div>
+      {(p.pronox||p.pronoxManuale) && (
+        <div style={{padding:'3px 10px',fontSize:10,background:'#f0fdfa',color:'#0f766e',borderBottom:'1px solid #ccfbf1'}}>
+          🧠 PronoX: <b>{p.pronox?.preferito||p.pronoxManuale}</b>
+          {p.pronox ? <> · fiducia {(p.pronox.prob*100).toFixed(1)}% (modello {(p.pronox.probModello*100).toFixed(1)}% · mercato {(p.pronox.probMercato*100).toFixed(1)}%) · copertura sull'esito opposto al {Math.round(p.pronox.protezione*100)}%</> : ' (solo indicazione: senza quote non si calcola la fiducia)'}
+        </div>
+      )}
+      <table style={{width:'100%',borderCollapse:'collapse',fontSize:11,tableLayout:'fixed'}}>
+        <colgroup><col style={{width:'31%'}}/><col style={{width:'14%'}}/><col style={{width:'21%'}}/><col style={{width:'11%'}}/><col style={{width:'10%'}}/><col style={{width:'13%'}}/></colgroup>
+        <thead><tr>{['CONTO','RUOLO','ESITO','IMPORTO','QUOTA',''].map((h,i)=><th key={i} style={th}>{h}</th>)}</tr></thead>
+        <tbody>
+          {dettagli.map(({a,tipo,key,ok,pronta},ri)=>{
+            const r=ruoli[a.tipoRiga]||ruoli['MANTENIMENTO']
+            const c=col(a.esito)
+            const dettaglio=[
+              a.betNumero?`bet ${a.betNumero}/${a.betRichieste}`:null,
+              a.capGiornaliero?`cap ${Number(a.capGiornaliero).toFixed(0)}€`:(a.budgetTotale&&a.tipoRiga!=='MANTENIMENTO'?`target ${Number(a.budgetTotale).toFixed(0)}€`:null),
+              a.recupero&&a.dataOrigine?`dal ${String(a.dataOrigine).slice(5).split('-').reverse().join('/')}`:null,
+              a.giaInAgenda?'in agenda oggi':null,
+              a.daRicarica?'dopo ricarica':null
+            ].filter(Boolean).join(' · ')
+            const ridotta=a.coperturaSuggeritaTotale!=null && a.copertura100Totale!=null && Math.abs(Number(a.coperturaSuggeritaTotale)-Number(a.copertura100Totale))>0.005
+            return (
+              <tr key={`${pi}-${ri}-${a.book.id}`} style={{background:ok?'#f0fdf4':'#fff',borderBottom:'1px solid #f1f5f9'}}>
+                <td style={{padding:'5px 8px'}}>
+                  <div style={{fontWeight:900}}>{a.book.nome}</div>
+                  <div style={{color:'#475569'}}>{a.book.intestatario}</div>
+                  {dettaglio && <div style={{fontSize:9,color:'#94a3b8'}}>{dettaglio}</div>}
+                  {ridotta && <div style={{fontSize:9,color:'#b45309'}}>copertura ridotta da PronoX: {Number(a.coperturaSuggeritaTotale).toFixed(2)} € (al 100%: {Number(a.copertura100Totale).toFixed(2)} €)</div>}
+                </td>
+                <td style={{padding:'5px 8px'}}><span style={{background:r.bg,color:r.tx,borderRadius:6,padding:'2px 7px',fontWeight:800,fontSize:10,whiteSpace:'nowrap'}}>{r.t}</span></td>
+                <td style={{padding:'5px 8px'}}><span style={{display:'inline-block',background:c.bg,border:`1px solid ${c.bd}`,color:c.tx,borderRadius:6,padding:'2px 8px',fontWeight:900}}>{a.esito}</span></td>
+                <td style={{padding:'5px 8px',fontWeight:900,fontSize:13,textAlign:'right'}}>
+                  {a.stake===null ? <i style={{color:'#64748b',fontWeight:600,fontSize:11}}>da calcolare</i>
+                    : a.stake===0 ? <span style={{color:'#64748b',fontSize:11}}>0 · non serve</span>
+                    : <>{Number(a.stake||0).toFixed(2)} €{p.manuale && a.tipoRiga==='MANTENIMENTO' && a.stake>LUCY_MANT_MAX ? <div style={{fontSize:9,color:'#b91c1c'}}>⚠ oltre {LUCY_MANT_MAX}€: aggiungi un conto</div> : null}</>}
+                </td>
+                <td style={{padding:p.manuale?'3px 8px':'5px 8px',textAlign:'right'}}>
+                  {p.manuale
+                    ? <input type="text" inputMode="decimal" value={lucyQuoteManuali[`${pi}|${a.rid}`]??''}
+                        placeholder={a.tipoRiga==='MANTENIMENTO' ? 'quota' : (a.quotaMin?`min ${a.quotaMin}`:'quota')}
+                        onChange={e=>{const v=e.target.value; setLucyQuoteManuali(prev=>({...prev,[`${pi}|${a.rid}`]:v}))}}
+                        style={{width:64,textAlign:'right',border:'1px solid #94a3b8',borderRadius:4,padding:'3px 4px',fontWeight:800,background:'#fffbeb'}} />
+                    : <span style={{fontWeight:700}}>{Number(a.quota||0).toFixed(2)}</span>}
+                </td>
+                <td style={{padding:'4px 8px',textAlign:'right'}}>
+                  {ok
+                    ? <button onClick={()=>annullaSingolaBetLucy(key)} style={{background:'#16a34a',color:'white',border:0,borderRadius:6,padding:'6px 9px',fontSize:10,fontWeight:900,cursor:'pointer'}}>✓ FATTA</button>
+                    : <button disabled={!pronta} title={pronta?'':'Inserisci le quote per calcolare lo stake'} onClick={()=>confermaSingolaBetLucy(p,a,tipo)}
+                        style={{background:pronta?'#2563eb':'#94a3b8',color:'white',border:0,borderRadius:6,padding:'6px 9px',fontSize:10,fontWeight:900,cursor:pronta?'pointer':'not-allowed'}}>CONFERMA</button>}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+      {(scenari.length>0 || p.manuale) && (
+        <div style={{padding:'5px 10px',fontSize:10,background:p.manuale?'#fffbeb':'#f8fafc',borderTop:'1px solid #e2e8f0',color:p.manuale?'#92400e':'#475569'}}>
+          {scenari.length>0 && <div>Risultato se piazzi tutto: {scenari.map((s,i)=>(
+            <span key={i} style={{marginRight:14}}>esce <b>{s.esito}</b> → <b style={{color:Number(s.netto)>=0?'#166534':'#b91c1c'}}>{Number(s.netto)>=0?'+':''}{Number(s.netto).toFixed(2)} €</b></span>))}</div>}
+          {p.manuale && <div>🧮 Scrivi nella colonna QUOTA la quota che vedi sul book di ogni riga: le coperture si calcolano da sole (copertura = (ritorno massimo − ritorno già coperto) ÷ quota del conto). Nelle bet base il campo vuoto mostra la quota minima del protocollo.</div>}
+          {riep && riep.warn.map((w,wi)=><div key={wi} style={{color:'#b91c1c',fontWeight:800}}>⚠ {w}</div>)}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function keyBetLucy(p,a,tipo='profilazione') {
@@ -1876,11 +2157,11 @@ function costoTeoricoSportOggi() {
 }
 
 function costoZeroLiveOggi() {
-  // Per il Live mostriamo separatamente l'esposizione teorica associata allo 0.
-  // Se lo 0 è assegnato a un conto "Numeri", usa lo stake indicativo per numero.
-  return lucyLiveProposte.reduce((s,p)=>{
-    const g=(p.gruppo||[]).find(x=>x.tipo==='Numeri' && (x.numeri||[]).includes(0))
-    return s+(g?Number(g.stakeNumeroIndicativo||0):0)
+  // V54: con 10€ su ogni numero (60€ a sestina) tutto il tavolo è coperto: puntata 370€, rientro 360€ qualunque numero esca,
+  // quindi il costo teorico è 10€ a giro; per ogni incrocio completo si moltiplica per le ripetizioni.
+  return lucyLiveProposte.filter(p=>!p.insufficiente).reduce((s,p)=>{
+    const perGiro=(p.gruppo||[]).reduce((z,g)=>z+Number(g.budget||0),0)
+    return s+Math.max(0,perGiro-36*LUCY_LIVE_EURO_NUMERO)*LUCY_LIVE_RIPETIZIONI
   },0)
 }
 
@@ -1991,6 +2272,20 @@ function assegnaEsitiCostoMinimoLucy(stakes, opzioni) {
   }
   rec(0)
   return best?best.scelte:null
+}
+
+// V46: puntata del protocollo di MANTENIMENTO = variabile da 5 a 30 € (multipli di 5), diversa per conto e per giorno
+// ma stabile durante la giornata (stesso conto e stesso giorno = stessa cifra a ogni ricalcolo).
+function stakeMantenimentoProtocolloLucy(book) {
+  const seedText = `${lucyOggi()}|mant-protocollo|${book?.id}|${book?.nome}|${book?.intestatario}`
+  let seed = 2166136261
+  for (let i=0;i<seedText.length;i++){ seed ^= seedText.charCodeAt(i); seed=Math.imul(seed,16777619) }
+  seed += 0x6D2B79F5
+  let x=seed
+  x=Math.imul(x^(x>>>15),x|1); x^=x+Math.imul(x^(x>>>7),x|61)
+  const r=((x^(x>>>14))>>>0)/4294967296
+  const passi=[5,10,15,20,25,30]
+  return passi[Math.min(passi.length-1,Math.floor(r*passi.length))]
 }
 
 // Divide il totale in poche puntate intere tra 5 e 30 €: 83 -> 28+28+27, 23 -> 23, 31 -> 16+15.
@@ -2151,14 +2446,25 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
     // Il vecchio controllo dipendeva da agenda.tipo e poteva lasciarli passare quando il campo
     // non era valorizzato in modo coerente. Qui il filtro e' sul bookmaker, prima di creare lo slot.
     if(bookSoloCasinoProfilazioneLucy(book)) return
+    if(lucyMaiSport(book)) return   // V45: i solo-casinò non fanno mai sport
+    if(agenda?.tipo !== 'mantenimento' && lucyNoSportInProfilazione(book)) return   // V49: NetBet mai in profilazione, Betsson in profilazione solo casinò
     const azioniSport = (agenda?.azioni || []).filter(a => sportRegex.test(a) && !casinoOnlyRegex.test(a))
-    if (!azioniSport.length) return
-    const azione = azioniSport[0]
+    let azione = azioniSport[0]
+    let daRicarica = false
+    if (!azione && agenda?.tipo !== 'mantenimento') {
+      // V48: giornata di sola ricarica -> si gioca sport col protocollo del book
+      const alt = azioneSportDopoRicaricaLucy(book, agenda)
+      if (alt) { azione = alt; daRicarica = true }
+    }
+    if (!azione) return
     const betRichieste = getNumeroBetRichieste(azione)
-    const budgetBase = getBudgetSportTotale(book, azione)
-    const budgetTotale = variaBudgetGiornaliero(book, budgetBase)
+    // V46: un conto in MANTENIMENTO gioca una puntata variabile da 5 a 30 € a bet, qualunque sia il book
+    // (prima prendeva il budget di profilazione del bookmaker: 70 € su Bwin, 100 € sul gruppo Lottomatica...)
+    const isMantenimentoLucy = agenda?.tipo === 'mantenimento'
+    const budgetBase = isMantenimentoLucy ? stakeMantenimentoProtocolloLucy(book) * betRichieste : getBudgetSportTotale(book, azione)
+    const budgetTotale = isMantenimentoLucy ? budgetBase : variaBudgetGiornaliero(book, budgetBase)
     sportItems.push({
-      book, azione, betRichieste, budgetBase, budgetTotale,
+      book, azione, betRichieste, budgetBase, budgetTotale, daRicarica,
       // V31: un conto in MANTENIMENTO con bet di protocollo oggi resta mantenimento (prima finiva etichettato PROFILAZIONE)
       tipoConto: agenda?.tipo==='mantenimento' ? 'mantenimento' : 'profilazione',
       stakeVariabili: distribuisciStakeVariabili(book, betRichieste, budgetTotale),
@@ -2546,6 +2852,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
     const poolMantenimento = books
       .filter(b => b.profilo_livello && String(b.profilo_livello).startsWith('mantenimento'))
       .filter(b => b.profilo_livello !== 'dormiente')
+      .filter(b => !lucyMaiSport(b))                   // V45: i solo-casinò non fanno mai sport, nemmeno come copertura
       .filter(b => !idsProfilazioneOggiLucy.has(b.id)) // mai PROF + MANT sullo stesso conto nello stesso giorno
       .filter(b => giorniDaUsoMant(b) > 0)             // già usato oggi: mai due volte
       .filter(b => idsMantOggi.has(b.id) || giorniDaUsoMant(b) >= LUCY_MANT_RIPOSO_GG)
@@ -5406,6 +5713,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             <div style={{ fontSize: 11, marginBottom: 8, padding: '6px 9px', borderRadius: 8, background: r.scaduti > 0 ? 'rgba(239,68,68,.10)' : 'rgba(34,197,94,.08)', border: r.scaduti > 0 ? '1px solid rgba(239,68,68,.35)' : '1px solid rgba(34,197,94,.30)', color: r.scaduti > 0 ? '#fca5a5' : '#86efac' }}>
               🛡️ Rete {MANT_LIMITE_GG} giorni · {r.totale} conti in mantenimento: {r.ok} in regola · {r.daFare} da movimentare (≥{MANT_LIMITE_GG - MANT_ANTICIPO_GG} gg) · <b>{r.scaduti} scaduti (≥{MANT_LIMITE_GG} gg)</b> · {r.inAttesa} senza storico, prima scadenza da protocollo
             </div>) })()}
+          {(() => { const r = riepilogoPostCicloLucy(); return (r.inCiclo + r.fineCiclo + r.daRiavviare) > 0 ? (
+            <div style={{ fontSize: 11, marginBottom: 8, padding: '6px 9px', borderRadius: 8, background: r.daRiavviare > 0 ? 'rgba(249,115,22,.10)' : 'rgba(168,85,247,.08)', border: r.daRiavviare > 0 ? '1px solid rgba(249,115,22,.35)' : '1px solid rgba(168,85,247,.30)', color: r.daRiavviare > 0 ? '#fdba74' : '#d8b4fe' }}>
+              🟣 Cicli di profilazione · {r.inCiclo} in corso · {r.fineCiclo} a fine ciclo (controlla le riservate) · <b>{r.daRiavviare} da riavviare</b>
+            </div>) : null })()}
           {agendaOggi.length === 0 ? (
             <div style={{ color: '#64748b', fontSize: 13 }}>Nessuna azione per oggi</div>
           ) : (() => {
@@ -5413,16 +5724,16 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             agendaOggi.forEach(({ book, agenda }) => {
               agenda.azioni.forEach(az => {
                 if (!gruppi[az]) gruppi[az] = []
-                gruppi[az].push({ book, badge: agenda.badge, mant: agenda.tipo === 'mantenimento', scaduto: !!agenda.scaduto, ritardo: !!agenda.ritardo })
+                gruppi[az].push({ book, badge: agenda.badge, mant: agenda.tipo === 'mantenimento', scaduto: !!agenda.scaduto, ritardo: !!agenda.ritardo, postCiclo: !!agenda.postCiclo })
               })
             })
             return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                 {Object.entries(gruppi).map(([azione, items]) => {
                   const perBook = {}
-                  items.forEach(({ book, mant, scaduto, ritardo }) => {
+                  items.forEach(({ book, mant, scaduto, ritardo, postCiclo }) => {
                     if (!perBook[book.nome]) perBook[book.nome] = []
-                    perBook[book.nome].push({ book, nome: book.intestatario, mant, scaduto, ritardo })
+                    perBook[book.nome].push({ book, nome: book.intestatario, mant, scaduto, ritardo, postCiclo })
                   })
                   const isOpen = agendaAperto === azione
                   return (
@@ -5443,6 +5754,12 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                                 <span key={ix}>{ix > 0 ? ', ' : ''}{it.nome}
                                   {it.scaduto && <b style={{ color: '#f87171' }}> ⚠ SCADUTO</b>}
                                   {it.ritardo && <b style={{ color: '#fb923c' }}> in ritardo</b>}
+                                  {it.postCiclo && <>
+                                    <button onClick={() => segnaRiservataRicevuta(it.book)} title="È arrivata una riservata: i 30 giorni ripartono da oggi"
+                                      style={{ marginLeft: 5, background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.5)', color: '#d8b4fe', borderRadius: 6, fontSize: 10, padding: '0 6px', cursor: 'pointer' }}>📩 riservata ricevuta</button>
+                                    <button onClick={() => riavviaCicloProfilo(it.book)} title="Riavvia da oggi il ciclo di profilazione di questo conto"
+                                      style={{ marginLeft: 4, background: 'rgba(249,115,22,0.15)', border: '1px solid rgba(249,115,22,0.5)', color: '#fdba74', borderRadius: 6, fontSize: 10, padding: '0 6px', cursor: 'pointer' }}>↻ riavvia ciclo</button>
+                                  </>}
                                   {it.mant && <button onClick={() => segnaMovimentatoLucy(it.book)} title="Segna il conto come movimentato oggi (bet fatta fuori da Lucy)"
                                     style={{ marginLeft: 5, background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.5)', color: '#86efac', borderRadius: 6, fontSize: 10, padding: '0 6px', cursor: 'pointer' }}>✓ fatto</button>}
                                 </span>))}</span>
@@ -5462,9 +5779,9 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         <div style={{ background: 'rgba(11,18,32,0.7)', border: '1px solid rgba(51,65,85,0.85)', borderRadius: 16, padding: '14px 16px' }}>
           <div style={{ fontSize: 13, fontWeight: 800, color: '#f8fafc', marginBottom: 10 }}>📖 Mantenimento unico</div>
           <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.6 }}>
-            <div>🟡 <b>10€ ogni 60 giorni</b>, distribuiti automaticamente fra gli account in mantenimento.</div>
-            <div>⚽ Book Sport: 1 bet sportiva da 10€.</div>
-            <div>🎰 Solo Casinò: sessione Casinò/slot da 10€.</div>
+            <div>🟡 <b>Una movimentazione almeno ogni 60 giorni</b> (si propone dal 45° giorno), puntata <b>variabile da 5 a 30€</b>.</div>
+            <div>⚽ Book Sport: 1 bet sportiva da 5 a 30€.</div>
+            <div>🎰 Solo Casinò: sessione Casinò/slot da 5 a 30€.</div>
             <div style={{ marginTop: 6, color: '#94a3b8' }}>I Dormienti non entrano nell'agenda. La scelta dello stato resta sempre manuale.</div>
           </div>
         </div>
@@ -5635,91 +5952,52 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         <div onClick={()=>setLucyTabellaAperta(false)}
           style={{position:'fixed',inset:0,zIndex:9999,background:'rgba(2,6,23,.82)',display:'flex',alignItems:'center',justifyContent:'center',padding:18}}>
           <div onClick={e=>e.stopPropagation()}
-            style={{width:'min(1450px,96vw)',maxHeight:'90vh',overflow:'auto',background:'#f8fafc',borderRadius:12,boxShadow:'0 24px 70px rgba(0,0,0,.55)',color:'#111827'}}>
-            <div style={{position:'sticky',top:0,zIndex:2,background:'#e2e8f0',borderBottom:'1px solid #94a3b8',padding:'10px 12px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-              <div>
-                <div style={{fontSize:15,fontWeight:900}}>📋 Lucy Sport — Bet da piazzare</div>
-                <div style={{fontSize:10,color:'#475569'}}>Vista operativa stile Excel · PronoX orienta la copertura · una riga = una puntata</div>
-              </div>
-              <button onClick={()=>setLucyTabellaAperta(false)}
-                style={{background:'#dc2626',color:'white',border:0,borderRadius:7,padding:'7px 11px',fontWeight:900,cursor:'pointer'}}>✕ CHIUDI</button>
-            </div>
-
-            <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
-              <thead style={{position:'sticky',top:55,zIndex:1,background:'#cbd5e1'}}>
-                <tr>
-                  {['#','PARTITA','ORARIO','SPORT','MERCATO','PRONOX','CONF.','COPERTURA','€ SUGG.','€ 100%','BOOK','INTESTATARIO','TIPO','ESITO','IMPORTO','QUOTA','BET','TARGET/CAP','STATO'].map(h=>
-                    <th key={h} style={{border:'1px solid #94a3b8',padding:'7px 6px',textAlign:'left',whiteSpace:'nowrap'}}>{h}</th>
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {lucySportProposte.flatMap((p,pi)=>{
-                  const rows0=[
-                    ...(p.assegnazioni||[]).map(a=>({...a,tipoRiga:a.recupero?'RECUPERO PROF.':a.tipoConto==='mantenimento'?'MANT. PROTOCOLLO':'PROFILAZIONE'})),
-                    ...(p.extraProfilazione||[]).map(a=>({...a,tipoRiga:'EXTRA PROF.'})),
-                    ...(p.integrazioni||[]).map(a=>({...a,tipoRiga:'MANTENIMENTO'}))
-                  ]
-                  const rows=p.manuale?righeManualiLucy(p,pi,rows0):rows0
-                  const riep=p.manuale?riepilogoManualeLucy(p,pi,rows):null
-                  const noteRow=p.manuale ? (
-                    <tr key={`man-${pi}`}>
-                      <td colSpan={19} style={{border:'1px solid #f59e0b',background:'#fffbeb',padding:'6px 10px',fontSize:10,color:'#92400e'}}>
-                        🧮 <b>Incrocio senza quote</b> · scrivi nella colonna QUOTA la quota che vedi sul book di ogni riga: le coperture si calcolano da sole
-                        (copertura = (ritorno massimo − ritorno già coperto) ÷ quota del conto). Nel campo vuoto delle bet base compare la quota minima del protocollo.
-                        {riep && riep.completo ? <> · <b>Costo se piazzi tutto: {riep.costo.toFixed(2)} €</b> (peggior esito {Math.min(...riep.nets).toFixed(2)} €)</> : null}
-                        {riep && riep.warn.map((w,wi)=><div key={wi} style={{color:'#b91c1c',fontWeight:800}}>⚠ {w}</div>)}
-                      </td>
-                    </tr>
-                  ) : null
-                  return [...rows.map((a,ri)=>(
-                    <tr key={`${pi}-${ri}-${a.book.id}`} style={{background:ri%2===0?'#ffffff':'#f1f5f9'}}>
-                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:800}}>{pi+1}</td>
-                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:800,whiteSpace:'nowrap'}}>{p.home} – {p.away}{p.manuale && <span style={{marginLeft:6,fontSize:9,background:'#fde68a',color:'#92400e',borderRadius:4,padding:'1px 5px'}}>🧮 SENZA QUOTE</span>}</td>
-                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:900,textAlign:'center',whiteSpace:'nowrap'}}>{p.orario||'—'}</td>
-                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:800,whiteSpace:'nowrap',color:'#1e3a8a'}}>{sportLabelLucy(p)}</td>
-                      <td style={{border:'1px solid #cbd5e1',padding:6,whiteSpace:'nowrap'}}>{p.mercato||p.market||''}</td>
-                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:900,color:(p.pronox||p.pronoxManuale)?'#0f766e':'#64748b',whiteSpace:'nowrap'}}>{p.pronox?.preferito||p.pronoxManuale||'—'}</td>
-                      <td style={{border:'1px solid #cbd5e1',padding:6,textAlign:'right',fontWeight:800}}><span title={p.pronox?`modello ${(p.pronox.probModello*100).toFixed(1)}% · mercato ${(p.pronox.probMercato*100).toFixed(1)}%`:''}>{p.pronox?`${(p.pronox.prob*100).toFixed(1)}%`:'—'}</span></td>
-                      <td style={{border:'1px solid #cbd5e1',padding:6,textAlign:'center',fontWeight:900,color:p.pronox&&p.pronox.protezione<1?'#b45309':'#475569'}}>{p.pronox?`${Math.round(p.pronox.protezione*100)}%`:'100%'}</td>
-                      <td style={{border:'1px solid #cbd5e1',padding:6,textAlign:'right',fontWeight:900,color:'#b45309'}}>{a.coperturaSuggeritaTotale!=null?`${Number(a.coperturaSuggeritaTotale).toFixed(2)} €`:'—'}</td>
-                      <td style={{border:'1px solid #cbd5e1',padding:6,textAlign:'right',fontWeight:900,color:'#166534'}}>{a.copertura100Totale!=null?`${Number(a.copertura100Totale).toFixed(2)} €`:'—'}</td>
-                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:800}}>{a.book.nome}</td>
-                      <td style={{border:'1px solid #cbd5e1',padding:6,whiteSpace:'nowrap'}}>{a.book.intestatario}</td>
-                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:800}}>{a.tipoRiga}{a.recupero&&a.dataOrigine?<div style={{fontSize:9,color:'#b45309'}}>dal {String(a.dataOrigine).slice(5).split('-').reverse().join('/')}</div>:null}</td>
-                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:900}}>{a.esito}</td>
-                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:900,textAlign:'right'}}>
-                        {a.stake===null ? <i style={{color:'#64748b',fontWeight:600}}>da calcolare</i>
-                          : a.stake===0 ? <span style={{color:'#64748b'}}>0 · non serve</span>
-                          : <>{Number(a.stake||0).toFixed(2)} €{p.manuale && a.tipoRiga==='MANTENIMENTO' && a.stake>LUCY_MANT_MAX ? <div style={{fontSize:9,color:'#b91c1c'}}>⚠ oltre {LUCY_MANT_MAX}€: aggiungi un conto</div> : null}</>}
-                      </td>
-                      <td style={{border:'1px solid #cbd5e1',padding:p.manuale?3:6,textAlign:'right'}}>
-                        {p.manuale
-                          ? <input type="text" inputMode="decimal" value={lucyQuoteManuali[`${pi}|${a.rid}`]??''}
-                              placeholder={a.tipoRiga==='MANTENIMENTO' ? 'quota' : (a.quotaMin?`min ${a.quotaMin}`:'quota')}
-                              onChange={e=>{const v=e.target.value; setLucyQuoteManuali(prev=>({...prev,[`${pi}|${a.rid}`]:v}))}}
-                              style={{width:64,textAlign:'right',border:'1px solid #94a3b8',borderRadius:4,padding:'3px 4px',fontWeight:800,background:'#fffbeb'}} />
-                          : Number(a.quota||0).toFixed(2)}
-                      </td>
-                      <td style={{border:'1px solid #cbd5e1',padding:6,whiteSpace:'nowrap'}}>{a.betNumero ? `${a.betNumero}/${a.betRichieste}` : '—'}</td>
-                      <td style={{border:'1px solid #cbd5e1',padding:6,whiteSpace:'nowrap'}}>
-                        {a.capGiornaliero ? `cap ${Number(a.capGiornaliero).toFixed(0)}€` : a.budgetTotale ? `${Number(a.budgetTotale).toFixed(0)}€` : '—'}
-                      </td>
-                      <td style={{border:'1px solid #cbd5e1',padding:5,whiteSpace:'nowrap'}}>
-                        {(()=>{
-                          const tipo=(a.tipoRiga==='PROFILAZIONE'||a.tipoRiga==='RECUPERO PROF.')?'profilazione':a.tipoRiga==='EXTRA PROF.'?'extra':'mantenimento'
-                          const k=keyBetLucy(p,a,tipo), ok=lucyConfermate.some(x=>x.key===k)
-                          const pronta=!p.manuale || (Number(a.stake)>0 && Number(a.quota)>0)
-                          return ok
-                            ? <button onClick={()=>annullaSingolaBetLucy(k)} style={{background:'#16a34a',color:'white',border:0,borderRadius:6,padding:'5px 7px',fontSize:9,fontWeight:900,cursor:'pointer'}}>✓ FATTA</button>
-                            : <button disabled={!pronta} title={pronta?'':'Inserisci le quote per calcolare lo stake'} onClick={()=>confermaSingolaBetLucy(p,a,tipo)} style={{background:pronta?'#2563eb':'#94a3b8',color:'white',border:0,borderRadius:6,padding:'5px 7px',fontSize:9,fontWeight:900,cursor:pronta?'pointer':'not-allowed'}}>CONFERMA</button>
-                        })()}
-                      </td>
-                    </tr>
-                  )), ...(noteRow?[noteRow]:[])]
-                })}
-              </tbody>
-            </table>
+            style={{width:'min(1150px,96vw)',maxHeight:'92vh',overflowY:'auto',overflowX:'hidden',background:'#f8fafc',borderRadius:12,boxShadow:'0 24px 70px rgba(0,0,0,.55)',color:'#111827'}}>
+            {(() => {
+              const tutti=lucySportProposte.map((p,pi)=>({p,pi}))
+              const etichetteSport=[...new Set(tutti.map(({p})=>sportLabelLucy(p)))]
+              const conteggi=tutti.reduce((s,{p,pi})=>{ const {dettagli}=righeIncrocioLucy(p,pi); return {tot:s.tot+dettagli.length,fatte:s.fatte+dettagli.filter(d=>d.ok).length} },{tot:0,fatte:0})
+              const visibili=tutti.filter(({p,pi})=>{
+                if(lucyTabSport!=='tutti' && sportLabelLucy(p)!==lucyTabSport) return false
+                if(lucyTabFiltro==='dafare' && righeIncrocioLucy(p,pi).dettagli.every(d=>d.ok)) return false
+                return true
+              })
+              const chip=(attivo)=>({background:attivo?'#1e293b':'#fff',color:attivo?'#fff':'#334155',border:'1px solid #94a3b8',borderRadius:14,padding:'3px 10px',fontSize:10,fontWeight:800,cursor:'pointer'})
+              let numero=0
+              return (<>
+                <div style={{position:'sticky',top:0,zIndex:2,background:'#e2e8f0',borderBottom:'1px solid #94a3b8',padding:'10px 12px'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10}}>
+                    <div>
+                      <div style={{fontSize:15,fontWeight:900}}>📋 Lucy Sport — Bet da piazzare</div>
+                      <div style={{fontSize:10,color:'#475569'}}>Un riquadro per incrocio: conti, cosa giocare, quanto e a che quota. Ogni esito ha il suo colore, il verde chiaro indica le bet già fatte.</div>
+                    </div>
+                    <button onClick={()=>setLucyTabellaAperta(false)}
+                      style={{background:'#dc2626',color:'white',border:0,borderRadius:7,padding:'7px 11px',fontWeight:900,cursor:'pointer'}}>✕ CHIUDI</button>
+                  </div>
+                  <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginTop:8}}>
+                    <button onClick={()=>setLucyTabFiltro('tutte')} style={chip(lucyTabFiltro==='tutte')}>Tutte</button>
+                    <button onClick={()=>setLucyTabFiltro('dafare')} style={chip(lucyTabFiltro==='dafare')}>Solo da fare</button>
+                    <span style={{width:1,height:16,background:'#94a3b8',margin:'0 4px'}} />
+                    <button onClick={()=>setLucyTabSport('tutti')} style={chip(lucyTabSport==='tutti')}>Tutti gli sport</button>
+                    {etichetteSport.map(s=><button key={s} onClick={()=>setLucyTabSport(s)} style={chip(lucyTabSport===s)}>{s}</button>)}
+                    <span style={{marginLeft:'auto',fontSize:11,fontWeight:900,color:conteggi.fatte===conteggi.tot&&conteggi.tot>0?'#166534':'#334155'}}>Bet fatte: {conteggi.fatte}/{conteggi.tot}</span>
+                  </div>
+                </div>
+                <div style={{padding:'12px'}}>
+                  {visibili.length===0 && <div style={{padding:16,textAlign:'center',color:'#64748b',fontWeight:700}}>Nessun incrocio con questo filtro.</div>}
+                  {[['oggi','📅 OGGI'],['domani','📆 DOMANI — bet piazzate in anticipo']].map(([g,titolo])=>{
+                    const dellGiorno=visibili.filter(({p})=>(p.giorno||'oggi')===g)
+                    if(!dellGiorno.length) return null
+                    return (
+                      <div key={g}>
+                        <div style={{background:g==='oggi'?'#1e293b':'#475569',color:'#fff',borderRadius:8,padding:'5px 12px',fontWeight:900,fontSize:12,margin:'2px 0 10px'}}>{titolo} · {dellGiorno.length} {dellGiorno.length===1?'incrocio':'incroci'}</div>
+                        {dellGiorno.map(({p,pi})=>{ numero+=1; return bloccoIncrocioLucy(p,pi,numero) })}
+                      </div>
+                    )
+                  })}
+                </div>
+              </>)
+            })()}
 
 
             <div style={{padding:'10px 12px',background:'#e2e8f0',borderTop:'2px solid #64748b',display:'flex',gap:18,flexWrap:'wrap',fontSize:11}}>
@@ -5775,11 +6053,13 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                         <div key={`${g.book.id}-${i}`} style={{background:'rgba(15,23,42,.78)',borderRadius:8,padding:'7px 8px',fontSize:11,color:'#cbd5e1'}}>
                           <div><b style={{color:i===0?'#4ade80':'#e2e8f0'}}>{g.ruolo}</b> — {g.book.nome} · {g.book.intestatario}</div>
                           <div style={{marginTop:4,color:'#93c5fd'}}>{g.tipo==='Sestina'?'Sestina':'Numeri'}: {g.numeri.join(', ')}</div>
-                          <div style={{marginTop:3,color:'#64748b'}}>Budget protocollo: {g.budget}€ · ~{g.stakeNumeroIndicativo.toFixed(2)}€/numero (indicativo)</div>
+                          <div style={{marginTop:3,color:'#64748b'}}>{g.tipo==='Sestina' ? `Sestina ${g.budget}€ a giro` : `${g.stakeNumeroIndicativo}€ a numero = ${g.budget}€ a giro`} · ripeti almeno {g.ripetizioni}× = {g.budgetTotale}€</div>
                         </div>
                       ))}
                     </div>
-                    <div style={{fontSize:10,color:'#64748b',marginTop:7}}>Copertura 0–36: Lottomatica/GoldBet su sestine; gli altri book sui numeri residui randomizzati. Prima di giocare puoi adattare puntate/numeri ai limiti reali del tavolo.</div>
+                    {(() => { const perGiro=p.gruppo.reduce((z,g)=>z+Number(g.budget||0),0); const rientro=36*LUCY_LIVE_EURO_NUMERO; return (
+                      <div style={{fontSize:10,color:'#a78bfa',marginTop:7}}>Per ogni giro: puntata totale {perGiro}€ · rientro {rientro}€ qualunque numero esca · costo teorico {Math.max(0,perGiro-rientro)}€ a giro, {Math.max(0,perGiro-rientro)*LUCY_LIVE_RIPETIZIONI}€ con {LUCY_LIVE_RIPETIZIONI} giri.</div>) })()}
+                    <div style={{fontSize:10,color:'#64748b',marginTop:4}}>Copertura 0–36: Lottomatica/GoldBet su sestine (60€ a sestina); gli altri book sui numeri residui randomizzati (10€ a numero). Prima di giocare puoi adattare numeri e puntate ai limiti reali del tavolo.</div>
                   </>
                 )}
               </div>
@@ -5794,12 +6074,12 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           style={{position:'fixed',inset:0,zIndex:9999,background:'rgba(2,6,23,.82)',display:'flex',alignItems:'center',justifyContent:'center',padding:18}}>
           <div onClick={e=>e.stopPropagation()} style={{width:'min(1350px,96vw)',maxHeight:'90vh',overflow:'auto',background:'#f8fafc',borderRadius:12,color:'#111827'}}>
             <div style={{position:'sticky',top:0,zIndex:2,background:'#ede9fe',borderBottom:'1px solid #a78bfa',padding:'10px 12px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-              <div><b>🎰 Lucy Live — Tabella operativa</b><div style={{fontSize:10,color:'#6b7280'}}>Una riga per conto · sestine evidenziate come tali</div></div>
+              <div><b>🎰 Lucy Live — Tabella operativa</b><div style={{fontSize:10,color:'#6b7280'}}>Una riga per conto · 10€ a numero, 60€ a sestina · ripeti almeno 3 volte nel giorno del live</div></div>
               <button onClick={()=>setLucyLiveTabellaAperta(false)} style={{background:'#dc2626',color:'white',border:0,borderRadius:7,padding:'7px 11px',fontWeight:900}}>✕ CHIUDI</button>
             </div>
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
               <thead style={{background:'#ddd6fe'}}>
-                <tr>{['#','BOOK','INTESTATARIO','RUOLO','TIPO','NUMERI / SESTINA','BUDGET','PUNTATA INDICATIVA'].map(h=><th key={h} style={{border:'1px solid #a78bfa',padding:7,textAlign:'left'}}>{h}</th>)}</tr>
+                <tr>{['#','BOOK','INTESTATARIO','RUOLO','TIPO','NUMERI / SESTINA','A GIRO','× RIPETIZIONI','TOTALE'].map(h=><th key={h} style={{border:'1px solid #a78bfa',padding:7,textAlign:'left'}}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {lucyLiveProposte.flatMap((p,pi)=>(p.gruppo||[]).map((g,gi)=>(
@@ -5810,15 +6090,16 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                     <td style={{border:'1px solid #ddd6fe',padding:6}}>{g.ruolo}</td>
                     <td style={{border:'1px solid #ddd6fe',padding:6,fontWeight:800}}>{g.tipo}</td>
                     <td style={{border:'1px solid #ddd6fe',padding:6}}>{(g.numeri||[]).join(', ')}</td>
-                    <td style={{border:'1px solid #ddd6fe',padding:6,textAlign:'right'}}>{Number(g.budget||0).toFixed(2)} €</td>
-                    <td style={{border:'1px solid #ddd6fe',padding:6,textAlign:'right'}}>{Number(g.stakeNumeroIndicativo||0).toFixed(2)} €</td>
+                    <td style={{border:'1px solid #ddd6fe',padding:6,textAlign:'right'}}>{Number(g.budget||0).toFixed(2)} €{g.tipo==='Sestina'?'':` (${g.stakeNumeroIndicativo}€/numero)`}</td>
+                    <td style={{border:'1px solid #ddd6fe',padding:6,textAlign:'center'}}>{g.ripetizioni||1}×</td>
+                    <td style={{border:'1px solid #ddd6fe',padding:6,textAlign:'right',fontWeight:800}}>{Number(g.budgetTotale||g.budget||0).toFixed(2)} €</td>
                   </tr>
                 )))}
               </tbody>
             </table>
             <div style={{padding:'11px 12px',background:'#ede9fe',borderTop:'2px solid #8b5cf6',fontSize:11}}>
-              <b>Costo teorico Live legato allo 0: {costoZeroLiveOggi().toFixed(2)} €</b>
-              <span style={{marginLeft:12,color:'#6b7280'}}>Lucy individua il conto a cui è assegnato lo 0 e mostra la puntata indicativa sullo zero.</span>
+              <b>Costo teorico Live: {costoZeroLiveOggi().toFixed(2)} €</b>
+              <span style={{marginLeft:12,color:'#6b7280'}}>10€ a numero e 60€ a sestina coprono tutto il tavolo: puntati 370€, rientro 360€ qualunque numero esca (costo teorico 10€ a giro), da ripetere almeno {LUCY_LIVE_RIPETIZIONI} volte.</span>
             </div>
           </div>
         </div>
