@@ -146,6 +146,7 @@ const [lucyOddsCrediti, setLucyOddsCrediti] = useState(() => {
   try { return JSON.parse(localStorage.getItem('profittracker_lucy_odds_crediti') || 'null') } catch { return null }
 })
 const [lucyOddsCacheInfo, setLucyOddsCacheInfo] = useState(null)
+const [lucyPronoxDiag, setLucyPronoxDiag] = useState(null)
 const [lucyForzaQuote, setLucyForzaQuote] = useState(false)
 const [lucyConfermate, setLucyConfermate] = useState(() => {
   try { return JSON.parse(localStorage.getItem('profittracker_lucy_confermate') || '[]') } catch { return [] }
@@ -1816,7 +1817,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
 
   const bookSoloCasinoProfilazioneLucy = b => /^(sisal|snai|pokerstars)$/i.test(String(b?.nome||'').toLowerCase().replace(/[^a-z0-9]/g,''))
   agendaItems.forEach(({ book, agenda }) => {
-    // HARD RULE V27: Sisal, SNAI e PokerStars NON entrano MAI nel pool PROFILAZIONE SPORT.
+    // HARD RULE V28: Sisal, SNAI e PokerStars NON entrano MAI nel pool PROFILAZIONE SPORT.
     // Il vecchio controllo dipendeva da agenda.tipo e poteva lasciarli passare quando il campo
     // non era valorizzato in modo coerente. Qui il filtro e' sul bookmaker, prima di creare lo slot.
     if(bookSoloCasinoProfilazioneLucy(book)) return
@@ -1861,7 +1862,15 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
     const y = oggi.getFullYear(), m = String(oggi.getMonth()+1).padStart(2,'0'), d = String(oggi.getDate()).padStart(2,'0')
     const dataOggi = `${y}-${m}-${d}`
     const pronoxFeed=await caricaFeedPronoxAutomaticoLucy(dataOggi)
-    const normTeam=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\b(fc|cf|ac|as|calcio|club)\b/g,'').replace(/[^a-z0-9]/g,'')
+    const normTeam=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\b(fc|cf|ac|as|calcio|club|cfc|afc|ud|bc|1913|1908|1899)\b/g,'').replace(/[^a-z0-9]/g,'')
+    const teamMatchLucy=(a,b)=>{
+      const x=normTeam(a), y=normTeam(b)
+      if(!x||!y) return false
+      if(x===y || x.includes(y) || y.includes(x)) return true
+      // tolleranza minima per suffissi/prefissi del provider, senza fare matching aggressivo
+      const m=Math.min(x.length,y.length), M=Math.max(x.length,y.length)
+      return m>=5 && M-m<=2 && x.slice(0,m-1)===y.slice(0,m-1)
+    }
     const sleepLucy = ms => new Promise(resolve=>setTimeout(resolve,ms))
 
     // Prima prendiamo tutti i calendari Football-Data, senza consumare datapoint TheRundown.
@@ -1932,11 +1941,11 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
 
     const candidati=[]
     eventi.forEach(ev => ev.mercati.forEach(merc => {
-      const pm=(pronoxFeed?.matches||[]).find(x=>x.sport==='calcio' && normTeam(x.home)===normTeam(ev.home) && normTeam(x.away)===normTeam(ev.away))
+      const pm=(pronoxFeed?.matches||[]).find(x=>x.sport==='calcio' && teamMatchLucy(x.home,ev.home) && teamMatchLucy(x.away,ev.away))
       const pronox=segnalePronoxPerMercatoLucy(pm,merc.nome)
       const inv = merc.esiti.reduce((s,[,q]) => s + (q ? 1/q : 99), 0)
       const dispersione = Math.max(...merc.esiti.map(x=>x[1])) - Math.min(...merc.esiti.map(x=>x[1]))
-      // V27: se PronoX ha un segnale reale per questo mercato, l'evento deve venire PRIMA
+      // V28: se PronoX ha un segnale reale per questo mercato, l'evento deve venire PRIMA
       // degli eventi senza segnale. Il vecchio bonus -0.015 era troppo piccolo e Lucy finiva
       // per scegliere quasi sempre il dutching matematicamente piu economico ignorando PronoX.
       const prioritaPronox = pronox ? -100 : 0
@@ -1945,7 +1954,14 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
 
     const pronoxCalcioOggi=(pronoxFeed?.matches||[]).filter(x=>x.sport==='calcio')
     const candidatiConPronox=candidati.filter(x=>x.pronox)
-    console.info('[Lucy V27] PronoX server feed', {
+    setLucyPronoxDiag({
+      feedCalcio:pronoxCalcioOggi.length,
+      matchMercati:candidatiConPronox.length,
+      eventiQuote:eventi.length,
+      picks:pronoxCalcioOggi.map(x=>`${x.home} - ${x.away}`),
+      matched:[...new Set(candidatiConPronox.map(x=>`${x.home} - ${x.away} · ${x.mercato}`))]
+    })
+    console.info('[Lucy V28] PronoX server feed', {
       data:dataOggi,
       pronoxCalcio:pronoxCalcioOggi.length,
       mercatiAbbinati:candidatiConPronox.length,
@@ -2029,7 +2045,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
         const gia = eventiUsatiPerBook.get(key) || new Set()
         if (gia.has(eventoKey)) continue
         if (contiNelGruppo.has(key)) continue
-        // V27: distribuzione. Nello stesso incrocio preferiamo un solo conto per bookmaker.
+        // V28: distribuzione. Nello stesso incrocio preferiamo un solo conto per bookmaker.
         // Evita concentrazioni tipo due Bwin sulla stessa partita quando esistono alternative.
         const bookmakerKey = bookNomeKeyLucy(s.book)
         if (gruppo.some(g => bookNomeKeyLucy(g.book) === bookmakerKey)) continue
@@ -2055,7 +2071,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
         // Se lo stesso bookmaker è già presente sull'evento, può usare SOLO lo stesso esito.
         if(esitoGiaBookmaker) compatibili = compatibili.filter(([esito])=>esito===esitoGiaBookmaker)
         if(!compatibili.length) return null
-        // V27: se PronoX esiste, le puntate base vengono orientate sul pronostico.
+        // V28: se PronoX esiste, le puntate base vengono orientate sul pronostico.
         // La copertura viene poi costruita sull'esito opposto: ridurla lascia quindi
         // esposizione NELLA direzione indicata da PronoX (non contro il pronostico).
         let scelta
@@ -4861,6 +4877,15 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           {lucyOddsCrediti?.remaining!=null && <span style={{color:Number(lucyOddsCrediti.remaining)<100?'#fca5a5':'#86efac',fontWeight:800}}>TheRundown: {lucyOddsCrediti.remaining} datapoint rimasti</span>}
           {lucyOddsCrediti?.last!=null && <span>ultima chiamata: {lucyOddsCrediti.last} datapoint</span>}
         </div>
+        {lucyPronoxDiag && (
+          <div style={{fontSize:10,marginBottom:8,padding:'7px 9px',borderRadius:8,
+            background:lucyPronoxDiag.matchMercati>0?'rgba(16,185,129,.10)':'rgba(245,158,11,.10)',
+            border:lucyPronoxDiag.matchMercati>0?'1px solid rgba(16,185,129,.35)':'1px solid rgba(245,158,11,.35)',
+            color:lucyPronoxDiag.matchMercati>0?'#86efac':'#fbbf24'}}>
+            🧠 PronoX server: {lucyPronoxDiag.feedCalcio} pronostici calcio oggi · {lucyPronoxDiag.matchMercati} mercati abbinati alle partite con quote.
+            {lucyPronoxDiag.feedCalcio>0 && lucyPronoxDiag.matchMercati===0 ? ' Nessun segnale PronoX è utilizzabile nelle partite/mercati attualmente disponibili: Lucy resta neutra al 100%.' : ''}
+          </div>
+        )}
         {lucySportError && <div style={{ color:'#fbbf24', fontSize:12, padding:'8px 10px', background:'rgba(251,191,36,0.08)', borderRadius:9 }}>{lucySportError}</div>}
         {lucySportProposte.length > 0 && (
           <div style={{marginTop:9,display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap',
