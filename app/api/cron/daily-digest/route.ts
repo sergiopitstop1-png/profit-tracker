@@ -46,6 +46,16 @@ const LEAGUES = [
 
 const QUOTA_MINIMA = 1.40;
 
+// ─── AFFIDABILITÀ DEL MODELLO CALCIO ────────────────────────────
+// Problema trovato il 20/09/2026: a inizio stagione i rating si basavano su
+// poche partite senza alcuna attenuazione, e i gol attesi venivano schiacciati
+// sul minimo di 0,3. Con 0,3 + 0,3 gol l'Under 2.5 vale 97,7%: un artefatto,
+// non una previsione (il mercato prezzava gli stessi match al 38-64%).
+const PRIOR_MATCHES = 6; // partite "virtuali" alla media del campionato che attenuano i rating
+const MIN_GAMES = 4;     // partite già giocate minime per ciascuna squadra, altrimenti nessun segnale
+const LAMBDA_MIN = 0.4;  // gol attesi minimi realistici per una squadra
+const LAMBDA_MAX = 3.0;
+
 // ─── MODELLO (stesse funzioni pure di /oggi) ────────────────────
 
 function poisson(k: number, lambda: number) {
@@ -76,7 +86,8 @@ function calcProbs(lH: number, lA: number, max = 8) {
     }
   }
   const tot = h + d + a;
-  return { h: h / tot, d: d / tot, a: a / tot, o25, u25: 1 - o25, btts };
+  const o25n = o25 / tot;
+  return { h: h / tot, d: d / tot, a: a / tot, o25: o25n, u25: 1 - o25n, btts: btts / tot };
 }
 
 function timeWeight(matchDate: any, refDate: any) {
@@ -114,16 +125,21 @@ function calcRatings(matches: any[], refDate: any) {
   const lgAvgHome = totWHome > 0 ? sumWHome / totWHome : 1.35;
   const lgAvgAway = totWAway > 0 ? sumWAway / totWAway : 1.1;
   Object.values(teams).forEach((t) => {
-    t.attH = t.hW > 0 ? (t.hGF / t.hW) / lgAvgHome : 1;
-    t.defH = t.hW > 0 ? (t.hGA / t.hW) / lgAvgAway : 1;
-    t.attA = t.aW > 0 ? (t.aGF / t.aW) / lgAvgAway : 1;
-    t.defA = t.aW > 0 ? (t.aGA / t.aW) / lgAvgHome : 1;
+    // Attenuazione: (gol fatti + K * media campionato) / (partite + K).
+    // Con poche partite il rating resta vicino alla media invece di
+    // andare a zero dopo qualche 0-0 o 1-0.
+    const K = PRIOR_MATCHES;
+    t.attH = ((t.hGF + K * lgAvgHome) / (t.hW + K)) / lgAvgHome;
+    t.defH = ((t.hGA + K * lgAvgAway) / (t.hW + K)) / lgAvgAway;
+    t.attA = ((t.aGF + K * lgAvgAway) / (t.aW + K)) / lgAvgAway;
+    t.defA = ((t.aGA + K * lgAvgHome) / (t.aW + K)) / lgAvgHome;
     t.form.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
     const last5 = t.form.slice(0, 5);
     const formScore = last5.reduce((s: number, f: any) => s + (f.res === "W" ? 3 : f.res === "D" ? 1 : 0), 0);
     t.formRating = last5.length > 0 ? formScore / (last5.length * 3) : 0.5;
-    const hAvg = t.hW > 0 ? t.hGF / t.hW : lgAvgHome;
-    const aAvg = t.aW > 0 ? t.aGF / t.aW : lgAvgAway;
+    const hAvg = (t.hGF + K * lgAvgHome) / (t.hW + K);
+    const aAvg = (t.aGF + K * lgAvgAway) / (t.aW + K);
+    t.nGames = t.form.length; // partite realmente giocate (non pesate)
     t.homeAdvantage = hAvg > 0 && aAvg > 0 ? hAvg / aAvg : 1.1;
   });
   return { teams, lgAvgHome, lgAvgAway };
@@ -156,7 +172,12 @@ function getLambdas(teamH: any, teamA: any, lgAvgHome: number, lgAvgAway: number
   lA *= (0.85 + teamA.formRating * 0.30);
   lH *= (1 + h2hBias);
   lA *= (1 - h2hBias);
-  return { lH: Math.max(0.3, Math.min(3.0, lH)), lA: Math.max(0.3, Math.min(3.0, lA)) };
+  const clamped = lH < LAMBDA_MIN || lH > LAMBDA_MAX || lA < LAMBDA_MIN || lA > LAMBDA_MAX;
+  return {
+    lH: Math.max(LAMBDA_MIN, Math.min(LAMBDA_MAX, lH)),
+    lA: Math.max(LAMBDA_MIN, Math.min(LAMBDA_MAX, lA)),
+    clamped, // true = il valore grezzo era fuori range: il segnale non è affidabile
+  };
 }
 
 function getSignals(probs: any) {
@@ -445,20 +466,10 @@ async function verifyTennisPick(pick: any, pickDate: string) {
 
 // ─── STEP 2: calcola i pronostici di domani ─────────────────────
 
-async function computeTomorrowPicks(tomorrow: string) {
-  // Anti-doppione: se la route viene chiamata più volte lo stesso giorno
-  // (es. un test manuale + il cron automatico), i pronostici di "domani"
-  // sono già stati calcolati e salvati — li riusiamo invece di rifarli
-  // da capo e reinserirli, cosa che creava le righe duplicate.
-  const { data: existing } = await supabase
-    .from("pronox_daily_picks")
-    .select("*")
-    .eq("pick_date", tomorrow);
-  if (existing && existing.length > 0) {
-    return existing;
-  }
-
-  const allPicks = [];
+// Raccoglie TUTTI i segnali di calcio di domani (una volta sola), con i dati
+// di affidabilità. Alimenta sia i pick dell'email sia la tabella per Lucy.
+async function collectFootballSignals(tomorrow: string) {
+  const out: any[] = [];
 
   for (const league of LEAGUES) {
     const matches = await fetchSeasonMatches(league.code);
@@ -478,52 +489,85 @@ async function computeTomorrowPicks(tomorrow: string) {
       const teamH = teams[m.homeTeam.id];
       const teamA = teams[m.awayTeam.id];
       if (!teamH || !teamA) continue;
+      // Campione troppo piccolo: nessun segnale.
+      if (teamH.nGames < MIN_GAMES || teamA.nGames < MIN_GAMES) continue;
 
       const h2h = calcH2H(matches, m.homeTeam.id, m.awayTeam.id);
-      const { lH, lA } = getLambdas(teamH, teamA, lgAvgHome, lgAvgAway, h2h.bias);
+      const { lH, lA, clamped } = getLambdas(teamH, teamA, lgAvgHome, lgAvgAway, h2h.bias);
       const probs = calcProbs(lH, lA);
       const signals = getSignals(probs);
       if (signals.length === 0) continue;
 
       const oddsData = matchOdds(oddsMap, m.homeTeam.name, m.awayTeam.name);
-
-      // Prende il segnale più forte che rispetta la quota minima. Se il
-      // migliore ha quota troppo bassa (o inesistente sul mercato), prova
-      // il successivo per probabilità sulla stessa partita prima di
-      // scartarla del tutto. Un segnale senza quota nota (es. BTTS, che
-      // questa fonte non copre) non viene escluso solo per quello.
-      let chosen: any = null;
-      let chosenQuota: number | null = null;
-      for (const s of signals) {
-        const q = quotaPerSegnale(oddsData, s.label);
-        if (q === null || q >= QUOTA_MINIMA) {
-          chosen = s;
-          chosenQuota = q;
-          break;
-        }
-      }
-      if (!chosen) continue; // tutti i segnali di questa partita sotto quota minima
-
-      allPicks.push({
-        pick_date: tomorrow,
-        sport: "calcio",
-        match_id_fd: m.id,
-        league: league.name,
-        home_team: m.homeTeam.name,
-        away_team: m.awayTeam.name,
-        match_time: m.utcDate,
-        prediction_label: chosen.label,
-        probability: parseFloat((chosen.prob * 100).toFixed(1)),
-        quota: chosenQuota,
-        status: "PENDING",
+      out.push({
+        league, m, lH, lA, clamped,
+        gamesH: teamH.nGames, gamesA: teamA.nGames,
+        signals, oddsData,
       });
     }
+  }
+  return out;
+}
+
+// I 5 pick pubblici (email + storico): stessa logica di prima, ma escludendo
+// le partite con gol attesi fuori range.
+function buildFootballPicks(tomorrow: string, collected: any[]) {
+  const allPicks: any[] = [];
+
+  for (const c of collected) {
+    if (c.clamped) continue;
+
+    // Prende il segnale più forte che rispetta la quota minima. Se il
+    // migliore ha quota troppo bassa (o inesistente sul mercato), prova
+    // il successivo per probabilità sulla stessa partita prima di
+    // scartarla del tutto. Un segnale senza quota nota (es. BTTS, che
+    // questa fonte non copre) non viene escluso solo per quello.
+    let chosen: any = null;
+    let chosenQuota: number | null = null;
+    for (const s of c.signals) {
+      const q = quotaPerSegnale(c.oddsData, s.label);
+      if (q === null || q >= QUOTA_MINIMA) {
+        chosen = s;
+        chosenQuota = q;
+        break;
+      }
+    }
+    if (!chosen) continue; // tutti i segnali di questa partita sotto quota minima
+
+    allPicks.push({
+      pick_date: tomorrow,
+      sport: "calcio",
+      match_id_fd: c.m.id,
+      league: c.league.name,
+      home_team: c.m.homeTeam.name,
+      away_team: c.m.awayTeam.name,
+      match_time: c.m.utcDate,
+      prediction_label: chosen.label,
+      probability: parseFloat((chosen.prob * 100).toFixed(1)),
+      quota: chosenQuota,
+      status: "PENDING",
+    });
   }
 
   // Prendi i 5 migliori per probabilità, su tutte le leghe di calcio
   allPicks.sort((a: any, b: any) => b.probability - a.probability);
-  const bestFootball = allPicks.slice(0, 5);
+  return allPicks.slice(0, 5);
+}
 
+async function computeTomorrowPicks(tomorrow: string, collected: any[] | null) {
+  // Anti-doppione: se la route viene chiamata più volte lo stesso giorno
+  // (es. un test manuale + il cron automatico), i pronostici di "domani"
+  // sono già stati calcolati e salvati — li riusiamo invece di rifarli
+  // da capo e reinserirli, cosa che creava le righe duplicate.
+  const { data: existing } = await supabase
+    .from("pronox_daily_picks")
+    .select("*")
+    .eq("pick_date", tomorrow);
+  if (existing && existing.length > 0) {
+    return existing;
+  }
+
+  const bestFootball = buildFootballPicks(tomorrow, collected ?? (await collectFootballSignals(tomorrow)));
   const bestTennis = await computeTomorrowTennisPicks(tomorrow);
 
   const best = [...bestFootball, ...bestTennis];
@@ -541,6 +585,99 @@ async function computeTomorrowPicks(tomorrow: string) {
     }
   }
   return best;
+}
+
+// ─── SEGNALI PER LUCY ───────────────────────────────────────────
+// Tutti i segnali (non solo i 5+3 dell'email), con probabilità e dati di
+// affidabilità. Lucy li incrocia con le quote dei book e decide da sola quali
+// usare. BTTS escluso: nessun book/quota lo copre nel flusso di Lucy.
+
+function lucyMarketFor(label: string) {
+  if (label === "CASA VINCE") return { market: "1X2", selection: "1" };
+  if (label === "OSPITE VINCE") return { market: "1X2", selection: "2" };
+  if (label === "OVER 2.5") return { market: "OU25", selection: "Over 2.5" };
+  if (label === "UNDER 2.5") return { market: "OU25", selection: "Under 2.5" };
+  return null;
+}
+
+function buildLucyFootballRows(tomorrow: string, collected: any[]) {
+  const rows: any[] = [];
+  for (const c of collected) {
+    for (const s of c.signals) {
+      const mk = lucyMarketFor(s.label);
+      if (!mk) continue;
+      rows.push({
+        pick_date: tomorrow,
+        sport: "calcio",
+        match_id_fd: c.m.id,
+        league: c.league.name,
+        home_team: c.m.homeTeam.name,
+        away_team: c.m.awayTeam.name,
+        match_time: c.m.utcDate,
+        market: mk.market,
+        selection: mk.selection,
+        label: s.label,
+        probability: parseFloat((s.prob * 100).toFixed(1)),
+        lambda_home: parseFloat(c.lH.toFixed(3)),
+        lambda_away: parseFloat(c.lA.toFixed(3)),
+        games_home: c.gamesH,
+        games_away: c.gamesA,
+        clamped: !!c.clamped,
+        odds_model: quotaPerSegnale(c.oddsData, s.label),
+      });
+    }
+  }
+  return rows;
+}
+
+// Tennis: tutte le partite con quota per ENTRAMBI i giocatori. Senza quote
+// reali la partita non entra (Lucy non inventa mai una quota).
+async function buildLucyTennisRows(tomorrow: string) {
+  try {
+    const r = await fetch(`https://sergioapicella.it/api/tennis/matches?date=${tomorrow}`);
+    const d = await r.json();
+    const rows: any[] = [];
+    for (const m of d.matches || []) {
+      if (!m.oddsA || !m.oddsB) continue;
+      let playerAWins: boolean, prob: number;
+      if (m.isValueA) { playerAWins = true; prob = m.probA; }
+      else if (m.isValueB) { playerAWins = false; prob = m.probB; }
+      else if (!m.lowDataPlayer) { playerAWins = m.probA >= m.probB; prob = playerAWins ? m.probA : m.probB; }
+      else continue; // dati insufficienti
+      const name = playerAWins ? m.playerA.name : m.playerB.name;
+      rows.push({
+        pick_date: tomorrow,
+        sport: "tennis",
+        league: `🎾 ${m.tournament || m.tour}`,
+        home_team: m.playerA.name,
+        away_team: m.playerB.name,
+        match_time: m.commenceTime,
+        market: "TENNIS_ML",
+        selection: name,
+        label: `${name} vince`,
+        probability: parseFloat((prob * 100).toFixed(1)),
+        clamped: false,
+        odds_a: Number(m.oddsA),
+        odds_b: Number(m.oddsB),
+      });
+    }
+    return rows;
+  } catch (e) {
+    return [];
+  }
+}
+
+async function saveLucySignals(tomorrow: string, collected: any[]) {
+  const rows = [...buildLucyFootballRows(tomorrow, collected), ...(await buildLucyTennisRows(tomorrow))];
+  if (rows.length === 0) return 0;
+  const { error } = await supabase
+    .from("pronox_lucy_signals")
+    .upsert(rows, { onConflict: "pick_date,sport,home_team,away_team,market,selection" });
+  if (error) {
+    console.error("[lucy-signals] salvataggio fallito:", error.message);
+    return 0;
+  }
+  return rows.length;
 }
 
 async function computeTomorrowTennisPicks(tomorrow: string) {
@@ -738,7 +875,23 @@ export async function GET(request: Request) {
   const tomorrowStr = tomorrow.toISOString().split("T")[0];
 
   const yesterdayResults = await verifyYesterdayPicks(yesterdayStr);
-  const tomorrowPicks = await computeTomorrowPicks(tomorrowStr);
+  // Raccogliamo i segnali di calcio una volta sola, solo se servono: o mancano
+  // i pick pubblici di domani, o mancano i segnali per Lucy.
+  const { count: picksCount } = await supabase
+    .from("pronox_daily_picks").select("id", { count: "exact", head: true }).eq("pick_date", tomorrowStr);
+  const { count: lucyCount } = await supabase
+    .from("pronox_lucy_signals").select("id", { count: "exact", head: true }).eq("pick_date", tomorrowStr);
+  const needPicks = (picksCount ?? 0) === 0;
+  const needLucy = (lucyCount ?? 0) === 0;
+
+  const collected = needPicks || needLucy ? await collectFootballSignals(tomorrowStr) : null;
+  const tomorrowPicks = await computeTomorrowPicks(tomorrowStr, collected);
+
+  let lucySignals = 0;
+  if (needLucy && collected) {
+    try { lucySignals = await saveLucySignals(tomorrowStr, collected); }
+    catch (e) { console.error("[lucy-signals] errore:", e); } // non deve mai bloccare l'email
+  }
 
   const { data: profiles } = await supabase
     .from("user_profiles")
@@ -753,6 +906,7 @@ export async function GET(request: Request) {
     ok: true,
     yesterdayVerified: yesterdayResults.length,
     tomorrowPicks: tomorrowPicks.length,
+    lucySignals,
     emailsSent: emailResult.sent,
     emailsFailed: emailResult.failed,
   });
