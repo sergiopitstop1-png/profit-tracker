@@ -149,6 +149,7 @@ const [lucyOddsCrediti, setLucyOddsCrediti] = useState(() => {
 const [lucyOddsCacheInfo, setLucyOddsCacheInfo] = useState(null)
 const [lucyPronoxDiag, setLucyPronoxDiag] = useState(null)
 const [lucyForzaQuote, setLucyForzaQuote] = useState(false)
+const [lucySync, setLucySync] = useState({ stato: 'init', msg: '' })
 const [lucyConfermate, setLucyConfermate] = useState(() => {
   try { return JSON.parse(localStorage.getItem('profittracker_lucy_confermate') || '[]') } catch { return [] }
 })
@@ -212,6 +213,7 @@ const [importReport, setImportReport] = useState(null)
   useEffect(() => {
   loadData()
 }, [])
+  useEffect(() => { caricaLucyDaSupabase() }, [])
 
 
 
@@ -1609,12 +1611,122 @@ function generaLucyLive(agendaItems = []) {
 
 
 
-function salvaLucyConfermate(next) {
-  setLucyConfermate(next)
-  try { localStorage.setItem('profittracker_lucy_confermate', JSON.stringify(next)) } catch {}
+// ── V31: storico Lucy su Supabase (tabelle lucy_bet_confermate e lucy_storico_giornate) ──
+// localStorage resta come copia locale veloce. La fonte di verità è Supabase: cambiando PC
+// lo storico e la rotazione dei conti ricompaiono da soli.
+async function lucyUserIdSync() {
+  const { data, error } = await supabase.auth.getUser()
+  if(error || !data?.user?.id) throw new Error('utente non autenticato')
+  return data.user.id
 }
 
-function lucyOggi() { return new Date().toISOString().slice(0,10) }
+async function leggiTuttoLucy(tabella, colonne, uid, ordine) {
+  const out=[]; const PAGE=1000
+  for(let p=0;p<50;p++){
+    let q=supabase.from(tabella).select(colonne).eq('user_id',uid)
+    ordine.forEach(c=>{ q=q.order(c,{ascending:true}) })
+    const { data, error } = await q.range(p*PAGE,p*PAGE+PAGE-1)
+    if(error) throw error
+    out.push(...(data||[]))
+    if(!data || data.length<PAGE) break
+  }
+  return out
+}
+
+async function scriviBlocchiLucy(tabella, righe, conflitto) {
+  for(let i=0;i<righe.length;i+=400){
+    const { error } = await supabase.from(tabella).upsert(righe.slice(i,i+400),{onConflict:conflitto})
+    if(error) throw error
+  }
+}
+
+function rigaBetLucy(uid,x) {
+  return { user_id:uid, key:x.key, data:x.data, tipo:x.tipo, book_id:String(x.bookId), creato:x.creato||new Date().toISOString(), rec:x }
+}
+function rigaGiornataLucy(uid,x) {
+  return { user_id:uid, id:String(x.id), data:x.data, creato:x.creato||new Date().toISOString(), rec:x }
+}
+
+async function caricaLucyDaSupabase() {
+  setLucySync({stato:'sync',msg:''})
+  try {
+    const uid=await lucyUserIdSync()
+    const ultimaSync=localStorage.getItem('profittracker_lucy_last_sync')||''
+    // Un record presente solo in locale viene caricato su Supabase se è nuovo (creato dopo l'ultima
+    // sincronizzazione di questo PC) oppure se questo PC non si è mai sincronizzato (migrazione).
+    // Se invece è vecchio e non è più su Supabase, è stato cancellato da un altro PC: si scarta.
+    const daCaricare=(x)=>!ultimaSync || String(x?.creato||'')>ultimaSync
+
+    const rowsBet=await leggiTuttoLucy('lucy_bet_confermate','key,rec',uid,['data','key'])
+    const keysDb=new Set(rowsBet.map(r=>r.key))
+    const soloLocaliBet=lucyConfermate.filter(x=>x?.key && !keysDb.has(x.key) && daCaricare(x))
+    if(soloLocaliBet.length) await scriviBlocchiLucy('lucy_bet_confermate',soloLocaliBet.map(x=>rigaBetLucy(uid,x)),'user_id,key')
+    const bet=[...rowsBet.map(r=>r.rec).filter(Boolean),...soloLocaliBet]
+
+    const rowsGio=await leggiTuttoLucy('lucy_storico_giornate','id,rec',uid,['data','id'])
+    const idsDb=new Set(rowsGio.map(r=>String(r.id)))
+    const soloLocaliGio=lucyStorico.filter(x=>x?.id && !idsDb.has(String(x.id)) && daCaricare(x))
+    if(soloLocaliGio.length) await scriviBlocchiLucy('lucy_storico_giornate',soloLocaliGio.map(x=>rigaGiornataLucy(uid,x)),'user_id,id')
+    const gio=[...rowsGio.map(r=>r.rec).filter(Boolean),...soloLocaliGio].sort((a,b)=>String(b.data).localeCompare(String(a.data)))
+
+    setLucyConfermate(bet); setLucyStorico(gio)
+    try {
+      localStorage.setItem('profittracker_lucy_confermate',JSON.stringify(bet))
+      localStorage.setItem('profittracker_lucy_storico',JSON.stringify(gio))
+      localStorage.setItem('profittracker_lucy_last_sync',new Date().toISOString())
+    } catch {}
+    setLucySync({stato:'ok',msg:''})
+  } catch(e) {
+    console.warn('[Lucy V31] sincronizzazione storico fallita:',e)
+    setLucySync({stato:'errore',msg:e?.message||String(e)})
+  }
+}
+
+async function sincronizzaLucyBet(prev,next) {
+  try {
+    const uid=await lucyUserIdSync()
+    const prevKeys=new Set(prev.map(x=>x.key)), nextKeys=new Set(next.map(x=>x.key))
+    const aggiunte=next.filter(x=>x?.key && !prevKeys.has(x.key))
+    const rimosse=prev.filter(x=>x?.key && !nextKeys.has(x.key)).map(x=>x.key)
+    if(aggiunte.length) await scriviBlocchiLucy('lucy_bet_confermate',aggiunte.map(x=>rigaBetLucy(uid,x)),'user_id,key')
+    for(let i=0;i<rimosse.length;i+=200){
+      const { error } = await supabase.from('lucy_bet_confermate').delete().eq('user_id',uid).in('key',rimosse.slice(i,i+200))
+      if(error) throw error
+    }
+    setLucySync({stato:'ok',msg:''})
+  } catch(e) {
+    console.warn('[Lucy V31] salvataggio bet su Supabase fallito:',e)
+    setLucySync({stato:'errore',msg:e?.message||String(e)})
+  }
+}
+
+async function sincronizzaLucyGiornate(prev,next) {
+  try {
+    const uid=await lucyUserIdSync()
+    const prevIds=new Set(prev.map(x=>String(x.id))), nextIds=new Set(next.map(x=>String(x.id)))
+    // una conferma successiva nello stesso giorno sostituisce la precedente: si riscrivono anche gli id nuovi
+    const aggiunte=next.filter(x=>x?.id && !prevIds.has(String(x.id)))
+    const rimosse=prev.filter(x=>x?.id && !nextIds.has(String(x.id))).map(x=>String(x.id))
+    if(aggiunte.length) await scriviBlocchiLucy('lucy_storico_giornate',aggiunte.map(x=>rigaGiornataLucy(uid,x)),'user_id,id')
+    for(let i=0;i<rimosse.length;i+=200){
+      const { error } = await supabase.from('lucy_storico_giornate').delete().eq('user_id',uid).in('id',rimosse.slice(i,i+200))
+      if(error) throw error
+    }
+    setLucySync({stato:'ok',msg:''})
+  } catch(e) {
+    console.warn('[Lucy V31] salvataggio giornata su Supabase fallito:',e)
+    setLucySync({stato:'errore',msg:e?.message||String(e)})
+  }
+}
+
+function salvaLucyConfermate(next) {
+  const prev=lucyConfermate
+  setLucyConfermate(next)
+  try { localStorage.setItem('profittracker_lucy_confermate', JSON.stringify(next)) } catch {}
+  sincronizzaLucyBet(prev,next)
+}
+
+function lucyOggi() { return new Date().toLocaleDateString('sv-SE') }
 
 function keyBetLucy(p,a,tipo='profilazione') {
   return `${lucyOggi()}|${p.home}|${p.away}|${p.mercato}|${a.book.id}|${a.esito}|${Number(a.stake||0).toFixed(2)}|${tipo}`
@@ -1669,8 +1781,10 @@ function costoZeroLiveOggi() {
 }
 
 function salvaLucyStorico(next) {
+  const prev=lucyStorico
   setLucyStorico(next)
   try { localStorage.setItem('profittracker_lucy_storico', JSON.stringify(next)) } catch {}
+  sincronizzaLucyGiornate(prev,next)
 }
 
 function confermaGiocateLucy() {
@@ -1693,11 +1807,11 @@ function confermaGiocateLucy() {
   }
   lucySportProposte.forEach((p,idx)=>{
     const nome=`${p.home} - ${p.away}`
-    ;(p.assegnazioni||[]).forEach(a=>aggiungi(a,'profilazione',nome))
+    ;(p.assegnazioni||[]).forEach(a=>aggiungi(a,a.tipoConto==='mantenimento'?'mantenimento':'profilazione',nome))
     ;(p.extraProfilazione||[]).forEach(a=>aggiungi(a,'extra',nome))
     ;(p.integrazioni||[]).forEach(a=>aggiungi(a,'mantenimento',nome))
   })
-  const oggi=new Date().toISOString().slice(0,10)
+  const oggi=lucyOggi()
   const record={
     id:`${Date.now()}`, data:oggi, creato:new Date().toISOString(),
     righe:[...righe.values()].sort((a,b)=>b.totale-a.totale),
@@ -1876,6 +1990,8 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
     const budgetTotale = variaBudgetGiornaliero(book, budgetBase)
     sportItems.push({
       book, azione, betRichieste, budgetBase, budgetTotale,
+      // V31: un conto in MANTENIMENTO con bet di protocollo oggi resta mantenimento (prima finiva etichettato PROFILAZIONE)
+      tipoConto: agenda?.tipo==='mantenimento' ? 'mantenimento' : 'profilazione',
       stakeVariabili: distribuisciStakeVariabili(book, betRichieste, budgetTotale),
       quotaMin: getQuotaMinSport(book, azione)
     })
@@ -2032,10 +2148,10 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
     // Ogni conto genera N "slot bet". Quindi Lottomatica 100€ su 3/4 bet compare su 4 partite diverse.
     // Le conferme della giornata diventano memoria operativa:
     // al secondo calcolo Lucy considera già eseguite quantità e numero di bet.
-    const giaFatte = confermateOggiLucy().filter(x=>x.tipo==='profilazione' || x.tipo==='extra')
+    const giaFatte = confermateOggiLucy().filter(x=>x.tipo==='profilazione' || x.tipo==='extra' || x.tipo==='mantenimento')
     sportItems.forEach(item=>{
       const fatteConto=giaFatte.filter(x=>x.bookId===item.book.id)
-      const nFatte=fatteConto.filter(x=>x.tipo==='profilazione').length
+      const nFatte=fatteConto.filter(x=>x.tipo==='profilazione' || (item.tipoConto==='mantenimento' && x.tipo==='mantenimento')).length
       const euroFatti=fatteConto.reduce((s,x)=>s+Number(x.stake||0),0)
       item.betGiaFatte=nFatte
       item.euroGiaFatti=euroFatti
@@ -2063,7 +2179,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
     // passano prima quelli in agenda oggi, poi quelli fermi da più tempo. I dormienti non entrano mai
     // (il pool contiene solo conti con livello mantenimento).
     const ultimoUsoMantLucy = new Map()
-    lucyConfermate.filter(x=>x.tipo==='mantenimento').forEach(x=>{
+    lucyConfermate.forEach(x=>{
       const cur=ultimoUsoMantLucy.get(x.bookId)||''
       if(String(x.data)>cur) ultimoUsoMantLucy.set(x.bookId,String(x.data))
     })
@@ -4958,6 +5074,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         <div style={{display:'flex',gap:10,flexWrap:'wrap',fontSize:10,color:'#94a3b8',marginBottom:8}}>
           <span>🧊 Cache quote: 15 min</span>
           <span style={{color:'#7dd3fc'}}>🧠 PronoX: feed server-side Supabase · automatico</span>
+          <span title={lucySync.msg||''} style={{color:lucySync.stato==='errore'?'#fca5a5':lucySync.stato==='ok'?'#86efac':'#94a3b8',fontWeight:800}}>
+            {lucySync.stato==='ok' ? `☁️ Storico Lucy su Supabase · ${lucyConfermate.length} bet` : lucySync.stato==='errore' ? `⚠️ Storico NON sincronizzato (solo su questo browser): ${lucySync.msg}` : '☁️ Sincronizzo lo storico…'}
+            <button onClick={()=>caricaLucyDaSupabase()} style={{marginLeft:6,background:'transparent',border:'1px solid #475569',color:'#cbd5e1',borderRadius:6,fontSize:10,padding:'1px 6px',cursor:'pointer'}}>↻</button>
+          </span>
           {lucyOddsCacheInfo && <span>{lucyOddsCacheInfo.status==='HIT' ? `✓ cache usata (${Math.floor((lucyOddsCacheInfo.age||0)/60)} min)` : lucyOddsCacheInfo.status==='REFRESH' ? '↻ aggiornamento manuale' : '↻ quote appena scaricate'}</span>}
           {lucyOddsCrediti?.remaining!=null && <span style={{color:Number(lucyOddsCrediti.remaining)<100?'#fca5a5':'#86efac',fontWeight:800}}>TheRundown: {lucyOddsCrediti.remaining} datapoint rimasti</span>}
           {lucyOddsCrediti?.last!=null && <span>ultima chiamata: {lucyOddsCrediti.last} datapoint</span>}
@@ -5085,7 +5205,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               <tbody>
                 {lucySportProposte.flatMap((p,pi)=>{
                   const rows=[
-                    ...(p.assegnazioni||[]).map(a=>({...a,tipoRiga:'PROFILAZIONE'})),
+                    ...(p.assegnazioni||[]).map(a=>({...a,tipoRiga:a.tipoConto==='mantenimento'?'MANT. PROTOCOLLO':'PROFILAZIONE'})),
                     ...(p.extraProfilazione||[]).map(a=>({...a,tipoRiga:'EXTRA PROF.'})),
                     ...(p.integrazioni||[]).map(a=>({...a,tipoRiga:'MANTENIMENTO'}))
                   ]
