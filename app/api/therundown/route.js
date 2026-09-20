@@ -1,5 +1,5 @@
 // app/api/therundown/route.js
-// V24 — TheRundown
+// V25 — TheRundown (alias ESP1/GER1/FRA1 per La Liga, Bundesliga, Ligue 1)
 //
 // Correzioni:
 // - ITA1 = Serie A
@@ -317,25 +317,53 @@ const LEAGUE_ALIASES = {
 
 
   // =======================================================
-  // NON PRESENTI ATTUALMENTE NEL CATALOGO
+  // LA LIGA / BUNDESLIGA / LIGUE 1
   //
-  // Li lasciamo riconoscibili, ma NON inventiamo sport_id.
-  // Se non esistono nel catalogo, la route restituisce 404.
+  // Sono NEL catalogo del tuo account, ma con il nome-codice:
+  //   ESP1 = La Liga (sport 14)
+  //   GER1 = Bundesliga (sport 13)
+  //   FRA1 = Ligue 1 (sport 12)
+  // Prima gli alias non contenevano questi codici e la ricerca
+  // per nome rispondeva "Campionato non trovato nel catalogo".
   // =======================================================
 
   laliga: [
+    "esp1",
+    "laliga",
+    "spanishlaliga",
+    "spainlaliga"
+  ],
+
+  esp1: [
+    "esp1",
     "laliga",
     "spanishlaliga",
     "spainlaliga"
   ],
 
   bundesliga: [
+    "ger1",
+    "bundesliga",
+    "germanbundesliga",
+    "germanybundesliga"
+  ],
+
+  ger1: [
+    "ger1",
     "bundesliga",
     "germanbundesliga",
     "germanybundesliga"
   ],
 
   ligue1: [
+    "fra1",
+    "ligue1",
+    "frenchligue1",
+    "franceligue1"
+  ],
+
+  fra1: [
+    "fra1",
     "ligue1",
     "frenchligue1",
     "franceligue1"
