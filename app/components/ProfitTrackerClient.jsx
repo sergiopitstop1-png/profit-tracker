@@ -141,6 +141,7 @@ const [lucySportNonCollocate, setLucySportNonCollocate] = useState([])
 const [lucyTabellaAperta, setLucyTabellaAperta] = useState(false)
 const [lucyLiveTabellaAperta, setLucyLiveTabellaAperta] = useState(false)
 const [lucyCostoMax, setLucyCostoMax] = useState(() => Number(localStorage.getItem('profittracker_lucy_costo_max') || 50))
+const [lucyCopMin, setLucyCopMin] = useState(() => { const v = Number(localStorage.getItem('profittracker_lucy_cop_min')); return v >= 50 && v <= 100 ? v : 85 })
 const [lucyRinviate, setLucyRinviate] = useState([])
 const [lucyOddsCrediti, setLucyOddsCrediti] = useState(() => {
   try { return JSON.parse(localStorage.getItem('profittracker_lucy_odds_crediti') || 'null') } catch { return null }
@@ -1742,57 +1743,70 @@ function normalizzaProbPronoxLucy(prob) {
   return n>1 ? Math.min(1,n/100) : Math.min(1,n)
 }
 
+// ── Parametri coperture di mantenimento (V29) ─────────────────────────────
+const LUCY_MANT_MIN = 5          // puntata minima su un conto di mantenimento
+const LUCY_MANT_MAX = 30         // puntata massima su un conto di mantenimento
+const LUCY_MANT_MAX_TOT = 90     // oltre questo buco totale: una sola puntata extra su un conto in profilazione
+const LUCY_MANT_RIPOSO_GG = 28   // giorni di riposo tra due usi dello stesso conto (soglia inattività 45)
+
+// Divide il totale in poche puntate intere tra 5 e 30 €: 83 -> 28+28+27, 23 -> 23, 31 -> 16+15.
+function pianoStakeMantenimentoLucy(totale) {
+  const tot=Math.round(Number(totale)||0)
+  if(tot<LUCY_MANT_MIN) return []
+  const n=Math.max(1,Math.ceil(tot/LUCY_MANT_MAX))
+  const base=Math.floor(tot/n)
+  const resto=tot-base*n
+  return Array.from({length:n},(_,i)=>base+(i<resto?1:0))
+}
+
+// Fattore di copertura in base alla probabilità (già mescolata col mercato).
+// "Copertura minima" (default 85%) è il livello raggiunto con probabilità >= 85%;
+// a 75% e 65% si riduce di 2/3 e 1/3 di quel massimo; sotto 65% copertura completa.
+// Con copertura minima = 100 PronoX non riduce mai nulla.
 function protezionePronoxLucy(prob, sport='calcio') {
   const p=normalizzaProbPronoxLucy(prob)
-  // Fasce operative iniziali derivate dallo storico PronoX verificato.
-  // Il 100% resta sempre disponibile in tabella; lucyCostoMax resta autoritativo.
-  if(String(sport).toLowerCase()==='tennis') {
-    if(p>=0.90) return 0.75
-    if(p>=0.80) return 0.80
-    if(p>=0.70) return 0.90
-    if(p>=0.60) return 0.95
-    return 1.00
-  }
-  // Calcio V2: più prudente finché la nuova calibrazione non accumula altro storico.
-  if(p>=0.85) return 0.85
-  if(p>=0.75) return 0.90
-  if(p>=0.65) return 0.95
-  return 1.00
+  const forza = p>=0.85 ? 1 : p>=0.75 ? 2/3 : p>=0.65 ? 1/3 : 0
+  const copMin = Math.min(1, Math.max(0.5, (Number(lucyCopMin)||85)/100))
+  return Math.round((1-(1-copMin)*forza)*1000)/1000
 }
 
 async function caricaFeedPronoxAutomaticoLucy(dataOggi) {
-  // Feed SERVER-SIDE: Lucy legge direttamente i pronostici salvati da PronoX.
-  // Nessun localStorage, iframe o avvio manuale di /oggi.
+  // V29: Lucy legge SOLO la tabella pronox_lucy_signals (tutti i segnali del modello corretto,
+  // con dati di affidabilità). pronox_daily_picks non viene più usata: conteneva i 5+3 pick
+  // dell'email, scelti per probabilità più alta, cioè proprio i valori più estremi del modello.
+  // Se la tabella non c'è o è vuota, Lucy resta neutra (coperture al 100%) e non si blocca.
   const { data, error } = await supabase
-    .from('pronox_daily_picks')
-    .select('id,pick_date,sport,league,home_team,away_team,match_time,prediction_label,probability,quota,status')
+    .from('pronox_lucy_signals')
+    .select('sport,league,home_team,away_team,match_time,market,selection,label,probability,clamped,odds_a,odds_b')
     .eq('pick_date', dataOggi)
-    .order('match_time', { ascending:true })
-
-  if(error) throw new Error(`Feed PronoX: ${error.message}`)
+    .eq('clamped', false)
+  if(error) {
+    console.warn('[Lucy V29] feed PronoX non leggibile:', error.message)
+    return {date:dataOggi,matches:[],source:'supabase',errore:error.message}
+  }
   const rows=Array.isArray(data)?data:[]
-  const key=r=>`${String(r.sport||'calcio').toLowerCase()}|${r.home_team||''}|${r.away_team||''}`
   const grouped=new Map()
   rows.forEach(r=>{
-    const k=key(r)
+    const sport=String(r.sport||'calcio').toLowerCase()
+    const k=`${sport}|${r.home_team||''}|${r.away_team||''}`
     if(!grouped.has(k)) grouped.set(k,{
-      sport:String(r.sport||'calcio').toLowerCase(), league:r.league||'',
-      home:r.home_team||'', away:r.away_team||'', time:r.match_time||'', signals:[]
+      sport, league:r.league||'', home:r.home_team||'', away:r.away_team||'', time:r.match_time||'',
+      signals:[], tennisOdds:null
     })
     const m=grouped.get(k)
-    const label=String(r.prediction_label||'').trim()
     const prob=normalizzaProbPronoxLucy(r.probability)
-    let type=''
-    if(m.sport==='tennis') type='TENNIS_ML'
-    else if(/UNDER 2\.5|OVER 2\.5/i.test(label)) type='OU25'
-    else if(/CASA VINCE|OSPITE VINCE/i.test(label)) type='1X2'
-    else if(/BTTS/i.test(label)) type='BTTS'
-    m.signals.push({type,label,prob,quota:Number(r.quota||0)||null,strong:prob>=0.80,isValue:false,source:'pronox_daily_picks'})
+    const type = r.market==='TENNIS_ML' ? 'TENNIS_ML' : r.market==='OU25' ? 'OU25' : '1X2'
+    m.signals.push({type,label:String(r.label||'').trim(),prob,strong:prob>=0.80,isValue:false,source:'pronox_lucy_signals'})
+    if(sport==='tennis' && Number(r.odds_a)>1 && Number(r.odds_b)>1) m.tennisOdds={a:Number(r.odds_a),b:Number(r.odds_b)}
   })
   return {date:dataOggi,matches:[...grouped.values()],source:'supabase'}
 }
 
-function segnalePronoxPerMercatoLucy(match, mercato) {
+// `esiti` = [[esito, quota], ...] del mercato con le quote reali dei book.
+// Senza quote reali non c'è segnale. La probabilità usata è 50% modello + 50% mercato
+// (quote depurate dal margine). Se il modello supera il mercato di oltre 30 punti il
+// segnale è considerato inaffidabile e Lucy resta neutra su quella partita.
+function segnalePronoxPerMercatoLucy(match, mercato, esiti) {
   if(!match) return null
   const sig=(match.signals||[]).filter(s=>Number(s?.prob)>0 && !s?.isSuspicious)
   let s=null, preferito=null
@@ -1807,7 +1821,16 @@ function segnalePronoxPerMercatoLucy(match, mercato) {
     if(s) preferito=String(s.label||'').replace(/\s+vince$/i,'').trim()
   }
   if(!s || !preferito) return null
-  return {label:s.label,prob:normalizzaProbPronoxLucy(s.prob),preferito,protezione:protezionePronoxLucy(s.prob,match.sport),strong:!!s.strong,isValue:!!s.isValue,sport:match.sport||'calcio'}
+
+  const pModello=normalizzaProbPronoxLucy(s.prob)
+  const inv=(Array.isArray(esiti)?esiti:[]).map(([e,q])=>[e,Number(q)>1?1/Number(q):0])
+  const totInv=inv.reduce((z,[,v])=>z+v,0)
+  const riga=inv.find(([e])=>e===preferito)
+  if(!riga || !(totInv>0) || !(riga[1]>0)) return null   // niente quota reale = niente segnale
+  const pMercato=riga[1]/totInv
+  if(pModello-pMercato>0.30) return null                  // divario incredibile: segnale inaffidabile
+  const prob=0.5*pModello+0.5*pMercato
+  return {label:s.label,prob,probModello:pModello,probMercato:pMercato,preferito,protezione:protezionePronoxLucy(prob,match.sport),strong:prob>=0.80,isValue:!!s.isValue,sport:match.sport||'calcio'}
 }
 
 async function generaLucySport(agendaItems = [], forzaQuote = false) {
@@ -1942,7 +1965,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
     const candidati=[]
     eventi.forEach(ev => ev.mercati.forEach(merc => {
       const pm=(pronoxFeed?.matches||[]).find(x=>x.sport==='calcio' && teamMatchLucy(x.home,ev.home) && teamMatchLucy(x.away,ev.away))
-      const pronox=segnalePronoxPerMercatoLucy(pm,merc.nome)
+      const pronox=segnalePronoxPerMercatoLucy(pm,merc.nome,merc.esiti)
       const inv = merc.esiti.reduce((s,[,q]) => s + (q ? 1/q : 99), 0)
       const dispersione = Math.max(...merc.esiti.map(x=>x[1])) - Math.min(...merc.esiti.map(x=>x[1]))
       // V28: se PronoX ha un segnale reale per questo mercato, l'evento deve venire PRIMA
@@ -1958,6 +1981,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
       feedCalcio:pronoxCalcioOggi.length,
       matchMercati:candidatiConPronox.length,
       eventiQuote:eventi.length,
+      feedErrore:pronoxFeed?.errore||'',
       picks:pronoxCalcioOggi.map(x=>`${x.home} - ${x.away}`),
       matched:[...new Set(candidatiConPronox.map(x=>`${x.home} - ${x.away} · ${x.mercato}`))]
     })
@@ -1973,8 +1997,8 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
     // SOLO quando PronoX le ha realmente disponibili: nessuna quota viene inventata.
     ;(pronoxFeed?.matches||[]).filter(x=>x.sport==='tennis' && x.tennisOdds?.a && x.tennisOdds?.b).forEach(tm=>{
       const merc='Tennis Vincente'
-      const pronox=segnalePronoxPerMercatoLucy(tm,merc)
       const esiti=[[tm.home,Number(tm.tennisOdds.a)],[tm.away,Number(tm.tennisOdds.b)]].filter(x=>x[1]>1)
+      const pronox=segnalePronoxPerMercatoLucy(tm,merc,esiti)
       if(esiti.length!==2) return
       const inv=esiti.reduce((z,[,q])=>z+1/q,0)
       candidati.push({lega:tm.league||'Tennis',home:tm.home,away:tm.away,ora:tm.time,mercato:merc,esiti,pronox,_provider:'PronoX Tennis',score:inv-(pronox?0.015:0)})
@@ -2010,11 +2034,28 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
       agendaItems.filter(x => String(x.agenda?.tipo || '').toLowerCase().includes('manten')).map(x => x.book.id)
     )
     const idsProfilazioneOggiLucy = new Set(sportItems.map(x=>x.book.id))
+    // V29: rotazione. Ultimo uso di ogni conto = ultima bet di mantenimento CONFERMATA in Lucy.
+    // Un conto usato meno di LUCY_MANT_RIPOSO_GG giorni fa non viene riproposto; tra i disponibili
+    // passano prima quelli in agenda oggi, poi quelli fermi da più tempo. I dormienti non entrano mai
+    // (il pool contiene solo conti con livello mantenimento).
+    const ultimoUsoMantLucy = new Map()
+    lucyConfermate.filter(x=>x.tipo==='mantenimento').forEach(x=>{
+      const cur=ultimoUsoMantLucy.get(x.bookId)||''
+      if(String(x.data)>cur) ultimoUsoMantLucy.set(x.bookId,String(x.data))
+    })
+    const giorniDaUsoMant = b => {
+      const d=ultimoUsoMantLucy.get(b.id)
+      return d ? Math.floor((new Date(dataOggi)-new Date(d))/86400000) : 9999
+    }
     const poolMantenimento = books
       .filter(b => b.profilo_livello && String(b.profilo_livello).startsWith('mantenimento'))
+      .filter(b => b.profilo_livello !== 'dormiente')
       .filter(b => !idsProfilazioneOggiLucy.has(b.id)) // mai PROF + MANT sullo stesso conto nello stesso giorno
-      .sort((a,b) => Number(idsMantOggi.has(b.id)) - Number(idsMantOggi.has(a.id)))
+      .filter(b => giorniDaUsoMant(b) > 0)             // già usato oggi: mai due volte
+      .filter(b => idsMantOggi.has(b.id) || giorniDaUsoMant(b) >= LUCY_MANT_RIPOSO_GG)
+      .sort((a,b) => (Number(idsMantOggi.has(b.id)) - Number(idsMantOggi.has(a.id))) || (giorniDaUsoMant(b) - giorniDaUsoMant(a)))
     const usoMant = new Set()
+    const usatiMantOggiLucy = new Set() // un conto di mantenimento = una sola bet al giorno
 
     const proposte=[]
     const eventiUsatiPerBook = new Map()
@@ -2115,30 +2156,31 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
         // anche l'importo neutro 100%, mostrato accanto all'importo suggerito.
         if(c.pronox?.preferito && r.esito!==c.pronox.preferito) necessario*=Number(c.pronox.protezione||1)
         const necessarioSuggerito=necessario
-        if(necessario < 2) return
+        if(necessario < LUCY_MANT_MIN) return
 
-        if(necessario <= 30){
-          // Esempio 27€ -> 10 + 10 + 7 su tre conti distinti di mantenimento.
-          while(necessario >= 2){
+        if(necessario <= LUCY_MANT_MAX_TOT){
+          // V29: puntate intere tra 5 e 30 €, il minor numero di conti possibile.
+          // Esempio 83€ -> 28 + 28 + 27 su tre conti di mantenimento distinti.
+          const pianoMant=pianoStakeMantenimentoLucy(necessario)
+          for(const stakeMant of pianoMant){
             const candidato=poolMantenimento.find(b=>{
               const k=`${b.id}|${c.home}|${c.away}`
               const bk=`${bookNomeKeyLucy(b)}|${c.home}|${c.away}`
               const esitoGia=esitoPerBookmakerEvento.get(bk)
-              return !contiProfilo.has(b.id) && !usoMant.has(k) && (!esitoGia || esitoGia===r.esito)
+              return !contiProfilo.has(b.id) && !usoMant.has(k) && !usatiMantOggiLucy.has(b.id) && (!esitoGia || esitoGia===r.esito)
             })
             if(!candidato) break
-            const stakeMant = necessario > 10 ? 10 : Math.max(2,Math.round(necessario*100)/100)
             integrazioni.push({
               book:candidato,esito:r.esito,quota:r.quota,stake:stakeMant,
               coperturaSuggeritaTotale:necessarioSuggerito,copertura100Totale:necessario100,
               giaInAgenda:idsMantOggi.has(candidato.id)
             })
             usoMant.add(`${candidato.id}|${c.home}|${c.away}`)
+            usatiMantOggiLucy.add(candidato.id)
             esitoPerBookmakerEvento.set(`${bookNomeKeyLucy(candidato)}|${c.home}|${c.away}`, r.esito)
-            necessario-=stakeMant
           }
         } else {
-          // Buco >30€: una sola puntata extra di Profilazione, invece di 4+ mantenimenti.
+          // Buco > LUCY_MANT_MAX_TOT: una sola puntata extra di Profilazione, invece di una lunga catena di mantenimenti.
           // Deve essere un conto di profilazione che NON è già stato usato su questa partita,
           // così resta valida la regola "un conto = un solo esito per evento".
           const candidatiExtra = sportItems
@@ -4849,6 +4891,14 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 style={{width:70,background:'#020617',color:'#f8fafc',border:'1px solid #475569',borderRadius:6,padding:'5px 6px',fontWeight:900,textAlign:'right'}} />
               <span style={{fontSize:11,color:'#cbd5e1'}}>€</span>
             </div>
+            <div title="Livello minimo di copertura quando PronoX è molto sicuro (probabilità ≥ 85%). 100 = copertura sempre completa, PronoX non riduce nulla."
+              style={{display:'flex',alignItems:'center',gap:6,background:'rgba(15,23,42,.75)',border:'1px solid #334155',borderRadius:9,padding:'5px 8px'}}>
+              <span style={{fontSize:10,color:'#94a3b8',fontWeight:800}}>🛡️ COPERTURA MIN</span>
+              <input type="number" min="50" max="100" step="5" value={lucyCopMin}
+                onChange={e=>{const v=Math.min(100,Math.max(50,Number(e.target.value)||100));setLucyCopMin(v);try{localStorage.setItem('profittracker_lucy_cop_min',String(v))}catch{}}}
+                style={{width:60,background:'#020617',color:'#f8fafc',border:'1px solid #475569',borderRadius:6,padding:'5px 6px',fontWeight:900,textAlign:'right'}} />
+              <span style={{fontSize:11,color:'#cbd5e1'}}>%</span>
+            </div>
 {confermateOggiLucy().length>0 && (
               <button onClick={azzeraConfermeOggiLucy}
                 style={{background:'#7f1d1d',color:'#fecaca',border:'1px solid #991b1b',borderRadius:8,padding:'7px 9px',fontSize:9,fontWeight:900,cursor:'pointer'}}
@@ -4883,7 +4933,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             border:lucyPronoxDiag.matchMercati>0?'1px solid rgba(16,185,129,.35)':'1px solid rgba(245,158,11,.35)',
             color:lucyPronoxDiag.matchMercati>0?'#86efac':'#fbbf24'}}>
             🧠 PronoX server: {lucyPronoxDiag.feedCalcio} pronostici calcio oggi · {lucyPronoxDiag.matchMercati} mercati abbinati alle partite con quote.
-            {lucyPronoxDiag.feedCalcio>0 && lucyPronoxDiag.matchMercati===0 ? ' Nessun segnale PronoX è utilizzabile nelle partite/mercati attualmente disponibili: Lucy resta neutra al 100%.' : ''}
+            {lucyPronoxDiag.feedErrore ? ` Tabella segnali non leggibile (${lucyPronoxDiag.feedErrore}): Lucy resta neutra, coperture al 100%.` : lucyPronoxDiag.feedCalcio===0 ? ' Nessun segnale PronoX per oggi: Lucy resta neutra, coperture al 100%.' : lucyPronoxDiag.matchMercati===0 ? ' Nessun segnale PronoX è utilizzabile nelle partite/mercati con quote: Lucy resta neutra al 100%.' : ''}
           </div>
         )}
         {lucySportError && <div style={{ color:'#fbbf24', fontSize:12, padding:'8px 10px', background:'rgba(251,191,36,0.08)', borderRadius:9 }}>{lucySportError}</div>}
@@ -5011,7 +5061,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                       <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:900,textAlign:'center',whiteSpace:'nowrap'}}>{p.orario||'—'}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,whiteSpace:'nowrap'}}>{p.mercato||p.market||''}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:900,color:p.pronox?'#0f766e':'#64748b',whiteSpace:'nowrap'}}>{p.pronox?.preferito||'—'}</td>
-                      <td style={{border:'1px solid #cbd5e1',padding:6,textAlign:'right',fontWeight:800}}>{p.pronox?`${(p.pronox.prob*100).toFixed(1)}%`:'—'}</td>
+                      <td style={{border:'1px solid #cbd5e1',padding:6,textAlign:'right',fontWeight:800}}><span title={p.pronox?`modello ${(p.pronox.probModello*100).toFixed(1)}% · mercato ${(p.pronox.probMercato*100).toFixed(1)}%`:''}>{p.pronox?`${(p.pronox.prob*100).toFixed(1)}%`:'—'}</span></td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,textAlign:'center',fontWeight:900,color:p.pronox&&p.pronox.protezione<1?'#b45309':'#475569'}}>{p.pronox?`${Math.round(p.pronox.protezione*100)}%`:'100%'}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,textAlign:'right',fontWeight:900,color:'#b45309'}}>{a.coperturaSuggeritaTotale!=null?`${Number(a.coperturaSuggeritaTotale).toFixed(2)} €`:'—'}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,textAlign:'right',fontWeight:900,color:'#166534'}}>{a.copertura100Totale!=null?`${Number(a.copertura100Totale).toFixed(2)} €`:'—'}</td>
