@@ -696,6 +696,18 @@ export default function Oggi() {
     setProgress("");
   };
 
+  // Modalità Lucy automatica: ProfitTracker apre PronoX invisibilmente sullo
+  // stesso dominio. Il motore reale di PronoX calcola e pubblica il feed,
+  // senza che Sergio debba aprire o avviare manualmente questa pagina.
+  useEffect(() => {
+    try {
+      const qs=new URLSearchParams(window.location.search);
+      if(qs.get('lucy_auto')==='1') load();
+    } catch {}
+    // Esecuzione una sola volta al mount della pagina nascosta.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const saveSignal = async (match, signal) => {
     const key = `${match.id}_${signal.label}`;
     setSavingId(key);
