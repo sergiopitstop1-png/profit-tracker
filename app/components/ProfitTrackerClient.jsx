@@ -157,6 +157,7 @@ const [lucyOddsCacheInfo, setLucyOddsCacheInfo] = useState(null)
 const [lucyPronoxDiag, setLucyPronoxDiag] = useState(null)
 const [lucyForzaQuote, setLucyForzaQuote] = useState(false)
 const [lucySync, setLucySync] = useState({ stato: 'init', msg: '' })
+const [lucyRecuperi, setLucyRecuperi] = useState([])
 const [lucyConfermate, setLucyConfermate] = useState(() => {
   try { return JSON.parse(localStorage.getItem('profittracker_lucy_confermate') || '[]') } catch { return [] }
 })
@@ -1755,6 +1756,27 @@ function segnaMovimentatoLucy(book) {
   salvaLucyConfermate([...lucyConfermate,rec])
 }
 
+// V33 — RECUPERI. Ogni volta che prepari gli incroci, Lucy salva su Supabase le bet di PROFILAZIONE attese
+// per quel giorno (tabella lucy_bet_attese). Il giorno dopo, quelle non confermate vengono riproposte per
+// LUCY_RECUPERO_MAX_GG giorni. "Fatta" non si segna: si deduce dalle bet confermate in Lucy (la k-esima bet
+// confermata del giorno copre la bet numero k) o dalla conferma della riga di recupero. Le bet di mantenimento
+// non servono: restano in agenda finché non le movimenti (V32).
+function calcolaRecuperiLucy(righe, dataOggi) {
+  const out=[]
+  ;(righe||[]).forEach(r=>{
+    if(!r || r.data>=dataOggi) return
+    if(giorniTraLucy(r.data,dataOggi)>LUCY_RECUPERO_MAX_GG) return
+    const book=books.find(b=>String(b.id)===String(r.book_id))
+    if(!book || book.profilo_livello!=='attivo') return          // ciclo finito o conto cambiato di stato
+    const fatte=lucyConfermate.filter(x=>String(x?.bookId)===String(r.book_id) && x.data===r.data && x.tipo==='profilazione' && !x.recupero).length
+    if(fatte>=Number(r.bet_numero)) return                        // già coperta dalle bet confermate quel giorno
+    if(lucyConfermate.some(x=>x?.recuperoKey===r.key)) return     // già recuperata
+    out.push({ key:r.key, dataOrigine:r.data, book, betNumero:Number(r.bet_numero), betRichieste:Number(r.bet_richieste)||null,
+      stake:Number(r.stake)||0, budgetTotale:Number(r.budget_totale)||0, azione:r.azione||'' })
+  })
+  return out
+}
+
 // Riepilogo della "rete 60 giorni" sui conti in mantenimento
 function riepilogoMantenimento60Lucy() {
   const mant=books.filter(b=>b.profilo_livello && String(b.profilo_livello).startsWith('mantenimento'))
@@ -1789,7 +1811,8 @@ function confermaSingolaBetLucy(p,a,tipo='profilazione') {
     bookId:a.book.id,book:a.book.nome,intestatario:a.book.intestatario,
     partita:`${p.home} - ${p.away}`,orario:p.orario||'—',mercato:p.mercato,esito:a.esito,
     stake:Number(a.stake||0),quota:Number(a.quota||0),
-    betNumero:a.betNumero||null,betRichieste:a.betRichieste||null
+    betNumero:a.betNumero||null,betRichieste:a.betRichieste||null,
+    recupero:!!a.recupero,recuperoKey:a.recuperoKey||null,dataOrigine:a.dataOrigine||null
   }
   salvaLucyConfermate([...lucyConfermate,rec])
 }
@@ -1910,6 +1933,7 @@ function normalizzaProbPronoxLucy(prob) {
 const LUCY_MANT_MIN = 5          // puntata minima su un conto di mantenimento
 const LUCY_MANT_MAX = 30         // puntata massima su un conto di mantenimento
 const LUCY_MANT_MAX_TOT = 90     // oltre questo buco totale: una sola puntata extra su un conto in profilazione
+const LUCY_RECUPERO_MAX_GG = 3     // V33: per quanti giorni una bet arretrata di profilazione viene ancora riproposta
 const LUCY_MANT_RIPOSO_GG = 28   // giorni di riposo tra due usi dello stesso conto (soglia inattività 45)
 
 // V30: assegnazione degli esiti ai conti di profilazione a COSTO MINIMO (solo senza segnale PronoX).
@@ -2197,7 +2221,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
     // Ogni conto genera N "slot bet". Quindi Lottomatica 100€ su 3/4 bet compare su 4 partite diverse.
     // Le conferme della giornata diventano memoria operativa:
     // al secondo calcolo Lucy considera già eseguite quantità e numero di bet.
-    const giaFatte = confermateOggiLucy().filter(x=>x.tipo==='profilazione' || x.tipo==='extra' || x.tipo==='mantenimento')
+    const giaFatte = confermateOggiLucy().filter(x=>!x.recupero && (x.tipo==='profilazione' || x.tipo==='extra' || x.tipo==='mantenimento'))
     sportItems.forEach(item=>{
       const fatteConto=giaFatte.filter(x=>x.bookId===item.book.id)
       const nFatte=fatteConto.filter(x=>x.tipo==='profilazione' || (item.tipoConto==='mantenimento' && x.tipo==='mantenimento')).length
@@ -2217,6 +2241,36 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
         slot.push({ ...item, betNumero:item.betGiaFatte+i+1, importoIndicativo:item.stakeVariabili[i] })
       }
     })
+
+    // V33: 1) salva le bet di profilazione attese oggi; 2) riprende quelle arretrate dei giorni scorsi.
+    // Se la tabella non esiste o Supabase non risponde Lucy va avanti senza recuperi.
+    let recuperi=[]
+    try {
+      const uidR=await lucyUserIdSync()
+      const attese=slot.filter(s=>!s.recupero && s.tipoConto!=='mantenimento').map(s=>({
+        user_id:uidR, key:`${dataOggi}|${s.book.id}|${s.betNumero}`, data:dataOggi, book_id:String(s.book.id),
+        bet_numero:s.betNumero, bet_richieste:s.betRichieste||null, stake:Number(s.importoIndicativo||0),
+        budget_totale:Number(s.budgetTotale||0), azione:s.azione||'', rec:{book:s.book.nome,intestatario:s.book.intestatario}
+      }))
+      if(attese.length) {
+        const { error:errW } = await supabase.from('lucy_bet_attese').upsert(attese,{onConflict:'user_id,key',ignoreDuplicates:true})
+        if(errW) throw errW
+      }
+      const { data:righeAttese, error:errR } = await supabase.from('lucy_bet_attese')
+        .select('key,data,book_id,bet_numero,bet_richieste,stake,budget_totale,azione')
+        .gte('data',aggiungiGiorniLucy(dataOggi,-LUCY_RECUPERO_MAX_GG)).lt('data',dataOggi)
+      if(errR) throw errR
+      recuperi=calcolaRecuperiLucy(righeAttese,dataOggi)
+    } catch(e) {
+      console.warn('[Lucy V33] recuperi non disponibili:',e?.message||e)
+    }
+    setLucyRecuperi(recuperi.map(r=>({book:r.book.nome,intestatario:r.book.intestatario,dataOrigine:r.dataOrigine,stake:r.stake})))
+    slot.unshift(...recuperi.map(r=>({
+      book:r.book, azione:r.azione||'Recupero', betRichieste:r.betRichieste, betNumero:r.betNumero,
+      budgetBase:r.budgetTotale, budgetTotale:r.budgetTotale, stakeVariabili:[r.stake], importoIndicativo:r.stake,
+      quotaMin:getQuotaMinSport(r.book,r.azione||''), tipoConto:'profilazione',
+      recupero:true, recuperoKey:r.key, dataOrigine:r.dataOrigine
+    })))
 
     // Filler: conti in Mantenimento. Priorità a quelli già in agenda oggi.
     const idsMantOggi = new Set(
@@ -2289,7 +2343,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
 
       // Rimuove dal pool gli slot scelti.
       gruppo.forEach(g => {
-        const idx = slot.findIndex(s => s.book.id===g.book.id && s.betNumero===g.betNumero)
+        const idx = slot.indexOf(g)
         if (idx >= 0) slot.splice(idx,1)
       })
 
@@ -5141,6 +5195,11 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           {lucyOddsCrediti?.remaining!=null && <span style={{color:Number(lucyOddsCrediti.remaining)<100?'#fca5a5':'#86efac',fontWeight:800}}>TheRundown: {lucyOddsCrediti.remaining} datapoint rimasti</span>}
           {lucyOddsCrediti?.last!=null && <span>ultima chiamata: {lucyOddsCrediti.last} datapoint</span>}
         </div>
+        {lucyRecuperi.length>0 && (
+          <div style={{fontSize:10,marginBottom:8,padding:'7px 9px',borderRadius:8,background:'rgba(249,115,22,.10)',border:'1px solid rgba(249,115,22,.40)',color:'#fdba74'}}>
+            ↩️ {lucyRecuperi.length} bet arretrate riproposte (max {LUCY_RECUPERO_MAX_GG} giorni): {lucyRecuperi.map(r=>`${r.book} · ${r.intestatario} (dal ${String(r.dataOrigine).slice(5).split('-').reverse().join('/')}, ~${Math.round(r.stake)}€)`).join(' — ')}
+          </div>
+        )}
         {lucyPronoxDiag && (
           <div style={{fontSize:10,marginBottom:8,padding:'7px 9px',borderRadius:8,
             background:lucyPronoxDiag.matchMercati>0?'rgba(16,185,129,.10)':'rgba(245,158,11,.10)',
@@ -5264,7 +5323,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               <tbody>
                 {lucySportProposte.flatMap((p,pi)=>{
                   const rows=[
-                    ...(p.assegnazioni||[]).map(a=>({...a,tipoRiga:a.tipoConto==='mantenimento'?'MANT. PROTOCOLLO':'PROFILAZIONE'})),
+                    ...(p.assegnazioni||[]).map(a=>({...a,tipoRiga:a.recupero?'RECUPERO PROF.':a.tipoConto==='mantenimento'?'MANT. PROTOCOLLO':'PROFILAZIONE'})),
                     ...(p.extraProfilazione||[]).map(a=>({...a,tipoRiga:'EXTRA PROF.'})),
                     ...(p.integrazioni||[]).map(a=>({...a,tipoRiga:'MANTENIMENTO'}))
                   ]
@@ -5281,7 +5340,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                       <td style={{border:'1px solid #cbd5e1',padding:6,textAlign:'right',fontWeight:900,color:'#166534'}}>{a.copertura100Totale!=null?`${Number(a.copertura100Totale).toFixed(2)} €`:'—'}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:800}}>{a.book.nome}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,whiteSpace:'nowrap'}}>{a.book.intestatario}</td>
-                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:800}}>{a.tipoRiga}</td>
+                      <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:800}}>{a.tipoRiga}{a.recupero&&a.dataOrigine?<div style={{fontSize:9,color:'#b45309'}}>dal {String(a.dataOrigine).slice(5).split('-').reverse().join('/')}</div>:null}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:900}}>{a.esito}</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,fontWeight:900,textAlign:'right'}}>{Number(a.stake||0).toFixed(2)} €</td>
                       <td style={{border:'1px solid #cbd5e1',padding:6,textAlign:'right'}}>{Number(a.quota||0).toFixed(2)}</td>
@@ -5291,7 +5350,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                       </td>
                       <td style={{border:'1px solid #cbd5e1',padding:5,whiteSpace:'nowrap'}}>
                         {(()=>{
-                          const tipo=a.tipoRiga==='PROFILAZIONE'?'profilazione':a.tipoRiga==='EXTRA PROF.'?'extra':'mantenimento'
+                          const tipo=(a.tipoRiga==='PROFILAZIONE'||a.tipoRiga==='RECUPERO PROF.')?'profilazione':a.tipoRiga==='EXTRA PROF.'?'extra':'mantenimento'
                           const k=keyBetLucy(p,a,tipo), ok=lucyConfermate.some(x=>x.key===k)
                           return ok
                             ? <button onClick={()=>annullaSingolaBetLucy(k)} style={{background:'#16a34a',color:'white',border:0,borderRadius:6,padding:'5px 7px',fontSize:9,fontWeight:900,cursor:'pointer'}}>✓ FATTA</button>
