@@ -160,6 +160,11 @@ const [lucySync, setLucySync] = useState({ stato: 'init', msg: '' })
 const [lucyRecuperi, setLucyRecuperi] = useState([])
 const [lucyQuoteManuali, setLucyQuoteManuali] = useState({})
 const [lucyTabFiltro, setLucyTabFiltro] = useState('tutte')
+// V55 — vista della scheda Profilazione: 'operativa' (pulita, di default) o 'completa' (come prima)
+const [lucyVista, setLucyVista] = useState(() => { try { return localStorage.getItem('profittracker_vista_profilazione') === 'completa' ? 'completa' : 'operativa' } catch { return 'operativa' } })
+const [gestioneContiAperta, setGestioneContiAperta] = useState(false)
+const [impostazioniLucyAperte, setImpostazioniLucyAperte] = useState(false)
+const [mostraLegendaMant, setMostraLegendaMant] = useState(false)
 const [lucyTabSport, setLucyTabSport] = useState('tutti')
 const [lucyConfermate, setLucyConfermate] = useState(() => {
   try { return JSON.parse(localStorage.getItem('profittracker_lucy_confermate') || '[]') } catch { return [] }
@@ -225,6 +230,8 @@ const [importReport, setImportReport] = useState(null)
   loadData()
 }, [])
   useEffect(() => { caricaLucyDaSupabase() }, [])
+  // V55: il messaggio "Transazione eseguita correttamente" sparisce da solo dopo pochi secondi
+  useEffect(() => { if (!message) return; const t = setTimeout(() => setMessage(''), 4500); return () => clearTimeout(t) }, [message])
 
 
 
@@ -2106,6 +2113,11 @@ function bloccoIncrocioLucy(p, pi, numero) {
       )}
     </div>
   )
+}
+
+function cambiaVistaProfilazione(v) {
+  setLucyVista(v)
+  try { localStorage.setItem('profittracker_vista_profilazione', v) } catch {}
 }
 
 function keyBetLucy(p,a,tipo='profilazione') {
@@ -5701,19 +5713,120 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           <h2 style={sectionTitle}>Profilazione</h2>
           <p style={sectionDescription}>Gestisci il livello di profilazione per ogni account bookmaker</p>
         </div>
-        <button style={{ ...tinyBlueButton, fontSize: 13, padding: '8px 16px' }} onClick={() => setShowAgendaPopup(true)}>📋 Agenda di oggi</button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div title="Operativa = solo ciò che serve ogni giorno · Completa = tutte le schede di Lucy, i riepiloghi e l'elenco conti"
+            style={{ display: 'flex', border: '1px solid rgba(56,189,248,0.45)', borderRadius: 9, overflow: 'hidden' }}>
+            {[['operativa', 'Operativa'], ['completa', 'Completa']].map(([v, t]) => (
+              <button key={v} onClick={() => cambiaVistaProfilazione(v)}
+                style={{ background: lucyVista === v ? 'rgba(56,189,248,0.28)' : 'transparent', color: lucyVista === v ? '#e0f2fe' : '#94a3b8', border: 0, padding: '7px 12px', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>{t}</button>
+            ))}
+          </div>
+          {lucyVista === 'completa' && <button style={{ ...tinyBlueButton, fontSize: 13, padding: '8px 16px' }} onClick={() => setShowAgendaPopup(true)}>📋 Agenda di oggi</button>}
+        </div>
+
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+      {/* V55 — VISTA OPERATIVA: solo ciò che serve ogni giorno */}
+      {lucyVista === 'operativa' && (() => {
+        const cont = lucySportProposte.reduce((s, p, pi) => { const { dettagli } = righeIncrocioLucy(p, pi); return { tot: s.tot + dettagli.length, fatte: s.fatte + dettagli.filter(d => d.ok).length } }, { tot: 0, fatte: 0 })
+        const rete = riepilogoMantenimento60Lucy()
+        const cicli = riepilogoPostCicloLucy()
+        const problemi = []
+        if (rete.scaduti > 0) problemi.push(`${rete.scaduti} conti in mantenimento scaduti (≥${MANT_LIMITE_GG} gg)`)
+        if (cicli.daRiavviare > 0) problemi.push(`${cicli.daRiavviare} cicli di profilazione da riavviare`)
+        if (lucySync.stato === 'errore') problemi.push('storico Lucy non sincronizzato')
+        if (lucyOddsCrediti?.remaining != null && Number(lucyOddsCrediti.remaining) < 100) problemi.push('datapoint TheRundown quasi finiti')
+        if (lucyPronoxDiag?.erroriQuote?.length) problemi.push('quote mancanti per alcune leghe')
+        const avvisi = []
+        if (cicli.fineCiclo > 0) avvisi.push(`${cicli.fineCiclo} conti a fine ciclo: controlla le riservate`)
+        if (rete.daFare > 0) avvisi.push(`${rete.daFare} conti in mantenimento da movimentare`)
+        const colore = problemi.length ? '#ef4444' : (avvisi.length ? '#f59e0b' : '#22c55e')
+        const testoColore = problemi.length ? '#fca5a5' : (avvisi.length ? '#fcd34d' : '#86efac')
+        const testoStato = problemi.length ? problemi.join(' · ') : (avvisi.length ? avvisi.join(' · ') : 'Tutto in regola')
+        const btn = (bg, attivo = true) => ({ background: attivo ? bg : '#334155', color: 'white', border: 0, borderRadius: 10, padding: '10px 14px', fontSize: 12, fontWeight: 900, cursor: attivo ? 'pointer' : 'default', opacity: attivo ? 1 : 0.7 })
+        const campo = { display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(15,23,42,.75)', border: '1px solid #334155', borderRadius: 9, padding: '5px 8px' }
+        const inputNum = { background: '#020617', color: '#f8fafc', border: '1px solid #475569', borderRadius: 6, padding: '5px 6px', fontWeight: 900, textAlign: 'right' }
+        return (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <button style={btn('#2563eb')} onClick={() => setShowAgendaPopup(true)}>📋 Agenda di oggi · {agendaOggi.length}</button>
+              <button style={btn('#0ea5e9', !lucySportLoading)} disabled={lucySportLoading} onClick={() => generaLucySport(agendaOggi, false)}>{lucySportLoading ? '⏳ Lucy sta calcolando…' : '⚽ Prepara incroci'}</button>
+              <button style={btn('#0f766e', lucySportProposte.length > 0)} disabled={!lucySportProposte.length} onClick={() => setLucyTabellaAperta(true)}>📊 Tabella bet{lucySportProposte.length ? ` · ${cont.fatte}/${cont.tot} fatte` : ''}</button>
+              <button style={btn('#7c3aed', lucyLiveProposte.length > 0)} disabled={!lucyLiveProposte.length} onClick={() => setLucyLiveTabellaAperta(true)}>🎰 Tabella Live{lucyLiveProposte.length ? ` · ${lucyLiveProposte.length}` : ''}</button>
+              <button style={btn('#16a34a', lucySportProposte.length > 0)} disabled={!lucySportProposte.length} onClick={confermaGiocateLucy}>✓ Conferma e archivia</button>
+              <button title="Impostazioni e dettagli di Lucy" onClick={() => setImpostazioniLucyAperte(v => !v)} style={{ ...btn('#334155'), marginLeft: 'auto', padding: '10px 12px' }}>⚙️</button>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 9, fontSize: 12, color: '#cbd5e1' }}>
+              <span style={{ width: 10, height: 10, borderRadius: 99, background: colore, display: 'inline-block' }} />
+              <span style={{ fontWeight: 700, color: testoColore }}>{testoStato}</span>
+              {lucySportProposte.length > 0 && <span style={{ color: '#64748b' }}>· {lucySportProposte.length} {lucySportProposte.length === 1 ? 'incrocio pronto' : 'incroci pronti'} · costo teorico {Math.abs(costoTeoricoSportOggi()).toFixed(2)}€ / max {Number(lucyCostoMax).toFixed(0)}€</span>}
+              <button onClick={() => setMostraLegendaMant(v => !v)} style={{ marginLeft: 'auto', background: 'transparent', border: '1px solid rgba(100,116,139,.6)', color: '#94a3b8', borderRadius: 8, fontSize: 11, padding: '2px 8px', cursor: 'pointer' }}>ℹ️ regole mantenimento</button>
+            </div>
+            {impostazioniLucyAperte && (
+              <div style={{ marginTop: 9, padding: '10px 12px', borderRadius: 10, background: 'rgba(15,23,42,.75)', border: '1px solid #334155', display: 'flex', flexDirection: 'column', gap: 9 }}>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <div style={campo}>
+                    <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 800 }}>💰 COSTO MAX OGGI</span>
+                    <input type="number" min="0" step="5" value={lucyCostoMax}
+                      onChange={e => { const v = Math.max(0, Number(e.target.value) || 0); setLucyCostoMax(v); try { localStorage.setItem('profittracker_lucy_costo_max', String(v)) } catch {} }}
+                      style={{ ...inputNum, width: 70 }} />
+                    <span style={{ fontSize: 11, color: '#cbd5e1' }}>€</span>
+                  </div>
+                  <div style={campo} title="Livello minimo di copertura quando PronoX è molto sicuro (probabilità ≥ 85%). 100 = copertura sempre completa, PronoX non riduce nulla.">
+                    <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 800 }}>🛡️ COPERTURA MIN</span>
+                    <input type="number" min="50" max="100" step="5" value={lucyCopMin}
+                      onChange={e => { const v = Math.min(100, Math.max(50, Number(e.target.value) || 100)); setLucyCopMin(v); try { localStorage.setItem('profittracker_lucy_cop_min', String(v)) } catch {} }}
+                      style={{ ...inputNum, width: 60 }} />
+                    <span style={{ fontSize: 11, color: '#cbd5e1' }}>%</span>
+                  </div>
+                  <button disabled={lucySportLoading} onClick={() => generaLucySport(agendaOggi, true)}
+                    title="Ignora la cache di 15 minuti e richiede nuove quote a TheRundown: usa nuovi datapoint"
+                    style={{ background: '#7c3aed', color: 'white', border: 0, borderRadius: 9, padding: '8px 11px', fontSize: 11, fontWeight: 900, cursor: lucySportLoading ? 'default' : 'pointer', opacity: lucySportLoading ? 0.6 : 1 }}>🔄 Aggiorna quote</button>
+                  {confermateOggiLucy().length > 0 && (
+                    <button onClick={azzeraConfermeOggiLucy} title="Cancella solo la memoria operativa delle bet confermate oggi"
+                      style={{ background: '#7f1d1d', color: '#fecaca', border: '1px solid #991b1b', borderRadius: 8, padding: '8px 10px', fontSize: 11, fontWeight: 900, cursor: 'pointer' }}>↺ Azzera conferme oggi</button>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 11, color: '#94a3b8' }}>
+                  <span title={lucySync.msg || ''} style={{ color: lucySync.stato === 'errore' ? '#fca5a5' : lucySync.stato === 'ok' ? '#86efac' : '#94a3b8', fontWeight: 800 }}>
+                    {lucySync.stato === 'ok' ? `☁️ Storico Lucy su Supabase · ${lucyConfermate.length} bet` : lucySync.stato === 'errore' ? `⚠️ Storico NON sincronizzato: ${lucySync.msg}` : '☁️ Sincronizzo lo storico…'}
+                    <button onClick={() => caricaLucyDaSupabase()} style={{ marginLeft: 6, background: 'transparent', border: '1px solid #475569', color: '#cbd5e1', borderRadius: 6, fontSize: 10, padding: '1px 6px', cursor: 'pointer' }}>↻</button>
+                  </span>
+                  <span>🧊 Cache quote: 15 min</span>
+                  {lucyOddsCrediti?.remaining != null && <span style={{ color: Number(lucyOddsCrediti.remaining) < 100 ? '#fca5a5' : '#86efac', fontWeight: 800 }}>TheRundown: {lucyOddsCrediti.remaining} datapoint rimasti</span>}
+                  {lucyOddsCrediti?.last != null && <span>ultima chiamata: {lucyOddsCrediti.last} datapoint</span>}
+                  {lucySportAggiornato && <span>ultimo calcolo: {lucySportAggiornato.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span>}
+                </div>
+                {lucyPronoxDiag && (
+                  <div style={{ fontSize: 11, color: '#93c5fd' }}>
+                    {lucyPronoxDiag.erroriQuote?.length > 0 && <div style={{ color: '#fdba74', marginBottom: 3 }}>⚠️ Quote non disponibili per: {lucyPronoxDiag.erroriQuote.join(' · ')}</div>}
+                    🧠 PronoX: {lucyPronoxDiag.feedCalcio} pronostici calcio · {lucyPronoxDiag.matchMercati} mercati abbinati · 🎾 tennis con quote: {lucyPronoxDiag.tennisRd ?? 0} · 🏟️ altri sport con quote: {lucyPronoxDiag.altriSport ?? 0}
+                    {lucyPronoxDiag.feedErrore ? ` · segnali non leggibili (${lucyPronoxDiag.feedErrore})` : lucyPronoxDiag.feedCalcio === 0 ? ' · nessun segnale PronoX per oggi e domani: Lucy resta neutra, coperture al 100%' : ''}
+                  </div>
+                )}
+              </div>
+            )}
+            {lucyRecuperi.length > 0 && (
+              <div style={{ fontSize: 11, marginTop: 9, padding: '7px 9px', borderRadius: 8, background: 'rgba(249,115,22,.10)', border: '1px solid rgba(249,115,22,.40)', color: '#fdba74' }}>
+                ↩️ {lucyRecuperi.length} bet arretrate riproposte: {lucyRecuperi.map(r => `${r.book} · ${r.intestatario} (dal ${String(r.dataOrigine).slice(5).split('-').reverse().join('/')}, ~${Math.round(r.stake)}€)`).join(' — ')}
+              </div>
+            )}
+            {lucySportError && <div style={{ color: '#fbbf24', fontSize: 12, padding: '8px 10px', background: 'rgba(251,191,36,0.08)', borderRadius: 9, marginTop: 9 }}>{lucySportError}</div>}
+          </div>
+        )
+      })()}
+
+
+      <div style={{ display: 'grid', gridTemplateColumns: lucyVista === 'completa' ? '1fr 1fr' : '1fr', gap: 16, marginBottom: 16 }}>
 
         {/* AGENDA rimpicciolita */}
         <div style={{ background: 'rgba(29,78,216,0.10)', border: '1px solid rgba(29,78,216,0.30)', borderRadius: 16, padding: '14px 16px' }}>
           <div style={{ fontSize: 13, fontWeight: 800, color: '#93c5fd', marginBottom: 10 }}>📋 {giornoLabel} — {agendaOggi.length} account da movimentare oggi <span style={{ fontSize: 11, fontWeight: 400, color: '#64748b' }}>({agendaOggi.filter(x => x.agenda.tipo === 'attivo').length} attivi · {agendaOggi.filter(x => x.agenda.tipo !== 'attivo').length} mantenimento)</span></div>
-          {(() => { const r = riepilogoMantenimento60Lucy(); return (
+          {lucyVista === 'completa' && (() => { const r = riepilogoMantenimento60Lucy(); return (
             <div style={{ fontSize: 11, marginBottom: 8, padding: '6px 9px', borderRadius: 8, background: r.scaduti > 0 ? 'rgba(239,68,68,.10)' : 'rgba(34,197,94,.08)', border: r.scaduti > 0 ? '1px solid rgba(239,68,68,.35)' : '1px solid rgba(34,197,94,.30)', color: r.scaduti > 0 ? '#fca5a5' : '#86efac' }}>
               🛡️ Rete {MANT_LIMITE_GG} giorni · {r.totale} conti in mantenimento: {r.ok} in regola · {r.daFare} da movimentare (≥{MANT_LIMITE_GG - MANT_ANTICIPO_GG} gg) · <b>{r.scaduti} scaduti (≥{MANT_LIMITE_GG} gg)</b> · {r.inAttesa} senza storico, prima scadenza da protocollo
             </div>) })()}
-          {(() => { const r = riepilogoPostCicloLucy(); return (r.inCiclo + r.fineCiclo + r.daRiavviare) > 0 ? (
+          {lucyVista === 'completa' && (() => { const r = riepilogoPostCicloLucy(); return (r.inCiclo + r.fineCiclo + r.daRiavviare) > 0 ? (
             <div style={{ fontSize: 11, marginBottom: 8, padding: '6px 9px', borderRadius: 8, background: r.daRiavviare > 0 ? 'rgba(249,115,22,.10)' : 'rgba(168,85,247,.08)', border: r.daRiavviare > 0 ? '1px solid rgba(249,115,22,.35)' : '1px solid rgba(168,85,247,.30)', color: r.daRiavviare > 0 ? '#fdba74' : '#d8b4fe' }}>
               🟣 Cicli di profilazione · {r.inCiclo} in corso · {r.fineCiclo} a fine ciclo (controlla le riservate) · <b>{r.daRiavviare} da riavviare</b>
             </div>) : null })()}
@@ -5776,7 +5889,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         </div>
 
         {/* MANTENIMENTO V2 */}
-        <div style={{ background: 'rgba(11,18,32,0.7)', border: '1px solid rgba(51,65,85,0.85)', borderRadius: 16, padding: '14px 16px' }}>
+        {(lucyVista === 'completa' || mostraLegendaMant) && (
+<div style={{ background: 'rgba(11,18,32,0.7)', border: '1px solid rgba(51,65,85,0.85)', borderRadius: 16, padding: '14px 16px' }}>
           <div style={{ fontSize: 13, fontWeight: 800, color: '#f8fafc', marginBottom: 10 }}>📖 Mantenimento unico</div>
           <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.6 }}>
             <div>🟡 <b>Una movimentazione almeno ogni 60 giorni</b> (si propone dal 45° giorno), puntata <b>variabile da 5 a 30€</b>.</div>
@@ -5785,11 +5899,13 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             <div style={{ marginTop: 6, color: '#94a3b8' }}>I Dormienti non entrano nell'agenda. La scelta dello stato resta sempre manuale.</div>
           </div>
         </div>
+)}
 
       </div>
 
       {/* LUCY SPORT — proposta incroci dai dati PronoX */}
-      <div style={{ background: 'rgba(8,47,73,0.32)', border: '1px solid rgba(56,189,248,0.35)', borderRadius: 16, padding: '14px 16px', marginBottom: 16 }}>
+      {lucyVista === 'completa' && (
+<div style={{ background: 'rgba(8,47,73,0.32)', border: '1px solid rgba(56,189,248,0.35)', borderRadius: 16, padding: '14px 16px', marginBottom: 16 }}>
         <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap', marginBottom:10 }}>
           <div>
             <div style={{ fontSize:14, fontWeight:900, color:'#e0f2fe' }}>🤖 Lucy Sport — Incroci automatici</div>
@@ -5876,6 +5992,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           </div>
         )}
       </div>
+)}
 
 
       
@@ -5893,7 +6010,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
       )}
 
       {/* ARCHIVIO LUCY SPORT */}
-      <div style={{background:'#071525',border:'1px solid #1e3a5f',borderRadius:12,padding:12,marginBottom:12}}>
+      {lucyVista === 'completa' && (
+<div style={{background:'#071525',border:'1px solid #1e3a5f',borderRadius:12,padding:12,marginBottom:12}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}}>
           <div>
             <div style={{fontSize:13,fontWeight:900,color:'#e2e8f0'}}>📚 Storico Lucy — puntato giornaliero</div>
@@ -5946,6 +6064,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           </div>
         )}
       </div>
+)}
 
       
       {lucyTabellaAperta && (
@@ -6023,7 +6142,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
       )}
 
       {/* LUCY LIVE — usa anche gli altri conti in Profilazione come copertura/amici */}
-      <div style={{ background:'rgba(76,29,149,0.16)', border:'1px solid rgba(167,139,250,0.35)', borderRadius:16, padding:'14px 16px', marginBottom:16 }}>
+      {lucyVista === 'completa' && (
+<div style={{ background:'rgba(76,29,149,0.16)', border:'1px solid rgba(167,139,250,0.35)', borderRadius:16, padding:'14px 16px', marginBottom:16 }}>
         <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
           <div style={{fontSize:14,fontWeight:900,color:'#ede9fe'}}>🎰 Lucy Live — Incroci Casinò</div>
           <button onClick={()=>setLucyLiveTabellaAperta(true)} disabled={!lucyLiveProposte.length}
@@ -6067,6 +6187,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           </div>
         )}
       </div>
+)}
 
 
       {lucyLiveTabellaAperta && (
@@ -6105,7 +6226,17 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         </div>
       )}
 
-      <div style={statsGridCompact}>
+      {lucyVista === 'operativa' && (
+        <div onClick={() => setGestioneContiAperta(v => !v)}
+          style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', borderRadius: 12, border: '1px solid rgba(51,65,85,0.85)', background: 'rgba(11,18,32,0.7)', color: '#e2e8f0', fontSize: 13, fontWeight: 700, marginBottom: 12, userSelect: 'none' }}>
+          🔎 Gestione conti
+          <span style={{ color: '#94a3b8', fontWeight: 600, fontSize: 12 }}>· {totAttivi} profilazione · {totMantenimento} mantenimento · {totDormienti} dormienti · {totNessuno} non impostati</span>
+          <span style={{ marginLeft: 'auto', color: '#38bdf8' }}>{gestioneContiAperta ? '▲ chiudi' : '▼ apri'}</span>
+        </div>
+      )}
+
+{(lucyVista === 'completa' || gestioneContiAperta) && (<>
+<div style={statsGridCompact}>
         <div style={{ background: 'rgba(34,197,94,0.10)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: 16, padding: '14px 18px' }}>
           <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Profilazione</div>
           <div style={{ fontSize: 24, fontWeight: 800, color: '#22c55e' }}>{totAttivi}</div>
@@ -6197,6 +6328,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           </tbody>
         </table>
       </div>
+</>)}
     </div>
   )
 })()}
