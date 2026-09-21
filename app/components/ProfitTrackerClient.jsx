@@ -2066,7 +2066,8 @@ function bloccoIncrocioLucy(p, pi, numero) {
               a.capGiornaliero?`cap ${Number(a.capGiornaliero).toFixed(0)}€`:(a.budgetTotale&&a.tipoRiga!=='MANTENIMENTO'?`target ${Number(a.budgetTotale).toFixed(0)}€`:null),
               a.recupero&&a.dataOrigine?`dal ${String(a.dataOrigine).slice(5).split('-').reverse().join('/')}`:null,
               a.giaInAgenda?'in agenda oggi':null,
-              a.daRicarica?'dopo ricarica':null
+              a.daRicarica?'dopo ricarica':null,
+              (a.stakeOriginale!=null && Number(a.stakeOriginale)!==Number(a.stake))?`stake ridotta da ${Number(a.stakeOriginale).toFixed(0)}€ per coprire con un conto da 5€ senza sovra-coprire`:null
             ].filter(Boolean).join(' · ')
             const ridotta=a.coperturaSuggeritaTotale!=null && a.copertura100Totale!=null && Math.abs(Number(a.coperturaSuggeritaTotale)-Number(a.copertura100Totale))>0.005
             return (
@@ -2300,6 +2301,31 @@ function stakeMantenimentoProtocolloLucy(book) {
   return passi[Math.min(passi.length-1,Math.floor(r*passi.length))]
 }
 
+// V56 — COPERTURA SOTTO IL MINIMO. Se il residuo da coprire è tra 2 e 4 € non si sovra-copre con una puntata da 5 €
+// (perdita in più): si sposta la differenza dalla bet base dello stesso esito. Esempio: base 35 + copertura 3,31 ->
+// base 33 + copertura 5 (totale 38 invece di 40). Il conto di mantenimento si muove comunque con una puntata valida.
+// Conviene togliere `shift` euro dalla bet base? Confronto il costo nel caso peggiore delle due strade:
+//  · con spostamento: si punta cInt in più (base -shift +5€ di copertura), ritorno sull'esito = (base - shift + 5) × quota
+//  · senza spostamento: si punta 5€ in più, ritorno = (base + 5) × quota
+// Costo peggiore = puntato totale - min(ritorno dell'esito, ritorno obiettivo R). Con quote alte sotto-coprire costa di più.
+function convieneSpostareLucy(baseStake, shift, cInt, quota, R) {
+  const fSposta = cInt - Math.min(R, (baseStake - shift + LUCY_MANT_MIN) * quota)
+  const fNo = LUCY_MANT_MIN - Math.min(R, (baseStake + LUCY_MANT_MIN) * quota)
+  return fSposta <= fNo + 1e-9
+}
+
+function bilanciaCoperturaMinimaLucy(assegnazioni, esito, necessario, quota, R) {
+  const cInt = Math.round(Number(necessario) || 0)
+  if (cInt < 2 || cInt >= LUCY_MANT_MIN) return null
+  const shift = LUCY_MANT_MIN - cInt
+  const base = assegnazioni.filter(a => a.esito === esito).sort((x, y) => Number(y.stake) - Number(x.stake))[0]
+  if (!base) return null
+  const nuova = Math.round((Number(base.stake) - shift) * 100) / 100
+  if (nuova < Math.max(LUCY_MANT_MIN, Math.round(Number(base.stake) * 0.6))) return null   // la bet base non può scendere troppo
+  if (quota && R && !convieneSpostareLucy(Number(base.stake), shift, cInt, Number(quota), Number(R))) return null
+  return { base, shift, nuovaStake: nuova }
+}
+
 // Divide il totale in poche puntate intere tra 5 e 30 €: 83 -> 28+28+27, 23 -> 23, 31 -> 16+15.
 function pianoStakeMantenimentoLucy(totale) {
   const tot=Math.round(Number(totale)||0)
@@ -2418,14 +2444,25 @@ function righeManualiLucy(p, pi, righe) {
   const okBasi=basi.length>0 && basi.every(a=>quotaManualeLucy(pi,a)>0)
   const ritorno=e=>basi.filter(a=>a.esito===e).reduce((s,a)=>s+Number(a.stake||0)*quotaManualeLucy(pi,a),0)
   const R=okBasi ? Math.max(...p.esiti.map(([e])=>ritorno(e))) : 0
-  return righe.map(a=>{
+  const aggiustamenti=[]
+  const out=righe.map(a=>{
     const q=quotaManualeLucy(pi,a)
     if(a.tipoRiga!=='MANTENIMENTO') return {...a,quota:q}
     if(!okBasi || !q) return {...a,quota:q,stake:null}
-    let c=(R-ritorno(a.esito))/q
-    c = c<2 ? 0 : c<LUCY_MANT_MIN ? LUCY_MANT_MIN : Math.round(c)
-    return {...a,quota:q,stake:c}
+    const c=(R-ritorno(a.esito))/q
+    if(c<2) return {...a,quota:q,stake:0}
+    if(Math.round(c)<LUCY_MANT_MIN) { aggiustamenti.push({esito:a.esito,shift:LUCY_MANT_MIN-Math.round(c),cInt:Math.round(c),q}); return {...a,quota:q,stake:LUCY_MANT_MIN} }
+    return {...a,quota:q,stake:Math.round(c)}
   })
+  // V56: sotto il minimo di 5€ la differenza si toglie dalla bet base dello stesso esito (niente sovra-copertura)
+  aggiustamenti.forEach(({esito,shift,cInt,q})=>{
+    let idx=-1
+    out.forEach((a,i)=>{ if(a.tipoRiga!=='MANTENIMENTO' && a.esito===esito && (idx<0 || Number(a.stake)>Number(out[idx].stake))) idx=i })
+    if(idx<0) return
+    const b=out[idx]; const nuova=Math.round((Number(b.stake)-shift)*100)/100
+    if(nuova>=Math.max(LUCY_MANT_MIN,Math.round(Number(b.stake)*0.6)) && convieneSpostareLucy(Number(b.stake),shift,cInt,q,R)) out[idx]={...b,stakeOriginale:b.stakeOriginale??b.stake,stake:nuova}
+  })
+  return out
 }
 
 function riepilogoManualeLucy(p, pi, righe) {
@@ -2987,7 +3024,17 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
         if(necessario <= LUCY_MANT_MAX_TOT){
           // V29: puntate intere tra 5 e 30 €, il minor numero di conti possibile.
           // Esempio 83€ -> 28 + 28 + 27 su tre conti di mantenimento distinti.
-          const pianoMant=pianoStakeMantenimentoLucy(necessario)
+          let pianoMant
+          const adj = bilanciaCoperturaMinimaLucy(assegnazioni, r.esito, necessario, r.quota, targetRitorno)
+          if (adj) {
+            // V56: copertura minima da 5€ senza sovra-coprire: la differenza si toglie dalla bet base
+            if (adj.base.stakeOriginale == null) adj.base.stakeOriginale = adj.base.stake
+            adj.base.stake = adj.nuovaStake
+            totaleSportPerBook.set(adj.base.book.id, Math.max(0,(totaleSportPerBook.get(adj.base.book.id)||0) - adj.shift))
+            pianoMant = [LUCY_MANT_MIN]
+          } else {
+            pianoMant = pianoStakeMantenimentoLucy(necessario)
+          }
           for(const stakeMant of pianoMant){
             const candidato=poolMantenimento.find(b=>{
               const k=`${b.id}|${c.home}|${c.away}`
