@@ -5069,15 +5069,16 @@ const royaltyPagato2026 = royaltyCalc.totalePagato
 const mediaMensileRoyalty = royaltyCalc.quotaMensileAttuale
 const accantonamentoRoyalty = royaltyCalc.totaleSaldo
 const nomeClienteRoyalty = (id) => clienti.find(c => String(c.id) === String(id))?.nome || ''
-const royaltyMensiliDaPagare = royaltyCalc.mensiliDaPagare.map(m => ({ ...m, nome: nomeClienteRoyalty(m.cliente_id) }))
+// Avvisi per banner e Accantonamenti: mensili (2 gg prima), annuali 20/12 e 30/6 e benvenuti (10 gg prima)
+const royaltyAvvisi = royaltyCalc.avvisi.map(m => ({ ...m, nome: nomeClienteRoyalty(m.cliente_id) }))
 
-// "Pagato" su una mensilità (dal banner o dal riepilogo Clienti): registra la royalty di quel mese.
+// "Pagato" su un avviso (mensilità, annuale o benvenuto) dal banner, da Accantonamenti o dal riepilogo Clienti.
 // L'uscita sul wallet la registra Sergio a mano.
 async function pagaRoyaltyMensile(m) {
   try {
     const data = await inserisciPagamento({
       cliente_id: m.cliente_id, tipo: 'royalty', importo: m.importo,
-      data: new Date().toLocaleDateString('sv-SE'), periodo: m.periodo, nota: m.periodo === 'benvenuto' ? 'giro benvenuto' : 'mensilità'
+      data: new Date().toLocaleDateString('sv-SE'), periodo: m.periodo, nota: m.periodo === 'benvenuto' ? 'giro benvenuto' : m.tipo === 'annuale' ? 'annuale' : 'mensilità'
     })
     setRoyaltyPagamenti(prev => [...prev, { ...data, importo: Number(data.importo) }])
     setMessage(`Royalty ${m.periodo} di ${nomeClienteRoyalty(m.cliente_id)} (${formatCurrency(m.importo)}) segnata come pagata. Ricorda di registrare l'uscita sul wallet usato.`)
@@ -5180,7 +5181,7 @@ if (oggiAntonello >= ANTONELLO_INIZIO && oggiAntonello <= ANTONELLO_FINE) {
 }
 
 const accantonamentiAvvisiCount = rateFiglioDaPagare.length + ratePaoloDaPagare.length + rateMichelaDaPagare.length + antonelloDaPagare.length +
-  royaltyCalc.mensiliDaPagare.length + royaltyCalc.benvenutiDaPagare.filter(b => b.scaduto).length
+  royaltyCalc.avvisi.filter(a => a.giorniRitardo >= 0).length
 
 // Totale "da pagare questo mese" mostrato in Dashboard e in cima al tab Accantonamenti:
 // parte dal totale mensile pieno e scala solo quando segni "Pagato" (non quando passa il giorno).
@@ -5527,7 +5528,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             formatDate={formatDate}
             formatCurrency={formatCurrency}
             saveWeeklySnapshot={saveWeeklySnapshot}
-            royaltyMensiliDaPagare={royaltyMensiliDaPagare}
+            royaltyAvvisi={royaltyAvvisi}
             onPagaRoyaltyMensile={pagaRoyaltyMensile}
           />
         )}
@@ -5542,8 +5543,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             mediaMensileRoyalty={mediaMensileRoyalty}
             royaltyTotale2026={royaltyTotale2026}
             royaltyPagato2026={royaltyPagato2026}
-            royaltyMensiliDaPagare={royaltyMensiliDaPagare}
-            royaltyBenvenutiDaPagare={royaltyCalc.benvenutiDaPagare.filter(b => b.scaduto).map(b => ({ ...b, nome: nomeClienteRoyalty(b.cliente_id) }))}
+            royaltyMensiliDaPagare={royaltyAvvisi}
+            royaltyBenvenutiDaPagare={[]}
             onPagaRoyalty={pagaRoyaltyMensile}
             goToClienti={() => handleTabChange('clienti')}
             risparmiSlot={
