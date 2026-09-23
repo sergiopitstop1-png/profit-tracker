@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import TradingViewChart from './TradingViewChart'
 import MarketOverviewWidget from './MarketOverviewWidget'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
@@ -41,6 +41,34 @@ const StatCard = ({ label, value, sub, accent = '#38bdf8' }) => (
   </div>
 )
 
+// Widget indici che occupa tutta l'altezza disponibile nella colonna (fino al fondo del grafico).
+// Il widget TradingView legge l'altezza solo quando viene creato: se lo spazio cambia di parecchio
+// (es. ridimensionando la finestra) viene ricreato con la nuova altezza.
+function MarketOverviewFill({ minHeight = 360 }) {
+  const boxRef = useRef(null)
+  const [h, setH] = useState(minHeight)
+  useEffect(() => {
+    const el = boxRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(([entry]) => {
+      const nuova = Math.max(minHeight, Math.floor(entry.contentRect.height))
+      setH(prev => (Math.abs(prev - nuova) > 8 ? nuova : prev))
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [minHeight])
+  return (
+    <div ref={boxRef} style={{
+      position: 'relative', flex: 1, minHeight,
+      border: '1px solid #1e293b', borderRadius: 12, overflow: 'hidden', background: '#020617'
+    }}>
+      <div style={{ position: 'absolute', inset: 0 }}>
+        <MarketOverviewWidget key={h} height={h} />
+      </div>
+    </div>
+  )
+}
+
 export default function DashboardTab({
   memoFutureNotes,
   stimeCassa,
@@ -74,7 +102,7 @@ export default function DashboardTab({
   formatDate,
   formatCurrency,
   saveWeeklySnapshot,
-  royaltyMensiliDaPagare = [],
+  royaltyAvvisi = [],
   onPagaRoyaltyMensile,
 }) {
   const [dashChartSymbol, setDashChartSymbol] = useState('XAUUSD')
@@ -136,8 +164,9 @@ export default function DashboardTab({
         const tutte = [...scadenzeMemo, ...scadenzeContabilita, ...scadenzeSim]
           .sort((a, b) => a.diff - b.diff)
 
-        // Royalty mensili: dal giorno di pagamento finché non vengono segnate pagate
-        const royaltyMensili = royaltyMensiliDaPagare || []
+        // Royalty: mensili 2 giorni prima del giorno di pagamento, annuali (20/12 e 30/6) e benvenuti 10 giorni prima,
+        // finché non vengono segnate pagate
+        const royaltyMensili = royaltyAvvisi || []
 
         if (tutte.length === 0 && royaltyMensili.length === 0) return null
 
@@ -165,10 +194,12 @@ export default function DashboardTab({
               <div key={i} style={{ color: r.scaduta ? '#ff4444' : '#fca5a5' }}>{r.testo}</div>
             ))}
             {royaltyMensili.map(m => (
-              <div key={'roy-' + m.cliente_id + '-' + m.periodo} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', color: m.inRitardo ? '#ff4444' : '#fbbf24' }}>
+              <div key={'roy-' + m.cliente_id + '-' + m.periodo} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', color: m.inRitardo ? '#ff4444' : m.giorniRitardo < 0 ? '#fca5a5' : '#fbbf24' }}>
                 <span>
-                  {m.inRitardo ? '⛔' : '💶'} [ROYALTY] {(m.nome || '').toUpperCase()} — {formatCurrency(m.importo)} ({m.periodo})
-                  {m.inRitardo ? ` — IN RITARDO DI ${m.giorniRitardo} GIORNI` : m.giorniRitardo === 0 ? ' — DA PAGARE OGGI' : ` — da pagare da ${m.giorniRitardo} giorni`}
+                  {m.inRitardo ? '⛔' : m.giorniRitardo < 0 ? '⚠️' : '💶'} [ROYALTY] {(m.nome || '').toUpperCase()} — {formatCurrency(m.importo)} ({m.etichetta || m.periodo})
+                  {m.inRitardo ? ` — IN RITARDO DI ${m.giorniRitardo} GIORNI`
+                    : m.giorniRitardo < 0 ? ` — mancano ${-m.giorniRitardo} giorn${m.giorniRitardo === -1 ? 'o' : 'i'}`
+                    : m.giorniRitardo === 0 ? ' — DA PAGARE OGGI' : ` — da pagare da ${m.giorniRitardo} giorn${m.giorniRitardo === 1 ? 'o' : 'i'}`}
                 </span>
                 {onPagaRoyaltyMensile && (
                   <button
@@ -329,7 +360,8 @@ export default function DashboardTab({
           </div>
         </div>
 
-        <div style={heroSideGrid}>
+        {/* colonna destra: si allunga fino al fondo del grafico, l'ultimo box (indici) prende lo spazio che resta */}
+        <div style={{ ...heroSideGrid, display: 'flex', flexDirection: 'column', gap: 16, alignSelf: 'stretch' }}>
           <StatCard
             label='Cassa disponibile'
             value={formatCurrency(cassaDisponibile)}
@@ -393,18 +425,14 @@ export default function DashboardTab({
             accent='#a855f7'
           />
 
-          <div style={panel}>
+          <div style={{ ...panel, flex: 1, display: 'flex', flexDirection: 'column' }}>
             <div style={panelHeader}>
               <div>
                 <h2 style={panelTitle}>Indici di borsa</h2>
                 <p style={panelSubtitle}>Aggiornamento in tempo reale</p>
               </div>
             </div>
-            <div style={{
-              border: '1px solid #1e293b', borderRadius: 12, overflow: 'hidden', background: '#020617'
-            }}>
-              <MarketOverviewWidget height={360} />
-            </div>
+            <MarketOverviewFill minHeight={360} />
           </div>
         </div>
       </div>
