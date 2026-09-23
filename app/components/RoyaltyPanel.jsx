@@ -9,8 +9,9 @@
 // dashboard), annuali a giugno o dicembre.
 // Tabelle: royalty_accordi, royalty_pagamenti (+ dashboard_settings.royalty_giorno_mensile)
 // Frequenza "una_tantum" (giro benvenuto): importo_mensile contiene l'importo TOTALE.
-//   valido_dal = ingresso del cliente, valido_al = data in cui va pagato (di norma ingresso + 4 mesi).
-//   Matura in quote uguali nei mesi tra le due date (400 € su 4 mesi = 100 €/mese nell'accantonamento).
+//   valido_dal = ingresso, valido_al = 1° giorno del mese in cui si paga. Il mese di ingresso è il 1° mese:
+//   ingresso a settembre -> si paga a dicembre (4° mese), la quota mensile parte a gennaio (5° mese).
+//   Matura in quote uguali dal mese di ingresso al mese di pagamento incluso (400 € = 100 €/mese).
 //   Si paga con una royalty con periodo "benvenuto".
 // ════════════════════════════════════════════════════════════════════
 import React, { useState } from 'react'
@@ -18,7 +19,7 @@ import { supabase } from '../profit-tracker/supabaseClient'
 
 const MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre']
 const PERIODO_BENVENUTO = 'benvenuto'
-const BENVENUTO_MESI = 4        // il benvenuto si paga dopo 4 mesi dall'ingresso; la quota mensile parte dal 5° mese
+const BENVENUTO_MESI = 4        // il benvenuto si paga nel 4° mese (ingresso = 1° mese); la quota mensile parte dal 5°
 const QUOTA_MENSILE_SUGGERITA = 50 // solo precompilata nel form, modificabile
 const GIORNI_TOLLERANZA_RITARDO = 5 // oltre questi giorni dal giorno di pagamento l'avviso diventa "in ritardo"
 
@@ -67,9 +68,9 @@ export function calcolaRoyalty(accordi = [], pagamenti = [], giornoGenerale = 26
   for (const a of accordi) {
     if (a.frequenza === 'nessuna' || a.valido_dal > oggi) continue
     if (a.frequenza === 'una_tantum') {
-      // matura in quote uguali dal mese di ingresso fino al mese prima della scadenza
+      // matura in quote uguali dal mese di ingresso al mese di pagamento incluso
       const scad = a.valido_al || a.valido_dal
-      const n = Math.max(1, meseIdx(scad) - meseIdx(a.valido_dal))
+      const n = Math.max(1, meseIdx(scad) - meseIdx(a.valido_dal) + 1)
       const trascorsi = oggi >= scad ? n : Math.min(n, Math.max(0, idxOggi - meseIdx(a.valido_dal) + 1))
       cli(a.cliente_id).maturato += Number(a.importo_mensile || 0) * trascorsi / n
       continue
@@ -94,6 +95,11 @@ export function calcolaRoyalty(accordi = [], pagamenti = [], giornoGenerale = 26
     c.saldo = r2(c.maturato - c.pagato)
     c.attivo = accordoAttivoAl(c.accordi, oggi)
     if (c.attivo && c.attivo.frequenza !== 'nessuna') quotaMensileAttuale += Number(c.attivo.importo_mensile || 0)
+    for (const a of c.accordi) {
+      if (a.frequenza !== 'una_tantum') continue
+      const scad = a.valido_al || a.valido_dal
+      if (idxOggi >= meseIdx(a.valido_dal) && idxOggi <= meseIdx(scad)) quotaMensileAttuale += Number(a.importo_mensile || 0) / Math.max(1, meseIdx(scad) - meseIdx(a.valido_dal) + 1)
+    }
 
     // Mensili: ogni mese dell'accordo, dal giorno di pagamento in poi, senza una royalty con quel periodo
     for (const a of c.accordi) {
@@ -195,7 +201,7 @@ export function RoyaltyRiepilogo({ calc, clienti, onPaga, giornoGenerale, onCamb
               <div style={{ fontSize: 12, fontWeight: 800, color: '#94a3b8', marginBottom: 6 }}>🎁 BENVENUTO</div>
               {calc.benvenutiDaPagare.map(b => (
                 <div key={b.cliente_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 13 }}>
-                  <span style={{ color: b.scaduto ? '#fbbf24' : '#cbd5e1' }}>{nome(b.cliente_id)} · <b>{eur(b.importo)}</b> · {b.scaduto ? `da pagare (scaduto il ${dataIt(b.scadenza)})` : `si paga il ${dataIt(b.scadenza)}`}</span>
+                  <span style={{ color: b.scaduto ? '#fbbf24' : '#cbd5e1' }}>{nome(b.cliente_id)} · <b>{eur(b.importo)}</b> · {b.scaduto ? `da pagare (${periodoLabel(b.scadenza.slice(0, 7))})` : `si paga a ${periodoLabel(b.scadenza.slice(0, 7))}`}</span>
                   <button style={btn('#22c55e')} onClick={() => onPaga(b)}>✅ Pagato</button>
                 </div>
               ))}
@@ -269,7 +275,7 @@ export function RoyaltyModal({ cliente, accordi, pagamenti, calc, setAccordi, se
     const payload = {
       cliente_id: cliente.id,
       valido_dal: nuovoAcc.valido_dal,
-      valido_al: unaTantum ? (nuovoAcc.scadenza || aggiungiMesi(nuovoAcc.valido_dal, BENVENUTO_MESI)) : null,
+      valido_al: unaTantum ? (nuovoAcc.scadenza || primoDelMeseDopo(nuovoAcc.valido_dal, BENVENUTO_MESI - 1)) : null,
       importo_mensile: nuovoAcc.frequenza === 'nessuna' ? 0 : importo,
       frequenza: nuovoAcc.frequenza,
       mese_pagamento: nuovoAcc.frequenza === 'annuale' ? Number(nuovoAcc.mese_pagamento) : null,
@@ -283,8 +289,8 @@ export function RoyaltyModal({ cliente, accordi, pagamenti, calc, setAccordi, se
     onMessage(`Nuovo accordo dal ${nuovoAcc.valido_dal} salvato${daChiudere.length ? ' (il precedente è stato chiuso il giorno prima)' : ''}`)
   }
 
-  // Nuovo cliente: benvenuto (importo libero, anche vuoto se ha già i book aperti) pagabile dopo 4 mesi
-  // dall'ingresso, poi quota mensile dal 5° mese. Tutto modificabile.
+  // Nuovo cliente: benvenuto (importo libero, anche vuoto se ha già i book aperti) da pagare nel 4° mese
+  // (il mese di ingresso è il 1°), poi quota mensile dal 5° mese. Tutto modificabile.
   const [ingr, setIngr] = useState({ data: oggiISO(), benvenuto: '', quota: String(QUOTA_MENSILE_SUGGERITA), quotaDal: '', freq: 'annuale' })
   const quotaDalCalcolata = ingr.quotaDal || primoDelMeseDopo(ingr.data || oggiISO(), BENVENUTO_MESI)
   async function impostaIngresso() {
@@ -295,7 +301,7 @@ export function RoyaltyModal({ cliente, accordi, pagamenti, calc, setAccordi, se
     if (mieiAccordi.length && !window.confirm('Questo cliente ha già degli accordi. Aggiungere comunque?')) return
     setSalvando(true)
     const righe = []
-    if (benv > 0) righe.push({ cliente_id: cliente.id, valido_dal: ingr.data, valido_al: aggiungiMesi(ingr.data, BENVENUTO_MESI), importo_mensile: benv, frequenza: 'una_tantum', mese_pagamento: null, giorno_pagamento: null, nota: 'giro benvenuto' })
+    if (benv > 0) righe.push({ cliente_id: cliente.id, valido_dal: ingr.data, valido_al: primoDelMeseDopo(ingr.data, BENVENUTO_MESI - 1), importo_mensile: benv, frequenza: 'una_tantum', mese_pagamento: null, giorno_pagamento: null, nota: 'giro benvenuto' })
     if (quota > 0) {
       const daChiudere = mieiAccordi.filter(a => a.frequenza !== 'una_tantum' && a.valido_dal < quotaDalCalcolata && (!a.valido_al || a.valido_al >= quotaDalCalcolata))
       for (const a of daChiudere) await aggiornaAccordo(a.id, 'valido_al', giornoPrima(quotaDalCalcolata))
@@ -305,7 +311,7 @@ export function RoyaltyModal({ cliente, accordi, pagamenti, calc, setAccordi, se
     setSalvando(false)
     if (error) { onError('Errore impostazione ingresso: ' + error.message); return }
     setAccordi(prev => [...prev, ...(data || [])])
-    onMessage(`${cliente.nome}: ${benv > 0 ? `benvenuto ${eur(benv)} da pagare il ${dataIt(aggiungiMesi(ingr.data, BENVENUTO_MESI))}` : 'nessun benvenuto'}${quota > 0 ? ` + ${eur(quota)}/mese dal ${dataIt(quotaDalCalcolata)} (${ingr.freq === 'annuale' ? 'annuale a dicembre' : 'mensile'})` : ''}`)
+    onMessage(`${cliente.nome}: ${benv > 0 ? `benvenuto ${eur(benv)} da pagare a ${periodoLabel(primoDelMeseDopo(ingr.data, BENVENUTO_MESI - 1).slice(0, 7))}` : 'nessun benvenuto'}${quota > 0 ? ` + ${eur(quota)}/mese dal ${dataIt(quotaDalCalcolata)} (${ingr.freq === 'annuale' ? 'annuale a dicembre' : 'mensile'})` : ''}`)
   }
 
   async function aggiornaPagamento(id, campo, valore) {
@@ -383,7 +389,7 @@ export function RoyaltyModal({ cliente, accordi, pagamenti, calc, setAccordi, se
           <input type='date' value={ingr.data} onChange={e => setIngr({ ...ingr, data: e.target.value, quotaDal: '' })} style={inp} />
           <span>benvenuto €</span>
           <input placeholder='vuoto = book già aperti' value={ingr.benvenuto} onChange={e => setIngr({ ...ingr, benvenuto: e.target.value })} style={{ ...inp, width: 150 }} />
-          {Number(String(ingr.benvenuto).replace(',', '.')) > 0 && ingr.data && <span>si paga il {dataIt(aggiungiMesi(ingr.data, BENVENUTO_MESI))}</span>}
+          {Number(String(ingr.benvenuto).replace(',', '.')) > 0 && ingr.data && <span>si paga a {periodoLabel(primoDelMeseDopo(ingr.data, BENVENUTO_MESI - 1).slice(0, 7))}</span>}
           <span>· poi €/mese</span>
           <input value={ingr.quota} onChange={e => setIngr({ ...ingr, quota: e.target.value })} style={{ ...inp, width: 60 }} />
           <span>dal</span>
@@ -396,7 +402,7 @@ export function RoyaltyModal({ cliente, accordi, pagamenti, calc, setAccordi, se
         <div style={{ fontWeight: 800, color: '#f8fafc', margin: '8px 0' }}>📄 Accordi</div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr><th style={thS}>Dal</th><th style={thS}>Al (una tantum: si paga il)</th><th style={thS}>€/mese (una tantum: totale)</th><th style={thS}>Frequenza</th><th style={thS}>Mese / giorno pag.</th><th style={thS}>Nota</th><th style={thS}></th></tr></thead>
+            <thead><tr><th style={thS}>Dal</th><th style={thS}>Al (una tantum: mese di pagamento)</th><th style={thS}>€/mese (una tantum: totale)</th><th style={thS}>Frequenza</th><th style={thS}>Mese / giorno pag.</th><th style={thS}>Nota</th><th style={thS}></th></tr></thead>
             <tbody>
               {mieiAccordi.length === 0 && <tr><td style={{ ...tdS, color: '#64748b' }} colSpan={7}>Nessun accordo: nessuna royalty (es. parenti)</td></tr>}
               {mieiAccordi.map(a => (
@@ -439,7 +445,7 @@ export function RoyaltyModal({ cliente, accordi, pagamenti, calc, setAccordi, se
               {MESI.map((m, i) => <option key={m} value={i + 1}>paga a {m}</option>)}
             </select>
           )}
-          {nuovoAcc.frequenza === 'una_tantum' && (<><span style={{ fontSize: 12, color: '#94a3b8' }}>si paga il</span><input type='date' value={nuovoAcc.scadenza || aggiungiMesi(nuovoAcc.valido_dal, BENVENUTO_MESI)} onChange={e => setNuovoAcc({ ...nuovoAcc, scadenza: e.target.value })} style={inp} /></>)}
+          {nuovoAcc.frequenza === 'una_tantum' && (<><span style={{ fontSize: 12, color: '#94a3b8' }}>si paga dal</span><input type='date' value={nuovoAcc.scadenza || primoDelMeseDopo(nuovoAcc.valido_dal, BENVENUTO_MESI - 1)} onChange={e => setNuovoAcc({ ...nuovoAcc, scadenza: e.target.value })} style={inp} /></>)}
           {nuovoAcc.frequenza === 'mensile' && <input type='number' min='1' max='31' placeholder='giorno (vuoto = generale)' value={nuovoAcc.giorno_pagamento} onChange={e => setNuovoAcc({ ...nuovoAcc, giorno_pagamento: e.target.value })} style={{ ...inp, width: 170 }} />}
           <input placeholder='nota' value={nuovoAcc.nota} onChange={e => setNuovoAcc({ ...nuovoAcc, nota: e.target.value })} style={{ ...inp, flex: 1, minWidth: 120 }} />
           <button style={btn('#22c55e')} disabled={salvando} onClick={aggiungiAccordo}>Salva accordo</button>
