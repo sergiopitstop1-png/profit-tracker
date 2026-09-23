@@ -134,7 +134,7 @@ export default function AccantonamentiTab({
       <div style={{ marginBottom: 18 }}>
         <h1 style={{ color: '#f8fafc', fontSize: 22, fontWeight: 900, marginBottom: 4 }}>Accantonamenti</h1>
         <p style={{ color: '#94a3b8', fontSize: 13 }}>
-          Royalty, rinnovo club, stipendio figlio, Paolo e Michela — {fmt(accantonamentiTotale)} accantonati/da accantonare questo mese in totale. Sotto, i risparmi di Samu e Massi.
+          Royalty, rinnovo club, stipendio figlio, Paolo e Michela — {fmt(accantonamentiTotale)} accantonati/da accantonare questo mese in totale. In fondo, i risparmi di Samu e Massi.
         </p>
       </div>
 
@@ -184,9 +184,6 @@ export default function AccantonamentiTab({
             </div>
           )}
         </div>
-
-        {/* RISPARMI SAMU E MASSI (occupa tutta la larghezza) */}
-        {risparmiSlot}
 
         {/* CLUB */}
         <div style={panel}>
@@ -344,6 +341,9 @@ export default function AccantonamentiTab({
             <span>€/trimestre</span>
           </div>
         </div>
+
+        {/* RISPARMI SAMU E MASSI — in fondo, occupa tutta la larghezza */}
+        {risparmiSlot}
 
       </div>
     </div>
