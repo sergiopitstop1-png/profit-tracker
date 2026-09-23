@@ -8,6 +8,7 @@ import RisultatiPanel from './RisultatiPanel'
 import CollaboratoriManager from './CollaboratoriManager'
 import { PostItTab, PostItFloatingWidget } from './PostItWidget'
 import MemoTab from './MemoTab'
+import { calcolaRoyalty, RoyaltyRiepilogo, RoyaltyBadge, RoyaltyModal, inserisciPagamento } from './RoyaltyPanel'
 
 // V32 — rete di sicurezza 60 giorni sui conti in MANTENIMENTO
 const MANT_LIMITE_GG = 60        // limite massimo tra due movimentazioni dello stesso conto
@@ -60,6 +61,10 @@ const [pendingRefresh, setPendingRefresh] = useState(false)
  const [memoRoyaltyAccounts, setMemoRoyaltyAccounts] = useState([])
   const [newAccountName, setNewAccountName] = useState('')
 const [memoRoyaltyEntries, setMemoRoyaltyEntries] = useState([])
+// Royalty clienti (tab Clienti): accordi e pagamenti, vedi RoyaltyPanel.jsx
+const [royaltyAccordi, setRoyaltyAccordi] = useState([])
+const [royaltyPagamenti, setRoyaltyPagamenti] = useState([])
+const [royaltyModalCliente, setRoyaltyModalCliente] = useState(null)
 const [memoSavingsRows, setMemoSavingsRows] = useState([])
 const [savingsFormMassi, setSavingsFormMassi] = useState({ periodo: '', versamento: '', causale: '' })
 const [savingsFormSamu, setSavingsFormSamu] = useState({ periodo: '', versamento: '', causale: '' })
@@ -1073,6 +1078,7 @@ async function updateProfiloLivello(bookId, livello) {
       dashboardSettingsRes, clientiRes, clientiEmailRes,
       esterniRes,
       postItRes,
+      royaltyAccordiRes, royaltyPagamentiRes,
     ] = await Promise.all([
       supabase.from('books').select('*').order('id', { ascending: true }),
       supabase.from('wallets').select('*').order('id', { ascending: true }),
@@ -1091,6 +1097,8 @@ async function updateProfiloLivello(bookId, livello) {
       supabase.from('clienti_email').select('*').order('cliente_id', { ascending: true }),
       supabase.from('transactions').select('importo').eq('azione', 'wallet_to_external').gte('data', anno_corrente),
       supabase.from('post_it_notes').select('*').order('fatto', { ascending: true }).order('created_at', { ascending: false }),
+      supabase.from('royalty_accordi').select('*').order('valido_dal', { ascending: true }),
+      supabase.from('royalty_pagamenti').select('*').order('id', { ascending: true }),
     ])
 
     // Applica subito i dati critici e togli il loading
@@ -1121,6 +1129,9 @@ async function updateProfiloLivello(bookId, livello) {
     }
     if (clientiRes && !clientiRes.error) setClienti(clientiRes.data || [])
     if (clientiEmailRes && !clientiEmailRes.error) setClientiEmail(clientiEmailRes.data || [])
+    // numeric di Postgres: forzati a Number per sicurezza nei calcoli
+    if (royaltyAccordiRes.error) errors.push('royalty_accordi'); else setRoyaltyAccordi((royaltyAccordiRes.data || []).map(a => ({ ...a, importo_mensile: Number(a.importo_mensile || 0) })))
+    if (royaltyPagamentiRes.error) errors.push('royalty_pagamenti'); else setRoyaltyPagamenti((royaltyPagamentiRes.data || []).map(p => ({ ...p, importo: Number(p.importo || 0) })))
     if (esterniRes && !esterniRes.error) {
       const sommaEsterni = (esterniRes.data || []).reduce((t, tx) => t + Number(tx.importo || 0), 0)
       setTotaleEsterni(sommaEsterni)
@@ -5137,14 +5148,41 @@ const mediaMensileResidua = useMemo(() => {
   if (mesiRimanenti <= 0) return 0
   return totaleSpeseProgrammateAnno / mesiRimanenti
 }, [totaleSpeseProgrammateAnno, meseCorrenteNum])
-const royaltyTotale2026 = memoRoyaltyEntries
-  .filter(r => Number(r.anno) === 2026)
-  .reduce((sum, r) => sum + Number(r.importo || 0), 0)
-const royaltyPagato2026 = memoRoyaltyEntries
-  .filter(r => Number(r.anno) === 2026)
-  .reduce((sum, r) => sum + Number(r.pagato || 0), 0)
-const mediaMensileRoyalty = royaltyTotale2026 / 12
-const accantonamentoRoyalty = (mediaMensileRoyalty * meseCorrenteNum) - royaltyPagato2026
+// ROYALTY — dal 23/09/2026 calcolate dalle tabelle royalty_accordi / royalty_pagamenti (tab Clienti),
+// non più dal Memo. Accantonamento = somma dei saldi dei clienti (maturato - royalty e anticipi pagati).
+// I nomi delle variabili restano quelli vecchi perché li usa AccantonamentiTab:
+//   royaltyTotale2026 = maturato totale ad oggi, royaltyPagato2026 = pagato totale (royalty + anticipi),
+//   mediaMensileRoyalty = quanto matura ogni mese con gli accordi attivi.
+const royaltyGiornoMensile = Number(dashboardSettings.royalty_giorno_mensile || 26)
+const royaltyCalc = calcolaRoyalty(royaltyAccordi, royaltyPagamenti, royaltyGiornoMensile)
+const royaltyTotale2026 = royaltyCalc.totaleMaturato
+const royaltyPagato2026 = royaltyCalc.totalePagato
+const mediaMensileRoyalty = royaltyCalc.quotaMensileAttuale
+const accantonamentoRoyalty = royaltyCalc.totaleSaldo
+const nomeClienteRoyalty = (id) => clienti.find(c => String(c.id) === String(id))?.nome || ''
+const royaltyMensiliDaPagare = royaltyCalc.mensiliDaPagare.map(m => ({ ...m, nome: nomeClienteRoyalty(m.cliente_id) }))
+
+// "Pagato" su una mensilità (dal banner o dal riepilogo Clienti): registra la royalty di quel mese.
+// L'uscita sul wallet la registra Sergio a mano.
+async function pagaRoyaltyMensile(m) {
+  try {
+    const data = await inserisciPagamento({
+      cliente_id: m.cliente_id, tipo: 'royalty', importo: m.importo,
+      data: new Date().toLocaleDateString('sv-SE'), periodo: m.periodo, nota: 'mensilità'
+    })
+    setRoyaltyPagamenti(prev => [...prev, { ...data, importo: Number(data.importo) }])
+    setMessage(`Royalty ${m.periodo} di ${nomeClienteRoyalty(m.cliente_id)} (${formatCurrency(m.importo)}) segnata come pagata. Ricorda di registrare l'uscita sul wallet usato.`)
+  } catch (e) {
+    setErrorMessage('Errore registrazione royalty: ' + e.message)
+  }
+}
+
+async function cambiaGiornoRoyalty(giorno) {
+  const { error } = await supabase.from('dashboard_settings').update({ royalty_giorno_mensile: giorno }).eq('id', 1)
+  if (error) { setErrorMessage('Errore aggiornamento giorno royalty'); return }
+  setDashboardSettings(prev => ({ ...prev, royalty_giorno_mensile: giorno }))
+  setMessage(`Giorno di pagamento dei mensili impostato al ${giorno}`)
+}
 // Accantonamento rinnovo club: importo annuo modificabile da dashboard (default 3.500 €), scadenza 30/9.
 // Le 4 rate reali (set-ott-nov-dic 2026) sono già in Contabilità: l'accantonamento sintetico parte da zero
 // e non conta fino al 1° ottobre 2026, poi accumula 12 mesi per volta (ott->set) anche se si sovrappone
@@ -5236,7 +5274,7 @@ const accantonamentiAvvisiCount = rateFiglioDaPagare.length + ratePaoloDaPagare.
 
 // Totale "da pagare questo mese" mostrato in Dashboard e in cima al tab Accantonamenti:
 // parte dal totale mensile pieno e scala solo quando segni "Pagato" (non quando passa il giorno).
-// Royalty e Club restano invariati: Royalty scala gi\xe0 da s\xe9 col pagato del Memo, Club non ha un pulsante "pagato".
+// Royalty e Club restano invariati: Royalty scala gi\xe0 da s\xe9 coi pagamenti registrati nella tab Clienti, Club non ha un pulsante "pagato".
 const accantonamentiDaPagareTotale =
   accantonamentoRoyalty +
   accantonamentoClub +
@@ -5581,6 +5619,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             formatDate={formatDate}
             formatCurrency={formatCurrency}
             saveWeeklySnapshot={saveWeeklySnapshot}
+            royaltyMensiliDaPagare={royaltyMensiliDaPagare}
+            onPagaRoyaltyMensile={pagaRoyaltyMensile}
           />
         )}
         {activeTab === 'accantonamenti' && (
@@ -6384,12 +6424,19 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
     <div style={sectionTopBar}>
       <div>
         <h2 style={sectionTitle}>Clienti</h2>
-        <p style={sectionDescription}>Gestione clienti, SIM e scadenze</p>
+        <p style={sectionDescription}>Gestione clienti, SIM, royalty e scadenze</p>
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button style={primaryButtonGreen} onClick={() => { setEditingCliente(null); setClienteForm({ nome: '', email: '', telefono: '', sim_operatore: '', sim_importo: '', sim_giorno_scadenza: '', note: '' }); setShowClienteModal(true) }}>+ Nuovo Cliente</button>
       </div>
     </div>
+    <RoyaltyRiepilogo
+      calc={royaltyCalc}
+      clienti={clienti}
+      onPaga={pagaRoyaltyMensile}
+      giornoGenerale={royaltyGiornoMensile}
+      onCambiaGiorno={cambiaGiornoRoyalty}
+    />
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 16 }}>
       {clienti.length === 0 && <p style={{ color: '#94a3b8' }}>Nessun cliente ancora. Clicca "+ Nuovo Cliente" per iniziare.</p>}
       {[...clienti].sort((a, b) => {
@@ -6424,6 +6471,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                       📱 {c.sim_operatore} {c.sim_importo ? `· ${Number(c.sim_importo).toFixed(2)}€` : ''} {c.sim_giorno_scadenza ? `· scad. g.${c.sim_giorno_scadenza}` : ''}
                     </span>
                   )}
+                  <RoyaltyBadge info={royaltyCalc.perCliente[c.id]} />
                 </div>
                 <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13, color: '#94a3b8' }}>
                   {c.telefono && <span>📞 {c.telefono}</span>}
@@ -6439,6 +6487,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <button
+                  onClick={() => setRoyaltyModalCliente(c)}
+                  style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(34,197,94,0.5)', background: 'rgba(34,197,94,0.1)', color: '#22c55e', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
+                >💶 Royalty</button>
                 {terminato ? (
                   <button
                     onClick={() => toggleClienteTerminato(c)}
@@ -6464,6 +6516,19 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         )
       })}
     </div>
+    {royaltyModalCliente && (
+      <RoyaltyModal
+        cliente={royaltyModalCliente}
+        accordi={royaltyAccordi}
+        pagamenti={royaltyPagamenti}
+        calc={royaltyCalc}
+        setAccordi={setRoyaltyAccordi}
+        setPagamenti={setRoyaltyPagamenti}
+        onClose={() => setRoyaltyModalCliente(null)}
+        onMessage={setMessage}
+        onError={setErrorMessage}
+      />
+    )}
   </div>
 )}
 
