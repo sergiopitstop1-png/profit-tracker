@@ -3,6 +3,10 @@ import crypto from "crypto";
 
 const API_FOOTBALL = "https://api.football-data.org/v4";
 
+// Tempo massimo della funzione su Vercel (secondi). La route fa molte chiamate
+// esterne: meglio avere margine che farla troncare a metà.
+export const maxDuration = 60;
+
 // Stesso calcolo usato in app/api/pronox/unsubscribe/route.ts — deve
 // restare identico nei due file, altrimenti i link generati qui non
 // verrebbero riconosciuti come validi dalla route di disiscrizione.
@@ -554,7 +558,7 @@ function buildFootballPicks(tomorrow: string, collected: any[]) {
   return allPicks.slice(0, 5);
 }
 
-async function computeTomorrowPicks(tomorrow: string, collected: any[] | null) {
+async function computeTomorrowPicks(tomorrow: string, collected: any[] | null, tennisMatches: any[]) {
   // Anti-doppione: se la route viene chiamata più volte lo stesso giorno
   // (es. un test manuale + il cron automatico), i pronostici di "domani"
   // sono già stati calcolati e salvati — li riusiamo invece di rifarli
@@ -568,7 +572,7 @@ async function computeTomorrowPicks(tomorrow: string, collected: any[] | null) {
   }
 
   const bestFootball = buildFootballPicks(tomorrow, collected ?? (await collectFootballSignals(tomorrow)));
-  const bestTennis = await computeTomorrowTennisPicks(tomorrow);
+  const bestTennis = await computeTomorrowTennisPicks(tomorrow, tennisMatches);
 
   const best = [...bestFootball, ...bestTennis];
   if (best.length > 0) {
@@ -630,61 +634,114 @@ function buildLucyFootballRows(tomorrow: string, collected: any[]) {
   return rows;
 }
 
-// Tennis: tutte le partite con quota per ENTRAMBI i giocatori. Senza quote
-// reali la partita non entra (Lucy non inventa mai una quota).
-async function buildLucyTennisRows(tomorrow: string) {
-  try {
-    const r = await fetch(`https://sergioapicella.it/api/tennis/matches?date=${tomorrow}`);
-    const d = await r.json();
-    const rows: any[] = [];
-    for (const m of d.matches || []) {
-      if (!m.oddsA || !m.oddsB) continue;
-      let playerAWins: boolean, prob: number;
-      if (m.isValueA) { playerAWins = true; prob = m.probA; }
-      else if (m.isValueB) { playerAWins = false; prob = m.probB; }
-      else if (!m.lowDataPlayer) { playerAWins = m.probA >= m.probB; prob = playerAWins ? m.probA : m.probB; }
-      else continue; // dati insufficienti
-      const name = playerAWins ? m.playerA.name : m.playerB.name;
-      rows.push({
-        pick_date: tomorrow,
-        sport: "tennis",
-        league: `🎾 ${m.tournament || m.tour}`,
-        home_team: m.playerA.name,
-        away_team: m.playerB.name,
-        match_time: m.commenceTime,
-        market: "TENNIS_ML",
-        selection: name,
-        label: `${name} vince`,
-        probability: parseFloat((prob * 100).toFixed(1)),
-        clamped: false,
-        odds_a: Number(m.oddsA),
-        odds_b: Number(m.oddsB),
-      });
+// ─── TENNIS: una sola chiamata all'endpoint, condivisa ──────────
+// Prima l'endpoint veniva chiamato due volte (pick email + segnali Lucy) e,
+// se falliva, entrambi i catch restituivano [] in silenzio: il 22/09 la route
+// è girata, l'email è partita, ma tennis = 0 ovunque senza nessuna traccia nei
+// log. Ora: una chiamata, timeout, un secondo tentativo, controllo della
+// risposta e log espliciti con i conteggi.
+type TennisFetch = { matches: any[]; error: string | null; attempts: number };
+
+async function fetchTennisMatches(date: string): Promise<TennisFetch> {
+  const url = `https://sergioapicella.it/api/tennis/matches?date=${date}`;
+  let lastError: string | null = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const r = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(20000) });
+      if (!r.ok) {
+        const body = await r.text();
+        lastError = `HTTP ${r.status}: ${body.slice(0, 200)}`;
+      } else {
+        const text = await r.text();
+        let d: any;
+        try { d = JSON.parse(text); }
+        catch { lastError = `risposta non JSON: ${text.slice(0, 200)}`; d = null; }
+        if (d) {
+          const matches = Array.isArray(d.matches) ? d.matches : [];
+          const conQuote = matches.filter((m: any) => m.oddsA && m.oddsB).length;
+          const conDati = matches.filter((m: any) => !m.lowDataPlayer).length;
+          console.log(`[tennis] ${date}: ricevuti ${matches.length} match, ${conQuote} con quote per entrambi, ${conDati} con dati sufficienti (tentativo ${attempt})`);
+          if (matches.length === 0) console.warn(`[tennis] ${date}: l'endpoint ha risposto ma SENZA match`);
+          return { matches, error: null, attempts: attempt };
+        }
+      }
+    } catch (e: any) {
+      lastError = e?.name === "TimeoutError" ? "timeout dopo 20s" : (e?.message || String(e));
     }
-    return rows;
-  } catch (e) {
-    return [];
+    console.error(`[tennis] ${date}: tentativo ${attempt} fallito -> ${lastError}`);
+    if (attempt === 1) await new Promise((res) => setTimeout(res, 3000));
   }
+  return { matches: [], error: lastError, attempts: 2 };
 }
 
-async function saveLucySignals(tomorrow: string, collected: any[]) {
-  const rows = [...buildLucyFootballRows(tomorrow, collected), ...(await buildLucyTennisRows(tomorrow))];
-  if (rows.length === 0) return 0;
+// Tennis per Lucy: tutte le partite con quota per ENTRAMBI i giocatori. Senza
+// quote reali la partita non entra (Lucy non inventa mai una quota).
+function buildLucyTennisRows(tomorrow: string, matches: any[]) {
+  const rows: any[] = [];
+  for (const m of matches) {
+    if (!m.oddsA || !m.oddsB) continue;
+    let playerAWins: boolean, prob: number;
+    if (m.isValueA) { playerAWins = true; prob = m.probA; }
+    else if (m.isValueB) { playerAWins = false; prob = m.probB; }
+    else if (!m.lowDataPlayer) { playerAWins = m.probA >= m.probB; prob = playerAWins ? m.probA : m.probB; }
+    else continue; // dati insufficienti
+    const name = playerAWins ? m.playerA.name : m.playerB.name;
+    rows.push({
+      pick_date: tomorrow,
+      sport: "tennis",
+      league: `🎾 ${m.tournament || m.tour}`,
+      home_team: m.playerA.name,
+      away_team: m.playerB.name,
+      match_time: m.commenceTime,
+      market: "TENNIS_ML",
+      selection: name,
+      label: `${name} vince`,
+      probability: parseFloat((prob * 100).toFixed(1)),
+      clamped: false,
+      odds_a: Number(m.oddsA),
+      odds_b: Number(m.oddsB),
+    });
+  }
+  return rows;
+}
+
+// Un upsert con due righe sulla stessa chiave fa fallire TUTTO il salvataggio
+// ("cannot affect row a second time"): teniamo una riga per chiave.
+function dedupeLucyRows(rows: any[]) {
+  const seen = new Map<string, any>();
+  for (const r of rows) {
+    const k = [r.pick_date, r.sport, r.home_team, r.away_team, r.market, r.selection].join("|");
+    if (!seen.has(k)) seen.set(k, r);
+  }
+  return [...seen.values()];
+}
+
+type LucyReport = { calcio: number; tennis: number; salvati: number; errore: string | null };
+
+async function saveLucySignals(tomorrow: string, collected: any[], tennis: TennisFetch): Promise<LucyReport> {
+  const calcioRows = buildLucyFootballRows(tomorrow, collected);
+  const tennisRows = buildLucyTennisRows(tomorrow, tennis.matches);
+  const rows = dedupeLucyRows([...calcioRows, ...tennisRows]);
+  console.log(`[lucy-signals] ${tomorrow}: calcio ${calcioRows.length}, tennis ${tennisRows.length}, da salvare ${rows.length}`);
+  if (rows.length === 0) {
+    const errore = tennis.error
+      ? `nessun segnale: endpoint tennis fallito (${tennis.error})`
+      : "nessun segnale: nessun match calcio sopra soglia e nessun match tennis con quote e dati";
+    console.warn(`[lucy-signals] ${tomorrow}: ${errore}`);
+    return { calcio: 0, tennis: 0, salvati: 0, errore };
+  }
   const { error } = await supabase
     .from("pronox_lucy_signals")
     .upsert(rows, { onConflict: "pick_date,sport,home_team,away_team,market,selection" });
   if (error) {
     console.error("[lucy-signals] salvataggio fallito:", error.message);
-    return 0;
+    return { calcio: calcioRows.length, tennis: tennisRows.length, salvati: 0, errore: error.message };
   }
-  return rows.length;
+  return { calcio: calcioRows.length, tennis: tennisRows.length, salvati: rows.length, errore: tennis.error };
 }
 
-async function computeTomorrowTennisPicks(tomorrow: string) {
+async function computeTomorrowTennisPicks(tomorrow: string, rawMatches: any[]) {
   try {
-    const r = await fetch(`https://sergioapicella.it/api/tennis/matches?date=${tomorrow}`);
-    const d = await r.json();
-    const rawMatches = d.matches || [];
 
     const picks = rawMatches.map((m: any) => {
       let label, prob, playerAWins;
@@ -722,7 +779,8 @@ async function computeTomorrowTennisPicks(tomorrow: string) {
 
     picks.sort((a: any, b: any) => b.probability - a.probability);
     return picks.slice(0, 3);
-  } catch (e) {
+  } catch (e: any) {
+    console.error("[tennis-picks] errore nel calcolo:", e?.message || e);
     return [];
   }
 }
@@ -865,6 +923,31 @@ export async function GET(request: Request) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const url = new URL(request.url);
+
+  // ── MODALITÀ SOLO LUCY ──────────────────────────────────────────
+  // /api/cron/daily-digest?solo=lucy&date=2026-09-24
+  // Rigenera SOLO pronox_lucy_signals per quella data (default: domani).
+  // Niente verifica dei pick, niente pick email, NESSUNA email agli iscritti.
+  // Serve per provare la route e per recuperare un giorno perso.
+  if (url.searchParams.get("solo") === "lucy") {
+    const dateParam = url.searchParams.get("date");
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    const target = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : d.toISOString().split("T")[0];
+    const collected = await collectFootballSignals(target);
+    const tennis = await fetchTennisMatches(target);
+    const lucy = await saveLucySignals(target, collected, tennis);
+    return Response.json({
+      ok: true,
+      mode: "solo-lucy",
+      date: target,
+      tennisRicevuti: tennis.matches.length,
+      tennisConQuote: tennis.matches.filter((m: any) => m.oddsA && m.oddsB).length,
+      lucy,
+    });
+  }
+
   const today = new Date();
   const yesterday = new Date(today);
   yesterday.setDate(yesterday.getDate() - 1);
@@ -885,12 +968,19 @@ export async function GET(request: Request) {
   const needLucy = (lucyCount ?? 0) === 0;
 
   const collected = needPicks || needLucy ? await collectFootballSignals(tomorrowStr) : null;
-  const tomorrowPicks = await computeTomorrowPicks(tomorrowStr, collected);
+  // Tennis: una sola chiamata, usata sia dai pick email sia da Lucy.
+  const tennis: TennisFetch = needPicks || needLucy
+    ? await fetchTennisMatches(tomorrowStr)
+    : { matches: [], error: null, attempts: 0 };
+  const tomorrowPicks = await computeTomorrowPicks(tomorrowStr, collected, tennis.matches);
 
-  let lucySignals = 0;
+  let lucy: LucyReport | null = null;
   if (needLucy && collected) {
-    try { lucySignals = await saveLucySignals(tomorrowStr, collected); }
-    catch (e) { console.error("[lucy-signals] errore:", e); } // non deve mai bloccare l'email
+    try { lucy = await saveLucySignals(tomorrowStr, collected, tennis); }
+    catch (e: any) {
+      console.error("[lucy-signals] errore:", e?.message || e); // non deve mai bloccare l'email
+      lucy = { calcio: 0, tennis: 0, salvati: 0, errore: e?.message || String(e) };
+    }
   }
 
   const { data: profiles } = await supabase
@@ -906,7 +996,10 @@ export async function GET(request: Request) {
     ok: true,
     yesterdayVerified: yesterdayResults.length,
     tomorrowPicks: tomorrowPicks.length,
-    lucySignals,
+    tennisRicevuti: tennis.matches.length,
+    tennisErrore: tennis.error,
+    lucySignals: lucy?.salvati ?? 0,
+    lucy,
     emailsSent: emailResult.sent,
     emailsFailed: emailResult.failed,
   });
