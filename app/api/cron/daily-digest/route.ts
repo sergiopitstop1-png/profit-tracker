@@ -184,6 +184,22 @@ function getLambdas(teamH: any, teamA: any, lgAvgHome: number, lgAvgAway: number
   };
 }
 
+// Segnali per Lucy: tutti gli esiti 1 / 2 / Over 2.5 / Under 2.5 con probabilità >= 55%,
+// anche sotto le soglie dell'email (casa 62%, Over/Under 65%). Lucy poi applica le sue regole
+// (orienta la bet solo sopra il 55% e con copertura dell'altro esito <= 90 €).
+const LUCY_SOGLIA = 0.55;
+
+function getLucySignals(probs: any) {
+  const out = [
+    { label: "CASA VINCE", prob: probs.h },
+    { label: "OSPITE VINCE", prob: probs.a },
+    { label: "OVER 2.5", prob: probs.o25 },
+    { label: "UNDER 2.5", prob: probs.u25 },
+  ].filter((x) => x.prob >= LUCY_SOGLIA);
+  out.sort((a, b) => b.prob - a.prob);
+  return out;
+}
+
 function getSignals(probs: any) {
   const signals = [];
   if (probs.h > 0.62) signals.push({ label: "CASA VINCE", prob: probs.h });
@@ -499,14 +515,15 @@ async function collectFootballSignals(tomorrow: string) {
       const h2h = calcH2H(matches, m.homeTeam.id, m.awayTeam.id);
       const { lH, lA, clamped } = getLambdas(teamH, teamA, lgAvgHome, lgAvgAway, h2h.bias);
       const probs = calcProbs(lH, lA);
-      const signals = getSignals(probs);
-      if (signals.length === 0) continue;
+      const signals = getSignals(probs);          // soglie email
+      const lucySignals = getLucySignals(probs);  // soglia Lucy 55%
+      if (signals.length === 0 && lucySignals.length === 0) continue;
 
       const oddsData = matchOdds(oddsMap, m.homeTeam.name, m.awayTeam.name);
       out.push({
         league, m, lH, lA, clamped,
         gamesH: teamH.nGames, gamesA: teamA.nGames,
-        signals, oddsData,
+        signals, lucySignals, oddsData,
       });
     }
   }
@@ -607,7 +624,7 @@ function lucyMarketFor(label: string) {
 function buildLucyFootballRows(tomorrow: string, collected: any[]) {
   const rows: any[] = [];
   for (const c of collected) {
-    for (const s of c.signals) {
+    for (const s of (c.lucySignals || c.signals)) {
       const mk = lucyMarketFor(s.label);
       if (!mk) continue;
       rows.push({
