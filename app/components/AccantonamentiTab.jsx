@@ -157,16 +157,16 @@ export default function AccantonamentiTab({
           <SubNote>
             matura {fmt(mediaMensileRoyalty)} al mese · maturato {fmt(royaltyTotale2026)} · pagato {fmt(royaltyPagato2026)}
           </SubNote>
-          {[...royaltyMensiliDaPagare.map(m => ({ ...m, etichetta: m.periodo })), ...royaltyBenvenutiDaPagare.map(b => ({ ...b, etichetta: 'benvenuto' }))].length > 0 && (
+          {[...royaltyMensiliDaPagare.map(m => ({ ...m, etichetta: m.etichetta || m.periodo })), ...royaltyBenvenutiDaPagare.map(b => ({ ...b, etichetta: 'benvenuto' }))].length > 0 && (
             <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {[...royaltyMensiliDaPagare.map(m => ({ ...m, etichetta: m.periodo })), ...royaltyBenvenutiDaPagare.map(b => ({ ...b, etichetta: 'benvenuto' }))].map((m) => (
+              {[...royaltyMensiliDaPagare.map(m => ({ ...m, etichetta: m.etichetta || m.periodo })), ...royaltyBenvenutiDaPagare.map(b => ({ ...b, etichetta: 'benvenuto' }))].map((m) => (
                 <div key={m.cliente_id + '-' + m.periodo} style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
                   background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.35)',
                   borderRadius: 8, padding: '6px 10px',
                 }}>
                   <span style={{ fontSize: 12, color: '#fca5a5', fontWeight: 700 }}>
-                    ⚠️ PAGARE {(m.nome || '').toUpperCase()} · {fmt(m.importo)} ({m.etichetta}){m.inRitardo ? ' · IN RITARDO' : ''}
+                    ⚠️ PAGARE {(m.nome || '').toUpperCase()} · {fmt(m.importo)} ({m.etichetta}){m.inRitardo ? ' · IN RITARDO' : m.giorniRitardo < 0 ? ` · tra ${-m.giorniRitardo} gg` : ''}
                   </span>
                   {onPagaRoyalty && (
                     <button
