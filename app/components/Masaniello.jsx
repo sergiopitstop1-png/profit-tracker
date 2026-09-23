@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Plus, Trash2, RotateCcw, AlertTriangle, ChevronUp, ChevronDown, LayoutGrid, X, Wand2, Loader2 } from "lucide-react";
+import { Plus, Trash2, RotateCcw, AlertTriangle, LayoutGrid, X, Wand2, Loader2, Link2 } from "lucide-react";
 import { supabase } from "../profit-tracker/supabaseClient";
 
 const INK = "#12140f";
@@ -29,26 +29,97 @@ function useDebouncedCallback(callback, delay = 500) {
   );
 }
 
-// --- calcoli invariati rispetto alla versione standalone ---
-function computeCalc(capitale, events) {
-  const validEvents = events.filter((e) => e.quota && parseFloat(e.quota) > 1);
-  const n = validEvents.length;
-  if (n === 0 || !capitale || capitale <= 0) return null;
-  const sumInvQ = validEvents.reduce((acc, e) => acc + 1 / parseFloat(e.quota), 0);
-  const payout = capitale / sumInvQ;
-  const breakEven = sumInvQ;
-  const stakes = validEvents.map((e) => ({ ...e, stake: payout / parseFloat(e.quota) }));
-  const decise = stakes.filter((e) => e.esito !== "attesa");
-  const vinte = decise.filter((e) => e.esito === "vinta").length;
-  const incassoParziale = vinte * payout;
-  const profittoParziale = incassoParziale - capitale;
-  const roiParziale = (profittoParziale / capitale) * 100;
-  const scenari = [];
-  for (let k = 1; k <= n; k++) {
-    const t = k * payout;
-    scenari.push({ k, target: t, roi: ((t - capitale) / capitale) * 100 });
+// ════════════════════════════════════════════════════════════════════
+// MOTORE MASANIELLO (standard, quote variabili, eventi contemporanei)
+// V(i,k) = frazione dell'obiettivo che serve avere prima dell'evento i con ancora k vincite da fare:
+//   V(i,0) = 1   ·   V(i,k) = 0 se k > eventi rimasti   ·   V(i,k) = [V(i+1,k-1) + (q_i-1)·V(i+1,k)] / q_i
+// Obiettivo = capitale attuale / V(stato). Puntata di un gruppo di m eventi contemporanei:
+//   totale S = X · (1 − V(i+m,k) / V(i,k))  → se li perdi tutti sei esattamente sul piano classico
+//   ripartito a vincita uguale: s_j = P / q_j con P = S / Σ(1/q_j)  (m = 1 → formula classica)
+// Puntate arrotondate all'euro; il capitale reale si aggiorna con le puntate arrotondate.
+// ════════════════════════════════════════════════════════════════════
+const parseQ = (v) => { const n = parseFloat(String(v ?? '').replace(',', '.')); return Number.isFinite(n) && n > 1 ? n : null };
+
+function computeMasaniello(plan) {
+  const C = Number(plan.capitale) || 0;
+  const N = Math.round(Number(plan.planN) || 0);
+  const K = Math.round(Number(plan.planK) || 0);
+  if (C <= 0 || N <= 0 || K <= 0 || K > N) return null;
+  const events = plan.events || [];
+  const qEntered = events.map(e => parseQ(e.quota)).filter(Boolean);
+  const qRif = parseQ(plan.bulkQuota) || (qEntered.length ? qEntered.reduce((a, b) => a + b, 0) / qEntered.length : 2);
+  // quota di ogni "casella" del piano: quella dell'evento se c'è, altrimenti la quota di riferimento
+  const q = Array.from({ length: N }, (_, i) => (events[i] && parseQ(events[i].quota)) || qRif);
+
+  const memo = new Map();
+  const V = (i, k) => {
+    if (k <= 0) return 1;
+    if (N - i < k) return 0;
+    const key = i * 1000 + k;
+    if (memo.has(key)) return memo.get(key);
+    const v = (V(i + 1, k - 1) + (q[i] - 1) * V(i + 1, k)) / q[i];
+    memo.set(key, v);
+    return v;
+  };
+
+  const obiettivoIniziale = C / V(0, K);
+  // gruppi: un evento con "contemporanea" = true sta nello stesso gruppo del precedente
+  const groups = [];
+  events.slice(0, N).forEach((e, idx) => {
+    if (idx > 0 && e.contemporanea && groups.length) groups[groups.length - 1].push(idx);
+    else groups.push([idx]);
+  });
+
+  let X = C, i = 0, k = K, vinte = 0, perse = 0;
+  const rows = events.map((e, idx) => ({ id: e.id, idx, stake: null, capitaleDopo: null, gruppo: null, stato: idx >= N ? 'fuori' : 'futuro' }));
+  let prossime = null; // gruppo da giocare adesso
+  let stato = 'in corso';
+
+  for (let g = 0; g < groups.length; g++) {
+    const idxs = groups[g];
+    const m = idxs.length;
+    idxs.forEach(ix => { rows[ix].gruppo = g; });
+    if (k <= 0) { stato = 'obiettivo'; idxs.forEach(ix => { rows[ix].stake = 0; rows[ix].stato = 'chiuso' }); continue; }
+    const v0 = V(i, k);
+    if (v0 <= 0) { stato = 'fallito'; idxs.forEach(ix => { rows[ix].stake = 0; rows[ix].stato = 'chiuso' }); continue; }
+    const S = Math.max(0, X * (1 - V(i + m, k) / v0));
+    const sumInv = idxs.reduce((a, ix) => a + 1 / q[ix], 0);
+    const P = S / sumInv;
+    let stakes = idxs.map(ix => Math.max(0, Math.round(P / q[ix])));
+    // mai più del capitale disponibile
+    let tot = stakes.reduce((a, b) => a + b, 0);
+    while (tot > Math.floor(X) && tot > 0) { const j = stakes.indexOf(Math.max(...stakes)); stakes[j] -= 1; tot -= 1 }
+    idxs.forEach((ix, j) => { rows[ix].stake = stakes[j] });
+
+    const esiti = idxs.map(ix => events[ix].esito);
+    if (esiti.some(es => es === 'attesa' || !es)) {
+      if (!prossime) prossime = { gruppo: g, eventi: idxs, totale: tot, capitale: X, obiettivo: X / v0 };
+      idxs.forEach(ix => { rows[ix].stato = events[ix].esito === 'attesa' || !events[ix].esito ? 'da giocare' : 'giocato' });
+      // gli eventi successivi dipendono dall'esito: non si possono calcolare adesso
+      for (let r = g + 1; r < groups.length; r++) groups[r].forEach(ix => { rows[ix].gruppo = r });
+      break;
+    }
+    idxs.forEach((ix, j) => {
+      const win = events[ix].esito === 'vinta';
+      X += win ? stakes[j] * (q[ix] - 1) : -stakes[j];
+      if (win) { vinte++; k-- } else perse++;
+      rows[ix].stato = 'giocato';
+    });
+    X = Math.round(X * 100) / 100;
+    idxs.forEach(ix => { rows[ix].capitaleDopo = X });
+    i += m;
   }
-  return { n, payout, breakEven, stakes, vinte, incassoParziale, profittoParziale, roiParziale, scenari, decise: decise.length };
+  if (!prossime && stato === 'in corso') {
+    if (k <= 0) stato = 'obiettivo';
+    else if (V(i, k) <= 0) stato = 'fallito';
+    else if (i >= Math.min(N, events.length)) stato = 'mancano eventi';
+  }
+  const vAttuale = k <= 0 ? 1 : V(i, k);
+  return {
+    N, K, qRif, obiettivoIniziale, capitaleAttuale: X, vinte, perse, giocati: vinte + perse,
+    vincitaMancanti: Math.max(0, k), obiettivoAttuale: vAttuale > 0 ? X / vAttuale : null,
+    profitto: X - C, rows, prossime, stato, eventiOltreN: Math.max(0, events.length - N),
+  };
 }
 
 function computePlanStats(planN, planK, curWins, curLosses, alertMargin, extQuota, extTarget) {
@@ -100,7 +171,7 @@ const planFromRow = (row, events) => ({
   events: events
     .filter((e) => e.plan_id === row.id)
     .sort((a, b) => a.position - b.position)
-    .map((e) => ({ id: e.id, label: e.label, quota: e.quota == null ? "" : String(e.quota), esito: e.esito })),
+    .map((e) => ({ id: e.id, label: e.label, quota: e.quota == null ? "" : String(e.quota), esito: e.esito, contemporanea: !!e.contemporanea })),
 });
 
 const patchToRow = (patch) => {
@@ -134,25 +205,6 @@ function NumField({ label, value, onChange, step = 1, min = 0, width = 90 }) {
   );
 }
 
-function Stepper({ label, value, onChange, color }) {
-  return (
-    <div>
-      <label style={{ display: "block", fontFamily: "system-ui, sans-serif", fontSize: 11, color: MUTED, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.4 }}>
-        {label}
-      </label>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <button onClick={() => onChange(Math.max(0, value - 1))} style={{ background: PANEL, border: `1px solid ${LINE}`, borderRadius: 4, color: MUTED, width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-          <ChevronDown size={13} />
-        </button>
-        <span style={{ fontFamily: "Georgia, serif", fontSize: 18, color: color || CREAM, minWidth: 30, textAlign: "center" }}>{value}</span>
-        <button onClick={() => onChange(value + 1)} style={{ background: PANEL, border: `1px solid ${LINE}`, borderRadius: 4, color: MUTED, width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-          <ChevronUp size={13} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function SummaryCard({ label, value, sub, accent }) {
   return (
     <div style={{ background: PANEL, borderRadius: 8, padding: "12px 14px", border: `1px solid ${LINE}` }}>
@@ -165,43 +217,57 @@ function SummaryCard({ label, value, sub, accent }) {
   );
 }
 
+const STATO_LABEL = {
+  "in corso": { t: "in corso", c: CREAM },
+  obiettivo: { t: "obiettivo raggiunto", c: GREEN },
+  fallito: { t: "piano fallito", c: RUST },
+  "mancano eventi": { t: "aggiungi eventi", c: AMBER },
+};
+
+function statsFor(plan, m) {
+  return computePlanStats(plan.planN, plan.planK, m ? m.vinte : 0, m ? m.perse : 0, plan.alertMargin, plan.extQuota, plan.extTarget);
+}
+
 function Dashboard({ plans, onOpen }) {
   const rows = plans.map((p) => {
-    const calc = computeCalc(p.capitale, p.events);
-    const stats = computePlanStats(p.planN, p.planK, p.curWins, p.curLosses, p.alertMargin, p.extQuota, p.extTarget);
-    return { plan: p, calc, stats };
+    const m = computeMasaniello(p);
+    return { plan: p, m, stats: statsFor(p, m) };
   });
   const capitaleTot = plans.reduce((a, p) => a + (parseFloat(p.capitale) || 0), 0);
-  const profittoTot = rows.reduce((a, r) => a + (r.calc ? r.calc.profittoParziale : 0), 0);
+  const profittoTot = rows.reduce((a, r) => a + (r.m ? r.m.profitto : 0), 0);
   const inAllerta = rows.filter((r) => r.stats && r.stats.triggered).length;
+  const cols = "1.4fr 0.8fr 0.8fr 1fr 1fr 0.9fr 0.7fr";
 
   return (
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 24 }}>
-        <SummaryCard label="Piani attivi" value={plans.length} />
+        <SummaryCard label="Piani" value={plans.length} />
         <SummaryCard label="Capitale allocato" value={`€${fmt(capitaleTot)}`} />
         <SummaryCard label="P&L aggregato" value={`${profittoTot >= 0 ? "+" : ""}€${fmt(profittoTot)}`} accent={profittoTot >= 0 ? GREEN : RUST} />
         <SummaryCard label="Piani in allerta" value={inAllerta} accent={inAllerta > 0 ? AMBER : GREEN} />
       </div>
 
       <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 13, border: `1px solid ${LINE}`, borderRadius: 8, overflow: "hidden" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 0.8fr 0.8fr 1fr 1fr 0.9fr 0.7fr", background: PANEL, padding: "8px 14px", color: MUTED, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, gap: 6 }}>
+        <div style={{ display: "grid", gridTemplateColumns: cols, background: PANEL, padding: "8px 14px", color: MUTED, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, gap: 6 }}>
           <span>Piano</span>
           <span style={{ textAlign: "right" }}>Capitale</span>
-          <span style={{ textAlign: "right" }}>Eventi</span>
-          <span style={{ textAlign: "right" }}>Payout</span>
-          <span style={{ textAlign: "right" }}>Esito</span>
+          <span style={{ textAlign: "right" }}>Giocati</span>
+          <span style={{ textAlign: "right" }}>Obiettivo</span>
+          <span style={{ textAlign: "right" }}>P&L</span>
           <span style={{ textAlign: "right" }}>Margine</span>
           <span></span>
         </div>
-        {rows.map(({ plan, calc, stats }) => (
-          <div key={plan.id} style={{ display: "grid", gridTemplateColumns: "1.4fr 0.8fr 0.8fr 1fr 1fr 0.9fr 0.7fr", padding: "10px 14px", borderTop: `1px solid ${LINE}`, alignItems: "center", gap: 6 }}>
-            <span style={{ color: CREAM, fontFamily: "Georgia, serif", fontSize: 15 }}>{plan.name}</span>
-            <span style={{ textAlign: "right", color: CREAM }}>€{fmt(plan.capitale, 0)}</span>
-            <span style={{ textAlign: "right", color: MUTED }}>{calc ? calc.n : 0}</span>
-            <span style={{ textAlign: "right", color: GOLD }}>{calc ? `€${fmt(calc.payout)}` : "—"}</span>
-            <span style={{ textAlign: "right", color: !calc || calc.decise === 0 ? MUTED : calc.profittoParziale >= 0 ? GREEN : RUST }}>
-              {calc && calc.decise > 0 ? `${calc.profittoParziale >= 0 ? "+" : ""}€${fmt(calc.profittoParziale)}` : "—"}
+        {rows.map(({ plan, m, stats }) => (
+          <div key={plan.id} style={{ display: "grid", gridTemplateColumns: cols, padding: "10px 14px", borderTop: `1px solid ${LINE}`, alignItems: "center", gap: 6 }}>
+            <span style={{ color: CREAM, fontFamily: "Georgia, serif", fontSize: 15 }}>
+              {plan.name}
+              {m && m.stato !== "in corso" && <span style={{ display: "block", fontFamily: "system-ui, sans-serif", fontSize: 11, color: STATO_LABEL[m.stato].c }}>{STATO_LABEL[m.stato].t}</span>}
+            </span>
+            <span style={{ textAlign: "right", color: CREAM }}>€{fmt(m ? m.capitaleAttuale : plan.capitale, 0)}</span>
+            <span style={{ textAlign: "right", color: MUTED }}>{m ? `${m.giocati}/${m.N}` : "—"}</span>
+            <span style={{ textAlign: "right", color: GOLD }}>{m && m.obiettivoAttuale ? `€${fmt(m.obiettivoAttuale)}` : "—"}</span>
+            <span style={{ textAlign: "right", color: !m || m.giocati === 0 ? MUTED : m.profitto >= 0 ? GREEN : RUST }}>
+              {m && m.giocati > 0 ? `${m.profitto >= 0 ? "+" : ""}€${fmt(m.profitto)}` : "—"}
             </span>
             <span style={{ textAlign: "right", color: !stats ? MUTED : stats.exceeded ? RUST : stats.triggered ? AMBER : GREEN }}>
               {stats ? stats.lossesResidue : "—"}
@@ -224,21 +290,17 @@ function Dashboard({ plans, onOpen }) {
 }
 
 function PlanView({ plan, onLocalUpdate, onSavePlanField, onAddEvent, onUpdateEventField, onRemoveEvent, onResetOutcomes, onGenerateBulk }) {
-  const calc = useMemo(() => computeCalc(plan.capitale, plan.events), [plan.capitale, plan.events]);
-  const stats = useMemo(
-    () => computePlanStats(plan.planN, plan.planK, plan.curWins, plan.curLosses, plan.alertMargin, plan.extQuota, plan.extTarget),
-    [plan.planN, plan.planK, plan.curWins, plan.curLosses, plan.alertMargin, plan.extQuota, plan.extTarget]
-  );
-
+  const m = useMemo(() => computeMasaniello(plan), [plan]);
+  const stats = useMemo(() => statsFor(plan, m), [plan, m]);
   const field = (key) => ({
     onLocal: (value) => onLocalUpdate(plan.id, { [key]: value }),
     onSave: (value) => onSavePlanField(plan.id, key, value),
   });
-
   const setNow = (key, value) => {
     onLocalUpdate(plan.id, { [key]: value });
     onSavePlanField(plan.id, key, value);
   };
+  const label = { display: "block", fontFamily: "system-ui, sans-serif", fontSize: 11, color: MUTED, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.4 };
 
   return (
     <div>
@@ -253,152 +315,171 @@ function PlanView({ plan, onLocalUpdate, onSavePlanField, onAddEvent, onUpdateEv
             />
           </div>
           <div style={{ textAlign: "right" }}>
-            <label style={{ display: "block", fontFamily: "system-ui, sans-serif", fontSize: 11, color: MUTED, marginBottom: 4 }}>Capitale</label>
+            <label style={{ display: "block", fontFamily: "system-ui, sans-serif", fontSize: 11, color: MUTED, marginBottom: 4 }}>Capitale iniziale</label>
             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
               <span style={{ fontSize: 20, color: MUTED }}>€</span>
               <input
                 type="number"
                 value={plan.capitale}
                 onChange={(e) => { const v = parseFloat(e.target.value) || 0; field("capitale").onLocal(v); field("capitale").onSave(v); }}
-                style={{ background: "transparent", border: "none", borderBottom: `1px solid ${LINE}`, color: CREAM, fontFamily: "Georgia, serif", fontSize: 24, width: 130, textAlign: "right", outline: "none" }}
+                style={{ background: "transparent", border: "none", borderBottom: `1px solid ${LINE}`, color: CREAM, fontFamily: "Georgia, serif", fontSize: 24, width: 130, outline: "none", textAlign: "right" }}
               />
             </div>
           </div>
         </div>
       </div>
 
-      {calc && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: 28 }}>
-          <SummaryCard label="Eventi" value={calc.n} />
-          <SummaryCard label="Payout per vincita" value={`€${fmt(calc.payout)}`} accent={GOLD} />
-          <SummaryCard label="Pareggio (vincite)" value={fmt(calc.breakEven)} />
-          <SummaryCard
-            label={calc.decise === calc.n ? "Esito finale" : `Esito (${calc.decise}/${calc.n} decisi)`}
-            value={`${calc.profittoParziale >= 0 ? "+" : ""}€${fmt(calc.profittoParziale)}`}
-            accent={calc.decise === 0 ? MUTED : calc.profittoParziale >= 0 ? GREEN : RUST}
-            sub={calc.decise > 0 ? `ROI ${calc.roiParziale >= 0 ? "+" : ""}${fmt(calc.roiParziale)}%` : "nessun esito ancora"}
-          />
-        </div>
-      )}
-
-      <div style={{ marginBottom: 28, border: `1px solid ${LINE}`, borderRadius: 8, padding: 18 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 400, margin: "0 0 14px" }}>Piano e allerta perdite</h2>
-
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 14, marginBottom: 16 }}>
-          <NumField label="Eventi totali (N)" value={plan.planN} onChange={(v) => setNow("planN", v)} step={1} min={1} />
-          <NumField label="Vincite minime (K)" value={plan.planK} onChange={(v) => setNow("planK", v)} step={1} min={1} />
-          <NumField label="Margine di allerta" value={plan.alertMargin} onChange={(v) => setNow("alertMargin", v)} step={1} min={0} />
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 14, marginBottom: 18 }}>
-          <Stepper label="Vinte finora" value={plan.curWins} onChange={(v) => setNow("curWins", v)} color={GREEN} />
-          <Stepper label="Perse finora" value={plan.curLosses} onChange={(v) => setNow("curLosses", v)} color={RUST} />
-        </div>
-
-        {stats && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: stats.triggered ? 16 : 0 }}>
-            <SummaryCard label="Perdite massime tollerate" value={stats.maxLosses} sub={`serve vincere ${fmt(stats.winRateNeededPct, 1)}%`} />
-            <SummaryCard label="Margine di sicurezza" value={stats.lossesResidue} accent={stats.exceeded ? RUST : stats.triggered ? AMBER : GREEN} sub={stats.exceeded ? "soglia superata" : "perdite ancora ammesse"} />
-            <SummaryCard label="Win-rate reale finora" value={stats.h != null ? `${fmt(stats.h * 100, 1)}%` : "—"} sub={`${plan.curWins}V / ${plan.curLosses}P su ${stats.played}`} />
-          </div>
-        )}
-
-        {stats && stats.triggered && (
-          <div style={{ background: "rgba(184,89,61,0.08)", border: `1px solid ${stats.exceeded ? RUST : AMBER}`, borderRadius: 8, padding: 16, marginTop: 4 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-              <AlertTriangle size={16} color={stats.exceeded ? RUST : AMBER} />
-              <span style={{ fontFamily: "system-ui, sans-serif", fontSize: 13, color: stats.exceeded ? RUST : AMBER }}>
-                {stats.exceeded
-                  ? `Soglia superata: hai ${plan.curLosses} perdite contro un massimo di ${stats.maxLosses}`
-                  : `Attenzione: margine residuo di sole ${stats.lossesResidue} perdite prima del limite (${stats.maxLosses})`}
-              </span>
-            </div>
-            <p style={{ fontFamily: "system-ui, sans-serif", fontSize: 12, color: MUTED, margin: "0 0 12px" }}>
-              Stima di quanti eventi aggiungere alla progressione per restare in profitto, in base al tuo win-rate reale finora.
-            </p>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 14, marginBottom: 14 }}>
-              <NumField label="Quota media prossimi eventi" value={plan.extQuota} onChange={(v) => setNow("extQuota", v)} step={0.01} min={1.01} />
-              <NumField label="Profitto minimo desiderato %" value={plan.extTarget} onChange={(v) => setNow("extTarget", v)} step={1} min={0} />
-            </div>
-            {stats.extension && stats.extension.possible && (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
-                <SummaryCard label="Eventi da aggiungere" value={`+${stats.extension.M}`} accent={GOLD} />
-                <SummaryCard label="Nuovo totale eventi" value={stats.extension.Ntot} />
-                <SummaryCard label="Nuove vincite minime" value={stats.extension.Vmin} />
-                <SummaryCard label="Nuovo margine risultante" value={stats.extension.marginNew} accent={GREEN} />
-              </div>
-            )}
-            {stats.extension && !stats.extension.possible && (
-              <p style={{ fontFamily: "system-ui, sans-serif", fontSize: 12, color: RUST, margin: 0 }}>
-                Con il tuo win-rate attuale ({fmt(stats.extension.h * 100, 1)}%) e questa quota media, nessuna estensione realistica riporta il piano in profitto.
-              </p>
-            )}
-            {!stats.extension && (
-              <p style={{ fontFamily: "system-ui, sans-serif", fontSize: 12, color: MUTED, margin: 0 }}>
-                Servono almeno un esito vinto o perso registrato per calcolare il win-rate e proporre un'estensione.
-              </p>
-            )}
-            <p style={{ fontFamily: "system-ui, sans-serif", fontSize: 11, color: MUTED, marginTop: 12, lineHeight: 1.5 }}>
-              Stima basata sul win-rate osservato finora: non è una garanzia, è una proiezione da rivedere man mano che arrivano nuovi risultati.
-            </p>
-          </div>
-        )}
-      </div>
-
       <div style={{ marginBottom: 24, border: `1px solid ${LINE}`, borderRadius: 8, padding: 18 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-          <Wand2 size={16} color={GOLD} />
-          <h2 style={{ fontSize: 16, fontWeight: 400, margin: 0 }}>Genera eventi in blocco</h2>
-        </div>
-        <p style={{ fontFamily: "system-ui, sans-serif", fontSize: 12, color: MUTED, margin: "0 0 14px" }}>
-          Crea in automatico le caselle per tutti gli eventi del piano, precompilate con una quota media. Sostituisce gli eventi attuali di questo piano.
-        </p>
-        <div style={{ display: "flex", alignItems: "flex-end", gap: 14, flexWrap: "wrap" }}>
-          <NumField label="Numero eventi" value={plan.bulkN} onChange={(v) => setNow("bulkN", v)} step={1} min={1} width={100} />
+        <h2 style={{ fontSize: 16, fontWeight: 400, margin: "0 0 14px" }}>Piano</h2>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 14 }}>
+          <NumField label="Eventi totali (N)" value={plan.planN} onChange={(v) => setNow("planN", Math.max(1, Math.round(v)))} step={1} min={1} />
+          <NumField label="Vincite minime (K)" value={plan.planK} onChange={(v) => setNow("planK", Math.max(1, Math.round(v)))} step={1} min={1} />
           <div>
-            <label style={{ display: "block", fontFamily: "system-ui, sans-serif", fontSize: 11, color: MUTED, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.4 }}>
-              Quota media
-            </label>
+            <label style={label}>Quota di riferimento</label>
             <input
-              value={plan.bulkQuota}
+              value={plan.bulkQuota ?? ""}
               onChange={(e) => { field("bulkQuota").onLocal(e.target.value); field("bulkQuota").onSave(e.target.value); }}
-              placeholder="1.50"
+              placeholder="2,00"
               style={{ background: PANEL, border: `1px solid ${LINE}`, borderRadius: 4, color: CREAM, fontFamily: "system-ui, sans-serif", fontSize: 14, padding: "6px 8px", width: 90, outline: "none" }}
             />
           </div>
-          <button onClick={() => onGenerateBulk(plan.id)} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: `1px solid ${GOLD}`, borderRadius: 6, color: GOLD, fontFamily: "system-ui, sans-serif", fontSize: 13, padding: "8px 14px", cursor: "pointer", height: 34 }}>
-            <Wand2 size={14} /> Genera griglia eventi
-          </button>
+          <NumField label="Margine di allerta" value={plan.alertMargin} onChange={(v) => setNow("alertMargin", v)} step={1} min={0} />
         </div>
+        <p style={{ fontFamily: "system-ui, sans-serif", fontSize: 11, color: MUTED, margin: "10px 0 0", lineHeight: 1.5 }}>
+          La quota di riferimento si usa per gli eventi di cui non hai ancora inserito la quota: appena la scrivi, le puntate si ricalcolano.
+        </p>
+        {plan.planK > plan.planN && <p style={{ fontFamily: "system-ui, sans-serif", fontSize: 12, color: RUST, margin: "8px 0 0" }}>Le vincite minime non possono superare gli eventi totali.</p>}
+      </div>
+
+      {m && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: 20 }}>
+          <SummaryCard label="Obiettivo" value={m.obiettivoAttuale ? `€${fmt(m.obiettivoAttuale)}` : "—"}
+            accent={GOLD} sub={`iniziale €${fmt(m.obiettivoIniziale)} · ${m.obiettivoAttuale ? `+${fmt(((m.obiettivoAttuale - plan.capitale) / plan.capitale) * 100, 1)}%` : ""}`} />
+          <SummaryCard label="Capitale attuale" value={`€${fmt(m.capitaleAttuale)}`}
+            accent={m.giocati === 0 ? CREAM : m.profitto >= 0 ? GREEN : RUST}
+            sub={m.giocati > 0 ? `${m.profitto >= 0 ? "+" : ""}€${fmt(m.profitto)}` : "nessun esito ancora"} />
+          <SummaryCard label="Avanzamento" value={`${m.vinte}V · ${m.perse}P`} sub={`${m.giocati}/${m.N} giocati · mancano ${m.vincitaMancanti} vincite`} />
+          <SummaryCard label="Stato" value={STATO_LABEL[m.stato].t} accent={STATO_LABEL[m.stato].c} />
+        </div>
+      )}
+
+      {m && m.prossime && (
+        <div style={{ marginBottom: 24, border: `1px solid ${GOLD}`, borderRadius: 8, padding: 16, background: "rgba(201,162,74,0.06)" }}>
+          <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 11, color: GOLD, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
+            {m.prossime.eventi.length > 1 ? `Prossima giocata · ${m.prossime.eventi.length} eventi in contemporanea` : "Prossima giocata"}
+          </div>
+          {m.prossime.eventi.map((ix) => {
+            const ev = plan.events[ix];
+            return (
+              <div key={ev.id} style={{ display: "flex", justifyContent: "space-between", fontFamily: "system-ui, sans-serif", fontSize: 14, padding: "3px 0", color: ev.esito === "attesa" ? CREAM : MUTED }}>
+                <span>{ev.label} <span style={{ color: MUTED }}>@ {fmt(parseQ(ev.quota) || m.qRif)}</span>{!parseQ(ev.quota) && <span style={{ color: AMBER, fontSize: 11 }}> (quota di riferimento)</span>}</span>
+                <b style={{ color: GOLD }}>€{m.rows[ix].stake}</b>
+              </div>
+            );
+          })}
+          {m.prossime.eventi.length > 1 && (
+            <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 12, color: MUTED, marginTop: 6 }}>Totale in gioco €{m.prossime.totale}</div>
+          )}
+        </div>
+      )}
+
+      {stats && (
+        <div style={{ marginBottom: 24, border: `1px solid ${LINE}`, borderRadius: 8, padding: 18 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 400, margin: "0 0 14px" }}>Allerta perdite</h2>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: stats.triggered ? 16 : 0 }}>
+            <SummaryCard label="Perdite massime tollerate" value={stats.maxLosses} sub={`serve vincere ${fmt(stats.winRateNeededPct, 1)}%`} />
+            <SummaryCard label="Margine di sicurezza" value={stats.lossesResidue} accent={stats.exceeded ? RUST : stats.triggered ? AMBER : GREEN} sub={stats.exceeded ? "soglia superata" : "perdite ancora tollerabili"} />
+            <SummaryCard label="Win-rate reale finora" value={stats.h != null ? `${fmt(stats.h * 100, 1)}%` : "—"} sub={`${m ? m.vinte : 0}V / ${m ? m.perse : 0}P su ${stats.played} giocati`} />
+          </div>
+          {stats.triggered && (
+            <div style={{ background: "rgba(184,89,61,0.08)", border: `1px solid ${stats.exceeded ? RUST : AMBER}`, borderRadius: 8, padding: 16, marginTop: 4 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <AlertTriangle size={16} color={stats.exceeded ? RUST : AMBER} />
+                <span style={{ fontFamily: "system-ui, sans-serif", fontSize: 13, color: stats.exceeded ? RUST : AMBER }}>
+                  {stats.exceeded
+                    ? `Soglia superata: ${m ? m.perse : 0} perdite contro un massimo di ${stats.maxLosses}`
+                    : `Attenzione: margine residuo di sole ${stats.lossesResidue} perdite prima del limite (${stats.maxLosses})`}
+                </span>
+              </div>
+              <p style={{ fontFamily: "system-ui, sans-serif", fontSize: 12, color: MUTED, margin: "0 0 12px" }}>
+                Stima di quanti eventi aggiungere alla progressione per restare in profitto, in base al tuo win-rate reale finora.
+              </p>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 14, marginBottom: 14 }}>
+                <NumField label="Quota media prossimi eventi" value={plan.extQuota} onChange={(v) => setNow("extQuota", v)} step={0.01} min={1.01} />
+                <NumField label="Profitto minimo desiderato %" value={plan.extTarget} onChange={(v) => setNow("extTarget", v)} step={1} min={0} />
+              </div>
+              {stats.extension && stats.extension.possible && (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
+                  <SummaryCard label="Eventi da aggiungere" value={`+${stats.extension.M}`} accent={GOLD} />
+                  <SummaryCard label="Nuovo totale eventi" value={stats.extension.Ntot} />
+                  <SummaryCard label="Nuove vincite minime" value={stats.extension.Vmin} />
+                  <SummaryCard label="Nuovo margine risultante" value={stats.extension.marginNew} accent={GREEN} />
+                </div>
+              )}
+              {stats.extension && !stats.extension.possible && (
+                <p style={{ fontFamily: "system-ui, sans-serif", fontSize: 12, color: RUST, margin: 0 }}>
+                  Con il tuo win-rate attuale ({fmt(stats.extension.h * 100, 1)}%) e questa quota media, nessuna estensione realistica riporta il piano in profitto.
+                </p>
+              )}
+              {!stats.extension && (
+                <p style={{ fontFamily: "system-ui, sans-serif", fontSize: 12, color: MUTED, margin: 0 }}>
+                  Servono almeno un esito vinto o perso registrato per calcolare il win-rate e proporre un'estensione.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <button onClick={() => onGenerateBulk(plan.id)} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: `1px solid ${GOLD}`, borderRadius: 6, color: GOLD, fontFamily: "system-ui, sans-serif", fontSize: 13, padding: "8px 14px", cursor: "pointer" }}>
+          <Wand2 size={14} /> Genera {plan.planN || 0} eventi
+        </button>
+        <span style={{ fontFamily: "system-ui, sans-serif", fontSize: 11, color: MUTED }}>crea le caselle per tutto il piano con la quota di riferimento · sostituisce gli eventi attuali</span>
       </div>
 
       <div style={{ marginBottom: 24 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 90px 130px 90px 32px", gap: 8, padding: "0 4px 10px", fontFamily: "system-ui, sans-serif", fontSize: 11, color: MUTED, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: `1px solid ${LINE}` }}>
+        <div style={{ display: "grid", gridTemplateColumns: "34px 1fr 80px 120px 70px 90px 30px", gap: 8, padding: "0 4px 10px", fontFamily: "system-ui, sans-serif", fontSize: 11, color: MUTED, textTransform: "uppercase", letterSpacing: 0.4 }}>
+          <span title="Contemporanea alla precedente">⇄</span>
           <span>Evento</span>
           <span>Quota</span>
           <span>Esito</span>
           <span style={{ textAlign: "right" }}>Puntata</span>
+          <span style={{ textAlign: "right" }}>Capitale</span>
           <span></span>
         </div>
-
-        {plan.events.map((ev) => {
-          const stakeInfo = calc?.stakes.find((s) => s.id === ev.id);
+        {plan.events.map((ev, ix) => {
+          const r = m ? m.rows[ix] : null;
           const rowColor = ev.esito === "vinta" ? GREEN : ev.esito === "persa" ? RUST : CREAM;
+          const inGruppo = ev.contemporanea && ix > 0;
+          const prossimo = r && r.stato === "da giocare";
           return (
-            <div key={ev.id} style={{ display: "grid", gridTemplateColumns: "1fr 90px 130px 90px 32px", gap: 8, alignItems: "center", padding: "10px 4px", borderBottom: `1px solid ${LINE}` }}>
+            <div key={ev.id} style={{
+              display: "grid", gridTemplateColumns: "34px 1fr 80px 120px 70px 90px 30px", gap: 8, alignItems: "center",
+              padding: "6px 4px", borderTop: inGruppo ? "none" : `1px solid ${LINE}`,
+              borderLeft: `3px solid ${inGruppo || (plan.events[ix + 1] && plan.events[ix + 1].contemporanea) ? GOLD : "transparent"}`,
+              background: prossimo ? "rgba(201,162,74,0.06)" : "transparent", opacity: r && r.stato === "fuori" ? 0.45 : 1,
+            }}>
+              {ix > 0 ? (
+                <button
+                  onClick={() => onUpdateEventField(plan.id, ev.id, "contemporanea", !ev.contemporanea)}
+                  title={ev.contemporanea ? "Contemporanea alla precedente (clicca per separare)" : "Segna come contemporanea alla precedente"}
+                  style={{ background: ev.contemporanea ? "rgba(201,162,74,0.15)" : "transparent", border: `1px solid ${ev.contemporanea ? GOLD : LINE}`, borderRadius: 4, color: ev.contemporanea ? GOLD : MUTED, cursor: "pointer", height: 26, display: "flex", alignItems: "center", justifyContent: "center" }}
+                >
+                  <Link2 size={13} />
+                </button>
+              ) : <span />}
               <input
                 value={ev.label}
                 onChange={(e) => onUpdateEventField(plan.id, ev.id, "label", e.target.value)}
-                placeholder="Nome evento"
-                style={{ background: "transparent", border: "none", color: CREAM, fontFamily: "Georgia, serif", fontSize: 15, outline: "none", minWidth: 0 }}
+                style={{ background: "transparent", border: "none", borderBottom: `1px solid ${LINE}`, color: CREAM, fontFamily: "Georgia, serif", fontSize: 15, padding: "4px 0", outline: "none", minWidth: 0 }}
               />
               <input
-                type="number"
-                step="0.01"
                 value={ev.quota}
+                inputMode="decimal"
                 onChange={(e) => onUpdateEventField(plan.id, ev.id, "quota", e.target.value)}
-                placeholder="1.50"
-                style={{ background: PANEL, border: `1px solid ${LINE}`, borderRadius: 4, color: CREAM, fontFamily: "system-ui, sans-serif", fontSize: 14, padding: "5px 8px", width: 74, outline: "none" }}
+                placeholder={m ? fmt(m.qRif) : "2,00"}
+                style={{ background: PANEL, border: `1px solid ${LINE}`, borderRadius: 4, color: CREAM, fontFamily: "system-ui, sans-serif", fontSize: 14, padding: "5px 8px", width: 70, outline: "none" }}
               />
               <select
                 value={ev.esito}
@@ -409,8 +490,11 @@ function PlanView({ plan, onLocalUpdate, onSavePlanField, onAddEvent, onUpdateEv
                 <option value="vinta">Vinta</option>
                 <option value="persa">Persa</option>
               </select>
+              <span style={{ fontFamily: "system-ui, sans-serif", fontSize: 14, textAlign: "right", color: prossimo ? GOLD : MUTED, fontWeight: prossimo ? 700 : 400 }}>
+                {r && r.stake != null ? `€${r.stake}` : "—"}
+              </span>
               <span style={{ fontFamily: "system-ui, sans-serif", fontSize: 13, textAlign: "right", color: MUTED }}>
-                {stakeInfo ? `€${fmt(stakeInfo.stake)}` : "—"}
+                {r && r.capitaleDopo != null ? `€${fmt(r.capitaleDopo)}` : ""}
               </span>
               <button onClick={() => onRemoveEvent(plan.id, ev.id)} aria-label="Rimuovi evento" style={{ background: "transparent", border: "none", color: MUTED, cursor: "pointer", display: "flex", justifyContent: "center" }}>
                 <Trash2 size={15} />
@@ -418,6 +502,12 @@ function PlanView({ plan, onLocalUpdate, onSavePlanField, onAddEvent, onUpdateEv
             </div>
           );
         })}
+
+        {m && m.eventiOltreN > 0 && (
+          <p style={{ fontFamily: "system-ui, sans-serif", fontSize: 12, color: AMBER, margin: "10px 0 0" }}>
+            Hai {m.eventiOltreN} eventi oltre gli N del piano: non vengono calcolati. Aumenta N o rimuovili.
+          </p>
+        )}
 
         <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
           <button onClick={() => onAddEvent(plan.id)} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: `1px solid ${LINE}`, borderRadius: 6, color: CREAM, fontFamily: "system-ui, sans-serif", fontSize: 13, padding: "8px 14px", cursor: "pointer" }}>
@@ -429,31 +519,12 @@ function PlanView({ plan, onLocalUpdate, onSavePlanField, onAddEvent, onUpdateEv
         </div>
       </div>
 
-      {calc && (
-        <div>
-          <h2 style={{ fontSize: 16, fontWeight: 400, margin: "0 0 12px", color: CREAM }}>Scenari per numero di vincite</h2>
-          <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 13, border: `1px solid ${LINE}`, borderRadius: 8, overflow: "hidden", maxHeight: 360, overflowY: "auto" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", background: PANEL, padding: "8px 14px", color: MUTED, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, position: "sticky", top: 0 }}>
-              <span>Vincite</span>
-              <span style={{ textAlign: "right" }}>Capitale finale</span>
-              <span style={{ textAlign: "right" }}>ROI</span>
-            </div>
-            {calc.scenari.map((s) => {
-              const isCurrent = calc.decise > 0 && s.k === calc.vinte && calc.decise === calc.n;
-              return (
-                <div key={s.k} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", padding: "7px 14px", borderTop: `1px solid ${LINE}`, background: isCurrent ? "rgba(201,162,74,0.08)" : "transparent" }}>
-                  <span style={{ color: isCurrent ? GOLD : CREAM }}>{s.k}/{calc.n}</span>
-                  <span style={{ textAlign: "right", color: CREAM }}>€{fmt(s.target)}</span>
-                  <span style={{ textAlign: "right", color: s.roi >= 0 ? GREEN : RUST }}>{s.roi >= 0 ? "+" : ""}{fmt(s.roi)}%</span>
-                </div>
-              );
-            })}
-          </div>
-          <p style={{ fontFamily: "system-ui, sans-serif", fontSize: 12, color: MUTED, marginTop: 10, lineHeight: 1.5 }}>
-            La puntata su ogni evento è payout ÷ quota, così ogni singola vincita rende sempre la stessa cifra fissa.
-          </p>
-        </div>
-      )}
+      <p style={{ fontFamily: "system-ui, sans-serif", fontSize: 12, color: MUTED, lineHeight: 1.6 }}>
+        Masaniello standard: ogni puntata si ricalcola sul capitale reale, sugli eventi rimasti e sulle vincite ancora da fare.
+        Con ⇄ segni un evento come contemporaneo al precedente: il gruppo rischia in totale quanto il piano rischierebbe perdendoli tutti in fila,
+        ripartito in modo che ogni vincita paghi uguale. Puntate arrotondate all'euro. Le puntate degli eventi dopo quelli in attesa
+        compaiono quando registri gli esiti.
+      </p>
     </div>
   );
 }
@@ -534,7 +605,7 @@ export default function Masaniello() {
       .select()
       .single();
     if (error) { console.error("Errore aggiunta evento:", error); return; }
-    onLocalUpdate(planId, { events: [...plan.events, { id: data.id, label: data.label, quota: "", esito: "attesa" }] });
+    onLocalUpdate(planId, { events: [...plan.events, { id: data.id, label: data.label, quota: "", esito: "attesa", contemporanea: false }] });
   };
 
   const removeEvent = async (planId, eventId) => {
@@ -546,7 +617,7 @@ export default function Masaniello() {
 
   const debouncedEventSave = useDebouncedCallback((eventId, field, value) => {
     const dbField = field; // label, quota, esito -> stessi nomi lato DB
-    const payload = field === "quota" ? { quota: value === "" ? null : parseFloat(value) } : { [dbField]: value };
+    const payload = field === "quota" ? { quota: parseQ(value) } : { [dbField]: value }; // accetta anche la virgola
     supabase.from("masaniello_events").update(payload).eq("id", eventId)
       .then(({ error }) => { if (error) console.error("Errore salvataggio evento:", error); });
   }, 500);
@@ -568,8 +639,8 @@ export default function Masaniello() {
 
   const generateBulk = async (planId) => {
     const plan = plans.find((p) => p.id === planId);
-    const n = Math.max(1, Math.round(plan.bulkN));
-    const q = plan.bulkQuota;
+    const n = Math.max(1, Math.round(plan.planN || plan.bulkN || 1));
+    const q = parseQ(plan.bulkQuota);
 
     const { error: delErr } = await supabase.from("masaniello_events").delete().eq("plan_id", planId);
     if (delErr) { console.error("Errore pulizia eventi:", delErr); return; }
@@ -578,15 +649,16 @@ export default function Masaniello() {
       plan_id: planId,
       position: i,
       label: `Evento ${i + 1}`,
-      quota: parseFloat(q) || null,
+      quota: q,
       esito: "attesa",
+      contemporanea: false,
     }));
     const { data, error } = await supabase.from("masaniello_events").insert(rows).select();
     if (error) { console.error("Errore generazione blocco:", error); return; }
 
     const newEvents = data
       .sort((a, b) => a.position - b.position)
-      .map((e) => ({ id: e.id, label: e.label, quota: String(e.quota), esito: e.esito }));
+      .map((e) => ({ id: e.id, label: e.label, quota: e.quota == null ? "" : String(e.quota), esito: e.esito, contemporanea: false }));
     onLocalUpdate(planId, { events: newEvents });
   };
 
@@ -606,7 +678,7 @@ export default function Masaniello() {
         <div style={{ marginBottom: 22 }}>
           <h1 style={{ fontSize: 30, fontWeight: 400, margin: 0, letterSpacing: 0.3 }}>Masaniello</h1>
           <p style={{ fontFamily: "system-ui, sans-serif", fontSize: 13, color: MUTED, margin: "6px 0 0" }}>
-            Simula più piani in parallelo e confrontali dalla dashboard
+            Masaniello standard con eventi in contemporanea · più piani in parallelo, confrontabili dalla dashboard
           </p>
         </div>
 
