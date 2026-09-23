@@ -730,7 +730,7 @@ function dedupeLucyRows(rows: any[]) {
     const k = [r.pick_date, r.sport, r.home_team, r.away_team, r.market, r.selection].join("|");
     if (!seen.has(k)) seen.set(k, r);
   }
-  return [...seen.values()];
+  return Array.from(seen.values());
 }
 
 type LucyReport = { calcio: number; tennis: number; salvati: number; errore: string | null };
