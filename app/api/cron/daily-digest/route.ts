@@ -5,7 +5,7 @@ const API_FOOTBALL = "https://api.football-data.org/v4";
 
 // Tempo massimo della funzione su Vercel (secondi). La route fa molte chiamate
 // esterne: meglio avere margine che farla troncare a metà.
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 // Stesso calcolo usato in app/api/pronox/unsubscribe/route.ts — deve
 // restare identico nei due file, altrimenti i link generati qui non
@@ -659,12 +659,16 @@ function buildLucyFootballRows(tomorrow: string, collected: any[]) {
 // risposta e log espliciti con i conteggi.
 type TennisFetch = { matches: any[]; error: string | null; attempts: number };
 
+// L'endpoint tennis è pesante (Elo, statistiche e quote per ogni match): da dentro Vercel può
+// metterci più di 20 s. Timeout largo e, se scade, niente secondo tentativo (non avrebbe tempo).
+const TENNIS_TIMEOUT_MS = 55000;
+
 async function fetchTennisMatches(date: string): Promise<TennisFetch> {
   const url = `https://sergioapicella.it/api/tennis/matches?date=${date}`;
   let lastError: string | null = null;
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const r = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(20000) });
+      const r = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(TENNIS_TIMEOUT_MS) });
       if (!r.ok) {
         const body = await r.text();
         lastError = `HTTP ${r.status}: ${body.slice(0, 200)}`;
@@ -683,7 +687,8 @@ async function fetchTennisMatches(date: string): Promise<TennisFetch> {
         }
       }
     } catch (e: any) {
-      lastError = e?.name === "TimeoutError" ? "timeout dopo 20s" : (e?.message || String(e));
+      lastError = e?.name === "TimeoutError" ? `timeout dopo ${TENNIS_TIMEOUT_MS / 1000}s` : (e?.message || String(e));
+      if (e?.name === "TimeoutError") { console.error(`[tennis] ${date}: ${lastError}, nessun nuovo tentativo`); break; }
     }
     console.error(`[tennis] ${date}: tentativo ${attempt} fallito -> ${lastError}`);
     if (attempt === 1) await new Promise((res) => setTimeout(res, 3000));
@@ -952,8 +957,8 @@ export async function GET(request: Request) {
     const d = new Date();
     d.setDate(d.getDate() + 1);
     const target = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : d.toISOString().split("T")[0];
-    const collected = await collectFootballSignals(target);
-    const tennis = await fetchTennisMatches(target);
+    // calcio e tennis in parallelo: il tennis è lento, così non si sommano i tempi
+    const [collected, tennis] = await Promise.all([collectFootballSignals(target), fetchTennisMatches(target)]);
     const lucy = await saveLucySignals(target, collected, tennis);
     return Response.json({
       ok: true,
@@ -984,11 +989,11 @@ export async function GET(request: Request) {
   const needPicks = (picksCount ?? 0) === 0;
   const needLucy = (lucyCount ?? 0) === 0;
 
-  const collected = needPicks || needLucy ? await collectFootballSignals(tomorrowStr) : null;
-  // Tennis: una sola chiamata, usata sia dai pick email sia da Lucy.
-  const tennis: TennisFetch = needPicks || needLucy
-    ? await fetchTennisMatches(tomorrowStr)
-    : { matches: [], error: null, attempts: 0 };
+  // Calcio e tennis in parallelo (il tennis è lento). Il tennis è una sola chiamata, usata
+  // sia dai pick email sia da Lucy.
+  const [collected, tennis] = needPicks || needLucy
+    ? await Promise.all([collectFootballSignals(tomorrowStr), fetchTennisMatches(tomorrowStr)])
+    : [null, { matches: [], error: null, attempts: 0 } as TennisFetch];
   const tomorrowPicks = await computeTomorrowPicks(tomorrowStr, collected, tennis.matches);
 
   let lucy: LucyReport | null = null;
