@@ -6400,7 +6400,13 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                   {c.note && <span style={{ color: '#64748b' }}>📝 {c.note}</span>}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
-                  {clientiEmail.filter(e => e.cliente_id === c.id).map(em => (
+                  {/* Email: quelle della tabella clienti_email + quella inserita nel form cliente (clienti.email) se non è già tra queste */}
+                  {[
+                    ...clientiEmail.filter(e => e.cliente_id === c.id),
+                    ...(c.email && c.email.trim() && !clientiEmail.some(e => e.cliente_id === c.id && String(e.email || '').trim().toLowerCase() === c.email.trim().toLowerCase())
+                      ? [{ id: 'form-' + c.id, email: c.email.trim(), label: '' }]
+                      : [])
+                  ].map(em => (
                     <div key={em.id} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 12, color: '#94a3b8' }}>✉️ {em.email}</span>
                       {em.label && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(51,65,85,0.6)', color: '#64748b' }}>{em.label}</span>}
