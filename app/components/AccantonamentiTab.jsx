@@ -90,8 +90,13 @@ export default function AccantonamentiTab({
 
   accantonamentoRoyalty,
   mediaMensileRoyalty,
-  royaltyTotale2026,
-  royaltyPagato2026,
+  royaltyTotale2026,   // maturato totale ad oggi (nome storico)
+  royaltyPagato2026,   // royalty + anticipi pagati (nome storico)
+  royaltyMensiliDaPagare = [],
+  royaltyBenvenutiDaPagare = [],
+  onPagaRoyalty,
+  goToClienti,
+  risparmiSlot,   // card Risparmi Samu e Massi (RisparmiPanel.jsx), passata già pronta dal client
 
   accantonamentoClub,
   mediaMensileClub,
@@ -129,25 +134,59 @@ export default function AccantonamentiTab({
       <div style={{ marginBottom: 18 }}>
         <h1 style={{ color: '#f8fafc', fontSize: 22, fontWeight: 900, marginBottom: 4 }}>Accantonamenti</h1>
         <p style={{ color: '#94a3b8', fontSize: 13 }}>
-          Royalty, rinnovo club, stipendio figlio, Paolo e Michela — {fmt(accantonamentiTotale)} accantonati/da accantonare questo mese in totale.
+          Royalty, rinnovo club, stipendio figlio, Paolo e Michela — {fmt(accantonamentiTotale)} accantonati/da accantonare questo mese in totale. Sotto, i risparmi di Samu e Massi.
         </p>
       </div>
 
       <div style={grid2}>
 
-        {/* ROYALTY */}
+        {/* ROYALTY — dati dalla tab Clienti (royalty_accordi / royalty_pagamenti) */}
         <div style={panel}>
           <div style={panelHeader}>
             <div>
               <h2 style={panelTitle}>Royalty</h2>
-              <p style={panelSubtitle}>Gli importi per persona si modificano nel tab Memo → Royalty</p>
+              <p style={panelSubtitle}>
+                Somma dei saldi dei clienti · accordi e pagamenti nella{' '}
+                {goToClienti
+                  ? <span onClick={goToClienti} style={{ color: '#38bdf8', cursor: 'pointer', fontWeight: 700 }}>tab Clienti →</span>
+                  : 'tab Clienti'}
+              </p>
             </div>
           </div>
           <BigValue>{fmt(accantonamentoRoyalty)}</BigValue>
           <SubNote>
-            {fmt(mediaMensileRoyalty)} × {meseCorrenteNum} mesi · totale anno {fmt(royaltyTotale2026)} · pagato {fmt(royaltyPagato2026)}
+            matura {fmt(mediaMensileRoyalty)} al mese · maturato {fmt(royaltyTotale2026)} · pagato {fmt(royaltyPagato2026)}
           </SubNote>
+          {[...royaltyMensiliDaPagare.map(m => ({ ...m, etichetta: m.periodo })), ...royaltyBenvenutiDaPagare.map(b => ({ ...b, etichetta: 'benvenuto' }))].length > 0 && (
+            <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {[...royaltyMensiliDaPagare.map(m => ({ ...m, etichetta: m.periodo })), ...royaltyBenvenutiDaPagare.map(b => ({ ...b, etichetta: 'benvenuto' }))].map((m) => (
+                <div key={m.cliente_id + '-' + m.periodo} style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                  background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.35)',
+                  borderRadius: 8, padding: '6px 10px',
+                }}>
+                  <span style={{ fontSize: 12, color: '#fca5a5', fontWeight: 700 }}>
+                    ⚠️ PAGARE {(m.nome || '').toUpperCase()} · {fmt(m.importo)} ({m.etichetta}){m.inRitardo ? ' · IN RITARDO' : ''}
+                  </span>
+                  {onPagaRoyalty && (
+                    <button
+                      onClick={() => onPagaRoyalty(m)}
+                      style={{
+                        fontSize: 11, fontWeight: 700, color: '#4ade80', background: 'rgba(34,197,94,0.12)',
+                        border: '1px solid rgba(74,222,128,0.4)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer',
+                      }}
+                    >
+                      ✓ Pagato
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
+
+        {/* RISPARMI SAMU E MASSI (occupa tutta la larghezza) */}
+        {risparmiSlot}
 
         {/* CLUB */}
         <div style={panel}>
