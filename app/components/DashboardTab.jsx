@@ -333,7 +333,7 @@ export default function DashboardTab({
           <StatCard
             label='Cassa disponibile'
             value={formatCurrency(cassaDisponibile)}
-            sub='Cassa attuale - prelievo - royalty - risparmi'
+            sub='Cassa attuale - prelievo - accantonamenti (royalty, risparmi Samu e Massi, ecc.)'
             accent='#22c55e'
           />
 
@@ -352,7 +352,7 @@ export default function DashboardTab({
             <div style={panelHeader}>
               <div>
                 <h2 style={panelTitle}>Accantonamenti</h2>
-                <p style={panelSubtitle}>Royalty, club, stipendi, Michela — clicca per il dettaglio</p>
+                <p style={panelSubtitle}>Royalty, risparmi Samu e Massi, club, stipendi, Michela — clicca per il dettaglio</p>
               </div>
               {accantonamentiAvvisiCount > 0 && (
                 <div style={{
@@ -369,64 +369,6 @@ export default function DashboardTab({
             </div>
             <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>
               totale accantonato/da accantonare questo mese
-            </div>
-          </div>
-
-          <div style={panel}>
-            <div style={panelHeader}>
-              <div>
-                <h2 style={panelTitle}>Risparmi Samu e Massi</h2>
-              </div>
-            </div>
-
-            <div style={{ position: 'relative' }}>
-              <input
-                value={Number(risparmiSamuMassi || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'}
-                onChange={(e) => {
-                  setDashboardSettings(prev => ({ ...prev, risparmi_samu_massi: parseEuroInput(e.target.value) }))
-                }}
-                onFocus={(e) => {
-                  e.target.value = Number(risparmiSamuMassi ?? 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
-                }}
-                onBlur={(e) => {
-                  updateDashboardSetting('risparmi_samu_massi', e.target.value)
-                  const num = parseEuroInput(e.target.value)
-                  if (!Number.isNaN(num)) {
-                    e.target.value = num.toLocaleString('it-IT', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2
-                    }) + ' €'
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    updateDashboardSetting('risparmi_samu_massi', e.target.value)
-                    const num = parseEuroInput(e.target.value)
-                    if (!Number.isNaN(num)) {
-                      e.target.value = num.toLocaleString('it-IT', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2
-                      }) + ' €'
-                    }
-                    e.target.blur()
-                  }
-
-                  if (e.key === 'Escape') {
-                    e.target.value = Number(risparmiSamuMassi || 0).toLocaleString('it-IT', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2
-                    }) + ' €'
-                    e.target.blur()
-                  }
-                }}
-                style={{
-                  ...input,
-                  fontSize: 26,
-                  fontWeight: 800,
-                  paddingRight: 45
-                }}
-              />
             </div>
           </div>
 
