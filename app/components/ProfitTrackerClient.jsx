@@ -5168,7 +5168,7 @@ async function pagaRoyaltyMensile(m) {
   try {
     const data = await inserisciPagamento({
       cliente_id: m.cliente_id, tipo: 'royalty', importo: m.importo,
-      data: new Date().toLocaleDateString('sv-SE'), periodo: m.periodo, nota: 'mensilità'
+      data: new Date().toLocaleDateString('sv-SE'), periodo: m.periodo, nota: m.periodo === 'benvenuto' ? 'giro benvenuto' : 'mensilità'
     })
     setRoyaltyPagamenti(prev => [...prev, { ...data, importo: Number(data.importo) }])
     setMessage(`Royalty ${m.periodo} di ${nomeClienteRoyalty(m.cliente_id)} (${formatCurrency(m.importo)}) segnata come pagata. Ricorda di registrare l'uscita sul wallet usato.`)
