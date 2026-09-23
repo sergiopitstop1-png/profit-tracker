@@ -439,8 +439,8 @@ function PlanView({ plan, onLocalUpdate, onSavePlanField, onAddEvent, onUpdateEv
       </div>
 
       <div style={{ marginBottom: 24 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "34px 1fr 80px 120px 70px 90px 30px", gap: 8, padding: "0 4px 10px", fontFamily: "system-ui, sans-serif", fontSize: 11, color: MUTED, textTransform: "uppercase", letterSpacing: 0.4 }}>
-          <span title="Contemporanea alla precedente">⇄</span>
+        <div style={{ display: "grid", gridTemplateColumns: "96px 1fr 80px 120px 70px 90px 30px", gap: 8, padding: "0 4px 10px", fontFamily: "system-ui, sans-serif", fontSize: 11, color: MUTED, textTransform: "uppercase", letterSpacing: 0.4 }}>
+          <span title="Contemporanea all'evento sopra">Insieme a sopra</span>
           <span>Evento</span>
           <span>Quota</span>
           <span>Esito</span>
@@ -455,7 +455,7 @@ function PlanView({ plan, onLocalUpdate, onSavePlanField, onAddEvent, onUpdateEv
           const prossimo = r && r.stato === "da giocare";
           return (
             <div key={ev.id} style={{
-              display: "grid", gridTemplateColumns: "34px 1fr 80px 120px 70px 90px 30px", gap: 8, alignItems: "center",
+              display: "grid", gridTemplateColumns: "96px 1fr 80px 120px 70px 90px 30px", gap: 8, alignItems: "center",
               padding: "6px 4px", borderTop: inGruppo ? "none" : `1px solid ${LINE}`,
               borderLeft: `3px solid ${inGruppo || (plan.events[ix + 1] && plan.events[ix + 1].contemporanea) ? GOLD : "transparent"}`,
               background: prossimo ? "rgba(201,162,74,0.06)" : "transparent", opacity: r && r.stato === "fuori" ? 0.45 : 1,
@@ -464,9 +464,9 @@ function PlanView({ plan, onLocalUpdate, onSavePlanField, onAddEvent, onUpdateEv
                 <button
                   onClick={() => onUpdateEventField(plan.id, ev.id, "contemporanea", !ev.contemporanea)}
                   title={ev.contemporanea ? "Contemporanea alla precedente (clicca per separare)" : "Segna come contemporanea alla precedente"}
-                  style={{ background: ev.contemporanea ? "rgba(201,162,74,0.15)" : "transparent", border: `1px solid ${ev.contemporanea ? GOLD : LINE}`, borderRadius: 4, color: ev.contemporanea ? GOLD : MUTED, cursor: "pointer", height: 26, display: "flex", alignItems: "center", justifyContent: "center" }}
+                  style={{ background: ev.contemporanea ? "rgba(201,162,74,0.18)" : "transparent", border: `1px solid ${ev.contemporanea ? GOLD : LINE}`, borderRadius: 4, color: ev.contemporanea ? GOLD : MUTED, cursor: "pointer", height: 26, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, fontFamily: "system-ui, sans-serif", fontSize: 11, fontWeight: ev.contemporanea ? 700 : 400 }}
                 >
-                  <Link2 size={13} />
+                  <Link2 size={12} /> {ev.contemporanea ? "insieme" : "separato"}
                 </button>
               ) : <span />}
               <input
@@ -521,7 +521,7 @@ function PlanView({ plan, onLocalUpdate, onSavePlanField, onAddEvent, onUpdateEv
 
       <p style={{ fontFamily: "system-ui, sans-serif", fontSize: 12, color: MUTED, lineHeight: 1.6 }}>
         Masaniello standard: ogni puntata si ricalcola sul capitale reale, sugli eventi rimasti e sulle vincite ancora da fare.
-        Con ⇄ segni un evento come contemporaneo al precedente: il gruppo rischia in totale quanto il piano rischierebbe perdendoli tutti in fila,
+        Con il pulsante a sinistra ("separato" → "insieme") leghi un evento a quello sopra: si giocano in contemporanea. Il gruppo rischia in totale quanto il piano rischierebbe perdendoli tutti in fila,
         ripartito in modo che ogni vincita paghi uguale. Puntate arrotondate all'euro. Le puntate degli eventi dopo quelli in attesa
         compaiono quando registri gli esiti.
       </p>
