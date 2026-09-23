@@ -9,6 +9,7 @@ import CollaboratoriManager from './CollaboratoriManager'
 import { PostItTab, PostItFloatingWidget } from './PostItWidget'
 import MemoTab from './MemoTab'
 import { calcolaRoyalty, RoyaltyRiepilogo, RoyaltyBadge, RoyaltyModal, inserisciPagamento } from './RoyaltyPanel'
+import { RisparmiCard, calcolaRisparmi, maturaInteressi, normalizza as normalizzaRisparmi } from './RisparmiPanel'
 
 // V32 — rete di sicurezza 60 giorni sui conti in MANTENIMENTO
 const MANT_LIMITE_GG = 60        // limite massimo tra due movimentazioni dello stesso conto
@@ -58,18 +59,14 @@ const [weeklySnapshots, setWeeklySnapshots] = useState([])
 const [monthlySnapshots, setMonthlySnapshots] = useState([])
 const [stimeCassa, setStimeCassa] = useState([])
 const [pendingRefresh, setPendingRefresh] = useState(false)
- const [memoRoyaltyAccounts, setMemoRoyaltyAccounts] = useState([])
-  const [newAccountName, setNewAccountName] = useState('')
-const [memoRoyaltyEntries, setMemoRoyaltyEntries] = useState([])
 // Royalty clienti (tab Clienti): accordi e pagamenti, vedi RoyaltyPanel.jsx
 const [royaltyAccordi, setRoyaltyAccordi] = useState([])
 const [royaltyPagamenti, setRoyaltyPagamenti] = useState([])
 const [royaltyModalCliente, setRoyaltyModalCliente] = useState(null)
-const [memoSavingsRows, setMemoSavingsRows] = useState([])
-const [savingsFormMassi, setSavingsFormMassi] = useState({ periodo: '', versamento: '', causale: '' })
-const [savingsFormSamu, setSavingsFormSamu] = useState({ periodo: '', versamento: '', causale: '' })
+// Risparmi Samu e Massi (tab Accantonamenti): movimenti e tassi, vedi RisparmiPanel.jsx
+const [risparmiMovimenti, setRisparmiMovimenti] = useState([])
+const [risparmiTassi, setRisparmiTassi] = useState([])
 const [memoFutureNotes, setMemoFutureNotes] = useState([])
-const [memoFreeBoxes, setMemoFreeBoxes] = useState([])
 const [postItNotes, setPostItNotes] = useState([])
 const [nuovoPostIt, setNuovoPostIt] = useState('')
 const [postItEditingId, setPostItEditingId] = useState(null)
@@ -1073,8 +1070,7 @@ async function updateProfiloLivello(bookId, livello) {
     const [
       booksRes, walletsRes, txRes, contRes,
       weeklyRes, monthlyRes, stimeRes,
-      memoRoyaltyAccountsRes, memoRoyaltyEntriesRes,
-      memoSavingsRowsRes, memoFutureNotesRes, memoFreeBoxesRes,
+      risparmiMovRes, risparmiTassiRes, memoFutureNotesRes,
       dashboardSettingsRes, clientiRes, clientiEmailRes,
       esterniRes,
       postItRes,
@@ -1087,11 +1083,9 @@ async function updateProfiloLivello(bookId, livello) {
       supabase.from('weekly_snapshots').select('*').order('snapshot_date', { ascending: true }),
       supabase.from('monthly_snapshots').select('*').order('snapshot_month', { ascending: true }),
       supabase.from('stime_cassa').select('*').order('anno', { ascending: true }).order('mese', { ascending: true }).order('ordine', { ascending: true }).order('id', { ascending: true }),
-      supabase.from('memo_royalty_accounts').select('*').order('id', { ascending: true }),
-      supabase.from('memo_royalty_entries').select('*').order('id', { ascending: true }),
-      supabase.from('memo_savings_rows').select('*').order('id', { ascending: true }),
+      supabase.from('risparmi_movimenti').select('*').order('data', { ascending: true }).order('id', { ascending: true }),
+      supabase.from('risparmi_tassi').select('*').order('valido_dal', { ascending: true }),
       supabase.from('memo_future_notes').select('*').order('ordine', { ascending: true }).order('id', { ascending: true }),
-      supabase.from('memo_free_boxes').select('*').order('id', { ascending: true }),
       supabase.from('dashboard_settings').select('*').eq('id', 1).maybeSingle(),
       supabase.from('clienti').select('*').order('nome', { ascending: true }),
       supabase.from('clienti_email').select('*').order('cliente_id', { ascending: true }),
@@ -1114,11 +1108,16 @@ async function updateProfiloLivello(bookId, livello) {
     if (weeklyRes.error) errors.push('weekly_snapshots'); else setWeeklySnapshots(weeklyRes.data || [])
     if (monthlyRes.error) errors.push('monthly_snapshots'); else setMonthlySnapshots(monthlyRes.data || [])
     if (stimeRes.error) errors.push('stime_cassa'); else setStimeCassa(stimeRes.data || [])
-    if (memoRoyaltyAccountsRes.error) errors.push('memo_royalty_accounts'); else setMemoRoyaltyAccounts(memoRoyaltyAccountsRes.data || [])
-    if (memoRoyaltyEntriesRes.error) errors.push('memo_royalty_entries'); else setMemoRoyaltyEntries(memoRoyaltyEntriesRes.data || [])
-    if (memoSavingsRowsRes.error) errors.push('memo_savings_rows'); else setMemoSavingsRows(memoSavingsRowsRes.data || [])
+    if (risparmiMovRes.error || risparmiTassiRes.error) errors.push('risparmi')
+    else {
+      const movRisparmi = normalizzaRisparmi(risparmiMovRes.data)
+      const tassiRisparmi = risparmiTassiRes.data || []
+      setRisparmiMovimenti(movRisparmi)
+      setRisparmiTassi(tassiRisparmi)
+      // accredita gli interessi dei mesi non ancora registrati (anche arretrati)
+      maturaInteressi(movRisparmi, tassiRisparmi).then(setRisparmiMovimenti).catch(() => {})
+    }
     if (memoFutureNotesRes.error) errors.push('memo_future_notes'); else setMemoFutureNotes(memoFutureNotesRes.data || [])
-    if (memoFreeBoxesRes.error) errors.push('memo_free_boxes'); else setMemoFreeBoxes(memoFreeBoxesRes.data || [])
     if (postItRes && postItRes.error) errors.push('post_it_notes'); else if (postItRes) setPostItNotes(postItRes.data || [])
     if (dashboardSettingsRes.error) {
       errors.push('dashboard_settings')
@@ -3765,21 +3764,6 @@ async function updateStimaCassa(id, field, value) {
   setStimeCassa(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r))
   setPendingRefresh(true)
 }
-  async function updateRoyaltyEntry(id, field, value) {
-  const { error } = await supabase
-    .from('memo_royalty_entries')
-    .update({ [field]: value })
-    .eq('id', id)
-
-  if (error) {
-    setErrorMessage('Errore aggiornamento royalty')
-    return
-  }
-
-  setMemoRoyaltyEntries(prev =>
-    prev.map(r => r.id === id ? { ...r, [field]: value } : r)
-  )
-}
 function parseEuroInput(value) {
   let raw = String(value || '')
     .replace(/€/g, '')
@@ -3820,60 +3804,6 @@ async function updateDashboardSetting(field, value) {
     [field]: numericValue
   }))
 }
-async function addSavingsRow(persona, periodo, versamento, causale = '') {
-  const rows = memoSavingsRows
-    .filter(r => r.persona === persona)
-    .sort((a, b) => a.ordine - b.ordine)
-
-  const last = rows[rows.length - 1]
-  const risparmio = last ? Number(last.montante || 0) : 0
-  const stessoPeriodo = rows.some(r => r.periodo === periodo)
-  const interesse = stessoPeriodo ? 0 : Math.round(risparmio * 0.005 * 100) / 100
-  const montante = Math.round((risparmio + Number(versamento) + interesse) * 100) / 100
-  const ordine = last ? last.ordine + 1 : 1
-
-  const { data, error } = await supabase
-    .from('memo_savings_rows')
-    .insert([{ persona, periodo, versamento: Number(versamento), risparmio, interesse, montante, ordine, causale }])
-    .select()
-    .single()
-
-  if (error) {
-    setErrorMessage('Errore salvataggio risparmio')
-    return
-  }
-
-  setMemoSavingsRows(prev => [...prev, data])
-}
-
-async function upsertRoyaltyEntry(accountId, year, value) {
-  const existing = memoRoyaltyEntries.find(
-    (r) => Number(r.account_id) === Number(accountId) && Number(r.anno) === Number(year)
-  )
-
-  if (existing) {
-    return updateRoyaltyEntry(existing.id, 'importo', value)
-  }
-
-  const { data, error } = await supabase
-    .from('memo_royalty_entries')
-    .insert([{
-      account_id: Number(accountId),
-      anno: Number(year),
-      importo: Number(value),
-      mese: '',
-      nota: ''
-    }])
-    .select()
-    .single()
-
-  if (error) {
-    setErrorMessage('Errore creazione voce royalty')
-    return
-  }
-
-  if (data) setMemoRoyaltyEntries(prev => [...prev, data])
-} 
 // ── CLIENTI CRUD ──────────────────────────────────────────
 async function saveCliente(e) {
   e.preventDefault()
@@ -4319,27 +4249,6 @@ setShowBookModal(false)
 setBookForm({ nome: '', intestatario: '', saldo: '', note: '' })
 setMessage('Book salvato correttamente')
   }
-async function addRoyaltyAccount() {
-  if (!newAccountName.trim()) {
-    setErrorMessage('Inserisci un nome account')
-    return
-  }
-
-  const { data, error } = await supabase
-    .from('memo_royalty_accounts')
-    .insert([{ nome: newAccountName.trim() }])
-    .select()
-    .single()
-
-  if (error) {
-    setErrorMessage('Errore creazione account')
-    return
-  }
-
-  if (data) setMemoRoyaltyAccounts(prev => [...prev, data])
-  setNewAccountName('')
-  setMessage('Account aggiunto')
-}
   async function addWallet(e) {
     e.preventDefault()
     if (!walletForm.nome.trim() || !walletForm.intestatario.trim() || walletForm.saldo === '') {
@@ -5270,7 +5179,8 @@ if (oggiAntonello >= ANTONELLO_INIZIO && oggiAntonello <= ANTONELLO_FINE) {
   }
 }
 
-const accantonamentiAvvisiCount = rateFiglioDaPagare.length + ratePaoloDaPagare.length + rateMichelaDaPagare.length + antonelloDaPagare.length
+const accantonamentiAvvisiCount = rateFiglioDaPagare.length + ratePaoloDaPagare.length + rateMichelaDaPagare.length + antonelloDaPagare.length +
+  royaltyCalc.mensiliDaPagare.length + royaltyCalc.benvenutiDaPagare.filter(b => b.scaduto).length
 
 // Totale "da pagare questo mese" mostrato in Dashboard e in cima al tab Accantonamenti:
 // parte dal totale mensile pieno e scala solo quando segni "Pagato" (non quando passa il giorno).
@@ -5282,11 +5192,8 @@ const accantonamentiDaPagareTotale =
   (PAOLO_ATTIVO ? totaleMenoPagato(PAOLO_SCHEDULE, dashboardSettings) : 0) +
   totaleMenoPagato(MICHELA_SCHEDULE, dashboardSettings) +
   accantonamentoAntonello
-const massiRows = memoSavingsRows.filter(r => r.persona === 'massimiliano').sort((a, b) => a.ordine - b.ordine)
-const samuRows = memoSavingsRows.filter(r => r.persona === 'samuele').sort((a, b) => a.ordine - b.ordine)
-const massiMontante = massiRows.length > 0 ? Number(massiRows[massiRows.length - 1].montante || 0) : 0
-const samuMontante = samuRows.length > 0 ? Number(samuRows[samuRows.length - 1].montante || 0) : 0
-const risparmiSamuMassi = massiMontante + samuMontante
+// Risparmi Samu e Massi: saldo dal conto deposito (risparmi_movimenti), non più dal Memo
+const risparmiSamuMassi = calcolaRisparmi(risparmiMovimenti, risparmiTassi).totale
 
 const cassaDisponibile =
   totaleCassa -
@@ -5634,6 +5541,21 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             mediaMensileRoyalty={mediaMensileRoyalty}
             royaltyTotale2026={royaltyTotale2026}
             royaltyPagato2026={royaltyPagato2026}
+            royaltyMensiliDaPagare={royaltyMensiliDaPagare}
+            royaltyBenvenutiDaPagare={royaltyCalc.benvenutiDaPagare.filter(b => b.scaduto).map(b => ({ ...b, nome: nomeClienteRoyalty(b.cliente_id) }))}
+            onPagaRoyalty={pagaRoyaltyMensile}
+            goToClienti={() => handleTabChange('clienti')}
+            risparmiSlot={
+              <RisparmiCard
+                movimenti={risparmiMovimenti}
+                tassi={risparmiTassi}
+                setMovimenti={setRisparmiMovimenti}
+                setTassi={setRisparmiTassi}
+                onMessage={setMessage}
+                onError={setErrorMessage}
+                panelStyle={panel}
+              />
+            }
             accantonamentoClub={accantonamentoClub}
             mediaMensileClub={mediaMensileClub}
             meseCicloClub={meseCicloClub}
@@ -7599,14 +7521,6 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         )}
                 {activeTab === 'memo' && (
                   <MemoTab
-                    newAccountName={newAccountName}
-                    setNewAccountName={setNewAccountName}
-                    addRoyaltyAccount={addRoyaltyAccount}
-                    memoRoyaltyEntries={memoRoyaltyEntries}
-                    mediaMensileRoyalty={mediaMensileRoyalty}
-                    memoRoyaltyAccounts={memoRoyaltyAccounts}
-                    upsertRoyaltyEntry={upsertRoyaltyEntry}
-                    updateRoyaltyEntry={updateRoyaltyEntry}
                     formatCurrency={formatCurrency}
                     memoForm={memoForm}
                     setMemoForm={setMemoForm}
@@ -7614,12 +7528,6 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                     memoFutureNotes={memoFutureNotes}
                     updateMemoFutureNote={updateMemoFutureNote}
                     deleteMemoFutureNote={deleteMemoFutureNote}
-                    memoSavingsRows={memoSavingsRows}
-                    savingsFormMassi={savingsFormMassi}
-                    setSavingsFormMassi={setSavingsFormMassi}
-                    savingsFormSamu={savingsFormSamu}
-                    setSavingsFormSamu={setSavingsFormSamu}
-                    addSavingsRow={addSavingsRow}
                   />
                 )}
 
