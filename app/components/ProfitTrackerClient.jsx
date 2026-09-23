@@ -5185,21 +5185,22 @@ const accantonamentiAvvisiCount = rateFiglioDaPagare.length + ratePaoloDaPagare.
 // Totale "da pagare questo mese" mostrato in Dashboard e in cima al tab Accantonamenti:
 // parte dal totale mensile pieno e scala solo quando segni "Pagato" (non quando passa il giorno).
 // Royalty e Club restano invariati: Royalty scala gi\xe0 da s\xe9 coi pagamenti registrati nella tab Clienti, Club non ha un pulsante "pagato".
+// Risparmi Samu e Massi: saldo dal conto deposito (risparmi_movimenti). Dal 23/09/2026 fa parte degli accantonamenti.
+const risparmiSamuMassi = calcolaRisparmi(risparmiMovimenti, risparmiTassi).totale
 const accantonamentiDaPagareTotale =
+  risparmiSamuMassi +
   accantonamentoRoyalty +
   accantonamentoClub +
   totaleMenoPagato(FIGLIO_SCHEDULE, dashboardSettings) +
   (PAOLO_ATTIVO ? totaleMenoPagato(PAOLO_SCHEDULE, dashboardSettings) : 0) +
   totaleMenoPagato(MICHELA_SCHEDULE, dashboardSettings) +
   accantonamentoAntonello
-// Risparmi Samu e Massi: saldo dal conto deposito (risparmi_movimenti), non più dal Memo
-const risparmiSamuMassi = calcolaRisparmi(risparmiMovimenti, risparmiTassi).totale
 
+// I risparmi di Samu e Massi sono già dentro accantonamentiDaPagareTotale
 const cassaDisponibile =
   totaleCassa -
   prelievoDelMese -
-  accantonamentiDaPagareTotale -
-  risparmiSamuMassi
+  accantonamentiDaPagareTotale
 
 const targetCassa = Number(dashboardSettings.target_cassa || 0)
 const mancaAlTarget = targetCassa > 0 ? targetCassa - cassaDisponibile : 0
