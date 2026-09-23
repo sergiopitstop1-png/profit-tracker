@@ -74,6 +74,8 @@ export default function DashboardTab({
   formatDate,
   formatCurrency,
   saveWeeklySnapshot,
+  royaltyMensiliDaPagare = [],
+  onPagaRoyaltyMensile,
 }) {
   const [dashChartSymbol, setDashChartSymbol] = useState('XAUUSD')
   return (
@@ -134,7 +136,10 @@ export default function DashboardTab({
         const tutte = [...scadenzeMemo, ...scadenzeContabilita, ...scadenzeSim]
           .sort((a, b) => a.diff - b.diff)
 
-        if (tutte.length === 0) return null
+        // Royalty mensili: dal giorno di pagamento finché non vengono segnate pagate
+        const royaltyMensili = royaltyMensiliDaPagare || []
+
+        if (tutte.length === 0 && royaltyMensili.length === 0) return null
 
         const righe = tutte.map(item => {
           const tag = item.tipo === 'contabilita' ? '[CTB] ' : item.tipo === 'sim' ? '[SIM] ' : ''
@@ -158,6 +163,20 @@ export default function DashboardTab({
             <div style={{ color: '#fca5a5', marginBottom: 4 }}>🔔 AVVISI SCADENZE</div>
             {righe.map((r, i) => (
               <div key={i} style={{ color: r.scaduta ? '#ff4444' : '#fca5a5' }}>{r.testo}</div>
+            ))}
+            {royaltyMensili.map(m => (
+              <div key={'roy-' + m.cliente_id + '-' + m.periodo} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', color: m.inRitardo ? '#ff4444' : '#fbbf24' }}>
+                <span>
+                  {m.inRitardo ? '⛔' : '💶'} [ROYALTY] {(m.nome || '').toUpperCase()} — {formatCurrency(m.importo)} ({m.periodo})
+                  {m.inRitardo ? ` — IN RITARDO DI ${m.giorniRitardo} GIORNI` : m.giorniRitardo === 0 ? ' — DA PAGARE OGGI' : ` — da pagare da ${m.giorniRitardo} giorni`}
+                </span>
+                {onPagaRoyaltyMensile && (
+                  <button
+                    onClick={() => onPagaRoyaltyMensile(m)}
+                    style={{ padding: '2px 10px', borderRadius: 8, border: '1px solid rgba(34,197,94,0.6)', background: 'rgba(34,197,94,0.15)', color: '#22c55e', fontWeight: 800, fontSize: 12, cursor: 'pointer', lineHeight: 1.6 }}
+                  >✅ Pagato</button>
+                )}
+              </div>
             ))}
           </div>
         )
