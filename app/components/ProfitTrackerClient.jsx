@@ -650,6 +650,11 @@ const VARIANTI_PROFILAZIONE = {
     { key: 'fase2', label: 'Fase 2 · Accumulo volume', desc: 'Ricarica 100€/sett · oltre 250€/sett su 2 giorni consecutivi, poi il conto si sgonfia · sport 50€+ 1-2 volte al mese' },
     { key: 'vip', label: 'VIP (dopo Fase 1 e 2)', desc: 'Lunedì promo disponibili · ricarica 200€/sett · 2 giorni di Casinò Live 300-500€ + slot 200-300€ · 6 settimane poi fermo' },
   ],
+  // PokerStars: stessa scheda di Sisal Fase 1 e 2 (sport compreso), nessuna scheda VIP per ora
+  pokerstars: [
+    { key: 'fase1', label: 'Fase 1 · Profilazione primaria', desc: 'Ricarica 100€/sett · almeno 150€/sett su 2-3 giorni consecutivi (offline + Casinò Live) · sport 40€ una volta al mese' },
+    { key: 'fase2', label: 'Fase 2 · Accumulo volume', desc: 'Ricarica 100€/sett · oltre 250€/sett su 2 giorni consecutivi, poi il conto si sgonfia · sport 50€+ 1-2 volte al mese' },
+  ],
   snai: [
     { key: 'fase1', label: 'Fase 1 · Profilazione primaria', desc: 'Solo casinò · ricarica 100€/sett · almeno 150€/sett su 2-3 giorni consecutivi (offline + Casinò Live)' },
     { key: 'fase2', label: 'Fase 2 · Accumulo volume', desc: 'Solo casinò · ricarica 100€/sett · oltre 250€/sett su 2 giorni consecutivi, poi il conto si sgonfia' },
@@ -667,7 +672,7 @@ function getVariantiProfilazione(nomeBook) {
   }
   if (tipo === 'vip_fase12') {
     const n = getNomeNormalizzato(nomeBook)
-    return n.includes('sisal') ? VARIANTI_PROFILAZIONE.sisal : n.includes('snai') ? VARIANTI_PROFILAZIONE.snai : null
+    return n.includes('sisal') ? VARIANTI_PROFILAZIONE.sisal : n.includes('snai') ? VARIANTI_PROFILAZIONE.snai : n.includes('pokerstars') ? VARIANTI_PROFILAZIONE.pokerstars : null
   }
   return VARIANTI_PROFILAZIONE[tipo] || null
 }
@@ -768,9 +773,10 @@ function getAgendaAttivoV2(book, giorno, settimana) {
     return null
   }
 
-  if (tipo === 'vip_fase12' && (nome.includes('sisal') || nome.includes('snai'))) {
+  if (tipo === 'vip_fase12' && (nome.includes('sisal') || nome.includes('snai') || nome.includes('pokerstars'))) {
     const isSnai = nome.includes('snai')                     // Snai: solo casinò, niente sport, niente VIP
-    const brand = isSnai ? 'Snai' : 'Sisal'
+    const haVip = nome.includes('sisal')                     // scheda VIP solo per Sisal
+    const brand = isSnai ? 'Snai' : nome.includes('pokerstars') ? 'PokerStars' : 'Sisal'
     // SISAL (Profiliamo, 24/09/2026). Ricarica lun/mar/mer a rotazione casuale (regola generale: non tutti lo stesso giorno;
     // Profiliamo suggerisce il lunedì mattina). Le giornate di volume partono dal giorno della ricarica.
     const variante = getVarianteProfilazione(book)?.key || 'fase1'
@@ -783,7 +789,7 @@ function getAgendaAttivoV2(book, giorno, settimana) {
     const azioni = []
     const R = [1, 2, 3][hs('ric') % 3]
 
-    if (variante === 'vip' && !isSnai) {
+    if (variante === 'vip' && haVip) {
       if (giorno === 1) azioni.push('Sisal VIP: fai tutte le promozioni disponibili (cashback, Casinò Live, ecc.) — sul Live raddoppia quando conviene')
       const giornoSlot = hs('slot') % 2 === 0 ? R : R + 1
       if (giorno === R) azioni.push('Sisal VIP: ricarica almeno 200€ (anche più ricariche) + Casinò Live, giorno 1 di 2 (300-500€ di volume totale nei due giorni)')
@@ -801,15 +807,15 @@ function getAgendaAttivoV2(book, giorno, settimana) {
     if (variante === 'fase2') {
       if (giorno === R) azioni.push(`${brand} Fase 2: ricarica almeno 100€ + volume giorno 1 di 2 (oltre 250€ nei due giorni, offline e Casinò Live)`)
       if (giorno === R + 1) azioni.push(`${brand} Fase 2: volume giorno 2 di 2 (offline e Casinò Live) — poi lascia sgonfiare il conto`)
-      if (!isSnai && oggiD.getDate() === giornoMese('sport1')) azioni.push('Sisal Fase 2: copri Sport da 50€ in su')
-      if (!isSnai && hsMese('sport2si') % 2 === 0 && oggiD.getDate() === 1 + ((giornoMese('sport1') + 13) % 28)) azioni.push('Sisal Fase 2: copri Sport da 50€ in su (seconda del mese)')
+      if (!isSnai && oggiD.getDate() === giornoMese('sport1')) azioni.push(`${brand} Fase 2: copri Sport da 50€ in su`)
+      if (!isSnai && hsMese('sport2si') % 2 === 0 && oggiD.getDate() === 1 + ((giornoMese('sport1') + 13) % 28)) azioni.push(`${brand} Fase 2: copri Sport da 50€ in su (seconda del mese)`)
     } else {
       // Fase 1: almeno 150€ su 2 o 3 giorni consecutivi
       const nGiorni = 2 + (hs('ngiorni') % 2)
       const quota = nGiorni === 2 ? 75 : 50
       if (giorno === R) azioni.push(`${brand} Fase 1: ricarica almeno 100€ + volume ${quota}€ offline e Casinò Live, VXT incluse (giorno 1 di ${nGiorni}, almeno 150€ in settimana)`)
       for (let k = 1; k < nGiorni; k++) if (giorno === R + k) azioni.push(`${brand} Fase 1: volume ${quota}€ offline e Casinò Live, VXT incluse (giorno ${k + 1} di ${nGiorni})`)
-      if (!isSnai && oggiD.getDate() === giornoMese('sport')) azioni.push('Sisal Fase 1: gioca almeno 40€ Sport (una volta al mese)')
+      if (!isSnai && oggiD.getDate() === giornoMese('sport')) azioni.push(`${brand} Fase 1: gioca almeno 40€ Sport (una volta al mese)`)
     }
     if (giorniCiclo === 42) azioni.push(`🏁 ${brand}, 6 settimane: se NON sono arrivate promo preleva, lascia meno di 50€ e stai fermo (nessun movimento)`)
     return azioni.length ? azioni : null
@@ -1039,6 +1045,13 @@ function getRiassuntoProtocolloAttivo(nomeBook, variante = null) {
     const sezioni = [{ titolo: '📈 Alzare promozioni VXT', righe: PROTOCOLLO_SISAL.alzareVxt }]
     if (v && v.key === 'fase2') return { durata: 'Snai Fase 2 · Accumulo volume (solo casinò)', capitale_min: 250, azioni: PROTOCOLLO_SNAI.fase2, sezioni, recupero, variante: v }
     return { durata: 'Snai Fase 1 · Profilazione primaria (solo casinò)', capitale_min: 150, azioni: PROTOCOLLO_SNAI.fase1, sezioni, recupero, variante: v }
+  }
+  if (tipo === 'vip_fase12' && getNomeNormalizzato(nomeBook).includes('pokerstars')) {
+    const v = getVarianteProfilazione({ nome: nomeBook, profilo_variante: variante })
+    const recupero = [...PROTOCOLLO_SISAL.recupero, ...PROTOCOLLO_GRUPPO_LOTTOMATICA.recupero]
+    const sezioni = [{ titolo: '📈 Alzare promozioni VXT', righe: PROTOCOLLO_SISAL.alzareVxt }]
+    if (v && v.key === 'fase2') return { durata: 'PokerStars Fase 2 · Accumulo volume', capitale_min: 250, azioni: PROTOCOLLO_SISAL.fase2, sezioni, recupero, variante: v }
+    return { durata: 'PokerStars Fase 1 · Profilazione primaria', capitale_min: 150, azioni: PROTOCOLLO_SISAL.fase1, sezioni, recupero, variante: v }
   }
   if (tipo === 'vip_fase12' && getNomeNormalizzato(nomeBook).includes('sisal')) {
     const v = getVarianteProfilazione({ nome: nomeBook, profilo_variante: variante })
