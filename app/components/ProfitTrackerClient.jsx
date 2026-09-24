@@ -430,15 +430,46 @@ const BOOK_STANDARD = [
 // Profilazione Casinò: ciclo operativo 4 settimane, poi monitoraggio riservate.
 const PROTOCOLLO_GRUPPO_LOTTOMATICA = {
   ricarica: '100€', live: '100€', slot: '100€', sport: '100€', settimane: 4,
+  // 24/09/2026 — Profilazione Casinò (Profiliamo), uguale per Lottomatica, Goldbet e Planetwin365.
+  // Scelta di Sergio: ricarica nello stesso giorno del Casinò Live, le 4 bet sport in un altro giorno.
   azioni: [
-    'Ricarica almeno 100€ a inizio settimana (lun/mar/mer a rotazione casuale, non tutti lo stesso giorno) e muovi il conto lo stesso giorno: 2 bet sport',
-    'A metà settimana (mer/gio) Casinò Live con almeno 3 amici: 10€ a numero, 60€ a sestina, ripeti almeno 3 volte; chi vince raddoppia + 100€ slot spin basso',
-    'Verso il weekend (ven/sab/dom) gioca 1-2 bet sport: in tutto 3/4 bet sport a settimana su 100€',
+    'Giorno 1 (lun/mar/mer a rotazione): ricarica almeno 100€ + Casinò Live 100€ con almeno 3 amici (chi vince raddoppia) + 100€ slot spin basso',
+    'Giorno 2 (un giorno successivo della settimana): Sport 100€ su 4 bet',
     'Usa tutte le valide per tutti',
     'Ripeti per 4 settimane',
-    'Dopo il ciclo controlla le riservate ogni 7 giorni',
-    'Se per 30 giorni non arrivano riservate: segnala di ripetere la profilazione',
-    'In ogni caso segnala un nuovo ciclo ogni 2 mesi'
+    'Usa le riservate che arrivano e ripeti ogni 2 mesi',
+    'Lottomatica e Goldbet: da fare se non stai profilando il conto con la VIP'
+  ],
+  recupero: [
+    'Fai un volume di gioco blando 50-100€ su varie sezioni (Sport, Slot, Virtuali, ecc.)',
+    "Cerca di fare bet 'piccole' e volumi su diversi giochi, comportati come un giocatore reale",
+    "Accetta promozioni a caso, pur sapendo che non arriverà il bonus",
+    'Contatta tramite chat o mail per info sulle promozioni: dai pareri da GIOCATORE, giraci intorno prima',
+    'Una volta ottenute le info, richiedi la rivalutazione del conto gioco per tornare a giocare',
+    'Se hai metodi di prelievo bloccati, chiedi anche lo sblocco nelle settimane successive per comodità',
+    'Il conto può essere recuperato nel tempo: se ricevi picche, ripeti da capo senza pensarci troppo'
+  ],
+  // Profilazione VIP (Profiliamo) — solo Lottomatica e Goldbet
+  vipLive: [
+    'Ricarica 500€ anche su diverse ricariche',
+    'GG1: 300€ casinò live + 200€ giochi offline (slot, bj, spin basso)',
+    'GG2: 300€ casinò live + 200€ giochi offline (slot, bj, spin basso)',
+    'GG3: 500€ casinò live totale su due bet + 300€ giochi offline (slot, bj, spin basso)',
+    'Fai tutte le valide per tutti',
+    'Ripeti altre 2 settimane · settimana 4: preleva e lascia 100-200€',
+    'Fai almeno 2 conti in contemporanea · in fase profilativa accumula saldo',
+    "Inizia la profilazione all'inizio del mese",
+    'Se il conto passa VIP: usalo e dosalo in base alla ricezione promozionale (VIP senza promo)',
+    'Se NON diventa subito VIP: usa il conto normalmente e ripeti il mese successivo'
+  ],
+  vipSenzaPromo: [
+    'Ricarica almeno 1000€ su più ricariche',
+    'Gioca a sezioni come da esempi',
+    'Lunedì: 300€ Sport quota 2.50 in su',
+    'Mercoledì: 300-400€ Casinò Live',
+    'Giovedì: 500€ slot spin bassi + cashback',
+    'Domenica: 150-200€ Virtuali, atteso su tante bet da 25€',
+    'Lascia il conto fermo con poco saldo e controlla la inbox'
   ]
 }
 const BOOK_GRUPPO_LOTTOMATICA = ['planetwin365', 'planetwin', 'goldbet', 'lottomatica']
@@ -540,13 +571,33 @@ const PROTOCOLLO_BET365 = {
 // 24/09/2026 — VARIANTI DI PROFILAZIONE: per alcuni book, quando lo metti in Profilazione, scegli COSA profilare.
 // La scelta è salvata in books.profilo_variante. Il primo elemento è quello usato se la variante non è indicata.
 const VARIANTI_PROFILAZIONE = {
+  // Lottomatica e Goldbet (Planetwin365 ha solo la Casinò: nessuna scelta)
+  gruppo_lottomatica_vip: [
+    { key: 'casino', label: 'Casinò', desc: 'Profilazione Casinò: 4 settimane · giorno 1 ricarica 100€ + live 100€ + slot 100€ · giorno 2 sport 100€ su 4 bet' },
+    { key: 'vip_live', label: 'VIP Live', desc: "4 settimane da inizio mese · ricarica 500€ · GG1-GG3 casinò live + giochi offline per 3 settimane · settimana 4 preleva" },
+    { key: 'vip_senza_promo', label: 'VIP senza promo', desc: 'Conto già VIP: lun sport 300€ (q. 2.50+) · mer live 300-400€ · gio slot 500€ + cashback · dom virtuali 150-200€' },
+  ],
   bet365: [
     { key: 'superquote', label: 'Superquote', desc: '10-15 bet/sett da 10-50€ (quota min 1.35), ricarica 5 volte a settimana, 2 coperture randomiche/sett' },
     { key: 'finte_riservate', label: 'Finte riservate', desc: 'Conto attivo con il minimo: 1 ricarica al mese + 1 bet sportiva da 20€ in su al mese' },
   ],
 }
 function getVariantiProfilazione(nomeBook) {
-  return VARIANTI_PROFILAZIONE[getTipoProtocolloAttivo(nomeBook)] || null
+  const tipo = getTipoProtocolloAttivo(nomeBook)
+  if (tipo === 'gruppo_lottomatica') {
+    const n = getNomeNormalizzato(nomeBook)
+    return (n.includes('lottomatica') || n.includes('goldbet')) ? VARIANTI_PROFILAZIONE.gruppo_lottomatica_vip : null
+  }
+  return VARIANTI_PROFILAZIONE[tipo] || null
+}
+// Tipo usato per la durata del ciclo e i promemoria di fine ciclo (tiene conto della variante)
+function tipoCicloProfilazione(book) {
+  const tipo = getTipoProtocolloAttivo(book?.nome)
+  if (tipo !== 'gruppo_lottomatica') return tipo
+  const v = getVarianteProfilazione(book)?.key
+  if (v === 'vip_senza_promo') return null                    // continuativo, nessuna fine ciclo
+  if (v === 'vip_live') return 'gruppo_lottomatica_vip_live'  // 4 settimane, poi "è passato VIP?"
+  return tipo
 }
 function getVarianteProfilazione(book) {
   const varianti = getVariantiProfilazione(book?.nome)
@@ -741,35 +792,44 @@ function getAgendaAttivoV2(book, giorno, settimana) {
     const inizio = book.profilo_ciclo_inizio ? new Date(`${book.profilo_ciclo_inizio}T00:00:00`) : new Date()
     const oggi = new Date()
     const giorniCiclo = Math.max(0, Math.floor((oggi - inizio) / 86400000))
+    const variante = getVarianteProfilazione(book)?.key || 'casino'   // Planetwin365: sempre Casinò
+    const hs = k => hashStrLucy(`${book.id}|${book.nome}|${book.intestatario}|sett${settimana}|lotto|${variante}|${k}`)
 
-    // Prime 4 settimane: protocollo operativo (V51: giorni casuali per conto e per settimana).
-    //  · ricarica a inizio settimana ma NON sempre lunedì: lun/mar/mer a rotazione, diversa per ogni conto
-    //    e ogni settimana, così i conti non ricaricano tutti lo stesso giorno (se coincidono va bene);
-    //  · sport 3 o 4 bet a settimana: 2 nel giorno di ricarica (chi versa muove il conto) e 1-2 nel weekend
-    //    (ven/sab/dom); il budget sport di 100€/sett si divide in proporzione alle bet;
-    //  · Casinò Live a metà settimana (mer/gio), mai nel giorno di ricarica.
-    if (giorniCiclo < 28) {
-      const hs = k => hashStrLucy(`${book.id}|${book.nome}|${book.intestatario}|sett${settimana}|lotto|${k}`)
-      const giornoRicarica = [1, 2, 3][hs('ric') % 3]
-      const candLive = [3, 4].filter(g => g !== giornoRicarica)
-      const giornoLive = candLive[hs('live') % candLive.length]
-      const giornoSportWE = [5, 6, 0][hs('we') % 3]
-      const betSett = 3 + (hs('nbet') % 2)            // 3 o 4 bet a settimana
-      const betWE = betSett - 2
-      const budgetRic = Math.round((100 * 2 / betSett) / 5) * 5
-      const budgetWE = 100 - budgetRic
-      if (giorno === giornoRicarica) return [`Ricarica almeno 100€ (giorno variabile lun-mer) + muovi il conto lo stesso giorno: Sport ${budgetRic}€ su 2 bet`]
-      if (giorno === giornoLive) return ['Casinò Live con almeno 3 amici: 10€ a numero, 60€ a sestina, ripeti almeno 3 volte; chi vince raddoppia + 100€ slot spin basso']
-      if (giorno === giornoSportWE) return [`Sport ${budgetWE}€ su ${betWE} bet (weekend)`]
+    // VIP SENZA PROMO (conto già VIP): giorni fissi come da Profiliamo, continuativo
+    if (variante === 'vip_senza_promo') {
+      if (giorno === 1) return ['VIP: Sport 300€ quota min 2.50 (ricarica almeno 1000€ totali, anche su più ricariche)']
+      if (giorno === 3) return ['VIP: Casinò Live 300-400€']
+      if (giorno === 4) return ['VIP: slot 500€ spin bassi + cashback']
+      if (giorno === 0) return ['VIP: Virtuali 150-200€, atteso su tante bet da 25€ · poi lascia il conto fermo con poco saldo e controlla la inbox']
       return null
     }
 
-    // Dopo il ciclo il conto resta in Profilazione: controllo riservate ogni 7 giorni.
-    const giorniDalFineCiclo = giorniCiclo - 28
-    if (giorniDalFineCiclo >= 60) return ['🔴 Richiamo 2 mesi: avvia un nuovo ciclo di profilazione (4 settimane)']
-    if (giorniDalFineCiclo >= 30 && giorniDalFineCiclo % 7 === 0) return ['🟠 Nessuna riservata da un mese? Valuta/avvia un nuovo ciclo di profilazione', '👁️ Controlla comunque le riservate']
-    if (giorniDalFineCiclo % 7 === 0) return ['👁️ Controlla riservate / inbox del conto']
-    return null
+    // VIP LIVE: 3 settimane di GG1-GG3 (tre giorni consecutivi, GG1 lun/mar/mer), settimana 4 preleva
+    if (variante === 'vip_live') {
+      if (giorniCiclo >= 28) return null                        // fine ciclo: ci pensa il promemoria post-ciclo
+      if (giorniCiclo >= 21) {
+        const giornoPrelievo = [1, 2, 3][hs('prel') % 3]
+        return giorno === giornoPrelievo ? ['VIP Live settimana 4: preleva e lascia 100-200€ sul conto'] : null
+      }
+      const gg1 = [1, 2, 3][hs('gg1') % 3]
+      if (giorno === gg1) return ['VIP Live GG1: ricarica 500€ (anche su più ricariche) + 300€ casinò live + 200€ giochi offline (slot, bj, spin basso)']
+      if (giorno === gg1 + 1) return ['VIP Live GG2: 300€ casinò live + 200€ giochi offline (slot, bj, spin basso)']
+      if (giorno === gg1 + 2) return ['VIP Live GG3: 500€ casinò live totale su due bet + 300€ giochi offline (slot, bj, spin basso)']
+      return null
+    }
+
+    // CASINÒ (24/09/2026): giorno 1 = ricarica + Casinò Live + slot (lun/mar/mer a rotazione casuale),
+    // giorno 2 = 4 bet sport per 100€ in un giorno successivo della stessa settimana (così c'è saldo).
+    if (giorniCiclo < 28) {
+      const giorno1 = [1, 2, 3][hs('ric') % 3]
+      const ordineSett = [1, 2, 3, 4, 5, 6, 0]                  // lun..dom
+      const dopo = ordineSett.slice(ordineSett.indexOf(giorno1) + 1)
+      const giorno2 = dopo[hs('sport') % dopo.length]
+      if (giorno === giorno1) return ['Ricarica almeno 100€ + Casinò Live 100€ con almeno 3 amici (chi vince raddoppia) + 100€ slot spin basso']
+      if (giorno === giorno2) return ['Sport 100€ su 4 bet — quota min 1.35']
+      return null
+    }
+    return null   // dopo le 4 settimane: promemoria riservate (getPromemoriaPostCiclo)
   }
 
   if (tipo === 'quigioco') {
@@ -845,6 +905,13 @@ function getAgendaAttivoV2(book, giorno, settimana) {
 // "Protocollo" della tabella Profilazione, solo per book con profilo_livello === 'attivo'.
 function getRiassuntoProtocolloAttivo(nomeBook, variante = null) {
   const tipo = getTipoProtocolloAttivo(nomeBook)
+  if (tipo === 'gruppo_lottomatica') {
+    const v = getVarianteProfilazione({ nome: nomeBook, profilo_variante: variante })
+    const P = PROTOCOLLO_GRUPPO_LOTTOMATICA
+    if (v && v.key === 'vip_live') return { durata: 'VIP Live (4 sett., da inizio mese)', capitale_min: 500, azioni: P.vipLive, recupero: ['Se limitato alle promozioni: usa il recupero della Profilazione Casinò', ...P.recupero], variante: v }
+    if (v && v.key === 'vip_senza_promo') return { durata: 'VIP senza promo (continuativo)', capitale_min: 1000, azioni: P.vipSenzaPromo, recupero: ['Se limitato alle promozioni: usa il recupero della Profilazione Casinò', ...P.recupero], variante: v }
+    return { durata: 'Profilazione Casinò (4 settimane)', capitale_min: 200, azioni: P.azioni.slice(0, v ? 6 : 5), recupero: P.recupero, variante: v }
+  }
   if (tipo === 'bet365') {
     const v = getVarianteProfilazione({ nome: nomeBook, profilo_variante: variante })
     if (v && v.key === 'finte_riservate') return { durata: 'Bet365 Finte riservate', capitale_min: 20, azioni: PROTOCOLLO_BET365.finteRiservate, variante: v }
@@ -961,7 +1028,7 @@ function getSettimanaAnno() {
 const LUCY_LIVE_EURO_NUMERO = 10
 const LUCY_LIVE_EURO_SESTINA = 60
 const LUCY_LIVE_RIPETIZIONI = 3
-const DURATA_CICLO_PROFILAZIONE_GG = { gruppo_lottomatica: 28, stanleybet: 30, bwin: 21, betfair_exchange: 21, quigioco: 14 }
+const DURATA_CICLO_PROFILAZIONE_GG = { gruppo_lottomatica: 28, gruppo_lottomatica_vip_live: 28, stanleybet: 30, bwin: 21, betfair_exchange: 21, quigioco: 14 }
 const RISERVATE_CONTROLLO_GG = 7        // dopo la fine del ciclo: controllo riservate ogni 7 giorni
 const RISERVATE_ATTESA_GG = 30          // se per 30 giorni non arrivano riservate: riprendi il ciclo
 const RICHIAMO_NUOVO_CICLO_GG = 60      // in ogni caso: nuovo ciclo ogni 60 giorni dalla fine del ciclo
@@ -986,6 +1053,8 @@ function getPromemoriaPostCiclo(book, oggiStr, tipo) {
   } else if (giorniSenzaRiservata >= RISERVATE_ATTESA_GG) {
     azioni.push(`🟠 Nessuna riservata da ${giorniSenzaRiservata} giorni — riprendi il ciclo di profilazione`)
     riprendi = true
+  } else if (giorniDalFine === 0 && tipo === 'gruppo_lottomatica_vip_live') {
+    azioni.push("✅ Fine VIP Live: il conto è passato VIP? Sì → in Profilazione premi 'cambia' e scegli 'VIP senza promo'. No → usalo normalmente e ripeti il VIP Live il mese prossimo")
   } else if (giorniDalFine === 0) {
     azioni.push('✅ Ciclo di profilazione finito: verifica se arrivano riservate (mail, inbox del conto)')
   } else if (giorniDalFine % RISERVATE_CONTROLLO_GG === 0) {
@@ -1030,7 +1099,7 @@ function getAzioniOggi(book) {
     const tipoNuovo = getTipoProtocolloAttivo(book.nome)
     if (tipoNuovo) {
       // V53: ciclo finito -> promemoria riservate / ripresa del ciclo al posto del protocollo operativo
-      const post = getPromemoriaPostCiclo(book, lucyOggi(), tipoNuovo)
+      const post = getPromemoriaPostCiclo(book, lucyOggi(), tipoCicloProfilazione(book))
       if (post) {
         if (!post.azioni.length) return null
         return { tipo: 'attivo', label: ['Dom','Lun','Mar','Mer','Gio','Ven','Sab'][giorno], azioni: post.azioni, badge: post.badge, postCiclo: true, riprendi: post.riprendi }
@@ -1644,6 +1713,7 @@ function getNumeroBetRichieste(azione = '') {
   if (/3\s*\/\s*4\s*bet/.test(a) || /3-4\s*bet/.test(a)) return 4
   if (/2\s*\/\s*3\s*bet/.test(a) || /2-3\s*bet/.test(a)) return 3
   if (/10-15\s*bet/.test(a)) return 10
+  if (/\b4\s*bet\b/.test(a)) return 4      // 24/09/2026: gruppo Lottomatica "Sport 100€ su 4 bet"
   if (/\b2\s*bet\b/.test(a)) return 2      // V51: "Sport 50€ su 2 bet"
   return 1
 }
@@ -2028,7 +2098,7 @@ function riepilogoPostCicloLucy() {
   const oggiStr = lucyOggi()
   let inCiclo = 0, fineCiclo = 0, daRiavviare = 0
   books.filter(b => b.profilo_livello === 'attivo').forEach(b => {
-    const tipo = getTipoProtocolloAttivo(b.nome)
+    const tipo = tipoCicloProfilazione(b)
     if (!DURATA_CICLO_PROFILAZIONE_GG[tipo] || !b.profilo_ciclo_inizio) return
     const p = getPromemoriaPostCiclo(b, oggiStr, tipo)
     if (!p) inCiclo++
@@ -6383,6 +6453,12 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                         )}
                       </div>
                       {proto.azioni.map((a, i) => <div key={i} style={{ marginBottom: 2 }}>• {a}</div>)}
+                      {proto.recupero && (
+                        <details style={{ marginTop: 4 }}>
+                          <summary style={{ cursor: 'pointer', color: '#f87171', fontWeight: 700, fontSize: 11 }}>🔧 Recupero conto</summary>
+                          {proto.recupero.map((a, i) => <div key={i} style={{ marginBottom: 2, color: '#fca5a5' }}>• {a}</div>)}
+                        </details>
+                      )}
                     </div>
                   </td>
                   <td style={td}>{formatCurrency(proto.capitale_min)}</td>
