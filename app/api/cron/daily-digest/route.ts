@@ -1,5 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
+// Logica tennis condivisa con /api/tennis/matches (adatta il path se la cartella lib è altrove)
+import { getTennisMatches } from "../../../../lib/tennisMatches";
 
 const API_FOOTBALL = "https://api.football-data.org/v4";
 
@@ -659,41 +661,34 @@ function buildLucyFootballRows(tomorrow: string, collected: any[]) {
 // risposta e log espliciti con i conteggi.
 type TennisFetch = { matches: any[]; error: string | null; attempts: number };
 
-// L'endpoint tennis è pesante (Elo, statistiche e quote per ogni match): da dentro Vercel può
-// metterci più di 20 s. Timeout largo e, se scade, niente secondo tentativo (non avrebbe tempo).
+// Tennis: la cron usa direttamente la logica di lib/tennisMatches.js (la stessa di /api/tennis/matches),
+// senza chiamare l'endpoint via internet: niente attese di rete né un secondo avvio della funzione.
+// Il timeout resta come paracadute.
 const TENNIS_TIMEOUT_MS = 55000;
 
 async function fetchTennisMatches(date: string): Promise<TennisFetch> {
-  const url = `https://sergioapicella.it/api/tennis/matches?date=${date}`;
-  let lastError: string | null = null;
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      const r = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(TENNIS_TIMEOUT_MS) });
-      if (!r.ok) {
-        const body = await r.text();
-        lastError = `HTTP ${r.status}: ${body.slice(0, 200)}`;
-      } else {
-        const text = await r.text();
-        let d: any;
-        try { d = JSON.parse(text); }
-        catch { lastError = `risposta non JSON: ${text.slice(0, 200)}`; d = null; }
-        if (d) {
-          const matches = Array.isArray(d.matches) ? d.matches : [];
-          const conQuote = matches.filter((m: any) => m.oddsA && m.oddsB).length;
-          const conDati = matches.filter((m: any) => !m.lowDataPlayer).length;
-          console.log(`[tennis] ${date}: ricevuti ${matches.length} match, ${conQuote} con quote per entrambi, ${conDati} con dati sufficienti (tentativo ${attempt})`);
-          if (matches.length === 0) console.warn(`[tennis] ${date}: l'endpoint ha risposto ma SENZA match`);
-          return { matches, error: null, attempts: attempt };
-        }
-      }
-    } catch (e: any) {
-      lastError = e?.name === "TimeoutError" ? `timeout dopo ${TENNIS_TIMEOUT_MS / 1000}s` : (e?.message || String(e));
-      if (e?.name === "TimeoutError") { console.error(`[tennis] ${date}: ${lastError}, nessun nuovo tentativo`); break; }
+  const inizio = Date.now();
+  try {
+    const d: any = await Promise.race([
+      getTennisMatches(date),
+      new Promise((_, reject) => setTimeout(() => reject(new Error(`timeout dopo ${TENNIS_TIMEOUT_MS / 1000}s`)), TENNIS_TIMEOUT_MS)),
+    ]);
+    if (d?.error) {
+      const errore = `${d.error}${d.details ? ` (${String(d.details).slice(0, 200)})` : ""}`;
+      console.error(`[tennis] ${date}: ${errore}`);
+      return { matches: [], error: errore, attempts: 1 };
     }
-    console.error(`[tennis] ${date}: tentativo ${attempt} fallito -> ${lastError}`);
-    if (attempt === 1) await new Promise((res) => setTimeout(res, 3000));
+    const matches = Array.isArray(d?.matches) ? d.matches : [];
+    const conQuote = matches.filter((m: any) => m.oddsA && m.oddsB).length;
+    const conDati = matches.filter((m: any) => !m.lowDataPlayer).length;
+    console.log(`[tennis] ${date}: ${matches.length} match, ${conQuote} con quote per entrambi, ${conDati} con dati sufficienti, in ${((Date.now() - inizio) / 1000).toFixed(1)}s${d?.fromCache ? " (quote dalla cache)" : ""}`);
+    if (matches.length === 0) console.warn(`[tennis] ${date}: nessun match restituito`);
+    return { matches, error: null, attempts: 1 };
+  } catch (e: any) {
+    const errore = e?.message || String(e);
+    console.error(`[tennis] ${date}: ${errore}`);
+    return { matches: [], error: errore, attempts: 1 };
   }
-  return { matches: [], error: lastError, attempts: 2 };
 }
 
 // Tennis per Lucy: tutte le partite con quota per ENTRAMBI i giocatori. Senza
