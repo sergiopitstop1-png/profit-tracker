@@ -10,6 +10,7 @@ import { PostItTab, PostItFloatingWidget } from './PostItWidget'
 import MemoTab from './MemoTab'
 import { calcolaRoyalty, RoyaltyRiepilogo, RoyaltyBadge, RoyaltyModal, inserisciPagamento } from './RoyaltyPanel'
 import { RisparmiCard, calcolaRisparmi, maturaInteressi, normalizza as normalizzaRisparmi } from './RisparmiPanel'
+import SlotConsigliate, { PulsanteSlot, parlaDiSlot } from './SlotConsigliate'
 
 // V32 — rete di sicurezza 60 giorni sui conti in MANTENIMENTO
 const MANT_LIMITE_GG = 60        // limite massimo tra due movimentazioni dello stesso conto
@@ -139,6 +140,8 @@ const [profilazioneSearch, setProfilazioneSearch] = useState('')
 const [savingProfilo, setSavingProfilo] = useState({})
 // Finestra "cosa vuoi profilare?" per i book con più profilazioni (es. Bet365)
 const [sceltaVarianteBook, setSceltaVarianteBook] = useState(null)
+// Finestra 🎰 Slot consigliate (lista Profiliamo): null = chiusa, altrimenti il testo dell'azione da cui è aperta
+const [slotPopup, setSlotPopup] = useState(null)
 const [showAgendaPopup, setShowAgendaPopup] = useState(false)
 const [agendaVista, setAgendaVista] = useState(false)
 const [agendaAperto, setAgendaAperto] = useState(null)
@@ -5663,6 +5666,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 
         {message && <div style={successBox}>{message}</div>}
 
+        {slotPopup !== null && <SlotConsigliate contesto={slotPopup || null} onClose={() => setSlotPopup(null)} />}
         {showAgendaPopup && (() => {
           const giorno = new Date().getDay()
           const giornoLabel = ['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'][giorno]
@@ -5707,7 +5711,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                                 <div onClick={() => setPopupAperto(popupAperto === azione ? null : azione)}
                                   style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
                                   <span style={{ color: '#38bdf8', fontSize: 12, display: 'inline-block', transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
-                                  <span style={{ fontWeight: 700, color: '#f8fafc', fontSize: 13 }}>{azione}</span>
+                                  <span style={{ fontWeight: 700, color: '#f8fafc', fontSize: 13 }}>{azione}{parlaDiSlot(azione) && <PulsanteSlot onClick={() => setSlotPopup(azione)} />}</span>
                                   <span style={{ marginLeft: 'auto', fontSize: 11, background: 'rgba(56,189,248,0.12)', color: '#38bdf8', padding: '2px 8px', borderRadius: 6, fontWeight: 700 }}>{bookList.length}</span>
                                 </div>
                                 {isOpen && (
@@ -6045,6 +6049,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           <div style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
               <button style={btn('#2563eb')} onClick={() => setShowAgendaPopup(true)}>📋 Agenda di oggi · {agendaOggi.length}</button>
+              <button style={btn('#d97706')} onClick={() => setSlotPopup('')}>🎰 Slot consigliate</button>
               <button style={btn('#0ea5e9', !lucySportLoading)} disabled={lucySportLoading} onClick={() => generaLucySport(agendaOggi, false)}>{lucySportLoading ? '⏳ Lucy sta calcolando…' : '⚽ Prepara incroci'}</button>
               <button style={btn('#0f766e', lucySportProposte.length > 0)} disabled={!lucySportProposte.length} onClick={() => setLucyTabellaAperta(true)}>📊 Tabella bet{lucySportProposte.length ? ` · ${cont.fatte}/${cont.tot} fatte` : ''}</button>
               <button style={btn('#7c3aed', lucyLiveProposte.length > 0)} disabled={!lucyLiveProposte.length} onClick={() => setLucyLiveTabellaAperta(true)}>🎰 Tabella Live{lucyLiveProposte.length ? ` · ${lucyLiveProposte.length}` : ''}</button>
@@ -6149,7 +6154,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                       <div onClick={() => setAgendaAperto(agendaAperto === azione ? null : azione)}
                         style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
                         <span style={{ color: '#38bdf8', fontSize: 11, display: 'inline-block', transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
-                        <span style={{ fontWeight: 700, color: '#f8fafc', fontSize: 12 }}>{azione}</span>
+                        <span style={{ fontWeight: 700, color: '#f8fafc', fontSize: 12 }}>{azione}{parlaDiSlot(azione) && <PulsanteSlot onClick={() => setSlotPopup(azione)} />}</span>
                         <span style={{ marginLeft: 'auto', fontSize: 11, background: 'rgba(56,189,248,0.12)', color: '#38bdf8', padding: '2px 7px', borderRadius: 6, fontWeight: 700 }}>{items.length}</span>
                       </div>
                       {isOpen && (
