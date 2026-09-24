@@ -137,6 +137,8 @@ const [listBuffer, setListBuffer] = useState('')
 const [profilazioneFilter, setProfilazioneFilter] = useState({ intestatario: '', book: '', livello: '' })
 const [profilazioneSearch, setProfilazioneSearch] = useState('')
 const [savingProfilo, setSavingProfilo] = useState({})
+// Finestra "cosa vuoi profilare?" per i book con più profilazioni (es. Bet365)
+const [sceltaVarianteBook, setSceltaVarianteBook] = useState(null)
 const [showAgendaPopup, setShowAgendaPopup] = useState(false)
 const [agendaVista, setAgendaVista] = useState(false)
 const [agendaAperto, setAgendaAperto] = useState(null)
@@ -315,11 +317,11 @@ const AZIONI_ATTIVO = {
     preleva: ['Preleva e lascia meno di 50€']
   },
   'bet365': {
-    ricarica: ['Ricarica per programma fedeltà'],
+    ricarica: ['Ricarica (Superquote: 5 volte a settimana)'],
     slot: ['Sport Expert: condizionata semplice'],
     numeri: ['Prepara multipla su Diretta.it — quota max 1.70'],
-    sport: ['Multipla in doppia da 800€ — quote in discesa'],
-    preleva: ['Verifica saldo programma fedeltà']
+    sport: ['Bet Superquote 10-50€ — quota min 1.35, meglio live'],
+    preleva: ['Verifica saldo']
   },
   'lottomatica': {
     ricarica: ['Ricarica conto'],
@@ -529,9 +531,27 @@ const PROTOCOLLO_MYLOTTERYPLAY = {
 const PROTOCOLLO_BET365 = {
   tecnica: 'Superquote', betSett: '10-15', ricaricheSett: '5/sett',
   finteRiservate: ['Tieni il conto attivo', 'Fai almeno una ricarica al mese', 'Fai almeno una bet sportiva da 20€ in su nel mese'],
-  aumentoSuperquote: ['Almeno 10-15 bet a settimana da 10 a 50€ (varia importo) — quota minima 1.35, se puoi farle live meglio ancora', 'Ricarica almeno 5 volte nella settimana (anche se hai saldo) di qualsiasi importo — le bet possono essere fatte anche in un singolo giorno', 'N.B. Usa le coperture di importo più alto come mezzo per abbattere i costi', "Una volta che sale l'importo, mantieni il conto con qualche copertura nel mese", 'Gioca 800€ a settimana in Doppia sfruttando il Bet365 Club'],
+  // 24/09/2026: tolti gli "800€ a settimana in Doppia" — il Bet365 Club non esiste più
+  aumentoSuperquote: ['Almeno 10-15 bet a settimana da 10 a 50€ (varia importo) — quota minima 1.35, se puoi farle live meglio ancora', 'Ricarica almeno 5 volte nella settimana (anche se hai saldo) di qualsiasi importo — le bet possono essere fatte anche in un singolo giorno', 'N.B. Usa le coperture di importo più alto come mezzo per abbattere i costi', "Una volta che sale l'importo, mantieni il conto con qualche copertura nel mese"],
   aumentoSuperquotaA1: ['Fai coperture randomiche nel conto gioco', 'Almeno 2 a settimana e si rialzano in automatico'],
   recupero: ['NON DISPONIBILE se hai limitazione ai Bonus']
+}
+
+// 24/09/2026 — VARIANTI DI PROFILAZIONE: per alcuni book, quando lo metti in Profilazione, scegli COSA profilare.
+// La scelta è salvata in books.profilo_variante. Il primo elemento è quello usato se la variante non è indicata.
+const VARIANTI_PROFILAZIONE = {
+  bet365: [
+    { key: 'superquote', label: 'Superquote', desc: '10-15 bet/sett da 10-50€ (quota min 1.35), ricarica 5 volte a settimana, 2 coperture randomiche/sett' },
+    { key: 'finte_riservate', label: 'Finte riservate', desc: 'Conto attivo con il minimo: 1 ricarica al mese + 1 bet sportiva da 20€ in su al mese' },
+  ],
+}
+function getVariantiProfilazione(nomeBook) {
+  return VARIANTI_PROFILAZIONE[getTipoProtocolloAttivo(nomeBook)] || null
+}
+function getVarianteProfilazione(book) {
+  const varianti = getVariantiProfilazione(book?.nome)
+  if (!varianti) return null
+  return varianti.find(v => v.key === book?.profilo_variante) || varianti[0]
 }
 
 const PROTOCOLLI_EXPERT = {
@@ -684,14 +704,34 @@ function getAgendaAttivoV2(book, giorno, settimana) {
   }
 
   if (tipo === 'bet365') {
-    // Ricariche 5/sett + bet Superquote: copertura ampia (5 giorni operativi su 7)
-    const tuttiGiorni = [0, 1, 2, 3, 4, 5, 6]
-    const giornoDoppia = tuttiGiorni[hashBook(book.id, settimana * 10 + 70) % 7]
-    const giorniRestanti = tuttiGiorni.filter(g => g !== giornoDoppia)
-    const giornoCopertura = giorniRestanti[hashBook(book.id, settimana * 10 + 71) % giorniRestanti.length]
-    const giorniOperativi = tuttiGiorni.filter(g => g !== giornoDoppia && g !== giornoCopertura)
+    const variante = getVarianteProfilazione(book)?.key || 'superquote'
 
-    if (giorno === giornoDoppia) return ['Gioca 800€ a settimana in Doppia sfruttando il Bet365 Club']
+    if (variante === 'finte_riservate') {
+      // FINTE RISERVATE: 1 ricarica al mese (giorno casuale lun-mer) + 1 bet sportiva da 20€+ in un giorno successivo del mese
+      const oggi = new Date()
+      const anno = oggi.getFullYear(), mese = oggi.getMonth()
+      const giorniMese = new Date(anno, mese + 1, 0).getDate()
+      const hsMese = k => hashStrLucy(`${book.id}|${book.nome}|${book.intestatario}|${anno}-${mese}|finte_riservate|${k}`)
+      const lunMer = []
+      for (let d = 1; d <= giorniMese; d++) { const w = new Date(anno, mese, d).getDay(); if (w >= 1 && w <= 3) lunMer.push(d) }
+      const giornoRicarica = lunMer[hsMese('ric') % lunMer.length]
+      const dopo = []
+      for (let d = giornoRicarica + 1; d <= giorniMese; d++) dopo.push(d)
+      const giornoBet = dopo.length ? dopo[hsMese('bet') % Math.min(dopo.length, 10)] : giornoRicarica // entro ~10 giorni dalla ricarica
+      const oggiNum = oggi.getDate()
+      const azioni = []
+      if (oggiNum === giornoRicarica) azioni.push('Ricarica del mese (finte riservate) — qualsiasi importo')
+      if (oggiNum === giornoBet) azioni.push('Bet sportiva del mese da 20€ in su (finte riservate)')
+      return azioni.length ? azioni : null
+    }
+
+    // SUPERQUOTE: ricariche 5/sett + bet Superquote, 1 giorno di copertura randomica, 1 giorno di riposo
+    const tuttiGiorni = [0, 1, 2, 3, 4, 5, 6]
+    const giornoCopertura = tuttiGiorni[hashBook(book.id, settimana * 10 + 71) % 7]
+    const restanti = tuttiGiorni.filter(g => g !== giornoCopertura)
+    const giornoRiposo = restanti[hashBook(book.id, settimana * 10 + 70) % restanti.length]
+    const giorniOperativi = restanti.filter(g => g !== giornoRiposo)
+
     if (giorno === giornoCopertura) return ['Copertura randomica nel conto gioco (almeno 2/sett, per aumento Superquota a 1)']
     if (giorniOperativi.includes(giorno)) return ['Ricarica (5/sett) + 2-3 bet Superquote da 10-50€ — quota min 1.35, meglio se live']
     return null
@@ -803,8 +843,13 @@ function getAgendaAttivoV2(book, giorno, settimana) {
 
 // Riassunto STATICO (non legato al giorno) del nuovo protocollo assegnato — usato nella colonna
 // "Protocollo" della tabella Profilazione, solo per book con profilo_livello === 'attivo'.
-function getRiassuntoProtocolloAttivo(nomeBook) {
+function getRiassuntoProtocolloAttivo(nomeBook, variante = null) {
   const tipo = getTipoProtocolloAttivo(nomeBook)
+  if (tipo === 'bet365') {
+    const v = getVarianteProfilazione({ nome: nomeBook, profilo_variante: variante })
+    if (v && v.key === 'finte_riservate') return { durata: 'Bet365 Finte riservate', capitale_min: 20, azioni: PROTOCOLLO_BET365.finteRiservate, variante: v }
+    return { durata: 'Bet365 Superquote', capitale_min: 50, azioni: PROTOCOLLO_BET365.aumentoSuperquote.slice(0, 3), variante: v }
+  }
   if (!tipo) return null
   const nome = getNomeNormalizzato(nomeBook)
 
@@ -864,7 +909,7 @@ const PROTOCOLLI = {
   'planetwin365': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Prova sempre codici ricarica', 'Main Sport fondamentale per promo'] },
   'eurobet': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Prova sempre codici ricarica', 'Main Sport fondamentale per promo'] },
   'snai': { durata: 'continuativo', capitale_min: 300, azioni: ['Mini sessioni slot 30-40€ a spin bassi', 'Volume slot settimanale — spin bassi, alto RTP', 'Gioca sui numeri', 'Tutte le VXT disponibili', 'Dosa il conto: quando ricevi promo usala e porta a casa', 'Preleva e lascia meno di 50€ quando opportuno'] },
-  'bet365': { durata: 'continuativo', capitale_min: 800, azioni: ['Multipla in doppia da 800€ programma fedeltà', 'Quote max 1.70', 'Utilizza quote in discesa', 'Controlla testa a testa tra squadre', 'Controlla classifiche e ultime 5 partite', 'Usa Diretta.it per costruire le multiple', 'Sport Expert: condizionate semplici per ottimi guadagni', 'Preparati per fase PRE Mondiali'] },
+  'bet365': { durata: 'continuativo', capitale_min: 50, azioni: ['Due profilazioni: Superquote oppure Finte riservate (scegli quando lo metti in Profilazione)', 'Superquote: 10-15 bet/sett da 10-50€, quota min 1.35, ricarica 5/sett', 'Finte riservate: 1 ricarica + 1 bet da 20€+ al mese', 'Controlla testa a testa, classifiche e ultime 5 partite (Diretta.it)'] },
   'codere': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Attenzione: può richiedere documentazione aggiuntiva', 'Utilizza amici con documentazione facile se richiesto', 'Usa volume di gioco per la metà di quello fatto su Sisal'] },
   'starcasino': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Prova sempre codici ricarica'] },
   'sportium': { durata: 'continuativo', capitale_min: 200, azioni: ['Stesso gruppo E-play24', 'Metodo tradizionale', 'Coordina le movimentazioni con E-play24'] },
@@ -1039,20 +1084,34 @@ async function autoAssegnaProfiloDefault(booksData) {
   return
 }
 
-async function updateProfiloLivello(bookId, livello) {
-  setSavingProfilo(p => ({ ...p, [bookId]: true }))
+// `variante`: per i book con più profilazioni possibili (es. Bet365: Superquote / Finte riservate).
+// Se si mette in Profilazione un book così senza indicare la variante, si apre la finestra di scelta.
+async function updateProfiloLivello(bookId, livello, variante = null) {
   const livelloNormalizzato = livello && livello.startsWith('mantenimento') ? 'mantenimento' : livello
   const corrente = books.find(b => b.id === bookId)
+  const varianti = getVariantiProfilazione(corrente?.nome)
+  if (livelloNormalizzato === 'attivo' && varianti && !variante) {
+    setSceltaVarianteBook(corrente)
+    return
+  }
+  setSavingProfilo(p => ({ ...p, [bookId]: true }))
+  const cambiaVariante = livelloNormalizzato === 'attivo' && variante && corrente?.profilo_variante !== variante
+  const oggiIso = new Date().toISOString().split('T')[0]
+  // cambiare cosa si profila fa ripartire il ciclo da oggi
   const cicloInizio = livelloNormalizzato === 'attivo'
-    ? (corrente?.profilo_livello === 'attivo' && corrente?.profilo_ciclo_inizio ? corrente.profilo_ciclo_inizio : new Date().toISOString().split('T')[0])
+    ? (corrente?.profilo_livello === 'attivo' && corrente?.profilo_ciclo_inizio && !cambiaVariante ? corrente.profilo_ciclo_inizio : oggiIso)
     : null
+  const varianteDaSalvare = livelloNormalizzato === 'attivo' && varianti ? (variante || corrente?.profilo_variante || varianti[0].key) : null
   livello = livelloNormalizzato
   const { error } = await supabase.from('books').update({
     profilo_livello: livello,
-    profilo_ciclo_inizio: cicloInizio
+    profilo_ciclo_inizio: cicloInizio,
+    profilo_variante: varianteDaSalvare
   }).eq('id', bookId)
   if (!error) {
-    setBooks(prev => prev.map(b => b.id === bookId ? { ...b, profilo_livello: livello, profilo_ciclo_inizio: cicloInizio } : b))
+    setBooks(prev => prev.map(b => b.id === bookId ? { ...b, profilo_livello: livello, profilo_ciclo_inizio: cicloInizio, profilo_variante: varianteDaSalvare } : b))
+  } else {
+    setErrorMessage('Errore aggiornamento profilazione: ' + error.message)
   }
   setSavingProfilo(p => ({ ...p, [bookId]: false }))
 }
@@ -1626,8 +1685,7 @@ function getCapSportGiornaliero(book, budgetTotale=100) {
   // Sisal ha un protocollo sport/volume più alto: non applichiamo il tetto standard 150€.
   // Per lo Sport di Lucy gli concediamo fino a 300€ al giorno, restando comunque sotto controllo.
   if (nome.includes('sisal')) return 300
-  // Bet365 ha un protocollo Sport Expert/fedeltà distinto e può avere volumi molto superiori.
-  if (nome.includes('bet365')) return Math.max(800, budgetTotale)
+  // (24/09/2026) Bet365 non ha più il tetto speciale da 800€: il Club che lo giustificava non esiste più.
   // Per i protocolli normali: circa +40% sul target, ma sui target ~100 non oltre 150€.
   const cap=Math.ceil((budgetTotale*1.40)/5)*5
   return budgetTotale<=120 ? Math.min(150,Math.max(budgetTotale,cap)) : Math.max(budgetTotale,cap)
@@ -6302,7 +6360,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           </thead>
           <tbody>
             {filteredProf.map(book => {
-              const protoNuovo = book.profilo_livello === 'attivo' ? getRiassuntoProtocolloAttivo(book.nome) : null
+              const protoNuovo = book.profilo_livello === 'attivo' ? getRiassuntoProtocolloAttivo(book.nome, book.profilo_variante) : null
+              const variantiBook = getVariantiProfilazione(book.nome)
               const proto = protoNuovo || getProtocollo(book.nome)
               const badge = getLivelloBadge(book.profilo_livello)
               return (
@@ -6314,7 +6373,15 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                   </td>
                   <td style={{ ...td, maxWidth: 280 }}>
                     <div style={{ fontSize: 12, color: '#94a3b8' }}>
-                      <div style={{ color: '#38bdf8', fontWeight: 700, marginBottom: 4 }}>{proto.durata}</div>
+                      <div style={{ color: '#38bdf8', fontWeight: 700, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        {proto.durata}
+                        {book.profilo_livello === 'attivo' && variantiBook && (
+                          <button onClick={() => setSceltaVarianteBook(book)}
+                            style={{ fontSize: 10, padding: '1px 7px', borderRadius: 6, border: '1px solid rgba(56,189,248,0.5)', background: 'rgba(56,189,248,0.1)', color: '#38bdf8', cursor: 'pointer', fontWeight: 700 }}>
+                            cambia
+                          </button>
+                        )}
+                      </div>
                       {proto.azioni.map((a, i) => <div key={i} style={{ marginBottom: 2 }}>• {a}</div>)}
                     </div>
                   </td>
@@ -6338,6 +6405,32 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             })}
           </tbody>
         </table>
+        {sceltaVarianteBook && (() => {
+          const varianti = getVariantiProfilazione(sceltaVarianteBook.nome) || []
+          const attuale = sceltaVarianteBook.profilo_livello === 'attivo' ? sceltaVarianteBook.profilo_variante : null
+          return (
+            <div onClick={() => setSceltaVarianteBook(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.75)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+              <div onClick={e => e.stopPropagation()} style={{ background: '#0f172a', border: '1px solid rgba(51,65,85,0.9)', borderRadius: 14, padding: 20, width: '100%', maxWidth: 480 }}>
+                <div style={{ fontSize: 17, fontWeight: 900, color: '#f8fafc' }}>Cosa vuoi profilare?</div>
+                <div style={{ fontSize: 12, color: '#94a3b8', margin: '4px 0 14px' }}>{sceltaVarianteBook.nome} · {sceltaVarianteBook.intestatario || '—'}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {varianti.map(v => (
+                    <button key={v.key}
+                      onClick={() => { const b = sceltaVarianteBook; setSceltaVarianteBook(null); updateProfiloLivello(b.id, 'attivo', v.key) }}
+                      style={{ textAlign: 'left', padding: '12px 14px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${attuale === v.key ? '#22c55e' : 'rgba(56,189,248,0.45)'}`, background: attuale === v.key ? 'rgba(34,197,94,0.1)' : 'rgba(56,189,248,0.07)', color: '#f8fafc' }}>
+                      <div style={{ fontWeight: 800, fontSize: 14 }}>{v.label}{attuale === v.key ? ' · attuale' : ''}</div>
+                      <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 3 }}>{v.desc}</div>
+                    </button>
+                  ))}
+                </div>
+                <div style={{ fontSize: 11, color: '#64748b', marginTop: 12 }}>Cambiare profilazione fa ripartire il ciclo da oggi.</div>
+                <div style={{ textAlign: 'right', marginTop: 10 }}>
+                  <button onClick={() => setSceltaVarianteBook(null)} style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid rgba(148,163,184,0.4)', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontWeight: 700 }}>Annulla</button>
+                </div>
+              </div>
+            </div>
+          )
+        })()}
       </div>
 </>)}
     </div>
