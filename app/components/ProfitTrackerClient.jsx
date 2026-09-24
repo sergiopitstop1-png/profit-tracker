@@ -509,6 +509,54 @@ const PROTOCOLLO_BETFAIR = {
 }
 const BOOK_BETFAIR_EXCHANGE = ['betfair', 'betpoint']
 
+// 24/09/2026 — SISAL (Profiliamo): Fase 1 (profilazione primaria), Fase 2 (accumulo volume), VIP (dopo Fase 1 e 2).
+// Snai e PokerStars restano sul vecchio schema VIP Fase 1&2 finché non arrivano le loro schede.
+const PROTOCOLLO_SISAL = {
+  fase1: [
+    'Ricarica almeno 100€ ogni settimana (se puoi movimenta il lunedì mattina, compresa la ricarica)',
+    'Fai le valide per tutti, sia Sport che Casinò, quando disponibili',
+    'Gioca almeno 150€ a settimana su 2/3 giorni consecutivi, offline e Casinò Live (VXT incluse)',
+    '1 volta al mese gioca almeno 40€ Sport',
+    'Ripeti ogni settimana: se arrivano promozioni usale per accumulare giocato',
+    'Se NON arrivano promo dopo 6 settimane: preleva, lascia meno di 50€ e stai fermo (nessun movimento)',
+    'N.B. Entra SEMPRE nel conto e verifica: raramente inviano mail per le promozioni'
+  ],
+  fase2: [
+    'Ricarica almeno 100€ ogni settimana (se puoi movimenta il lunedì mattina, compresa la ricarica)',
+    'Fai le valide per tutti, sia Sport che Casinò',
+    'Aumenta i volumi oltre i 250€ a settimana su 2 giorni consecutivi, il resto dei giorni lascia sgonfiare il conto (offline e Casinò Live)',
+    '1-2 volte al mese copri Sport da 50€ in su',
+    'Se arrivano promozioni: usale e accumula giocato',
+    'Se NON arrivano promo dopo 6 settimane: preleva, lascia meno di 50€ e stai fermo (nessun movimento)',
+    'N.B. Entra SEMPRE nel conto e verifica: raramente inviano mail per le promozioni'
+  ],
+  vip: [
+    'Accumula volumi nel tempo su una sezione principale e movimentazioni sporadiche sulle altre',
+    'Il target del VIP è quello Casinò',
+    'Il lunedì fai tutte le promozioni disponibili (cashback, Casinò Live, ecc.)',
+    'Quando hai una promozione sul Casinò Live procedi sempre al raddoppio quando conveniente',
+    'Ricarica almeno 200€ a settimana, anche in più ricariche',
+    'Gioca per due giorni consecutivi (es. lun e mar) al Casinò Live da 300 a 500€ di volume totale',
+    'Uno di questi due giorni fai volume di gioco su slot ad alto RTP da 200 a 300€',
+    'Una volta ogni due settimane bet Sport da 40€ in su · una volta al mese 50-100€ ai Virtuali ad atteso',
+    'Che vinci o che perdi poco importa, nel tempo si andranno ad assestare le posizioni',
+    'Ripeti per 6 settimane, poi preleva, lascia meno di 50€ e lascia il conto fermo (controlla che non arrivi mail)',
+    'Se arrivano promo VIP basta farle; quando non arrivano, se si è usato parecchio il conto, preleva e lascia fermo',
+    'Se NON arrivano, ripeti da capo',
+    'Prelievi: in fase di profilazione 1 al mese, poi dosati in base alla tua situazione (col VIP il prelievo diventa quasi immediato)'
+  ],
+  alzareVxt: [
+    'Metodo 1: preleva e lascia meno di 50€ · lascia il conto fermo 14 giorni',
+    'Entra nel conto e verifica se ci sono promo nella inbox o se i limiti si sono alzati',
+    'Se dopo 14 giorni ancora non si sono alzati: usa il conto normalmente e fai 200€ slot a spin basso ogni settimana',
+    'Fallo a rotazione con gli amici, così da non lasciare troppi conti fermi',
+    'Metodo 2: utilizza ugualmente le promozioni e fai 200€ di slot extra tutte le settimane a spin basso'
+  ],
+  recupero: [
+    'Se limitato alle promozioni: usa il recupero stile Eurobet o Lottomatica e richiedi la valutazione'
+  ]
+}
+
 const PROTOCOLLI_VIP_FASE12 = {
   'sisal': { ricaricaSett: '100€+', giocatoSett: '200€+', sportMese: '40-50€' },
   'pokerstars': { ricaricaSett: '100€+', giocatoSett: '200€+', sportMese: '40€' },
@@ -577,6 +625,11 @@ const VARIANTI_PROFILAZIONE = {
     { key: 'vip_live', label: 'VIP Live', desc: "4 settimane da inizio mese · ricarica 500€ · GG1-GG3 casinò live + giochi offline per 3 settimane · settimana 4 preleva" },
     { key: 'vip_senza_promo', label: 'VIP senza promo', desc: 'Conto già VIP: lun sport 300€ (q. 2.50+) · mer live 300-400€ · gio slot 500€ + cashback · dom virtuali 150-200€' },
   ],
+  sisal: [
+    { key: 'fase1', label: 'Fase 1 · Profilazione primaria', desc: 'Ricarica 100€/sett · almeno 150€/sett su 2-3 giorni consecutivi (offline + Casinò Live) · sport 40€ una volta al mese' },
+    { key: 'fase2', label: 'Fase 2 · Accumulo volume', desc: 'Ricarica 100€/sett · oltre 250€/sett su 2 giorni consecutivi, poi il conto si sgonfia · sport 50€+ 1-2 volte al mese' },
+    { key: 'vip', label: 'VIP (dopo Fase 1 e 2)', desc: 'Lunedì promo disponibili · ricarica 200€/sett · 2 giorni di Casinò Live 300-500€ + slot 200-300€ · 6 settimane poi fermo' },
+  ],
   bet365: [
     { key: 'superquote', label: 'Superquote', desc: '10-15 bet/sett da 10-50€ (quota min 1.35), ricarica 5 volte a settimana, 2 coperture randomiche/sett' },
     { key: 'finte_riservate', label: 'Finte riservate', desc: 'Conto attivo con il minimo: 1 ricarica al mese + 1 bet sportiva da 20€ in su al mese' },
@@ -588,6 +641,7 @@ function getVariantiProfilazione(nomeBook) {
     const n = getNomeNormalizzato(nomeBook)
     return (n.includes('lottomatica') || n.includes('goldbet')) ? VARIANTI_PROFILAZIONE.gruppo_lottomatica_vip : null
   }
+  if (tipo === 'vip_fase12') return getNomeNormalizzato(nomeBook).includes('sisal') ? VARIANTI_PROFILAZIONE.sisal : null
   return VARIANTI_PROFILAZIONE[tipo] || null
 }
 // Tipo usato per la durata del ciclo e i promemoria di fine ciclo (tiene conto della variante)
@@ -685,6 +739,51 @@ function getAgendaAttivoV2(book, giorno, settimana) {
     if (giorno === giornoSlot) return [`Gioca ${PROTOCOLLO_STANDARD_CASINO.slot}`]
     if (giorno === giornoSport) return [`Gioca ${PROTOCOLLO_STANDARD_SPORT.bet} — quota min ${PROTOCOLLO_STANDARD_SPORT.quotaMin}, refertazione entro sera/gg dopo`]
     return null
+  }
+
+  if (tipo === 'vip_fase12' && nome.includes('sisal')) {
+    // SISAL (Profiliamo, 24/09/2026). Ricarica lun/mar/mer a rotazione casuale (regola generale: non tutti lo stesso giorno;
+    // Profiliamo suggerisce il lunedì mattina). Le giornate di volume partono dal giorno della ricarica.
+    const variante = getVarianteProfilazione(book)?.key || 'fase1'
+    const hs = k => hashStrLucy(`${book.id}|${book.nome}|${book.intestatario}|sett${settimana}|sisal|${variante}|${k}`)
+    const oggiD = new Date()
+    const hsMese = k => hashStrLucy(`${book.id}|${book.nome}|${book.intestatario}|${oggiD.getFullYear()}-${oggiD.getMonth()}|sisal|${variante}|${k}`)
+    const giornoMese = k => 1 + (hsMese(k) % 28)
+    const inizio = book.profilo_ciclo_inizio ? new Date(`${book.profilo_ciclo_inizio}T00:00:00`) : null
+    const giorniCiclo = inizio ? Math.floor((oggiD - inizio) / 86400000) : -1
+    const azioni = []
+    const R = [1, 2, 3][hs('ric') % 3]
+
+    if (variante === 'vip') {
+      if (giorno === 1) azioni.push('Sisal VIP: fai tutte le promozioni disponibili (cashback, Casinò Live, ecc.) — sul Live raddoppia quando conviene')
+      const giornoSlot = hs('slot') % 2 === 0 ? R : R + 1
+      if (giorno === R) azioni.push('Sisal VIP: ricarica almeno 200€ (anche più ricariche) + Casinò Live, giorno 1 di 2 (300-500€ di volume totale nei due giorni)')
+      if (giorno === R + 1) azioni.push('Sisal VIP: Casinò Live, giorno 2 di 2 (300-500€ di volume totale nei due giorni)')
+      if (giorno === giornoSlot) azioni.push('Sisal VIP: slot ad alto RTP 200-300€')
+      if (settimana % 2 === hs('sportpari') % 2) {
+        const liberi = [4, 5, 6, 0].filter(g => g !== R + 1)
+        if (giorno === liberi[hs('sport') % liberi.length]) azioni.push('Sisal VIP: bet Sport da 40€ in su (ogni due settimane)')
+      }
+      if (oggiD.getDate() === giornoMese('virtuali')) azioni.push('Sisal VIP: 50-100€ ai Virtuali ad atteso (una volta al mese)')
+      if (giorniCiclo === 42) azioni.push('🏁 Sisal VIP, 6 settimane: preleva, lascia meno di 50€ e lascia il conto fermo (controlla che non arrivi mail). Promo VIP: falle; se non arrivano ripeti da capo')
+      return azioni.length ? azioni : null
+    }
+
+    if (variante === 'fase2') {
+      if (giorno === R) azioni.push('Sisal Fase 2: ricarica almeno 100€ + volume giorno 1 di 2 (oltre 250€ nei due giorni, offline e Casinò Live)')
+      if (giorno === R + 1) azioni.push('Sisal Fase 2: volume giorno 2 di 2 (offline e Casinò Live) — poi lascia sgonfiare il conto')
+      if (oggiD.getDate() === giornoMese('sport1')) azioni.push('Sisal Fase 2: copri Sport da 50€ in su')
+      if (hsMese('sport2si') % 2 === 0 && oggiD.getDate() === 1 + ((giornoMese('sport1') + 13) % 28)) azioni.push('Sisal Fase 2: copri Sport da 50€ in su (seconda del mese)')
+    } else {
+      // Fase 1: almeno 150€ su 2 o 3 giorni consecutivi
+      const nGiorni = 2 + (hs('ngiorni') % 2)
+      const quota = nGiorni === 2 ? 75 : 50
+      if (giorno === R) azioni.push(`Sisal Fase 1: ricarica almeno 100€ + volume ${quota}€ offline e Casinò Live, VXT incluse (giorno 1 di ${nGiorni}, almeno 150€ in settimana)`)
+      for (let k = 1; k < nGiorni; k++) if (giorno === R + k) azioni.push(`Sisal Fase 1: volume ${quota}€ offline e Casinò Live, VXT incluse (giorno ${k + 1} di ${nGiorni})`)
+      if (oggiD.getDate() === giornoMese('sport')) azioni.push('Sisal Fase 1: gioca almeno 40€ Sport (una volta al mese)')
+    }
+    if (giorniCiclo === 42) azioni.push('🏁 Sisal, 6 settimane: se NON sono arrivate promo preleva, lascia meno di 50€ e stai fermo (nessun movimento)')
+    return azioni.length ? azioni : null
   }
 
   if (tipo === 'vip_fase12') {
@@ -905,6 +1004,14 @@ function getAgendaAttivoV2(book, giorno, settimana) {
 // "Protocollo" della tabella Profilazione, solo per book con profilo_livello === 'attivo'.
 function getRiassuntoProtocolloAttivo(nomeBook, variante = null) {
   const tipo = getTipoProtocolloAttivo(nomeBook)
+  if (tipo === 'vip_fase12' && getNomeNormalizzato(nomeBook).includes('sisal')) {
+    const v = getVarianteProfilazione({ nome: nomeBook, profilo_variante: variante })
+    const S = PROTOCOLLO_SISAL
+    const recupero = [...S.recupero, ...PROTOCOLLO_GRUPPO_LOTTOMATICA.recupero]
+    if (v && v.key === 'vip') return { durata: 'Sisal VIP (6 settimane, dopo Fase 1 e 2)', capitale_min: 500, azioni: S.vip, sezioni: [{ titolo: '📈 Alzare promozioni VXT', righe: S.alzareVxt }], recupero, variante: v }
+    if (v && v.key === 'fase2') return { durata: 'Sisal Fase 2 · Accumulo volume', capitale_min: 250, azioni: S.fase2, sezioni: [{ titolo: '📈 Alzare promozioni VXT', righe: S.alzareVxt }], recupero, variante: v }
+    return { durata: 'Sisal Fase 1 · Profilazione primaria', capitale_min: 150, azioni: S.fase1, sezioni: [{ titolo: '📈 Alzare promozioni VXT', righe: S.alzareVxt }], recupero, variante: v }
+  }
   if (tipo === 'gruppo_lottomatica') {
     const v = getVarianteProfilazione({ nome: nomeBook, profilo_variante: variante })
     const P = PROTOCOLLO_GRUPPO_LOTTOMATICA
@@ -6453,6 +6560,12 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                         )}
                       </div>
                       {proto.azioni.map((a, i) => <div key={i} style={{ marginBottom: 2 }}>• {a}</div>)}
+                      {(proto.sezioni || []).map((sz, si) => (
+                        <details key={si} style={{ marginTop: 4 }}>
+                          <summary style={{ cursor: 'pointer', color: '#fbbf24', fontWeight: 700, fontSize: 11 }}>{sz.titolo}</summary>
+                          {sz.righe.map((a, i) => <div key={i} style={{ marginBottom: 2, color: '#fde68a' }}>• {a}</div>)}
+                        </details>
+                      ))}
                       {proto.recupero && (
                         <details style={{ marginTop: 4 }}>
                           <summary style={{ cursor: 'pointer', color: '#f87171', fontWeight: 700, fontSize: 11 }}>🔧 Recupero conto</summary>
