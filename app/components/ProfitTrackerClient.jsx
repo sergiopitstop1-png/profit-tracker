@@ -142,6 +142,8 @@ const [savingProfilo, setSavingProfilo] = useState({})
 const [sceltaVarianteBook, setSceltaVarianteBook] = useState(null)
 // Finestra 🎰 Slot consigliate (lista Profiliamo): null = chiusa, altrimenti il testo dell'azione da cui è aperta
 const [slotPopup, setSlotPopup] = useState(null)
+// Filtro della tab Clienti
+const [clientiFiltro, setClientiFiltro] = useState({ testo: '', stato: 'tutti', royalty: 'tutti', ordine: 'sim' })
 const [showAgendaPopup, setShowAgendaPopup] = useState(false)
 const [agendaVista, setAgendaVista] = useState(false)
 const [agendaAperto, setAgendaAperto] = useState(null)
@@ -6697,10 +6699,75 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
       giornoGenerale={royaltyGiornoMensile}
       onCambiaGiorno={cambiaGiornoRoyalty}
     />
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 16 }}>
+    {/* ── FILTRO CLIENTI ── */}
+    {(() => {
+      const f = clientiFiltro
+      const setF = (v) => setClientiFiltro(prev => ({ ...prev, ...v }))
+      const sel = { background: '#0b1220', color: '#e2e8f0', border: '1px solid rgba(51,65,85,0.9)', borderRadius: 10, padding: '8px 10px', fontSize: 13 }
+      const attivo = f.testo || f.stato !== 'tutti' || f.royalty !== 'tutti'
+      return (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 16, position: 'sticky', top: 0, zIndex: 5, background: 'rgba(2,6,23,0.92)', padding: '8px 0' }}>
+          <div style={{ position: 'relative', flex: '1 1 260px' }}>
+            <input
+              value={f.testo}
+              onChange={e => setF({ testo: e.target.value })}
+              onKeyDown={e => { if (e.key === 'Escape') setF({ testo: '' }) }}
+              placeholder="🔍 Cerca per nome, telefono, email, SIM o note…"
+              style={{ ...sel, width: '100%', boxSizing: 'border-box', paddingRight: 30, fontSize: 14 }}
+              autoComplete="off"
+            />
+            {f.testo && <button onClick={() => setF({ testo: '' })} style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 15 }}>✕</button>}
+          </div>
+          <select value={f.stato} onChange={e => setF({ stato: e.target.value })} style={sel}>
+            <option value="tutti">Tutti</option>
+            <option value="attivi">Solo attivi</option>
+            <option value="terminati">Solo terminati</option>
+          </select>
+          <select value={f.royalty} onChange={e => setF({ royalty: e.target.value })} style={sel}>
+            <option value="tutti">Royalty: tutte</option>
+            <option value="mensile">Royalty mensile</option>
+            <option value="annuale">Royalty annuale</option>
+            <option value="benvenuto">Benvenuto da pagare</option>
+            <option value="nessuna">Senza royalty</option>
+          </select>
+          <select value={f.ordine} onChange={e => setF({ ordine: e.target.value })} style={sel}>
+            <option value="sim">Ordina: scadenza SIM</option>
+            <option value="nome">Ordina: nome A-Z</option>
+          </select>
+          {attivo && <button onClick={() => setClientiFiltro({ testo: '', stato: 'tutti', royalty: 'tutti', ordine: f.ordine })} style={{ ...sel, cursor: 'pointer', color: '#fbbf24' }}>Azzera</button>}
+        </div>
+      )
+    })()}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
       {clienti.length === 0 && <p style={{ color: '#94a3b8' }}>Nessun cliente ancora. Clicca "+ Nuovo Cliente" per iniziare.</p>}
-      {[...clienti].sort((a, b) => {
+      {(() => {
+        // filtro: testo su nome, telefono, email (scheda + email etichettate), SIM e note
+        const f = clientiFiltro
+        const q = f.testo.trim().toLowerCase()
+        const qNum = q.replace(/\D/g, '')
+        const benvIds = new Set(royaltyCalc.benvenutiDaPagare.map(b => String(b.cliente_id)))
+        const lista = clienti.filter(c => {
+          if (f.stato === 'attivi' && c.terminato) return false
+          if (f.stato === 'terminati' && !c.terminato) return false
+          if (f.royalty !== 'tutti') {
+            const att = royaltyCalc.perCliente[c.id]?.attivo
+            const freq = att && att.frequenza !== 'nessuna' ? att.frequenza : null
+            if (f.royalty === 'mensile' && freq !== 'mensile') return false
+            if (f.royalty === 'annuale' && freq !== 'annuale') return false
+            if (f.royalty === 'benvenuto' && !benvIds.has(String(c.id))) return false
+            if (f.royalty === 'nessuna' && (freq || benvIds.has(String(c.id)))) return false
+          }
+          if (!q) return true
+          const emails = clientiEmail.filter(e => e.cliente_id === c.id).map(e => e.email || '').join(' ')
+          const testo = [c.nome, c.email, emails, c.note, c.sim_operatore, c.telefono].join(' ').toLowerCase()
+          if (testo.includes(q)) return true
+          return qNum.length >= 3 && String(c.telefono || '').replace(/\D/g, '').includes(qNum)
+        })
+        if (clienti.length > 0 && lista.length === 0) return <p style={{ color: '#94a3b8' }}>Nessun cliente corrisponde al filtro.</p>
+        const conteggio = <div key="conteggio" style={{ fontSize: 12, color: '#64748b' }}>{lista.length === clienti.length ? `${clienti.length} clienti` : `${lista.length} di ${clienti.length} clienti`}</div>
+        return [conteggio, ...lista.sort((a, b) => {
         if (!!a.terminato !== !!b.terminato) return a.terminato ? 1 : -1
+        if (f.ordine === 'nome') return (a.nome || '').localeCompare(b.nome || '', 'it', { sensitivity: 'base' })
         const ga = a.sim_giorno_scadenza ? Number(a.sim_giorno_scadenza) : 9999
         const gb = b.sim_giorno_scadenza ? Number(b.sim_giorno_scadenza) : 9999
         return ga - gb
@@ -6780,7 +6847,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             </div>
           </div>
         )
-      })}
+      })]
+      })()}
     </div>
     {royaltyModalCliente && (
       <RoyaltyModal
