@@ -692,6 +692,11 @@ const VARIANTI_PROFILAZIONE = {
     { key: 'fase1', label: 'Fase 1 · Profilazione primaria', desc: 'Solo casinò · ricarica 100€/sett · almeno 150€/sett su 2-3 giorni consecutivi (offline + Casinò Live)' },
     { key: 'fase2', label: 'Fase 2 · Accumulo volume', desc: 'Solo casinò · ricarica 100€/sett · oltre 250€/sett su 2 giorni consecutivi, poi il conto si sgonfia' },
   ],
+  // Stanleybet: Profilazione Sport OPPURE Casinò (schede Profiliamo), ciclo di 1 mese
+  stanleybet: [
+    { key: 'sport', label: 'Sport', desc: '1 mese · ricarica 50€+ a inizio settimana · il giorno dopo 3/4 bet da 10 a 30€ (quota min 1.35)' },
+    { key: 'casino', label: 'Casinò', desc: '1 mese · ricarica 50€+ a inizio settimana · il giorno dopo 50-100€ slot spin bassi (meglio 3/4 diverse)' },
+  ],
   // DaznBet e gruppo E-play24: due profilazioni alternative, entrambe una settimana al mese
   settimana_mese: [
     { key: 'sport', label: 'Sport', desc: 'Una settimana al mese: ricarica 50-100€ + 2/3 bet da 10 a 25€ (quota min 1.35)' },
@@ -837,7 +842,6 @@ function getRecuperoProtocollo(nomeBook, tipo) {
 // contiene già lo sport del giorno stesso ("... + muovi il conto lo stesso giorno: Sport 50€ su 2 bet").
 const SPORT_DOPO_RICARICA_LUCY = {
   bwin: 'Gioca 3/4 bet da 15 a 50€ max su incontri che giochi entro sera/gg dopo',
-  stanleybet: 'Gioca 3/4 bet da 10 a 30€ max — quota minima 1.35',
   betfair_exchange: '2-3 scommesse Exchange da 5-20€ (sport)'
 }
 function azioneSportDopoRicaricaLucy(book, agenda) {
@@ -1101,17 +1105,18 @@ function getAgendaAttivoV2(book, giorno, settimana) {
   }
 
   if (tipo === 'stanleybet') {
-    const giornoRicarica = [1, 2, 3][hsTipo('ric') % 3] // a inizio settimana, ma non sempre lunedì
-    const giorniRestanti = [0, 1, 2, 3, 4, 5, 6].filter(g => g !== giornoRicarica)
-    const giornoAzione = giorniRestanti[hashBook(book.id, settimana * 10 + 83) % giorniRestanti.length] // altro giorno: bet o slot
-    const usaSlot = hashBook(book.id, settimana + 900) % 2 === 0 // alterna bet sportiva / slot tra le settimane
-
-    if (giorno === giornoRicarica) return ['Ricarica almeno 50€ a inizio settimana']
-    if (giorno === giornoAzione) return usaSlot
-      ? ['Gioca 50-100€ slot spin bassi (meglio 3/4 diverse)']
-      : ['Gioca 3/4 bet da 10 a 30€ max — quota minima 1.35']
+    // 26/09/2026 — schede Profiliamo Stanleybet: Sport OPPURE Casinò (variante), per 1 mese ogni settimana.
+    // Ricarica almeno 50€ a inizio settimana (lun/mar/mer a rotazione), la giocata il GIORNO DOPO la ricarica.
+    const varSt = getVarianteProfilazione(book)?.key || 'sport'
+    const giornoRicarica = [1, 2, 3][hsTipo('ric') % 3]
+    const giornoAzione = giornoRicarica + 1
+    if (giorno === giornoRicarica) return ['Stanleybet: ricarica almeno 50€ a inizio settimana']
+    if (giorno === giornoAzione) return varSt === 'casino'
+      ? ['Stanleybet: gioca 50-100€ slot spin bassi (meglio 3/4 diverse) — usa le valide per tutti profittevoli']
+      : ['Stanleybet: gioca 3/4 bet da 10 a 30€ max in un singolo giorno — quota minima 1.35, che si concludano in giornata/gg dopo · VXT se disponibili']
     return null
   }
+
 
   if (tipo === 'bwin') {
     const giornoRicarica = [1, 2, 3][hsTipo('ric') % 3]
@@ -1259,6 +1264,13 @@ function getRiassuntoProtocolloAttivo(nomeBook, variante = null) {
         ? ['Ricarica 50-100€', 'Gioca 2/3 bet da 10 a 25€ — quota minima 1.35, refertazione entro sera/gg dopo', 'Usa le VXT se disponibili · copertura consigliata su Bet365', 'Una settimana al mese', 'Utilizza le valide per tutti se disponibili · prelievi: usa il buon senso']
         : ['Ricarica 50-100€', 'Gioca 2/3 bet da 10 a 25€ — quota minima 1.35, refertazione entro sera/gg dopo', 'Copertura: su qualsiasi book con lo sport (AdmiralBet per ora non è in uso) — la sceglie Lucy negli incroci', 'Una settimana al mese', 'Utilizza le valide per tutti se disponibili · prelievi: usa il buon senso'] }
   }
+  if (tipo === 'stanleybet') {
+    const v = getVarianteProfilazione({ nome: nomeBook, profilo_variante: variante })
+    const recupero = PROTOCOLLO_STANLEYBET.recupero
+    const gestione = PROTOCOLLO_STANLEYBET.gestione
+    if (v && v.key === 'casino') return { durata: 'Stanleybet · Profilazione Casinò (1 mese)', capitale_min: 50, variante: v, recupero, azioni: [...PROTOCOLLO_STANLEYBET.azioniCasino, ...gestione] }
+    return { durata: 'Stanleybet · Profilazione Sport (1 mese)', capitale_min: 50, variante: v, recupero, azioni: [...PROTOCOLLO_STANLEYBET.azioniSport, 'Copertura consigliata su Bwin (profilazione incrociata)', ...gestione] }
+  }
   if (tipo === 'bet365') {
     const v = getVarianteProfilazione({ nome: nomeBook, profilo_variante: variante })
     if (v && v.key === 'finte_riservate') return { durata: 'Bet365 Finte riservate', capitale_min: 20, azioni: PROTOCOLLO_BET365.finteRiservate, variante: v }
@@ -1280,7 +1292,7 @@ function getRiassuntoProtocolloAttivo(nomeBook, variante = null) {
     vip_lotto: { durata: 'VIP Lotto Live', capitale_min: 1000, azioni: ['Ricarica 500-1000€', 'GG1-3: casinò live + giochi offline', 'Sport 300€ (quota 2.50+)'] },
     gruppo_lottomatica: { durata: 'Gruppo Lottomatica — 4 sett. + monitoraggio', capitale_min: 100, azioni: PROTOCOLLO_GRUPPO_LOTTOMATICA.azioni.slice(0, 3) },
     quigioco: { durata: 'QuiGioco (ciclo fermo 14gg)', capitale_min: 50, azioni: PROTOCOLLO_QUIGIOCO.azioni.slice(0, 3) },
-    stanleybet: { durata: 'Stanleybet (ciclo 1 mese)', capitale_min: 50, azioni: PROTOCOLLO_STANLEYBET.azioniSport.slice(0, 3) },
+
     bwin: { durata: 'Bwin (ciclo 3 settimane)', capitale_min: 30, azioni: PROTOCOLLO_BWIN.azioni.slice(0, 3) },
     betfair_exchange: { durata: 'Exchange (ciclo 3 settimane)', capitale_min: 20, azioni: PROTOCOLLO_BETFAIR.azioniSport.slice(0, 3) },
     starcasino: { durata: 'StarCasinò (a Fasi)', capitale_min: 500, azioni: PROTOCOLLO_STARCASINO.fase1.slice(0, 3) },
@@ -2571,14 +2583,14 @@ function sportLabelLucy(p) {
 // ── V47: tabella bet a BLOCCHI — un riquadro per incrocio, colori per esito, filtri ───────────────
 function righeIncrocioLucy(p, pi) {
   const rows0=[
-    ...(p.assegnazioni||[]).map(a=>({...a,tipoRiga:a.recupero?'RECUPERO PROF.':a.tipoConto==='mantenimento'?'MANT. PROTOCOLLO':'PROFILAZIONE'})),
+    ...(p.assegnazioni||[]).map(a=>({...a,tipoRiga:a.recupero?'RECUPERO PROF.':a.tipoConto==='recupero'?'RECUPERO CONTO':a.tipoConto==='mantenimento'?'MANT. PROTOCOLLO':'PROFILAZIONE'})),
     ...(p.extraProfilazione||[]).map(a=>({...a,tipoRiga:'EXTRA PROF.'})),
     ...(p.integrazioni||[]).map(a=>({...a,tipoRiga:'MANTENIMENTO'}))
   ]
   const rows=p.manuale?righeManualiLucy(p,pi,rows0):rows0
   const riep=p.manuale?riepilogoManualeLucy(p,pi,rows):null
   const dettagli=rows.map(a=>{
-    const tipo=(a.tipoRiga==='PROFILAZIONE'||a.tipoRiga==='RECUPERO PROF.')?'profilazione':a.tipoRiga==='EXTRA PROF.'?'extra':'mantenimento'
+    const tipo=(a.tipoRiga==='PROFILAZIONE'||a.tipoRiga==='RECUPERO PROF.')?'profilazione':a.tipoRiga==='RECUPERO CONTO'?'recupero':a.tipoRiga==='EXTRA PROF.'?'extra':'mantenimento'
     const key=keyBetLucy(p,a,tipo)
     return {a,tipo,key,ok:lucyConfermate.some(x=>x.key===key),pronta:!p.manuale||(Number(a.stake)>0&&Number(a.quota)>0)}
   })
@@ -2591,6 +2603,7 @@ function bloccoIncrocioLucy(p, pi, numero) {
   const col=e=>palette[Math.max(0,(p.esiti||[]).findIndex(([n])=>n===e))%palette.length]
   const ruoli={
     'PROFILAZIONE':{t:'Profilazione',bg:'#dcfce7',tx:'#166534'},
+    'RECUPERO CONTO':{t:'Recupero conto',bg:'#fee2e2',tx:'#991b1b'},
     'RECUPERO PROF.':{t:'Recupero',bg:'#ffedd5',tx:'#9a3412'},
     'MANT. PROTOCOLLO':{t:'Mant. protocollo',bg:'#fef3c7',tx:'#92400e'},
     'MANTENIMENTO':{t:'Copertura',bg:'#e0e7ff',tx:'#3730a3'},
@@ -3052,7 +3065,10 @@ function riepilogoManualeLucy(p, pi, righe) {
   return {completo,costo:Math.max(0,-Math.min(...nets)),nets,warn}
 }
 
-async function generaLucySport(agendaItems = [], forzaQuote = false) {
+async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
+  // 26/09/2026: le azioni di RECUPERO dei conti limitati (anche dormienti) entrano negli incroci con il ruolo
+  // "Recupero conto" e una puntata piccola (15-25€), non come Profilazione. Per il resto i dormienti restano fuori.
+  const agendaItems = (agendaItemsTutti || []).filter(x => x?.agenda?.tipo === 'recupero' || x?.book?.profilo_livello !== 'dormiente')
   const sportItems = []
   const sportRegex = /(sport|bet\b|scommess|superquote|doppia|exchange)/i
   const casinoOnlyRegex = /(slot|casin[oò]|blackjack|roulette|numeri)/i
@@ -3064,26 +3080,29 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
     // non era valorizzato in modo coerente. Qui il filtro e' sul bookmaker, prima di creare lo slot.
     if(bookSoloCasinoProfilazioneLucy(book)) return
     if(lucyMaiSport(book)) return   // V45: i solo-casinò non fanno mai sport
-    if(agenda?.tipo !== 'mantenimento' && lucyNoSportInProfilazione(book)) return   // V49: NetBet mai in profilazione, Betsson in profilazione solo casinò
+    const isRecuperoLucy = agenda?.tipo === 'recupero'
+    if(!isRecuperoLucy && agenda?.tipo !== 'mantenimento' && lucyNoSportInProfilazione(book)) return   // V49: NetBet mai in profilazione
     const azioniSport = (agenda?.azioni || []).filter(a => sportRegex.test(a) && !casinoOnlyRegex.test(a))
     let azione = azioniSport[0]
     let daRicarica = false
-    if (!azione && agenda?.tipo !== 'mantenimento') {
+    if (!azione && agenda?.tipo !== 'mantenimento' && !isRecuperoLucy) {
       // V48: giornata di sola ricarica -> si gioca sport col protocollo del book
       const alt = azioneSportDopoRicaricaLucy(book, agenda)
       if (alt) { azione = alt; daRicarica = true }
     }
     if (!azione) return
-    const betRichieste = getNumeroBetRichieste(azione)
+    const betRichieste = isRecuperoLucy ? 1 : getNumeroBetRichieste(azione)
     // V46: un conto in MANTENIMENTO gioca una puntata variabile da 5 a 30 € a bet, qualunque sia il book
     // (prima prendeva il budget di profilazione del bookmaker: 70 € su Bwin, 100 € sul gruppo Lottomatica...)
     const isMantenimentoLucy = agenda?.tipo === 'mantenimento'
-    const budgetBase = isMantenimentoLucy ? stakeMantenimentoProtocolloLucy(book) * betRichieste : getBudgetSportTotale(book, azione)
-    const budgetTotale = isMantenimentoLucy ? budgetBase : variaBudgetGiornaliero(book, budgetBase)
+    // recupero conto: una bet piccola tra 15 e 25€ (volume blando), multipli di 5, stabile nella giornata
+    const budgetBase = isRecuperoLucy ? [15, 20, 25][hashStrLucy(`${lucyOggi()}|recupero|${book.id}`) % 3]
+      : isMantenimentoLucy ? stakeMantenimentoProtocolloLucy(book) * betRichieste : getBudgetSportTotale(book, azione)
+    const budgetTotale = (isMantenimentoLucy || isRecuperoLucy) ? budgetBase : variaBudgetGiornaliero(book, budgetBase)
     sportItems.push({
       book, azione, betRichieste, budgetBase, budgetTotale, daRicarica,
       // V31: un conto in MANTENIMENTO con bet di protocollo oggi resta mantenimento (prima finiva etichettato PROFILAZIONE)
-      tipoConto: agenda?.tipo==='mantenimento' ? 'mantenimento' : 'profilazione',
+      tipoConto: agenda?.tipo==='mantenimento' ? 'mantenimento' : isRecuperoLucy ? 'recupero' : 'profilazione',
       stakeVariabili: distribuisciStakeVariabili(book, betRichieste, budgetTotale),
       quotaMin: getQuotaMinSport(book, azione)
     })
@@ -3398,10 +3417,10 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
     // Ogni conto genera N "slot bet". Quindi Lottomatica 100€ su 3/4 bet compare su 4 partite diverse.
     // Le conferme della giornata diventano memoria operativa:
     // al secondo calcolo Lucy considera già eseguite quantità e numero di bet.
-    const giaFatte = confermateOggiLucy().filter(x=>!x.recupero && (x.tipo==='profilazione' || x.tipo==='extra' || x.tipo==='mantenimento'))
+    const giaFatte = confermateOggiLucy().filter(x=>!x.recupero && (x.tipo==='profilazione' || x.tipo==='extra' || x.tipo==='mantenimento' || x.tipo==='recupero'))
     sportItems.forEach(item=>{
       const fatteConto=giaFatte.filter(x=>x.bookId===item.book.id)
-      const nFatte=fatteConto.filter(x=>x.tipo==='profilazione' || (item.tipoConto==='mantenimento' && x.tipo==='mantenimento')).length
+      const nFatte=fatteConto.filter(x=>x.tipo==='profilazione' || (item.tipoConto==='mantenimento' && x.tipo==='mantenimento') || (item.tipoConto==='recupero' && x.tipo==='recupero')).length
       const euroFatti=fatteConto.reduce((s,x)=>s+Number(x.stake||0),0)
       item.betGiaFatte=nFatte
       item.euroGiaFatti=euroFatti
@@ -3423,7 +3442,7 @@ async function generaLucySport(agendaItems = [], forzaQuote = false) {
     // Se la tabella non esiste o Supabase non risponde Lucy va avanti senza recuperi.
     let recuperi=[]
     try {
-      const attese=slot.filter(s=>!s.recupero && s.tipoConto!=='mantenimento').map(s=>({
+      const attese=slot.filter(s=>!s.recupero && s.tipoConto!=='mantenimento' && s.tipoConto!=='recupero').map(s=>({
         key:`${dataOggi}|${s.book.id}|${s.betNumero}`, data:dataOggi, book_id:String(s.book.id),
         bet_numero:s.betNumero, bet_richieste:s.betRichieste||null, stake:Number(s.importoIndicativo||0),
         budget_totale:Number(s.budgetTotale||0), azione:s.azione||'', rec:{book:s.book.nome,intestatario:s.book.intestatario}
