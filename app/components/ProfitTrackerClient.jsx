@@ -313,7 +313,13 @@ function lucyNoSportInProfilazione(book) {
   const n = normBookMaiSportLucy(book?.nome)
   return lucyMaiProfilazione(book) || (!!n && LUCY_BOOK_PROFILAZIONE_SOLO_CASINO.some(k => n.includes(normBookMaiSportLucy(k))))
 }
+// 26/09/2026: un conto "limitato sport" (nota) o con sport bloccato per sempre (books.sport_bloccato)
+// non entra MAI negli incroci sport di Lucy (profilazione, mantenimento, coperture, extra). I "limitato bonus" sì.
+function contoSportLimitato(book) {
+  return !!book?.sport_bloccato || /limitat[oa]\s+sport/i.test(String(book?.note || ''))
+}
 function lucyMaiSport(book) {
+  if (contoSportLimitato(book)) return true
   const n = normBookMaiSportLucy(book?.nome)
   if (!n) return false
   if (LUCY_BOOK_SPORT_CONSENTITI.some(k => n.includes(normBookMaiSportLucy(k)))) return false
@@ -790,13 +796,13 @@ function getRecuperoProtocollo(nomeBook, tipo) {
   // Bet365 (indicazione di Sergio, 25/09/2026): una volta limitato o chiuso NON si recupera, qualunque limitazione
   if (t === 'bet365') return { disponibile: false, motivo: 'Bet365: una volta limitato o chiuso NON si recupera' }
   if (tipo === 'sport') {
-    if (t === 'bwin') return {
-      disponibile: true, fonte: 'Scheda Bwin (Profiliamo)',
+    // 26/09/2026 (Sergio): la regola di recupero sport della scheda Bwin vale per TUTTI i limitati sport
+    return {
+      disponibile: true, fonte: t === 'bwin' ? 'Scheda Bwin (Profiliamo)' : 'Regola Bwin (Profiliamo), estesa a tutti i limitati sport',
       passi: ['Fai tante bet da 2€ in modo da sbloccarlo', 'Successivamente chiedi in chat lo sblocco dei limiti sulle puntate sport', 'In alternativa attendi una promozione deposito e poi richiedi lo sblocco dei limiti, perché vuoi giocare allo Sport'],
       periodica: { frequenza: 'settimanale', testo: 'tante bet sport da 2€ per sbloccare i limiti' },
       testoContatto: 'chiedi in chat lo sblocco dei limiti sulle puntate sport (vuoi giocare allo Sport)'
     }
-    return { disponibile: false, motivo: 'La scheda Profiliamo di questo book non prevede un recupero per la limitazione sport' }
   }
   // tipo bonus / promozioni
   if (t === 'eurobet') return {
@@ -1447,7 +1453,16 @@ function getGiornoAssegnato(book, frequenzaSettimane) {
   return seed % 7
 }
 
+// 26/09/2026: per i conti limitati sport / sport bloccato si tolgono dall'agenda le azioni solo-sport
+// (in mantenimento la bet diventa una sessione casinò/slot). Le azioni di recupero restano (vedi RecuperoConti).
 function getAzioniOggi(book) {
+  const a = getAzioniOggiBase(book)
+  if (!a || !contoSportLimitato(book)) return a
+  const soloSport = t => /(sport|bet\b|scommess|superquote|doppia|exchange)/i.test(t) && !/(slot|casin[oò]|blackjack|roulette|numeri|virtuali|ricarica)/i.test(t)
+  const azioni = a.azioni.map(t => a.tipo === 'mantenimento' && soloSport(t) ? 'Sessione Casinò/slot da 5-30€ (conto limitato sport)' : t).filter(t => !soloSport(t))
+  return azioni.length ? { ...a, azioni } : null
+}
+function getAzioniOggiBase(book) {
   const oggi = new Date()
   const giorno = oggi.getDay()
   const settimana = getSettimanaAnno()
@@ -7461,7 +7476,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                         <button onClick={async () => {
                           if (!window.confirm(`Segnare ${r.bookmaker} — ${r.cliente} come APERTO e creare il Book?`)) return
                           await supabase.from('matrice_bookmakers').update({ stato: 'APERTO', updated_at: new Date().toISOString() }).eq('id', r.id)
-                          await supabase.from('books').insert([{ nome: r.bookmaker, intestatario: r.cliente, saldo: 0, note: 'Aperto da Matrice' }])
+                          await supabase.from('books').insert([{ nome: r.bookmaker, intestatario: r.cliente, saldo: 0, note: '' }])   // 26/09/2026: niente più nota "Aperto da Matrice"
                           setMatrice(prev => prev.map(m => m.id === r.id ? { ...m, stato: 'APERTO' } : m))
                           setMessage(`✅ ${r.bookmaker} aperto per ${r.cliente}!`)
                           setTimeout(() => setMessage(''), 3000)
