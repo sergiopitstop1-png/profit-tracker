@@ -103,6 +103,8 @@ export default function DashboardTab({
   formatCurrency,
   saveWeeklySnapshot,
   royaltyAvvisi = [],
+  promemoriaNuoviBook = null,     // { giorni } quando è ora di valutare nuovi book in profilazione (ogni 60 giorni)
+  onPromemoriaNuoviBookFatto,
   onPagaRoyaltyMensile,
 }) {
   const [dashChartSymbol, setDashChartSymbol] = useState('XAUUSD')
@@ -168,7 +170,7 @@ export default function DashboardTab({
         // finché non vengono segnate pagate
         const royaltyMensili = royaltyAvvisi || []
 
-        if (tutte.length === 0 && royaltyMensili.length === 0) return null
+        if (tutte.length === 0 && royaltyMensili.length === 0 && !promemoriaNuoviBook) return null
 
         const righe = tutte.map(item => {
           const tag = item.tipo === 'contabilita' ? '[CTB] ' : item.tipo === 'sim' ? '[SIM] ' : ''
@@ -193,6 +195,17 @@ export default function DashboardTab({
             {righe.map((r, i) => (
               <div key={i} style={{ color: r.scaduta ? '#ff4444' : '#fca5a5' }}>{r.testo}</div>
             ))}
+            {promemoriaNuoviBook && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', color: '#38bdf8' }}>
+                <span>🧭 [PROFILAZIONE] Sono passati {promemoriaNuoviBook.giorni} giorni: vuoi inserire altri book in profilazione? (le schede Profiliamo ci sono)</span>
+                {onPromemoriaNuoviBookFatto && (
+                  <button onClick={onPromemoriaNuoviBookFatto}
+                    style={{ padding: '2px 10px', borderRadius: 8, border: '1px solid rgba(56,189,248,0.6)', background: 'rgba(56,189,248,0.15)', color: '#38bdf8', fontWeight: 800, fontSize: 12, cursor: 'pointer', lineHeight: 1.6 }}>
+                    ✓ Visto · ricordamelo tra 60 giorni
+                  </button>
+                )}
+              </div>
+            )}
             {royaltyMensili.map(m => (
               <div key={'roy-' + m.cliente_id + '-' + m.periodo} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', color: m.inRitardo ? '#ff4444' : m.giorniRitardo < 0 ? '#fca5a5' : '#fbbf24' }}>
                 <span>
