@@ -34,6 +34,7 @@ export function contiInRecupero(books, recuperi, getRecuperoProtocollo) {
   const out = []
   for (const book of books || []) {
     for (const tipo of limitazioniDaNota(book.note)) {
+      if (tipo === 'sport' && book.sport_bloccato) continue   // sport bloccato per sempre: niente più recupero sport
       const stato = (recuperi || []).find(r => String(r.book_id) === String(book.id) && r.tipo === tipo) || null
       out.push({ book, tipo, proto: getRecuperoProtocollo(book.nome, tipo), stato })
     }
@@ -103,8 +104,8 @@ export default function RecuperoContiPanel({ books, recuperi, setRecuperi, setBo
   const [nuovoTent, setNuovoTent] = useState({})
   const [salvando, setSalvando] = useState(false)
   const [mostra, setMostra] = useState(true)
-  if (lista.length === 0) return null
   const oggi = oggiISO()
+  if (lista.length === 0 && !(books || []).some(b => b.sport_bloccato)) return null
   const chiave = (it) => `${it.book.id}|${it.tipo}`
 
   async function assicuraRiga(it) {
@@ -151,6 +152,24 @@ export default function RecuperoContiPanel({ books, recuperi, setRecuperi, setBo
     setSalvando(false)
     onMessage(`${it.book.nome} (${it.book.intestatario || '—'}) recuperato 🎉 — nota aggiornata`)
   }
+
+  async function sportBloccato(it, valore) {
+    const msg = valore
+      ? `${it.book.nome} · ${it.book.intestatario || ''}: questo conto NON potrà MAI PIÙ scommettere sullo sport?\nEsce dal recupero sport e da tutti gli incroci sport di Lucy (resta per il casinò).`
+      : `${it.book.nome} · ${it.book.intestatario || ''}: riabilitare lo sport su questo conto?`
+    if (!window.confirm(msg)) return
+    setSalvando(true)
+    const { error } = await supabase.from('books').update({ sport_bloccato: valore }).eq('id', it.book.id)
+    if (error) { setSalvando(false); onError('Errore: ' + error.message + ' (hai lanciato sport_bloccato.sql?)'); return }
+    setBooks(prev => prev.map(b => b.id === it.book.id ? { ...b, sport_bloccato: valore } : b))
+    if (valore && it.stato) {
+      await supabase.from('recupero_conti').delete().eq('id', it.stato.id)
+      setRecuperi(prev => prev.filter(r => r.id !== it.stato.id))
+    }
+    setSalvando(false)
+    onMessage(valore ? `🚫 ${it.book.nome} (${it.book.intestatario || '—'}): sport bloccato per sempre` : `✅ ${it.book.nome} (${it.book.intestatario || '—'}): sport riabilitato`)
+  }
+  const bloccati = (books || []).filter(b => b.sport_bloccato)
 
   const daFareOggi = lista.filter(it => azioniRecuperoOggi(it, oggi).length > 0).length
 
@@ -231,7 +250,8 @@ export default function RecuperoContiPanel({ books, recuperi, setRecuperi, setBo
                         <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Dopo un rifiuto l'agenda ti ricorda di riprovare dopo {GIORNI_TRA_TENTATIVI} giorni.</div>
                       </>
                     )}
-                    <div style={{ marginTop: 10, textAlign: 'right' }}>
+                    <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+                      {it.tipo === 'sport' && <button style={btn('#f87171')} disabled={salvando} onClick={() => sportBloccato(it, true)} title="Il book non fa più scommettere: esce per sempre dallo sport">🚫 Non scommette più</button>}
                       <button style={btn('#22c55e')} disabled={salvando} onClick={() => recuperato(it)}>✅ Recuperato</button>
                     </div>
                   </div>
@@ -239,6 +259,17 @@ export default function RecuperoContiPanel({ books, recuperi, setRecuperi, setBo
               </div>
             )
           })}
+          {bloccati.length > 0 && (
+            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4, padding: '8px 10px', borderRadius: 10, background: 'rgba(11,18,32,0.6)', border: '1px solid rgba(51,65,85,0.6)' }}>
+              <b style={{ color: '#f87171' }}>🚫 Sport bloccato per sempre ({bloccati.length})</b> — fuori da tutti gli incroci sport, restano per il casinò:
+              {bloccati.map(b => (
+                <span key={b.id} style={{ marginLeft: 8, whiteSpace: 'nowrap' }}>
+                  {b.nome} · {b.intestatario || '—'}
+                  <button onClick={() => sportBloccato({ book: b, stato: null }, false)} title="Riabilita lo sport" style={{ marginLeft: 4, background: 'transparent', border: '1px solid rgba(100,116,139,.6)', color: '#94a3b8', borderRadius: 6, fontSize: 10, padding: '0 5px', cursor: 'pointer' }}>annulla</button>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
