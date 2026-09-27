@@ -23,9 +23,8 @@ export const GIORNI_ATTESA_ASSISTENZA = 7  // assistenza "in attesa di risposta"
 export const GIORNI_RIFIUTO_ASSISTENZA = 30 // assistenza "rifiutato": nuovo tentativo dopo 30 giorni
 // 27/09/2026 — tetto giornaliero per le cose "una tantum" nate tutte insieme (es. il primo giorno):
 // le eccedenze vengono spalmate sui giorni feriali successivi. Il recupero settimanale non è toccato.
-// I recuperi SPORT li colloca Lucy negli incroci: non compaiono in plancia. Se per GIORNI_LUCY_RECUPERO giorni
-// Lucy non riesce a collocarli (nessuna partita adatta, incroci non preparati) tornano in plancia da fare a mano.
-export const GIORNI_LUCY_RECUPERO = 3
+// I recuperi SPORT li colloca SEMPRE Lucy negli incroci: non compaiono mai in plancia da fare a mano.
+// Se Lucy non riesce a collocarli restano in coda da lei (in fondo al giro) finché non conferma la bet.
 export const TETTO_GIORNO = { assistenza: 2, live: 1, documento: 1, nota: 3 }
 export const NOTE_AI_PER_SESSIONE = 40      // massimo di note lette dall'AI per ogni apertura (tetto di sicurezza sui costi)
 
@@ -386,9 +385,9 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
   const perLucy = (a) => {
     if (a.tipo !== 'recupero' || a.meta?.azione !== 'periodica' || !recuperoSport(a.titolo)) return false
     const b = bookDi(a.book_id)
-    return !!b && !!lucyColloca && lucyColloca(b) && diffGiorni(a.data_prevista, oggi) < GIORNI_LUCY_RECUPERO
+    return !!b && !!lucyColloca && lucyColloca(b)
   }
-  const lucyScaduto = (a) => a.tipo === 'recupero' && a.meta?.azione === 'periodica' && recuperoSport(a.titolo) && !!lucyColloca && !!bookDi(a.book_id) && lucyColloca(bookDi(a.book_id)) && diffGiorni(a.data_prevista, oggi) >= GIORNI_LUCY_RECUPERO
+  const lucyScaduto = () => false
   const aLucy = aperti.filter(a => a.data_prevista <= oggi && perLucy(a))
   const daFare = aperti.filter(a => a.data_prevista <= oggi && !orfano(a) && !perLucy(a)).sort((x, y) => x.data_prevista.localeCompare(y.data_prevista) || x.tipo.localeCompare(y.tipo))
   const futuri = aperti.filter(a => a.data_prevista > oggi && !orfano(a)).sort((x, y) => x.data_prevista.localeCompare(y.data_prevista))
@@ -570,7 +569,7 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
                 </div>
               </div>
             )}
-            {aLucy.length > 0 && <div style={{ fontSize: 12, color: '#7dd3fc', background: 'rgba(14,165,233,0.08)', border: '1px solid rgba(14,165,233,0.3)', borderRadius: 10, padding: '6px 10px' }}>🎯 {aLucy.length} recuperi sport li colloca Lucy negli incroci ({aLucy.map(a => bookDi(a.book_id)?.nome).join(', ')}). Si chiudono da soli quando confermi la bet; se Lucy non ci riesce entro {GIORNI_LUCY_RECUPERO} giorni tornano qui.</div>}
+            {aLucy.length > 0 && <div style={{ fontSize: 12, color: '#7dd3fc', background: 'rgba(14,165,233,0.08)', border: '1px solid rgba(14,165,233,0.3)', borderRadius: 10, padding: '6px 10px' }}>🎯 {new Set(aLucy.map(a => a.book_id)).size} recuperi sport in coda a Lucy{(() => { const v = aLucy.reduce((m, a) => a.data_prevista < m ? a.data_prevista : m, oggi); const g = diffGiorni(v, oggi); return g > 0 ? ` · il più vecchio aspetta da ${g} gg` : '' })()}. Li colloca lei negli incroci, prima quelli di oggi e poi i rimasti indietro; si chiudono da soli quando confermi la bet.</div>}
             {daFare.length === 0 && <div style={{ fontSize: 12, color: '#64748b' }}>Nessun avviso da gestire oggi.</div>}
             {Object.entries(perFlusso).map(([tipo, lista]) => (
               <div key={tipo}>
