@@ -6472,6 +6472,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         recuperi={recuperiConti}
         setRecuperi={setRecuperiConti}
         setBooks={setBooks}
+        setAvvisi={setAvvisiConti}
         getRecuperoProtocollo={getRecuperoProtocollo}
         onMessage={setMessage}
         onError={setErrorMessage}
