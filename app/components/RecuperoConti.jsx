@@ -8,13 +8,18 @@
 // Stato del recupero (passi fatti, tentativi col supporto) in Supabase: tabella recupero_conti.
 // Le procedure per ogni book arrivano da ProfitTrackerClient (getRecuperoProtocollo), che ha le schede.
 // ════════════════════════════════════════════════════════════════════
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { supabase } from '../profit-tracker/supabaseClient'
 import { togliParola, aggiornaNotaBook, annullaAvvisiFlusso } from './noteConti'
 
 export const GIORNI_PRIMO_CONTATTO = 14   // dopo quanti giorni di volume blando contattare il supporto
 export const GIORNI_TRA_TENTATIVI = 30    // dopo un "no" del supporto, riprova dopo questi giorni
 export const GIORNI_VERIFICA_SPORT = 30   // 27/09/2026: ogni 30 giorni verifica se la limitazione sport è stata tolta
+// 27/09/2026 — TETTO AI RECUPERI ATTIVI: solo questi conti ricevono azioni; gli altri aspettano in coda.
+// Quando un posto si libera (recuperato, non scommette più, messo in attesa) entra da solo il primo della coda.
+// Priorità: livello del conto (profilazione → mantenimento → dormiente), poi classe del book (A → B → C),
+// poi la limitazione più vecchia. Colonne recupero_conti.attivo_dal / in_attesa_manuale (vedi recupero_attivi.sql).
+export const MAX_RECUPERI_ATTIVI = 20
 
 const oggiISO = () => new Date().toLocaleDateString('sv-SE')
 const diffGiorni = (da, a) => Math.round((new Date(a + 'T00:00:00') - new Date(da + 'T00:00:00')) / 86400000)
@@ -44,9 +49,42 @@ export function contiInRecupero(books, recuperi, getRecuperoProtocollo) {
   return out.sort((a, b) => (a.book.nome || '').localeCompare(b.book.nome || '') || (a.book.intestatario || '').localeCompare(b.book.intestatario || ''))
 }
 
-// Prossimo contatto col supporto: { data, motivo }
+// Priorità in coda (numero più basso = prima)
+export function prioritaRecupero(item, getClasseBook) {
+  const liv = String(item.book?.profilo_livello || '')
+  const pLiv = liv === 'attivo' ? 0 : liv.startsWith('mantenimento') ? 1 : 2
+  const cl = getClasseBook ? getClasseBook(item.book?.nome) : 'C'
+  const pCl = cl === 'A' ? 0 : (cl === 'B' || cl === 'B_CASINO') ? 1 : 2
+  return [pLiv, pCl, item.stato?.iniziato || '9999']
+}
+const confrontaPriorita = (a, b) => a[0] - b[0] || a[1] - b[1] || String(a[2]).localeCompare(String(b[2]))
+export const recuperoAttivo = (item) => !!item?.stato?.attivo_dal
+
+// Conti della coda da attivare adesso per riempire i posti liberi
+export function daPromuovere(lista, getClasseBook, max = MAX_RECUPERI_ATTIVI) {
+  const validi = (lista || []).filter(it => it.stato && it.proto?.disponibile)
+  const liberi = max - validi.filter(recuperoAttivo).length
+  if (liberi <= 0) return []
+  return validi.filter(it => !recuperoAttivo(it) && !it.stato.in_attesa_manuale)
+    .map(it => ({ it, p: prioritaRecupero(it, getClasseBook) }))
+    .sort((a, b) => confrontaPriorita(a.p, b.p)).slice(0, liberi).map(x => x.it)
+}
+// Coda ordinata (per il pannello)
+export function codaRecuperi(lista, getClasseBook) {
+  return (lista || []).filter(it => !recuperoAttivo(it)).map(it => ({ it, p: prioritaRecupero(it, getClasseBook) }))
+    .sort((a, b) => (a.it.stato?.in_attesa_manuale ? 1 : 0) - (b.it.stato?.in_attesa_manuale ? 1 : 0) || confrontaPriorita(a.p, b.p)).map(x => x.it)
+}
+
+// Esito finale di un recupero, per il riepilogo per book (tabella recupero_esiti)
+export async function registraEsitoRecupero(book, tipo, stato, esito) {
+  try {
+    await supabase.from('recupero_esiti').insert([{ book_id: String(book.id), nome: book.nome || '', intestatario: book.intestatario || '', tipo, iniziato: stato?.iniziato || null, attivo_dal: stato?.attivo_dal || null, chiuso_il: oggiISO(), esito, tentativi: (stato?.tentativi || []).length }])
+  } catch { /* il riepilogo è un di più */ }
+}
+
+// Prossimo contatto col supporto: { data, motivo } — i giorni contano da quando il recupero è ATTIVO
 export function prossimoContatto(item, oggi = oggiISO()) {
-  const inizio = item.stato?.iniziato || oggi
+  const inizio = item.stato?.attivo_dal || item.stato?.iniziato || oggi
   const tentativi = item.stato?.tentativi || []
   const primo = item.proto?.primoContattoGiorni ?? GIORNI_PRIMO_CONTATTO
   if (!tentativi.length) {
@@ -101,6 +139,7 @@ export function azioniRecuperoOggi(item, oggi = oggiISO()) {
 export function avvisiRecupero(item, oggi = oggiISO()) {
   const { book, tipo, proto, stato } = item
   if (!proto || !proto.disponibile) return []
+  if (!recuperoAttivo(item)) return []          // in coda: nessuna azione finché non entra tra gli attivi
   const out = []
   const lbl = tipo === 'sport' ? 'limitato sport' : 'limitato bonus'
   const base = `rec|${book.id}|${tipo}`
@@ -110,10 +149,11 @@ export function avvisiRecupero(item, oggi = oggiISO()) {
   periodiche.forEach((testo, i) => out.push({ chiave: `${base}|per|${oggi}|${i}`, tipo: 'recupero', titolo: testo.replace(/^🔧 Recupero \([^)]*\): /, ''), sottotitolo: `🔧 Recupero ${lbl}`, meta: { ...meta, azione: 'periodica' } }))
   const pc = prossimoContatto(item, oggi)
   if (pc.data && oggi >= pc.data) out.push({ chiave: `${base}|contatto|${pc.data}`, tipo: 'recupero', data_prevista: pc.data, titolo: proto.testoContatto || 'contatta il supporto (chat/mail) per info sulle promozioni, da GIOCATORE, poi chiedi la rivalutazione del conto', sottotitolo: `🔧 Recupero ${lbl} · ${pc.motivo}`, meta: { ...meta, azione: 'contatto' } })
-  if (tipo === 'sport' && stato?.iniziato) {
-    const n = Math.floor(diffGiorni(stato.iniziato, oggi) / GIORNI_VERIFICA_SPORT)
+  const inizioAtt = stato?.attivo_dal || stato?.iniziato
+  if (tipo === 'sport' && inizioAtt) {
+    const n = Math.floor(diffGiorni(inizioAtt, oggi) / GIORNI_VERIFICA_SPORT)
     if (n >= 1) {
-      const d = new Date(new Date(stato.iniziato + 'T00:00:00').getTime() + n * GIORNI_VERIFICA_SPORT * 86400000).toLocaleDateString('sv-SE')
+      const d = new Date(new Date(inizioAtt + 'T00:00:00').getTime() + n * GIORNI_VERIFICA_SPORT * 86400000).toLocaleDateString('sv-SE')
       out.push({ chiave: `${base}|verifica|${d}`, tipo: 'recupero', data_prevista: d, titolo: 'verifica se la limitazione sport è stata tolta', sottotitolo: `🔧 Recupero limitato sport · controllo ogni ${GIORNI_VERIFICA_SPORT} giorni`, meta: { ...meta, azione: 'verifica_sport' } })
     }
   }
@@ -126,13 +166,19 @@ const btn = (c) => ({ padding: '5px 10px', borderRadius: 8, border: `1px solid $
 const LIV = { attivo: ['🟢 Profilazione', '#22c55e'], dormiente: ['⚫ Dormiente', '#94a3b8'] }
 
 // ─── PANNELLO NELLA TAB PROFILAZIONE ────────────────────────────────
-export default function RecuperoContiPanel({ books, recuperi, setRecuperi, setBooks, setAvvisi, getRecuperoProtocollo, onMessage, onError }) {
+export default function RecuperoContiPanel({ books, recuperi, setRecuperi, setBooks, setAvvisi, avvisi, getClasseBook, getRecuperoProtocollo, onMessage, onError }) {
   const lista = contiInRecupero(books, recuperi, getRecuperoProtocollo)
   const [aperto, setAperto] = useState(null)
   const [nuovoTent, setNuovoTent] = useState({})
   const [salvando, setSalvando] = useState(false)
   const [mostra, setMostra] = useState(true)
+  const [mostraCoda, setMostraCoda] = useState(false)
+  const [mostraRiepilogo, setMostraRiepilogo] = useState(false)
+  const [esiti, setEsiti] = useState([])
+  useEffect(() => { supabase.from('recupero_esiti').select('*').then(({ data }) => setEsiti(data || [])) }, [recuperi])
   const oggi = oggiISO()
+  const attivi = lista.filter(recuperoAttivo)
+  const coda = codaRecuperi(lista, getClasseBook)
   if (lista.length === 0 && !(books || []).some(b => b.sport_bloccato)) return null
   const chiave = (it) => `${it.book.id}|${it.tipo}`
 
@@ -171,12 +217,30 @@ export default function RecuperoContiPanel({ books, recuperi, setRecuperi, setBo
     try { await aggiornaNotaBook(it.book, togliParola(it.book.note, it.tipo), `recuperato ${it.tipo} il ${dataIt(oggi)}`, setBooks) }
     catch (error) { setSalvando(false); onError('Errore aggiornamento nota: ' + error.message); return }
     await annullaAvvisiFlusso(it.book.id, it.tipo, `recuperato ${it.tipo} il ${dataIt(oggi)}`, setAvvisi)
+    await registraEsitoRecupero(it.book, it.tipo, it.stato, 'recuperato')
     if (it.stato) {
       await supabase.from('recupero_conti').delete().eq('id', it.stato.id)
       setRecuperi(prev => prev.filter(r => r.id !== it.stato.id))
     }
     setSalvando(false)
     onMessage(`${it.book.nome} (${it.book.intestatario || '—'}) recuperato 🎉 — nota aggiornata`)
+  }
+
+  async function attivaOra(it) {
+    const pieno = attivi.length >= MAX_RECUPERI_ATTIVI
+    if (!window.confirm(`${it.book.nome} · ${it.book.intestatario || '—'} (limitato ${it.tipo}): attivo il recupero adesso?${pieno ? `\n\nAttenzione: i recuperi attivi sono già ${attivi.length} su ${MAX_RECUPERI_ATTIVI}, questo li supera.` : ''}`)) return
+    setSalvando(true)
+    await aggiorna(it, { attivo_dal: oggi, in_attesa_manuale: false })
+    setSalvando(false)
+    onMessage(`⏫ Recupero attivato: ${it.book.nome} (${it.book.intestatario || '—'})`)
+  }
+  async function mettiInAttesa(it) {
+    if (!window.confirm(`${it.book.nome} · ${it.book.intestatario || '—'} (limitato ${it.tipo}): lo rimetto in coda?\nNon riceve più azioni e non rientra da solo: lo riattivi tu con ⏫. Il suo posto va al primo della coda.`)) return
+    setSalvando(true)
+    await aggiorna(it, { attivo_dal: null, in_attesa_manuale: true })
+    await annullaAvvisiFlusso(it.book.id, it.tipo, 'recupero rimesso in coda', setAvvisi)
+    setSalvando(false)
+    onMessage(`⏸ In coda: ${it.book.nome} (${it.book.intestatario || '—'})`)
   }
 
   async function sportBloccato(it, valore) {
@@ -189,6 +253,7 @@ export default function RecuperoContiPanel({ books, recuperi, setRecuperi, setBo
     if (error) { setSalvando(false); onError('Errore: ' + error.message + ' (hai lanciato sport_bloccato.sql?)'); return }
     setBooks(prev => prev.map(b => b.id === it.book.id ? { ...b, sport_bloccato: valore } : b))
     if (valore && it.stato) {
+      await registraEsitoRecupero(it.book, it.tipo, it.stato, 'non scommette più')
       await supabase.from('recupero_conti').delete().eq('id', it.stato.id)
       setRecuperi(prev => prev.filter(r => r.id !== it.stato.id))
     }
@@ -197,19 +262,62 @@ export default function RecuperoContiPanel({ books, recuperi, setRecuperi, setBo
   }
   const bloccati = (books || []).filter(b => b.sport_bloccato)
 
-  const daFareOggi = lista.filter(it => azioniRecuperoOggi(it, oggi).length > 0).length
+  const daFareOggi = attivi.filter(it => azioniRecuperoOggi(it, oggi).length > 0).length
+  // riepilogo per book: attivi, in coda, recuperati, non scommette più, giorni medi per recuperare, azioni fatte
+  const riepilogo = (() => {
+    const m = {}
+    const riga = (nome) => { const k = String(nome || '—').toLowerCase().trim(); return (m[k] = m[k] || { nome: nome || '—', attivi: 0, coda: 0, recuperati: 0, persi: 0, giorni: [], azioni: 0 }) }
+    for (const it of lista) riga(it.book.nome)[recuperoAttivo(it) ? 'attivi' : 'coda']++
+    for (const e of esiti) { const r = riga(e.nome); if (e.esito === 'recuperato') { r.recuperati++; const da = e.attivo_dal || e.iniziato; if (da && e.chiuso_il) r.giorni.push(diffGiorni(da, e.chiuso_il)) } else r.persi++ }
+    for (const a of avvisi || []) if (a.tipo === 'recupero' && a.stato === 'fatto') { const b = (books || []).find(x => String(x.id) === String(a.book_id)); if (b) riga(b.nome).azioni++ }
+    return Object.values(m).sort((a, b) => (b.attivi + b.coda) - (a.attivi + a.coda))
+  })()
 
   return (
     <div style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 16, padding: '14px 16px', marginBottom: 16 }}>
       <div onClick={() => setMostra(!mostra)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', gap: 8, flexWrap: 'wrap' }}>
-        <div style={{ fontSize: 14, fontWeight: 900, color: '#fca5a5' }}>🔧 Recupero conti limitati · {lista.length} {mostra ? '▾' : '▸'}</div>
+        <div style={{ fontSize: 14, fontWeight: 900, color: '#fca5a5' }}>🔧 Recupero conti limitati · attivi {attivi.length}/{MAX_RECUPERI_ATTIVI} · in coda {coda.length} {mostra ? '▾' : '▸'}</div>
         <div style={{ fontSize: 12, color: '#94a3b8' }}>
           {daFareOggi > 0 ? <b style={{ color: '#fbbf24' }}>{daFareOggi} con azioni oggi</b> : 'nessuna azione oggi'} · scrivi "limitato bonus" o "limitato sport" nella nota del book
         </div>
       </div>
       {mostra && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
-          {lista.map(it => {
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button style={btn('#94a3b8')} onClick={() => setMostraCoda(!mostraCoda)}>⏳ Coda ({coda.length}) {mostraCoda ? '▾' : '▸'}</button>
+            <button style={btn('#94a3b8')} onClick={() => setMostraRiepilogo(!mostraRiepilogo)}>📊 Riepilogo per book {mostraRiepilogo ? '▾' : '▸'}</button>
+          </div>
+          {mostraRiepilogo && (
+            <div style={{ overflowX: 'auto', background: 'rgba(11,18,32,0.75)', border: '1px solid rgba(51,65,85,0.7)', borderRadius: 12, padding: 8 }}>
+              <table style={{ width: '100%', fontSize: 12, color: '#e2e8f0', borderCollapse: 'collapse' }}>
+                <thead><tr style={{ color: '#94a3b8', textAlign: 'right' }}><th style={{ textAlign: 'left', padding: 4 }}>Book</th><th>Attivi</th><th>In coda</th><th>Recuperati</th><th>Non scommettono più</th><th>Giorni medi</th><th>Azioni fatte</th></tr></thead>
+                <tbody>{riepilogo.map(r => (
+                  <tr key={r.nome} style={{ textAlign: 'right', borderTop: '1px solid rgba(51,65,85,0.5)' }}>
+                    <td style={{ textAlign: 'left', padding: 4, fontWeight: 700 }}>{r.nome}</td><td>{r.attivi}</td><td>{r.coda}</td>
+                    <td style={{ color: r.recuperati ? '#22c55e' : undefined }}>{r.recuperati}</td><td style={{ color: r.persi ? '#f87171' : undefined }}>{r.persi}</td>
+                    <td>{r.giorni.length ? Math.round(r.giorni.reduce((x, y) => x + y, 0) / r.giorni.length) : '—'}</td><td style={{ paddingRight: 4 }}>{r.azioni}</td>
+                  </tr>))}</tbody>
+              </table>
+              <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>I recuperati e i "non scommettono più" si contano da oggi in poi. Giorni medi: da quando il recupero è attivo a quando è recuperato.</div>
+            </div>
+          )}
+          {mostraCoda && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, background: 'rgba(11,18,32,0.5)', borderRadius: 12, padding: 8 }}>
+              <div style={{ fontSize: 11, color: '#94a3b8' }}>In ordine di priorità: profilazione → mantenimento → dormienti, poi book di classe A → B → C, poi la limitazione più vecchia. Entrano da soli quando si libera un posto.</div>
+              {coda.map((it, i) => (
+                <div key={chiave(it)} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12, padding: '4px 6px', borderTop: '1px solid rgba(51,65,85,0.4)' }}>
+                  <span style={{ color: '#64748b', width: 24 }}>{i + 1}.</span>
+                  <b style={{ color: '#f8fafc' }}>{it.book.nome}</b>
+                  <span style={{ color: '#94a3b8' }}>{it.book.intestatario || '—'}</span>
+                  <span style={{ color: it.tipo === 'bonus' ? '#f87171' : '#facc15' }}>limitato {it.tipo}</span>
+                  {!it.proto?.disponibile && <span style={{ color: '#f87171' }}>{it.proto?.motivo || 'nessun protocollo'}</span>}
+                  {it.stato?.in_attesa_manuale && <span style={{ color: '#fbbf24' }}>⏸ messo in coda a mano</span>}
+                  {it.proto?.disponibile && <button style={{ ...btn('#38bdf8'), marginLeft: 'auto' }} disabled={salvando} onClick={() => attivaOra(it)}>⏫ Attiva ora</button>}
+                </div>
+              ))}
+            </div>
+          )}
+          {attivi.map(it => {
             const k = chiave(it)
             const isOpen = aperto === k
             const proto = it.proto
@@ -278,6 +386,7 @@ export default function RecuperoContiPanel({ books, recuperi, setRecuperi, setBo
                     )}
                     <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
                       {it.tipo === 'sport' && <button style={btn('#f87171')} disabled={salvando} onClick={() => sportBloccato(it, true)} title="Il book non fa più scommettere: esce per sempre dallo sport">🚫 Non scommette più</button>}
+                      <button style={btn('#94a3b8')} disabled={salvando} onClick={() => mettiInAttesa(it)} title="Libera il posto per il primo della coda">⏸ Metti in coda</button>
                       <button style={btn('#22c55e')} disabled={salvando} onClick={() => recuperato(it)}>✅ Recuperato</button>
                     </div>
                   </div>
