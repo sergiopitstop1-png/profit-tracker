@@ -13,7 +13,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { supabase } from '../profit-tracker/supabaseClient'
 import { paroleChiave, motivoAssistenza, togliParola, aggiornaNotaBook, notaDaAttenzionare, pulisciNota, annullaAvvisiFlusso, aggiungiParola, soloParoleChiave, testoExtra, improntaNota } from './noteConti'
-import { contiInRecupero, avvisiRecupero, limitazioniDaNota } from './RecuperoConti'
+import { contiInRecupero, avvisiRecupero, limitazioniDaNota, registraEsitoRecupero, MAX_RECUPERI_ATTIVI } from './RecuperoConti'
 
 // ─── PARAMETRI ──────────────────────────────────────────────────────
 export const RIAPERTURE_SETTIMANA = 2      // chiudere e riaprire: massimo 2 conti a settimana
@@ -177,6 +177,16 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
     // Annullo automatico SOLO per lo sport bloccato per sempre (il pulsante 🚫 ha già chiesto la conferma).
     // Una parola chiave tolta a mano dalla nota NON annulla niente: l'avviso va tra quelli da confermare.
     const daAnnullare = aperti.filter(a => a.meta?.flusso === 'sport' && a.book_id && bookDi(a.book_id)?.sport_bloccato)
+    // …e per i recuperi rimasti in CODA (tetto ai recuperi attivi): le loro azioni non vanno fatte finché non tornano attivi
+    // (solo quando i posti attivi sono pieni: altrimenti la promozione è ancora in corso e il conto potrebbe entrare)
+    const postiPieni = (recuperi || []).filter(x => x.attivo_dal).length >= MAX_RECUPERI_ATTIVI
+    for (const a of aperti) {
+      if (a.tipo !== 'recupero' || daAnnullare.includes(a)) continue
+      const rr = (recuperi || []).find(x => String(x.book_id) === String(a.book_id) && x.tipo === a.meta?.flusso)
+      if (!postiPieni && !rr?.in_attesa_manuale) continue
+      const r = (recuperi || []).find(x => String(x.book_id) === String(a.book_id) && x.tipo === a.meta?.flusso)
+      if (r && !r.attivo_dal) daAnnullare.push(a)
+    }
     if (daAnnullare.length) {
       supabase.from('avvisi_conti').update({ stato: 'annullato', esito: 'parola chiave tolta dalla nota' }).in('id', daAnnullare.map(a => a.id)).select()
         .then(({ data }) => { if (data) setAvvisi(prev => prev.map(x => data.find(d => d.id === x.id) || x)) })
@@ -262,6 +272,7 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
   async function chiudiRecupero(book, tipo, motivo) {
     await togliDallaNota(book, tipo, motivo)
     const r = (recuperi || []).find(x => String(x.book_id) === String(book.id) && x.tipo === tipo)
+    await registraEsitoRecupero(book, tipo, r, 'recuperato')
     if (r) { await supabase.from('recupero_conti').delete().eq('id', r.id); setRecuperi(prev => prev.filter(x => x.id !== r.id)) }
   }
 
