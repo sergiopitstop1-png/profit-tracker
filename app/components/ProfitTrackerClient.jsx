@@ -2742,6 +2742,16 @@ function confermaSingolaBetLucy(p,a,tipo='profilazione') {
   }
   salvaLucyConfermate([...lucyConfermate,rec])
   salvaAtteseOggiLucy()
+  // 27/09/2026: una bet di recupero confermata in Lucy chiude l'avviso di recupero di quel conto (oggi o in ritardo)
+  if (tipo==='recupero') chiudiAvvisiRecuperoDaLucy(a.book.id)
+}
+
+async function chiudiAvvisiRecuperoDaLucy(bookId) {
+  const oggiIso=new Date().toLocaleDateString('sv-SE')
+  const ids=(avvisiConti||[]).filter(x=>x.stato==='aperto'&&x.tipo==='recupero'&&x.meta?.azione==='periodica'&&String(x.book_id)===String(bookId)&&x.data_prevista<=oggiIso).map(x=>x.id)
+  if(!ids.length) return
+  const { data, error } = await supabase.from('avvisi_conti').update({ stato:'fatto', fatto_il:oggiIso, esito:'bet di recupero confermata in Lucy' }).in('id',ids).select()
+  if(!error&&data) setAvvisiConti(prev=>(prev||[]).map(x=>data.find(d=>d.id===x.id)||x))
 }
 
 function annullaSingolaBetLucy(key) {
@@ -5694,6 +5704,24 @@ async function promemoriaNuoviBookFatto() {
 const agendaRecuperoOggi = () => contiInRecupero(books, recuperiConti, getRecuperoProtocollo)
   .map(it => ({ book: it.book, agenda: { tipo: 'recupero', azioni: azioniRecuperoOggi(it) } }))
   .filter(x => x.agenda.azioni.length > 0)
+// 27/09/2026 — Lucy continua a ricevere le azioni di recupero (ruolo "Recupero conto", 15-25€), ma ora le prende dagli
+// AVVISI aperti di oggi e in ritardo: così un recupero non fatto ieri torna negli incroci invece di perdersi.
+// Nell'agenda a video non compaiono (stanno negli Avvisi), qui servono solo a Lucy.
+const agendaRecuperoLucy = () => {
+  const oggiIso = new Date().toLocaleDateString('sv-SE')
+  const perBook = new Map()
+  for (const a of avvisiConti || []) {
+    if (a.stato !== 'aperto' || a.tipo !== 'recupero' || a.meta?.azione !== 'periodica' || a.data_prevista > oggiIso) continue
+    const book = books.find(b => String(b.id) === String(a.book_id))
+    if (!book) continue
+    const lbl = a.meta?.flusso === 'sport' ? 'limitato sport' : 'limitato bonus'
+    const x = perBook.get(book.id) || { book, agenda: { tipo: 'recupero', azioni: [], avvisiIds: [] } }
+    x.agenda.azioni.push(`🔧 Recupero (${lbl}): ${a.titolo}`)
+    x.agenda.avvisiIds.push(a.id)
+    perBook.set(book.id, x)
+  }
+  return [...perBook.values()]
+}
 
 // "Pagato" su un avviso (mensilità, annuale o benvenuto) dal banner, da Accantonamenti o dal riepilogo Clienti.
 // L'uscita sul wallet la registra Sergio a mano.
@@ -6389,7 +6417,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
               <button style={btn('#2563eb')} onClick={() => setShowAgendaPopup(true)}>📋 Agenda di oggi · {agendaOggi.length}</button>
               <button style={btn('#d97706')} onClick={() => setSlotPopup('')}>🎰 Slot consigliate</button>
-              <button style={btn('#0ea5e9', !lucySportLoading)} disabled={lucySportLoading} onClick={() => generaLucySport(agendaOggi, false)}>{lucySportLoading ? '⏳ Lucy sta calcolando…' : '⚽ Prepara incroci'}</button>
+              <button style={btn('#0ea5e9', !lucySportLoading)} disabled={lucySportLoading} onClick={() => generaLucySport(agendaOggi.concat(agendaRecuperoLucy()), false)}>{lucySportLoading ? '⏳ Lucy sta calcolando…' : '⚽ Prepara incroci'}</button>
               <button style={btn('#0f766e', lucySportProposte.length > 0)} disabled={!lucySportProposte.length} onClick={() => setLucyTabellaAperta(true)}>📊 Tabella bet{lucySportProposte.length ? ` · ${cont.fatte}/${cont.tot} fatte` : ''}</button>
               <button style={btn('#7c3aed', lucyLiveProposte.length > 0)} disabled={!lucyLiveProposte.length} onClick={() => setLucyLiveTabellaAperta(true)}>🎰 Tabella Live{lucyLiveProposte.length ? ` · ${lucyLiveProposte.length}` : ''}</button>
               <button style={btn('#16a34a', lucySportProposte.length > 0)} disabled={!lucySportProposte.length} onClick={confermaGiocateLucy}>✓ Conferma e archivia</button>
@@ -6418,7 +6446,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                       style={{ ...inputNum, width: 60 }} />
                     <span style={{ fontSize: 11, color: '#cbd5e1' }}>%</span>
                   </div>
-                  <button disabled={lucySportLoading} onClick={() => generaLucySport(agendaOggi, true)}
+                  <button disabled={lucySportLoading} onClick={() => generaLucySport(agendaOggi.concat(agendaRecuperoLucy()), true)}
                     title="Ignora la cache di 15 minuti e richiede nuove quote a TheRundown: usa nuovi datapoint"
                     style={{ background: '#7c3aed', color: 'white', border: 0, borderRadius: 9, padding: '8px 11px', fontSize: 11, fontWeight: 900, cursor: lucySportLoading ? 'default' : 'pointer', opacity: lucySportLoading ? 0.6 : 1 }}>🔄 Aggiorna quote</button>
                   {confermateOggiLucy().length > 0 && (
@@ -6594,10 +6622,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 ↺ AZZERA CONFERME OGGI
               </button>
             )}
-            <button style={{ ...tinyBlueButton, marginLeft:'auto' }} disabled={lucySportLoading} onClick={() => generaLucySport(agendaOggi, false)}>
+            <button style={{ ...tinyBlueButton, marginLeft:'auto' }} disabled={lucySportLoading} onClick={() => generaLucySport(agendaOggi.concat(agendaRecuperoLucy()), false)}>
             {lucySportLoading ? '⏳ Lucy sta calcolando…' : '⚽ PREPARA INCROCI SPORT'}
           </button>
-            <button disabled={lucySportLoading} onClick={()=>generaLucySport(agendaOggi, true)}
+            <button disabled={lucySportLoading} onClick={()=>generaLucySport(agendaOggi.concat(agendaRecuperoLucy()), true)}
               title="Ignora la cache di 15 minuti e richiede nuove quote a TheRundown: usa nuovi datapoint"
               style={{background:'#7c3aed',color:'white',border:0,borderRadius:9,padding:'8px 11px',fontSize:10,fontWeight:900,cursor:lucySportLoading?'default':'pointer',opacity:lucySportLoading?.6:1}}>
               🔄 AGGIORNA QUOTE
