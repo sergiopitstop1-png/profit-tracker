@@ -11,7 +11,7 @@ import MemoTab from './MemoTab'
 import { calcolaRoyalty, RoyaltyRiepilogo, RoyaltyBadge, RoyaltyModal, inserisciPagamento } from './RoyaltyPanel'
 import { RisparmiCard, calcolaRisparmi, maturaInteressi, normalizza as normalizzaRisparmi } from './RisparmiPanel'
 import SlotConsigliate, { PulsanteSlot, parlaDiSlot } from './SlotConsigliate'
-import RecuperoContiPanel, { contiInRecupero, azioniRecuperoOggi, limitazioniDaNota } from './RecuperoConti'
+import RecuperoContiPanel, { contiInRecupero, azioniRecuperoOggi, limitazioniDaNota, daPromuovere } from './RecuperoConti'
 import AvvisiContiPanel from './AvvisiConti'
 
 // V32 — rete di sicurezza 60 giorni sui conti in MANTENIMENTO
@@ -165,6 +165,21 @@ useEffect(() => {
   if (!mancanti.length) return
   supabase.from('recupero_conti').upsert(mancanti, { onConflict: 'book_id,tipo', ignoreDuplicates: true }).select()
     .then(({ data }) => { if (data && data.length) setRecuperiConti(prev => [...prev, ...data.filter(d => !prev.some(r => r.id === d.id))]) })
+}, [books, recuperiConti])
+// 27/09/2026 — tetto ai recuperi attivi: quando c'è un posto libero entra da solo il primo della coda
+const promossiRef = React.useRef(new Set())
+useEffect(() => {
+  if (!books.length || !recuperiConti.length) return
+  const oggiIso = new Date().toLocaleDateString('sv-SE')
+  const nuovi = daPromuovere(contiInRecupero(books, recuperiConti, getRecuperoProtocollo), getClasseBook)
+    .filter(it => !promossiRef.current.has(it.stato.id))
+  if (!nuovi.length) return
+  nuovi.forEach(it => promossiRef.current.add(it.stato.id))
+  supabase.from('recupero_conti').update({ attivo_dal: oggiIso }).in('id', nuovi.map(it => it.stato.id)).select()
+    .then(({ data, error }) => {
+      if (error) { setErrorMessage('Recupero: lancia recupero_attivi.sql (' + error.message + ')'); return }
+      if (data && data.length) setRecuperiConti(prev => prev.map(r => data.find(d => d.id === r.id) || r))
+    })
 }, [books, recuperiConti])
 const [showAgendaPopup, setShowAgendaPopup] = useState(false)
 const [agendaVista, setAgendaVista] = useState(false)
@@ -6501,6 +6516,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         setRecuperi={setRecuperiConti}
         setBooks={setBooks}
         setAvvisi={setAvvisiConti}
+        avvisi={avvisiConti}
+        getClasseBook={getClasseBook}
         getRecuperoProtocollo={getRecuperoProtocollo}
         onMessage={setMessage}
         onError={setErrorMessage}
