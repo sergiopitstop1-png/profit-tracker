@@ -10,7 +10,7 @@
 // ════════════════════════════════════════════════════════════════════
 import React, { useState } from 'react'
 import { supabase } from '../profit-tracker/supabaseClient'
-import { togliParola, aggiornaNotaBook } from './noteConti'
+import { togliParola, aggiornaNotaBook, annullaAvvisiFlusso } from './noteConti'
 
 export const GIORNI_PRIMO_CONTATTO = 14   // dopo quanti giorni di volume blando contattare il supporto
 export const GIORNI_TRA_TENTATIVI = 30    // dopo un "no" del supporto, riprova dopo questi giorni
@@ -126,7 +126,7 @@ const btn = (c) => ({ padding: '5px 10px', borderRadius: 8, border: `1px solid $
 const LIV = { attivo: ['🟢 Profilazione', '#22c55e'], dormiente: ['⚫ Dormiente', '#94a3b8'] }
 
 // ─── PANNELLO NELLA TAB PROFILAZIONE ────────────────────────────────
-export default function RecuperoContiPanel({ books, recuperi, setRecuperi, setBooks, getRecuperoProtocollo, onMessage, onError }) {
+export default function RecuperoContiPanel({ books, recuperi, setRecuperi, setBooks, setAvvisi, getRecuperoProtocollo, onMessage, onError }) {
   const lista = contiInRecupero(books, recuperi, getRecuperoProtocollo)
   const [aperto, setAperto] = useState(null)
   const [nuovoTent, setNuovoTent] = useState({})
@@ -170,6 +170,7 @@ export default function RecuperoContiPanel({ books, recuperi, setRecuperi, setBo
     setSalvando(true)
     try { await aggiornaNotaBook(it.book, togliParola(it.book.note, it.tipo), `recuperato ${it.tipo} il ${dataIt(oggi)}`, setBooks) }
     catch (error) { setSalvando(false); onError('Errore aggiornamento nota: ' + error.message); return }
+    await annullaAvvisiFlusso(it.book.id, it.tipo, `recuperato ${it.tipo} il ${dataIt(oggi)}`, setAvvisi)
     if (it.stato) {
       await supabase.from('recupero_conti').delete().eq('id', it.stato.id)
       setRecuperi(prev => prev.filter(r => r.id !== it.stato.id))
