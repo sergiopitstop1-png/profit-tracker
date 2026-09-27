@@ -276,6 +276,23 @@ const [importReport, setImportReport] = useState(null)
   loadData()
 }, [])
   useEffect(() => { caricaLucyDaSupabase() }, [])
+// 27/09/2026 — CAMBIO GIORNO: se la pagina resta aperta da un giorno all'altro, si ricarica da sola
+// (così partono fotografia del giorno, avvisi e recuperi della nuova giornata). Controllo ogni 5 minuti e quando
+// torni sulla scheda; non ricarica mentre stai scrivendo in un campo.
+useEffect(() => {
+  const giornoCaricamento = new Date().toLocaleDateString('sv-SE')
+  const controlla = () => {
+    if (new Date().toLocaleDateString('sv-SE') === giornoCaricamento) return
+    if (document.visibilityState !== 'visible') return
+    const el = document.activeElement
+    if (el && ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName)) return
+    window.location.reload()
+  }
+  const t = setInterval(controlla, 5 * 60000)
+  document.addEventListener('visibilitychange', controlla)
+  return () => { clearInterval(t); document.removeEventListener('visibilitychange', controlla) }
+}, [])
+
 // 27/09/2026 — FOTOGRAFIA DEL GIORNO: al primo caricamento della giornata il Profit Tracker salva da solo le bet
 // di profilazione sport previste oggi (stesse regole di Lucy), anche se gli incroci non vengono preparati.
 // Così una giornata saltata non si perde: dal giorno dopo Lucy le ripropone come arretrate, in fondo al giro.
