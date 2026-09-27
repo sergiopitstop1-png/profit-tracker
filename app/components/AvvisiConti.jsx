@@ -13,7 +13,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { supabase } from '../profit-tracker/supabaseClient'
 import { paroleChiave, motivoAssistenza, togliParola, aggiornaNotaBook, notaDaAttenzionare, pulisciNota, annullaAvvisiFlusso, aggiungiParola, soloParoleChiave, testoExtra, improntaNota } from './noteConti'
-import { contiInRecupero, avvisiRecupero, limitazioniDaNota, registraEsitoRecupero, MAX_RECUPERI_ATTIVI } from './RecuperoConti'
+import { contiInRecupero, avvisiRecupero, limitazioniDaNota, registraEsitoRecupero, MAX_RECUPERI_ATTIVI, recuperoSport } from './RecuperoConti'
 
 // ─── PARAMETRI ──────────────────────────────────────────────────────
 export const RIAPERTURE_SETTIMANA = 2      // chiudere e riaprire: massimo 2 conti a settimana
@@ -23,6 +23,9 @@ export const GIORNI_ATTESA_ASSISTENZA = 7  // assistenza "in attesa di risposta"
 export const GIORNI_RIFIUTO_ASSISTENZA = 30 // assistenza "rifiutato": nuovo tentativo dopo 30 giorni
 // 27/09/2026 — tetto giornaliero per le cose "una tantum" nate tutte insieme (es. il primo giorno):
 // le eccedenze vengono spalmate sui giorni feriali successivi. Il recupero settimanale non è toccato.
+// I recuperi SPORT li colloca Lucy negli incroci: non compaiono in plancia. Se per GIORNI_LUCY_RECUPERO giorni
+// Lucy non riesce a collocarli (nessuna partita adatta, incroci non preparati) tornano in plancia da fare a mano.
+export const GIORNI_LUCY_RECUPERO = 3
 export const TETTO_GIORNO = { assistenza: 2, live: 1, documento: 1, nota: 3 }
 export const NOTE_AI_PER_SESSIONE = 40      // massimo di note lette dall'AI per ogni apertura (tetto di sicurezza sui costi)
 
@@ -67,8 +70,8 @@ function prossimoGiornoInvio(dataMin, occupati) {
   return d
 }
 
-const ICONA = { nota: '🤖', recupero: '🔧', assistenza: '🎧', riapertura: '🔁', documento: '📄', live: '🎥' }
-const NOME_FLUSSO = { nota: 'Dalle note (letti dall\'AI)', recupero: 'Recupero conti limitati', assistenza: 'Sentire assistenza', riapertura: 'Chiudere e riaprire', documento: 'Inviare documento', live: 'Riconoscimento live' }
+const ICONA = { lucy: '🎯', nota: '🤖', recupero: '🔧', assistenza: '🎧', riapertura: '🔁', documento: '📄', live: '🎥' }
+const NOME_FLUSSO = { lucy: 'Bet di Lucy non fatte da più di 3 giorni', nota: 'Dalle note (letti dall\'AI)', recupero: 'Recupero conti limitati', assistenza: 'Sentire assistenza', riapertura: 'Chiudere e riaprire', documento: 'Inviare documento', live: 'Riconoscimento live' }
 
 // Esiti da scegliere quando si preme Fatto (null = basta la conferma)
 function esitiDi(a) {
@@ -87,7 +90,7 @@ const inp = { background: '#0b1220', color: '#f8fafc', border: '1px solid rgba(5
 const btn = (c) => ({ padding: '5px 10px', borderRadius: 8, border: `1px solid ${c}66`, background: `${c}1a`, color: c, fontWeight: 700, fontSize: 12, cursor: 'pointer' })
 
 // ════════════════════════════════════════════════════════════════════
-export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, recuperi, setRecuperi, getRecuperoProtocollo, onMessage, onError }) {
+export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, recuperi, setRecuperi, getRecuperoProtocollo, lucyColloca, onMessage, onError }) {
   const oggi = oggiISO()
   const [mostra, setMostra] = useState(true)
   const [mostraFuturi, setMostraFuturi] = useState(false)
@@ -379,7 +382,15 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
 
   // ─── VISTA ────────────────────────────────────────────────────────
   const orfani = aperti.filter(orfano)
-  const daFare = aperti.filter(a => a.data_prevista <= oggi && !orfano(a)).sort((x, y) => x.data_prevista.localeCompare(y.data_prevista) || x.tipo.localeCompare(y.tipo))
+  // recupero sport che Lucy sta ancora cercando di collocare (entro GIORNI_LUCY_RECUPERO giorni)
+  const perLucy = (a) => {
+    if (a.tipo !== 'recupero' || a.meta?.azione !== 'periodica' || !recuperoSport(a.titolo)) return false
+    const b = bookDi(a.book_id)
+    return !!b && !!lucyColloca && lucyColloca(b) && diffGiorni(a.data_prevista, oggi) < GIORNI_LUCY_RECUPERO
+  }
+  const lucyScaduto = (a) => a.tipo === 'recupero' && a.meta?.azione === 'periodica' && recuperoSport(a.titolo) && !!lucyColloca && !!bookDi(a.book_id) && lucyColloca(bookDi(a.book_id)) && diffGiorni(a.data_prevista, oggi) >= GIORNI_LUCY_RECUPERO
+  const aLucy = aperti.filter(a => a.data_prevista <= oggi && perLucy(a))
+  const daFare = aperti.filter(a => a.data_prevista <= oggi && !orfano(a) && !perLucy(a)).sort((x, y) => x.data_prevista.localeCompare(y.data_prevista) || x.tipo.localeCompare(y.tipo))
   const futuri = aperti.filter(a => a.data_prevista > oggi && !orfano(a)).sort((x, y) => x.data_prevista.localeCompare(y.data_prevista))
   const inRitardo = daFare.filter(a => a.data_prevista < oggi).length
   // Una nota va vista se: non ha parole chiave, oppure ha testo in più per cui l'AI propone qualcosa.
@@ -493,6 +504,7 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
           </span>
         </div>
         {a.sottotitolo && <div style={{ fontSize: 11, color: '#94a3b8', margin: '2px 0 0 24px' }}>{a.sottotitolo}</div>}
+        {lucyScaduto(a) && <div style={{ fontSize: 11, color: '#fbbf24', margin: '2px 0 0 24px' }}>⚠️ Lucy non è riuscita a collocarlo negli incroci: fallo a mano</div>}
         <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap', alignItems: 'center', paddingLeft: 24 }}>
           {!aperta && <>
             <button style={btn('#94a3b8')} disabled={salvando} onClick={() => setAzione({ id: a.id, modo: 'rimanda', data: dataRimandoProposta(a) })}>⏭ Rimanda</button>
@@ -558,6 +570,7 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
                 </div>
               </div>
             )}
+            {aLucy.length > 0 && <div style={{ fontSize: 12, color: '#7dd3fc', background: 'rgba(14,165,233,0.08)', border: '1px solid rgba(14,165,233,0.3)', borderRadius: 10, padding: '6px 10px' }}>🎯 {aLucy.length} recuperi sport li colloca Lucy negli incroci ({aLucy.map(a => bookDi(a.book_id)?.nome).join(', ')}). Si chiudono da soli quando confermi la bet; se Lucy non ci riesce entro {GIORNI_LUCY_RECUPERO} giorni tornano qui.</div>}
             {daFare.length === 0 && <div style={{ fontSize: 12, color: '#64748b' }}>Nessun avviso da gestire oggi.</div>}
             {Object.entries(perFlusso).map(([tipo, lista]) => (
               <div key={tipo}>
