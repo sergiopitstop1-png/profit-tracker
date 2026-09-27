@@ -276,6 +276,43 @@ const [importReport, setImportReport] = useState(null)
   loadData()
 }, [])
   useEffect(() => { caricaLucyDaSupabase() }, [])
+// 27/09/2026 — FOTOGRAFIA DEL GIORNO: al primo caricamento della giornata il Profit Tracker salva da solo le bet
+// di profilazione sport previste oggi (stesse regole di Lucy), anche se gli incroci non vengono preparati.
+// Così una giornata saltata non si perde: dal giorno dopo Lucy le ripropone come arretrate, in fondo al giro.
+const fotoGiornoRef = React.useRef(false)
+useEffect(() => {
+  if (fotoGiornoRef.current || lucySync?.stato !== 'ok' || !books.length) return
+  fotoGiornoRef.current = true
+  const oggiL = lucyOggi()
+  try { if (localStorage.getItem('pt_foto_attese') === oggiL) return } catch {}
+  ;(async () => {
+    try {
+      const sportRx = /(sport|bet\b|scommess|superquote|doppia|exchange)/i
+      const casinoRx = /(slot|casin[oò]|blackjack|roulette|numeri)/i
+      const soloCasinoProf = b => /^(sisal|snai|pokerstars)$/i.test(String(b?.nome || '').toLowerCase().replace(/[^a-z0-9]/g, ''))
+      const righe = []
+      for (const book of books.filter(b => b.profilo_livello === 'attivo')) {
+        const agenda = getAzioniOggi(book)
+        if (!agenda || agenda.tipo === 'mantenimento') continue
+        if (soloCasinoProf(book) || lucyMaiSport(book) || lucyNoSportInProfilazione(book)) continue
+        let azione = (agenda.azioni || []).find(a => sportRx.test(a) && !casinoRx.test(a))
+        if (!azione) azione = azioneSportDopoRicaricaLucy(book, agenda)
+        if (!azione) continue
+        const betRichieste = getNumeroBetRichieste(azione)
+        const budgetTotale = variaBudgetGiornaliero(book, getBudgetSportTotale(book, azione))
+        const stakes = distribuisciStakeVariabili(book, betRichieste, budgetTotale)
+        for (let i = 0; i < betRichieste; i++) righe.push({ key: `${oggiL}|${book.id}|${i + 1}`, data: oggiL, book_id: String(book.id), bet_numero: i + 1, bet_richieste: betRichieste, stake: Number(stakes[i] || 0), budget_totale: Number(budgetTotale || 0), azione, rec: { book: book.nome, intestatario: book.intestatario, auto: true } })
+      }
+      if (righe.length) {
+        const uid = await lucyUserIdSync()
+        const { error } = await supabase.from('lucy_bet_attese').upsert(righe.map(r => ({ ...r, user_id: uid })), { onConflict: 'user_id,key', ignoreDuplicates: true })
+        if (error) throw error
+      }
+      try { localStorage.setItem('pt_foto_attese', oggiL) } catch {}
+    } catch (e) { console.warn('[Lucy] fotografia delle bet del giorno non riuscita:', e?.message || e) }
+  })()
+}, [lucySync, books])
+
 // 27/09/2026 — RETE DI SICUREZZA LUCY
 // 1) Se ieri (o prima) gli incroci sono stati preparati ma nessuna bet confermata, le bet attese non erano salvate
 //    e sparivano: ora si salvano al primo caricamento del giorno dopo, così Lucy le ripropone.
@@ -299,7 +336,7 @@ useEffect(() => {
       const oggiL = lucyOggi()
       const uid = await lucyUserIdSync()
       const { data: righe } = await supabase.from('lucy_bet_attese').select('*').eq('user_id', uid)
-        .gte('data', aggiungiGiorniLucy(oggiL, -60)).lt('data', aggiungiGiorniLucy(oggiL, -LUCY_RECUPERO_MAX_GG))
+        .gte('data', aggiungiGiorniLucy(oggiL, -365)).lt('data', aggiungiGiorniLucy(oggiL, -LUCY_RECUPERO_MAX_GG))
       const nuove = []
       for (const r of righe || []) {
         const book = books.find(b => String(b.id) === String(r.book_id))
@@ -2935,7 +2972,7 @@ const LUCY_MANT_MIN = 5          // puntata minima su un conto di mantenimento
 const LUCY_MANT_MAX = 30         // puntata massima su un conto di mantenimento
 const LUCY_MANT_MAX_TOT = 90     // oltre questo buco totale: una sola puntata extra su un conto in profilazione
 const LUCY_MANUALI_MAX = 12         // V38: massimo incroci in modalità manuale (senza quote) per volta
-const LUCY_RECUPERO_MAX_GG = 3     // V33: per quanti giorni una bet arretrata di profilazione viene ancora riproposta
+const LUCY_RECUPERO_MAX_GG = 90    // 27/09/2026 (era 3): una bet arretrata di profilazione si ripropone finché il conto è in profilazione, in coda dopo quelle del giorno
 const LUCY_MANT_RIPOSO_GG = 28   // giorni di riposo tra due usi dello stesso conto (soglia inattività 45)
 
 // V30: assegnazione degli esiti ai conti di profilazione a COSTO MINIMO (solo senza segnale PronoX).
@@ -3553,7 +3590,8 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
       console.warn('[Lucy V33] recuperi non disponibili:',e?.message||e)
     }
     setLucyRecuperi(recuperi.map(r=>({book:r.book.nome,intestatario:r.book.intestatario,dataOrigine:r.dataOrigine,stake:r.stake})))
-    slot.unshift(...recuperi.map(r=>({
+    // 27/09/2026: le arretrate vanno IN FONDO (prima quelle del giorno), così non bloccano il giro normale
+    slot.push(...recuperi.map(r=>({
       book:r.book, azione:r.azione||'Recupero', betRichieste:r.betRichieste, betNumero:r.betNumero,
       budgetBase:r.budgetTotale, budgetTotale:r.budgetTotale, stakeVariabili:[r.stake], importoIndicativo:r.stake,
       quotaMin:getQuotaMinSport(r.book,r.azione||''), tipoConto:'profilazione',
@@ -5777,9 +5815,11 @@ const agendaRecuperoLucy = () => {
     const x = perBook.get(book.id) || { book, agenda: { tipo: 'recupero', azioni: [], avvisiIds: [] } }
     x.agenda.azioni.push(`🔧 Recupero (${lbl}): ${a.titolo}`)
     x.agenda.avvisiIds.push(a.id)
+    if (!x.agenda.dataPiuVecchia || a.data_prevista < x.agenda.dataPiuVecchia) x.agenda.dataPiuVecchia = a.data_prevista
     perBook.set(book.id, x)
   }
-  return [...perBook.values()]
+  // prima i recuperi di oggi, poi quelli rimasti indietro (in fondo al giro)
+  return [...perBook.values()].sort((x, y) => String(y.agenda.dataPiuVecchia).localeCompare(String(x.agenda.dataPiuVecchia)))
 }
 
 // "Pagato" su un avviso (mensilità, annuale o benvenuto) dal banner, da Accantonamenti o dal riepilogo Clienti.
