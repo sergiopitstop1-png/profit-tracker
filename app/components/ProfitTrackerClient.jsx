@@ -13,6 +13,7 @@ import { RisparmiCard, calcolaRisparmi, maturaInteressi, normalizza as normalizz
 import SlotConsigliate, { PulsanteSlot, parlaDiSlot } from './SlotConsigliate'
 import RecuperoContiPanel, { contiInRecupero, azioniRecuperoOggi, limitazioniDaNota, daPromuovere, recuperoSport } from './RecuperoConti'
 import AvvisiContiPanel from './AvvisiConti'
+import { impostaPausaRecupero } from './RecuperoConti'
 
 // V32 — rete di sicurezza 60 giorni sui conti in MANTENIMENTO
 const MANT_LIMITE_GG = 60        // limite massimo tra due movimentazioni dello stesso conto
@@ -20,6 +21,9 @@ const MANT_ANTICIPO_GG = 15      // si comincia a proporre il conto dopo (60 - 1
 const MANT_GIORNO_ZERO = '2026-09-19' // partenza del protocollo: prima scadenza dei conti senza storico = giorno zero + offset stabile (0-59)
 const giorniTraLucy = (a, b) => Math.floor((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000)
 const aggiungiGiorniLucy = (d, n) => new Date(new Date(d + 'T00:00:00').getTime() + n * 86400000).toLocaleDateString('sv-SE')
+// 27/09/2026 — PAUSA PROFILAZIONE (es. sosta per le nazionali). Periodi dalla tabella profilazione_pause:
+// { inizio, fine (null = in corso), ripresa_prevista, modo: 'sport' | 'totale' }. Letti dalle funzioni di agenda.
+let PAUSE_PROF = []
 import DashboardTab from './DashboardTab'
 import AccantonamentiTab from './AccantonamentiTab'
 import SmsTab from './SmsTab'
@@ -150,6 +154,10 @@ const [clientiFiltro, setClientiFiltro] = useState({ testo: '', stato: 'tutti', 
 const [recuperiConti, setRecuperiConti] = useState([])
 // 27/09/2026 — avvisi persistenti (tabella avvisi_conti), vedi AvvisiConti.jsx. null = non ancora caricati.
 const [avvisiConti, setAvvisiConti] = useState(null)
+// 27/09/2026 — pausa profilazione
+const [pauseProf, setPauseProfState] = useState([])
+const [pausaForm, setPausaForm] = useState(null)   // { modo, ripresa } quando il pannello è aperto
+const setPauseProf = (righe) => { PAUSE_PROF = righe || []; setPauseProfState(PAUSE_PROF) }
 // Appena un book ha "limitato bonus"/"limitato sport" nella nota, registra l'inizio del recupero (una volta sola).
 const recuperiRegistratiRef = React.useRef(new Set())
 useEffect(() => {
@@ -276,6 +284,47 @@ const [importReport, setImportReport] = useState(null)
   loadData()
 }, [])
   useEffect(() => { caricaLucyDaSupabase() }, [])
+// 27/09/2026 — PAUSA PROFILAZIONE: caricamento; una pausa con data di ripresa passata si chiude da sola
+useEffect(() => {
+  supabase.from('profilazione_pause').select('*').order('inizio', { ascending: true }).then(async ({ data, error }) => {
+    if (error) return
+    let righe = data || []
+    const oggiIso = new Date().toLocaleDateString('sv-SE')
+    const daChiudere = righe.filter(p => !p.fine && p.ripresa_prevista && p.ripresa_prevista <= oggiIso)
+    for (const p of daChiudere) {
+      const { data: agg } = await supabase.from('profilazione_pause').update({ fine: p.ripresa_prevista }).eq('id', p.id).select().single()
+      if (agg) righe = righe.map(x => x.id === agg.id ? agg : x)
+    }
+    setPauseProf(righe)
+  })
+}, [])
+useEffect(() => {
+  impostaPausaRecupero({
+    giorni: (da, a) => giorniPausaBook(null, da, a),
+    totale: () => pausaProfAttiva()?.modo === 'totale',
+  })
+}, [pauseProf])
+async function avviaPausaProf(modo, ripresa) {
+  const oggiIso = new Date().toLocaleDateString('sv-SE')
+  if (ripresa && ripresa <= oggiIso) { setErrorMessage('La data di ripresa deve essere da domani in poi'); return }
+  const cosa = modo === 'totale' ? 'TUTTA la profilazione (sport e casinò)' : 'la profilazione SPORT (slot e casinò continuano)'
+  if (!window.confirm(`Metto in pausa ${cosa} da oggi${ripresa ? ` fino al ${ripresa.split('-').reverse().join('/')}` : ' finché non premi Riprendi'}?\n\nDurante la pausa: niente agenda né incroci di Lucy, nessuna bet arretrata.\nAlla ripresa cicli, 60 giorni del mantenimento e 14 giorni del recupero slittano dei giorni di pausa.`)) return
+  const { data, error } = await supabase.from('profilazione_pause').insert([{ inizio: oggiIso, modo, ripresa_prevista: ripresa || null }]).select().single()
+  if (error) { setErrorMessage('Pausa non salvata: lancia profilazione_pause.sql (' + error.message + ')'); return }
+  setPauseProf([...PAUSE_PROF, data]); setPausaForm(null)
+  setMessage(`⏸ Profilazione in pausa${ripresa ? ` fino al ${ripresa.split('-').reverse().join('/')}` : ''}`)
+}
+async function riprendiProf() {
+  const p = pausaProfAttiva(); if (!p) return
+  const oggiIso = new Date().toLocaleDateString('sv-SE')
+  const gg = giorniTraLucy(p.inizio, oggiIso)
+  if (!window.confirm(`Riprendo la profilazione da oggi?\nLa pausa è durata ${gg} ${gg === 1 ? 'giorno' : 'giorni'}: cicli e scadenze slittano di altrettanto.`)) return
+  const { data, error } = await supabase.from('profilazione_pause').update({ fine: oggiIso }).eq('id', p.id).select().single()
+  if (error) { setErrorMessage('Errore: ' + error.message); return }
+  setPauseProf(PAUSE_PROF.map(x => x.id === data.id ? data : x))
+  setMessage('▶ Profilazione ripresa')
+}
+
 // 27/09/2026 — CAMBIO GIORNO: se la pagina resta aperta da un giorno all'altro, si ricarica da sola
 // (così partono fotografia del giorno, avvisi e recuperi della nuova giornata). Controllo ogni 5 minuti e quando
 // torni sulla scheda; non ricarica mentre stai scrivendo in un campo.
@@ -430,6 +479,34 @@ function lucyNoSportInProfilazione(book) {
 }
 // 26/09/2026: un conto "limitato sport" (nota) o con sport bloccato per sempre (books.sport_bloccato)
 // non entra MAI negli incroci sport di Lucy (profilazione, mantenimento, coperture, extra). I "limitato bonus" sì.
+// ─── PAUSA PROFILAZIONE ─────────────────────────────────────────────
+// modo 'sport': si fermano profilazione e mantenimento sport (slot/casinò continuano). modo 'totale': si ferma tutto.
+// I giorni di pausa NON contano: cicli di profilazione, 60 giorni del mantenimento e 14 giorni del recupero slittano.
+function profiloCasinoPausa(book) {
+  return lucyNoSportInProfilazione(book) || isSoloCasino(book?.nome) || /casin|slot|vip/i.test(String(getVarianteProfilazione(book)?.key || ''))
+}
+function finePausaProf(p) { return p.fine || (p.ripresa_prevista && p.ripresa_prevista <= lucyOggi() ? p.ripresa_prevista : null) }
+function pausaProfAttiva() { const o = lucyOggi(); return PAUSE_PROF.find(p => o >= p.inizio && (!finePausaProf(p) || o < finePausaProf(p))) || null }
+function pausaValePerBook(p, book) { return p.modo === 'totale' || !profiloCasinoPausa(book) }
+function bookInPausaOggi(book) { const p = pausaProfAttiva(); return !!p && pausaValePerBook(p, book) }
+// giorni di pausa che valgono per il conto nell'intervallo [da, a)
+function giorniPausaBook(book, da, a) {
+  if (!da || !a || da >= a || !PAUSE_PROF.length) return 0
+  let n = 0
+  for (const p of PAUSE_PROF) {
+    if (book && !pausaValePerBook(p, book)) continue
+    const f = finePausaProf(p) || a
+    const s = p.inizio > da ? p.inizio : da, e = f < a ? f : a
+    if (e > s) n += giorniTraLucy(s, e)
+  }
+  return n
+}
+// inizio del ciclo spostato in avanti dei giorni di pausa (il ciclo "si ferma" durante la pausa)
+function inizioCicloEff(book) {
+  const i = String(book.profilo_ciclo_inizio).slice(0, 10)
+  return aggiungiGiorniLucy(i, giorniPausaBook(book, i, lucyOggi()))
+}
+
 function contoSportLimitato(book) {
   return !!book?.sport_bloccato || /limitat[oa]\s+sport/i.test(String(book?.note || ''))
 }
@@ -1041,7 +1118,7 @@ function getAgendaAttivoV2(book, giorno, settimana) {
     const oggiD = new Date()
     const hsMese = k => hashStrLucy(`${book.id}|${book.nome}|${book.intestatario}|${oggiD.getFullYear()}-${oggiD.getMonth()}|sisal|${variante}|${k}`)
     const giornoMese = k => 1 + (hsMese(k) % 28)
-    const inizio = book.profilo_ciclo_inizio ? new Date(`${book.profilo_ciclo_inizio}T00:00:00`) : null
+    const inizio = book.profilo_ciclo_inizio ? new Date(`${inizioCicloEff(book)}T00:00:00`) : null
     const giorniCiclo = inizio ? Math.floor((oggiD - inizio) / 86400000) : -1
     const azioni = []
     const R = [1, 2, 3][hs('ric') % 3]
@@ -1119,7 +1196,7 @@ function getAgendaAttivoV2(book, giorno, settimana) {
     // Giorno 0 (meglio lunedì/martedì): deposito 500€ + Casinò Live 1000€ in due colpi da 500€.
     // Giorno 1: volume slot 200-300€; se hai vinto, finito il volume preleva e lascia meno di 50€. Poi fermo.
     // Fine dei 14 giorni: promemoria post-ciclo (risposta del conto, riservate, ripresa dopo 1 mese senza promo).
-    const inizio = book.profilo_ciclo_inizio ? new Date(`${book.profilo_ciclo_inizio}T00:00:00`) : null
+    const inizio = book.profilo_ciclo_inizio ? new Date(`${inizioCicloEff(book)}T00:00:00`) : null
     const gc = inizio ? Math.floor((new Date() - inizio) / 86400000) : 0
     if (gc === 0) return [`StarCasinò: deposita almeno ${PROTOCOLLO_STARCASINO.ricarica}€ + Casinò Live 1000€ totali (due colpi da 500€)`]
     if (gc === 1) return [`StarCasinò: volume ${PROTOCOLLO_STARCASINO.slot}€ slot solite consigliate — SE HAI VINTO, finito il volume preleva e lascia meno di 50€; poi conto FERMO 14 giorni`]
@@ -1139,7 +1216,7 @@ function getAgendaAttivoV2(book, giorno, settimana) {
     // 26/09/2026 — scheda Profiliamo BetFlag: un giro all'inizio del ciclo, poi conto FERMO 2 mesi
     // (prima era un giorno ogni 60 da una data fissa, scollegato dall'inizio reale della profilazione).
     // Fine dei 2 mesi: promemoria post-ciclo (promo arrivate → usale e mantieni; no → ripeti la profilazione).
-    const inizio = book.profilo_ciclo_inizio ? new Date(`${book.profilo_ciclo_inizio}T00:00:00`) : null
+    const inizio = book.profilo_ciclo_inizio ? new Date(`${inizioCicloEff(book)}T00:00:00`) : null
     const gc = inizio ? Math.floor((new Date() - inizio) / 86400000) : 0
     if (gc === 0) return [`BetFlag: deposita almeno ${PROTOCOLLO_BETFLAG.ricarica}€ + gioca almeno ${PROTOCOLLO_BETFLAG.giocato}€ sui giochi offline oggi stesso · stanotte PRELEVA e lascia il conto fermo 2 mesi (non usarlo nemmeno per bancare)`]
     return null
@@ -1180,7 +1257,7 @@ function getAgendaAttivoV2(book, giorno, settimana) {
   }
 
   if (tipo === 'gruppo_lottomatica') {
-    const inizio = book.profilo_ciclo_inizio ? new Date(`${book.profilo_ciclo_inizio}T00:00:00`) : new Date()
+    const inizio = book.profilo_ciclo_inizio ? new Date(`${inizioCicloEff(book)}T00:00:00`) : new Date()
     const oggi = new Date()
     const giorniCiclo = Math.max(0, Math.floor((oggi - inizio) / 86400000))
     const variante = getVarianteProfilazione(book)?.key || 'casino'   // Planetwin365: sempre Casinò
@@ -1227,7 +1304,7 @@ function getAgendaAttivoV2(book, giorno, settimana) {
     // 26/09/2026 — scheda Profiliamo QuiGioco: UN solo giro per ciclo (non ogni settimana).
     // Giorno 0 (inizio ciclo): ricarica + 2/3 bet piccole + sblocco del resto; 2-3 giorni dopo: preleva e lascia 5-20€;
     // poi conto fermo 14 giorni (a fine ciclo ci pensa il promemoria post-ciclo: promo sì → giochino, promo no → da capo).
-    const inizio = book.profilo_ciclo_inizio ? new Date(`${book.profilo_ciclo_inizio}T00:00:00`) : null
+    const inizio = book.profilo_ciclo_inizio ? new Date(`${inizioCicloEff(book)}T00:00:00`) : null
     if (!inizio) return ['QuiGioco: ricarica 50-100€ + gioca 2/3 bet piccole (da 10€ a 25€ max), poi sblocca il resto su Virtuali o Starburst/simili a spin basso']
     const gc = Math.floor((new Date() - inizio) / 86400000)
     const giornoPrelievo = 2 + (hashBook(book.id, 8200) % 2)   // 2 o 3 giorni dopo
@@ -1540,7 +1617,7 @@ const RICHIAMO_NUOVO_CICLO_GG = 60      // in ogni caso: nuovo ciclo ogni 60 gio
 function getPromemoriaPostCiclo(book, oggiStr, tipo) {
   const durata = DURATA_CICLO_PROFILAZIONE_GG[tipo]
   if (!durata || !book?.profilo_ciclo_inizio) return null
-  const fine = aggiungiGiorniLucy(String(book.profilo_ciclo_inizio).slice(0, 10), durata)
+  const fine = aggiungiGiorniLucy(inizioCicloEff(book), durata)   // 27/09/2026: + giorni di pausa
   const giorniDalFine = giorniTraLucy(fine, oggiStr)
   if (giorniDalFine < 0) return null                                   // ciclo ancora in corso
   const ultima = book.profilo_ultima_riservata ? String(book.profilo_ultima_riservata).slice(0, 10) : null
@@ -1637,6 +1714,7 @@ function getAzioniOggiBase(book) {
       }
     }
     // Fallback: book non ancora ri-profilato -> vecchio sistema, invariato
+    if (bookInPausaOggi(book)) return null   // 27/09/2026: profilazione in pausa
     const azioniGiorno = getAgendaAttivo(book, giorno, settimana)
     if (!azioniGiorno || azioniGiorno.length === 0) return null
     return {
@@ -1658,11 +1736,13 @@ function getAzioniOggiBase(book) {
     const offset = hashBook(book.id, 6060) % 60
     const dovutoIniziale = aggiungiGiorniLucy(MANT_GIORNO_ZERO, offset)
     const ultimo = ultimoMovimentoBookLucy(book.id)
-    const prossima = ultimo ? aggiungiGiorniLucy(ultimo, MANT_LIMITE_GG - MANT_ANTICIPO_GG) : dovutoIniziale
+    if (bookInPausaOggi(book)) return null   // 27/09/2026: profilazione in pausa
+    const pausaDaUltimo = ultimo ? giorniPausaBook(book, ultimo, oggiStr) : giorniPausaBook(book, dovutoIniziale, oggiStr)
+    const prossima = ultimo ? aggiungiGiorniLucy(ultimo, MANT_LIMITE_GG - MANT_ANTICIPO_GG + pausaDaUltimo) : aggiungiGiorniLucy(dovutoIniziale, pausaDaUltimo)
     if (oggiStr < prossima) return null
     // "scaduto" solo se c'è uno storico che lo prova (≥ 60 giorni dall'ultimo movimento). Senza storico non si
     // può sapere da quanto il conto è fermo: se la prima scadenza del protocollo è passata è solo "in ritardo".
-    const scaduto = ultimo ? giorniTraLucy(ultimo, oggiStr) >= MANT_LIMITE_GG : false
+    const scaduto = ultimo ? giorniTraLucy(ultimo, oggiStr) - pausaDaUltimo >= MANT_LIMITE_GG : false
     const ritardo = !ultimo && oggiStr > dovutoIniziale
     const badge = scaduto ? '🔴 Mantenimento SCADUTO' : ritardo ? '🟠 Mantenimento in ritardo' : '🟡 Mantenimento'
     if (isSoloCasino(book.nome)) return { tipo: 'mantenimento', scaduto, ritardo, azioni: ['Sessione Casinò/slot da 5-30€'], badge }
@@ -5821,6 +5901,7 @@ const agendaRecuperoOggi = () => contiInRecupero(books, recuperiConti, getRecupe
 // AVVISI aperti di oggi e in ritardo: così un recupero non fatto ieri torna negli incroci invece di perdersi.
 // Nell'agenda a video non compaiono (stanno negli Avvisi), qui servono solo a Lucy.
 const agendaRecuperoLucy = () => {
+  if (pausaProfAttiva()) return []   // in pausa i recuperi sport restano congelati in coda
   const oggiIso = new Date().toLocaleDateString('sv-SE')
   const perBook = new Map()
   for (const a of avvisiConti || []) {
@@ -6225,6 +6306,17 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         })()}
         {errorMessage && <div style={errorBox}>{errorMessage}</div>}
 
+        {(() => { const p = pausaProfAttiva(); if (!p) return null; const d = x => String(x).split('-').reverse().join('/'); return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12, padding: '10px 16px', borderRadius: 14, border: '2px solid rgba(251,191,36,0.6)', background: 'linear-gradient(135deg, rgba(251,191,36,0.14), rgba(217,119,6,0.08))' }}>
+            <span style={{ fontSize: 22 }}>⏸</span>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={{ color: '#fbbf24', fontWeight: 900, fontSize: 15 }}>PROFILAZIONE {p.modo === 'totale' ? 'IN PAUSA (TUTTO)' : 'SPORT IN PAUSA'}</div>
+              <div style={{ color: '#fde68a', fontSize: 12, marginTop: 2 }}>Dal {d(p.inizio)}{p.ripresa_prevista ? ` · ripresa automatica il ${d(p.ripresa_prevista)}` : ' · finché non riprendi'}{p.modo === 'sport' ? ' · slot e casinò continuano' : ''} · cicli e scadenze slittano dei giorni di pausa</div>
+            </div>
+            <button onClick={riprendiProf} style={{ background: '#16a34a', color: 'white', border: 0, borderRadius: 10, padding: '9px 16px', fontWeight: 900, fontSize: 13, cursor: 'pointer' }}>▶ Riprendi</button>
+          </div>
+        ) })()}
+
         <nav style={tabsBar}>
           <button style={activeTab === 'dashboard' ? activeTabButton : tabButton} onClick={() => handleTabChange('dashboard')}>Dashboard</button>
           <button style={activeTab === 'accantonamenti' ? activeTabButton : tabButton} onClick={() => handleTabChange('accantonamenti')}>💰 Accantonamenti</button>
@@ -6537,8 +6629,21 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               <button style={btn('#0f766e', lucySportProposte.length > 0)} disabled={!lucySportProposte.length} onClick={() => setLucyTabellaAperta(true)}>📊 Tabella bet{lucySportProposte.length ? ` · ${cont.fatte}/${cont.tot} fatte` : ''}</button>
               <button style={btn('#7c3aed', lucyLiveProposte.length > 0)} disabled={!lucyLiveProposte.length} onClick={() => setLucyLiveTabellaAperta(true)}>🎰 Tabella Live{lucyLiveProposte.length ? ` · ${lucyLiveProposte.length}` : ''}</button>
               <button style={btn('#16a34a', lucySportProposte.length > 0)} disabled={!lucySportProposte.length} onClick={confermaGiocateLucy}>✓ Conferma e archivia</button>
-              <button title="Impostazioni e dettagli di Lucy" onClick={() => setImpostazioniLucyAperte(v => !v)} style={{ ...btn('#334155'), marginLeft: 'auto', padding: '10px 12px' }}>⚙️</button>
+              {pausaProfAttiva()
+                ? <button style={{ ...btn('#16a34a'), marginLeft: 'auto' }} onClick={riprendiProf}>▶ Riprendi profilazione</button>
+                : <button style={{ ...btn('#b45309'), marginLeft: 'auto' }} onClick={() => setPausaForm(pausaForm ? null : { modo: 'sport', ripresa: '' })}>⏸ Pausa</button>}
+              <button title="Impostazioni e dettagli di Lucy" onClick={() => setImpostazioniLucyAperte(v => !v)} style={{ ...btn('#334155'), padding: '10px 12px' }}>⚙️</button>
             </div>
+            {pausaForm && !pausaProfAttiva() && (
+              <div style={{ marginTop: 10, padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(251,191,36,0.45)', background: 'rgba(251,191,36,0.07)', display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', fontSize: 12, color: '#e2e8f0' }}>
+                <b style={{ color: '#fbbf24' }}>⏸ Metti in pausa</b>
+                <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}><input type="radio" checked={pausaForm.modo === 'sport'} onChange={() => setPausaForm({ ...pausaForm, modo: 'sport' })} /> Solo sport <span style={{ color: '#94a3b8' }}>(slot e casinò continuano)</span></label>
+                <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}><input type="radio" checked={pausaForm.modo === 'totale'} onChange={() => setPausaForm({ ...pausaForm, modo: 'totale' })} /> Tutto</label>
+                <label style={{ display: 'flex', gap: 5, alignItems: 'center' }}>Ripresa automatica il <input type="date" value={pausaForm.ripresa} min={aggiungiGiorniLucy(lucyOggi(), 1)} onChange={e => setPausaForm({ ...pausaForm, ripresa: e.target.value })} style={{ background: '#020617', color: '#f8fafc', border: '1px solid #475569', borderRadius: 6, padding: '4px 6px' }} /> <span style={{ color: '#94a3b8' }}>(facoltativa)</span></label>
+                <button style={btn('#b45309')} onClick={() => avviaPausaProf(pausaForm.modo, pausaForm.ripresa)}>Conferma pausa</button>
+                <button style={btn('#334155')} onClick={() => setPausaForm(null)}>Annulla</button>
+              </div>
+            )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 9, fontSize: 12, color: '#cbd5e1' }}>
               <span style={{ width: 10, height: 10, borderRadius: 99, background: colore, display: 'inline-block' }} />
               <span style={{ fontWeight: 700, color: testoColore }}>{testoStato}</span>
