@@ -12,6 +12,7 @@ import { calcolaRoyalty, RoyaltyRiepilogo, RoyaltyBadge, RoyaltyModal, inserisci
 import { RisparmiCard, calcolaRisparmi, maturaInteressi, normalizza as normalizzaRisparmi } from './RisparmiPanel'
 import SlotConsigliate, { PulsanteSlot, parlaDiSlot } from './SlotConsigliate'
 import RecuperoContiPanel, { contiInRecupero, azioniRecuperoOggi, limitazioniDaNota } from './RecuperoConti'
+import AvvisiContiPanel from './AvvisiConti'
 
 // V32 — rete di sicurezza 60 giorni sui conti in MANTENIMENTO
 const MANT_LIMITE_GG = 60        // limite massimo tra due movimentazioni dello stesso conto
@@ -147,6 +148,8 @@ const [slotPopup, setSlotPopup] = useState(null)
 const [clientiFiltro, setClientiFiltro] = useState({ testo: '', stato: 'tutti', royalty: 'tutti', ordine: 'sim' })
 // Recupero conti limitati (tabella recupero_conti), vedi RecuperoConti.jsx
 const [recuperiConti, setRecuperiConti] = useState([])
+// 27/09/2026 — avvisi persistenti (tabella avvisi_conti), vedi AvvisiConti.jsx. null = non ancora caricati.
+const [avvisiConti, setAvvisiConti] = useState(null)
 // Appena un book ha "limitato bonus"/"limitato sport" nella nota, registra l'inizio del recupero (una volta sola).
 const recuperiRegistratiRef = React.useRef(new Set())
 useEffect(() => {
@@ -752,7 +755,8 @@ const PROTOCOLLI_EXPERT = {
   'netbet': {
     label: 'NetBet Expert',
     // 26/09/2026: riallineato alla scheda Profiliamo + schede operative (ricarica almeno 100€, saldo tra slot e casinò offline)
-    azioni: ['Fai le promozioni VXT FUN 1/2 volte a settimana', 'Fai le cashback quando disponibili, almeno 1 volta a settimana', "Sblocca il saldo su diversi giochi ad alto RTP o metodi soliti — cerca di evitare di fare il cecchino e movimenta leggermente di più", 'Fallo solo sui conti che possono fornire diversi documenti nel caso peggiore', 'Preleva dopo aver fatto tutto offline, qualche giorno dopo', 'Finché manda VXT ripeti'],
+    // 27/09/2026: Casinò Expert e Profilazione Expert sono la stessa cosa (Sergio) → una sola profilazione; ricarica all'occorrenza
+    azioni: ['Ricarica almeno 100€ all\'occorrenza e gioca il saldo tra slot (vedi lista) e casinò offline', 'Fai le promozioni VXT FUN 1/2 volte a settimana', 'Fai le cashback quando disponibili, almeno 1 volta a settimana', "Sblocca il saldo su diversi giochi ad alto RTP o metodi soliti — cerca di evitare di fare il cecchino e movimenta leggermente di più", 'Fallo solo sui conti che possono fornire diversi documenti nel caso peggiore', 'Preleva dopo aver fatto tutto offline, qualche giorno dopo', 'Finché manda VXT ripeti'],
     recupero: ['Se limitato alle promozioni: vedi recupero stile Eurobet o Lottomatica e richiedi valutazione']
   },
   'admiral': {
@@ -783,6 +787,8 @@ function getTipoProtocolloAttivo(nomeBook) {
   if (['sisal', 'pokerstars', 'snai'].some(k => nome.includes(k))) return 'vip_fase12'
   if (['betsson', 'william hill', 'netbet', 'admiral'].some(k => nome.includes(k))) return 'expert'
   // 26/09/2026 — schede Profiliamo "una settimana al mese" (Sport oppure Casinò): DaznBet e gruppo E-play24 (E-play24, Sportium, Betwin360)
+  // 27/09/2026 — Totosì non ha scheda Profiliamo: protocollo interno di Sergio (Sport stile E-play24, importi al 30%)
+  if (nome.normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes('totosi')) return 'totosi'
   if (BOOK_SETTIMANA_MESE.some(k => nome.replace(/[^a-z0-9]/g, '').includes(k))) return 'settimana_mese'
   if (BOOK_STANDARD.some(k => nome.includes(k))) return 'standard'
   return null
@@ -800,6 +806,17 @@ function getRecuperoProtocollo(nomeBook, tipo) {
   const stileLotto = (fonte) => ({ disponibile: true, fonte, nota: 'la scheda rimanda al recupero stile Eurobet / Lottomatica', passi: LS, periodica: VOLUME_BLANDO_SETTIMANALE })
   // Bet365 (indicazione di Sergio, 25/09/2026): una volta limitato o chiuso NON si recupera, qualunque limitazione
   if (t === 'bet365') return { disponibile: false, motivo: 'Bet365: una volta limitato o chiuso NON si recupera' }
+  // 27/09/2026 (Sergio): Betpassion limitato bonus → come Bwin sport (bet da 2€ + richiesta di sblocco)
+  if (tipo !== 'sport' && n.includes('betpassion')) return {
+    disponibile: true, fonte: 'Regola Bwin sport (indicazione di Sergio)',
+    passi: ['Fai tante bet da 2€ in modo da sbloccarlo', 'Successivamente chiedi in chat lo sblocco dei limiti sulle promozioni', 'In alternativa attendi una promozione deposito e poi richiedi lo sblocco'],
+    periodica: { frequenza: 'settimanale', testo: 'tante bet da 2€ per sbloccare i limiti' },
+    testoContatto: 'chiedi in chat lo sblocco dei limiti (vuoi giocare)'
+  }
+  // 27/09/2026 (Sergio): 888sport → recupero come Lottomatica
+  if (tipo !== 'sport' && n.includes('888')) return { disponibile: true, fonte: 'Recupero Lottomatica (indicazione di Sergio)', passi: LS, periodica: VOLUME_BLANDO_SETTIMANALE }
+  // 27/09/2026 (Sergio): Totosì → recupero del gruppo E-play24 (stile Eurobet / Lottomatica)
+  if (tipo !== 'sport' && t === 'totosi') return stileLotto('Recupero gruppo E-play24 (indicazione di Sergio)')
   if (tipo === 'sport') {
     // 26/09/2026 (Sergio): la regola di recupero sport della scheda Bwin vale per TUTTI i limitati sport
     return {
@@ -829,7 +846,7 @@ function getRecuperoProtocollo(nomeBook, tipo) {
   if (t === 'expert' && n.includes('william hill')) return stileLotto('Scheda William Hill (Profiliamo)')
   if (t === 'expert' && n.includes('admiral')) return stileLotto('Scheda AdmiralBet (Profiliamo)')
   if (t === 'expert' && n.includes('betsson')) return stileLotto('Scheda Betsson (Profiliamo)')
-  if (t === 'expert' && n.includes('netbet')) return stileLotto('Scheda NetBet (Profiliamo)')
+  if (t === 'expert' && n.includes('netbet')) return { ...stileLotto('Scheda NetBet (Profiliamo)'), passi: [...LS, 'Richiedi la valutazione del conto (scheda NetBet)'], testoContatto: 'contatta il supporto da GIOCATORE e richiedi la valutazione del conto (scheda NetBet)' }
   if (t === 'mylotteryplay') return stileLotto('Scheda MyLotteryPlay (Profiliamo)')
   if (t === 'bwin') return stileLotto('Scheda Bwin (Profiliamo)')
   if (t === 'settimana_mese') return stileLotto(n.includes('dazn') ? 'Scheda DaznBet (Profiliamo)' : 'Scheda gruppo E-play24 (Profiliamo)')
@@ -859,12 +876,13 @@ function getAgendaAttivoV2(book, giorno, settimana) {
   // non ricaricano tutti lo stesso giorno (se capita a più conti insieme non è un problema).
   const hsTipo = k => hashStrLucy(`${book.id}|${book.nome}|${book.intestatario}|sett${settimana}|${tipo}|${k}`)
 
-  if (tipo === 'settimana_mese') {
+  if (tipo === 'settimana_mese' || tipo === 'totosi') {
     const isDazn = nome.includes('dazn')
+    const isTotosi = tipo === 'totosi'
     const etichetta = book.nome || 'Conto'
     // 26/09/2026 — schede Profiliamo DaznBet: Profilazione Sport OPPURE Casinò (variante), sempre UNA settimana al mese.
     // La settimana cambia per conto e per mese; ricarica lun/mar/mer, la giocata in un giorno successivo della stessa settimana.
-    const varDazn = getVarianteProfilazione(book)?.key || 'sport'
+    const varDazn = isTotosi ? 'sport' : (getVarianteProfilazione(book)?.key || 'sport')
     const oggiD = new Date()
     const anno = oggiD.getFullYear(), mese = oggiD.getMonth()
     const hsM = k => hashStrLucy(`${book.id}|${book.nome}|${book.intestatario}|${anno}-${mese}|${isDazn ? 'dazn' : 'settmese'}|${k}`)
@@ -878,9 +896,11 @@ function getAgendaAttivoV2(book, giorno, settimana) {
     // Le aggiunte "VXT / alto RTP / cambia importo tra gli amici" vengono dalle schede operative di DaznBet
     // schede operative: DaznBet e E-play24 variano la ricarica tra gli amici e fanno le VXT della settimana;
     // slot ad alto RTP (DaznBet) o a spin bassi (E-play24); copertura sport su Bet365 (DaznBet) o AdmiralBet (E-play24)
+    if (isTotosi && oggiNum === giornoRic) return [`${etichetta}: ricarica 15-30€ — varia l'importo tra gli amici (settimana di profilazione sport del mese · protocollo interno)`]
+    if (isTotosi && oggiNum === giornoBet) return [`${etichetta}: gioca 2/3 bet da 3 a 8€ — quota min 1.35, refertazione entro sera/gg dopo`]
     if (oggiNum === giornoRic) return [`${etichetta}: ricarica 50-100€ — varia l'importo tra gli amici (settimana di profilazione ${varDazn === 'casino' ? 'casinò' : 'sport'} del mese)`]
     if (oggiNum === giornoBet) return varDazn === 'casino'
-      ? [`${etichetta}: gioca 50-100€ slot ${isDazn ? 'spin bassi ad alto RTP' : 'a spin bassi'} (vedi lista) + partecipa alle VXT della settimana`]
+      ? [`${etichetta}: gioca 50-100€ slot ${isDazn ? 'spin bassi ad alto RTP' : 'a spin bassi'} (vedi lista) + partecipa alle VXT della settimana · usa le valide per tutti se disponibili`]
       : [`${etichetta}: gioca 2/3 bet da 10 a 25€ — quota min 1.35, refertazione entro sera/gg dopo · usa le VXT se disponibili`]
     return null
   }
@@ -1175,7 +1195,7 @@ function getAgendaAttivoV2(book, giorno, settimana) {
     const giornoCash = altri[hsN('cash') % altri.length]
     const giornoPrel = Math.min(6, giorniVxt[giorniVxt.length - 1] + 2 + (hsN('p') % 2))   // qualche giorno dopo, entro sabato
     const azioni = []
-    if (giorniVxt.includes(giorno)) azioni.push('NetBet: promo VXT FUN — ricarica almeno 100€ e gioca il saldo tra slot (vedi lista) e casinò offline, su più giochi ad alto RTP (niente "cecchino")')
+    if (giorniVxt.includes(giorno)) azioni.push('NetBet: promo VXT FUN — se serve saldo ricarica almeno 100€ (all\'occorrenza) e gioca il saldo tra slot (vedi lista) e casinò offline, su più giochi ad alto RTP (niente "cecchino")')
     if (giorno === giornoCash) azioni.push('NetBet: fai la cashback disponibile (almeno 1 a settimana)')
     if (giorno === giornoPrel) azioni.push('NetBet: preleva, ora che hai fatto tutto offline')
     return azioni.length ? azioni : null
@@ -1264,6 +1284,9 @@ function getRiassuntoProtocolloAttivo(nomeBook, variante = null) {
         ? ['Ricarica 50-100€', 'Gioca 2/3 bet da 10 a 25€ — quota minima 1.35, refertazione entro sera/gg dopo', 'Usa le VXT se disponibili · copertura consigliata su Bet365', 'Una settimana al mese', 'Utilizza le valide per tutti se disponibili · prelievi: usa il buon senso']
         : ['Ricarica 50-100€', 'Gioca 2/3 bet da 10 a 25€ — quota minima 1.35, refertazione entro sera/gg dopo', 'Copertura: su qualsiasi book con lo sport (AdmiralBet per ora non è in uso) — la sceglie Lucy negli incroci', 'Una settimana al mese', 'Utilizza le valide per tutti se disponibili · prelievi: usa il buon senso'] }
   }
+  if (tipo === 'totosi') return { durata: 'Totosì · Profilazione Sport (una settimana al mese) · protocollo interno, non in Profiliamo', capitale_min: 15,
+    recupero: ['Se conto limitato alle promo: recupero del gruppo E-play24 (vedi esempi di Eurobet o Lottomatica)', ...PROTOCOLLO_GRUPPO_LOTTOMATICA.recupero],
+    azioni: ['Ricarica 15-30€ (varia importi tra gli amici)', 'Gioca 2/3 bet da 3 a 8€ — quota minima 1.35, refertazione entro sera/gg dopo', 'Una settimana al mese', 'Importi = Sport E-play24 ridotti del 70%', 'Utilizza le valide per tutti se disponibili · prelievi: usa il buon senso'] }
   if (tipo === 'stanleybet') {
     const v = getVarianteProfilazione({ nome: nomeBook, profilo_variante: variante })
     const recupero = PROTOCOLLO_STANLEYBET.recupero
@@ -1590,7 +1613,7 @@ async function updateProfiloLivello(bookId, livello, variante = null) {
       dashboardSettingsRes, clientiRes, clientiEmailRes,
       esterniRes,
       postItRes,
-      royaltyAccordiRes, royaltyPagamentiRes, recuperiContiRes,
+      royaltyAccordiRes, royaltyPagamentiRes, recuperiContiRes, avvisiContiRes,
     ] = await Promise.all([
       supabase.from('books').select('*').order('id', { ascending: true }),
       supabase.from('wallets').select('*').order('id', { ascending: true }),
@@ -1610,6 +1633,7 @@ async function updateProfiloLivello(bookId, livello, variante = null) {
       supabase.from('royalty_accordi').select('*').order('valido_dal', { ascending: true }),
       supabase.from('royalty_pagamenti').select('*').order('id', { ascending: true }),
       supabase.from('recupero_conti').select('*').order('id', { ascending: true }),
+      supabase.from('avvisi_conti').select('*').neq('stato', 'annullato').order('data_prevista', { ascending: true }),
     ])
 
     // Applica subito i dati critici e togli il loading
@@ -1648,6 +1672,7 @@ async function updateProfiloLivello(bookId, livello, variante = null) {
     // numeric di Postgres: forzati a Number per sicurezza nei calcoli
     if (royaltyAccordiRes.error) errors.push('royalty_accordi'); else setRoyaltyAccordi((royaltyAccordiRes.data || []).map(a => ({ ...a, importo_mensile: Number(a.importo_mensile || 0) })))
     if (recuperiContiRes.error) errors.push('recupero_conti'); else setRecuperiConti(recuperiContiRes.data || [])
+    if (avvisiContiRes.error) errors.push('avvisi_conti (lancia avvisi_conti.sql)'); else setAvvisiConti(avvisiContiRes.data || [])
     if (royaltyPagamentiRes.error) errors.push('royalty_pagamenti'); else setRoyaltyPagamenti((royaltyPagamentiRes.data || []).map(p => ({ ...p, importo: Number(p.importo || 0) })))
     if (esterniRes && !esterniRes.error) {
       const sommaEsterni = (esterniRes.data || []).reduce((t, tx) => t + Number(tx.importo || 0), 0)
@@ -5985,7 +6010,6 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             .filter(b => b.profilo_livello === 'attivo' || (b.profilo_livello && b.profilo_livello.startsWith('mantenimento')))
             .map(b => ({ book: b, agenda: getAzioniOggi(b) }))
             .filter(x => x.agenda !== null)
-            .concat(agendaRecuperoOggi())
           return (
             <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: 16 }}>
               <div style={{ width: '100%', maxWidth: 560, background: 'linear-gradient(180deg,rgba(15,23,42,0.99),rgba(2,6,23,1))', border: '1px solid rgba(51,65,85,0.95)', borderRadius: 22, padding: 24, maxHeight: '80vh', overflowY: 'auto' }}>
@@ -6294,7 +6318,6 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
     .filter(b => b.profilo_livello === 'attivo' || (b.profilo_livello && b.profilo_livello.startsWith('mantenimento')))
     .map(b => ({ book: b, agenda: getAzioniOggi(b) }))
     .filter(x => x.agenda !== null)
-    .concat(agendaRecuperoOggi())
 
   const filteredProf = books.filter(b => {
     const matchInt = !profilazioneFilter.intestatario || (b.intestatario || '').toLowerCase().includes(profilazioneFilter.intestatario.toLowerCase())
@@ -6433,6 +6456,17 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
       })()}
 
 
+      <AvvisiContiPanel
+        books={books}
+        setBooks={setBooks}
+        avvisi={avvisiConti}
+        setAvvisi={setAvvisiConti}
+        recuperi={recuperiConti}
+        setRecuperi={setRecuperiConti}
+        getRecuperoProtocollo={getRecuperoProtocollo}
+        onMessage={setMessage}
+        onError={setErrorMessage}
+      />
       <RecuperoContiPanel
         books={books}
         recuperi={recuperiConti}
