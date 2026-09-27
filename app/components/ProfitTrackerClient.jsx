@@ -157,6 +157,10 @@ const [avvisiConti, setAvvisiConti] = useState(null)
 // 27/09/2026 — pausa profilazione
 const [pauseProf, setPauseProfState] = useState([])
 const [pausaForm, setPausaForm] = useState(null)   // { modo, ripresa } quando il pannello è aperto
+// 27/09/2026 — SALDI DA AGGIORNARE: conti usati (telefoni via Chrome, Lucy, registro manuale) dopo l'ultima verifica del saldo
+const [bookAttivita, setBookAttivita] = useState([])
+const [saldiDaAggAperto, setSaldiDaAggAperto] = useState(true)
+const [saldoRapido, setSaldoRapido] = useState({})
 // 27/09/2026 — registro di profilazione manuale
 const [registroAperto, setRegistroAperto] = useState(false)
 const [regForm, setRegForm] = useState({ cerca: '', bookId: '', data: new Date().toLocaleDateString('sv-SE'), tipoOp: 'Sport', importo: '', descrizione: '', copreGiorno: true })
@@ -326,6 +330,57 @@ async function riprendiProf() {
   if (error) { setErrorMessage('Errore: ' + error.message); return }
   setPauseProf(PAUSE_PROF.map(x => x.id === data.id ? data : x))
   setMessage('▶ Profilazione ripresa')
+}
+
+// 27/09/2026 — attività dei conti rilevata sui telefoni (tabella book_attivita, scritta da /api/book-lavorati)
+useEffect(() => {
+  const da = aggiungiGiorniLucy(new Date().toLocaleDateString('sv-SE'), -45)
+  supabase.from('book_attivita').select('book_id,data,fonte').gte('data', da).then(({ data, error }) => { if (!error) setBookAttivita(data || []) })
+}, [])
+async function segnaSaldoVerificato(ids) {
+  const lista = [...new Set((ids || []).map(Number))].filter(Boolean)
+  if (!lista.length) return
+  const oggiIso = new Date().toLocaleDateString('sv-SE')
+  const { error } = await supabase.from('books').update({ saldo_verificato_il: oggiIso }).in('id', lista)
+  if (error) { setErrorMessage('Saldo verificato non salvato: lancia book_attivita.sql (' + error.message + ')'); return }
+  setBooks(prev => prev.map(b => lista.includes(Number(b.id)) ? { ...b, saldo_verificato_il: oggiIso } : b))
+}
+// Conti da ricontrollare: usati dopo l'ultima verifica del saldo (senza verifica: da lunedì scorso in poi)
+function saldiDaAggiornare() {
+  const oggiIso = new Date().toLocaleDateString('sv-SE')
+  const g = new Date(oggiIso + 'T00:00:00').getDay()
+  const lunediScorso = aggiungiGiorniLucy(oggiIso, -(((g + 6) % 7) + 7))
+  const usi = new Map()   // book_id → Map(data → Set(fonti))
+  const segna = (id, data, fonte) => { if (!id || !data) return; const k = String(id); if (!usi.has(k)) usi.set(k, new Map()); const m = usi.get(k); if (!m.has(data)) m.set(data, new Set()); m.get(data).add(fonte) }
+  for (const r of bookAttivita) segna(r.book_id, String(r.data).slice(0, 10), '📱')
+  for (const x of lucyConfermate) segna(x?.bookId, String(x?.data || '').slice(0, 10), x?.manualeProf ? '✍️' : '🎯')
+  const out = []
+  for (const b of books) {
+    if (!b.nome || /punti e monete|in corso/i.test(b.nome)) continue
+    const m = usi.get(String(b.id)); if (!m) continue
+    const rif = b.saldo_verificato_il || lunediScorso
+    const giorni = [...m.entries()].filter(([d]) => d > rif && d <= oggiIso).sort((a, c) => a[0].localeCompare(c[0]))
+    if (!giorni.length) continue
+    out.push({ book: b, giorni })
+  }
+  return out.sort((a, c) => String(a.book.intestatario || '').localeCompare(String(c.book.intestatario || '')) || String(a.book.nome).localeCompare(String(c.book.nome)))
+}
+async function salvaSaldoRapido(book, invariato) {
+  const oggiIso = new Date().toLocaleDateString('sv-SE')
+  if (invariato) { await segnaSaldoVerificato([book.id]); setMessage(`✓ Saldo invariato: ${book.nome} (${book.intestatario || '—'})`); return }
+  const nuovo = Number(String(saldoRapido[book.id] ?? '').replace(',', '.'))
+  if (String(saldoRapido[book.id] ?? '').trim() === '' || Number.isNaN(nuovo) || nuovo < 0) { setErrorMessage('Scrivi il nuovo saldo'); return }
+  const prec = Number(book.saldo || 0)
+  if (nuovo !== prec) {
+    let r = await updateSaldo('books', book.id, nuovo)
+    if (r.error) { setErrorMessage('Errore saldo: ' + r.error.message); return }
+    r = await salvaLogTransazione({ tipo: 'correzione', importo: Math.abs(nuovo - prec), riferimento: `${book.nome}${book.intestatario ? ` (${book.intestatario})` : ''} | ${formatCurrency(prec)} -> ${formatCurrency(nuovo)}`, note: `Correzione saldo (saldi da aggiornare). Delta: ${formatCurrency(nuovo - prec)}`, azione: 'manual_balance_adjustment' })
+    if (r.data) setTransactions(prev => [r.data, ...prev])
+    setBooks(prev => prev.map(b => b.id === book.id ? { ...b, saldo: nuovo } : b))
+  }
+  await segnaSaldoVerificato([book.id])
+  setSaldoRapido(prev => { const n = { ...prev }; delete n[book.id]; return n })
+  setMessage(`💾 ${book.nome} (${book.intestatario || '—'}): ${formatCurrency(nuovo)}`)
 }
 
 // 27/09/2026 — CAMBIO GIORNO: se la pagina resta aperta da un giorno all'altro, si ricarica da sola
@@ -5178,6 +5233,8 @@ setMessage('Wallet salvato correttamente')
       setBooks(prev => prev.map(b => saldiAggiornati[b.id] !== undefined ? { ...b, saldo: saldiAggiornati[b.id] } : b))
     }
     if (nuoveTransazioni.length) setTransactions(prev => [...nuoveTransazioni, ...prev])
+    // 27/09/2026: anche i saldi riscritti uguali contano come verificati
+    await segnaSaldoVerificato(entries.map(([id]) => id))
     setPendingBookSaldi({})
     if (errori.length > 0) setErrorMessage(`Errori: ${errori.join(', ')}`)
     else setMessage(`✅ ${entries.length} saldo/i aggiornati e transazioni registrate`)
@@ -8344,6 +8401,33 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
     </div>
   </div>
 )}
+        {activeTab === 'books' && (() => {
+          const lista = saldiDaAggiornare()
+          if (!lista.length) return null
+          const d = x => x.split('-').reverse().slice(0, 2).join('/')
+          const inp = { background: '#020617', color: '#f8fafc', border: '1px solid #475569', borderRadius: 8, padding: '5px 8px', width: 90, textAlign: 'right' }
+          return (
+            <div style={{ marginBottom: 14, padding: '12px 14px', borderRadius: 14, border: '1px solid rgba(34,197,94,0.45)', background: 'rgba(34,197,94,0.06)' }}>
+              <div onClick={() => setSaldiDaAggAperto(v => !v)} style={{ cursor: 'pointer', fontWeight: 900, color: '#4ade80', fontSize: 14 }}>💰 Saldi da aggiornare · {lista.length} {saldiDaAggAperto ? '▾' : '▸'}
+                <span style={{ fontWeight: 400, color: '#94a3b8', fontSize: 12 }}> · conti usati dopo l'ultima verifica del saldo (📱 telefono · 🎯 Lucy · ✍️ registro manuale)</span></div>
+              {saldiDaAggAperto && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
+                  {lista.map(({ book, giorni }) => (
+                    <div key={book.id} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12, padding: '6px 8px', borderRadius: 8, background: 'rgba(11,18,32,0.75)', border: '1px solid rgba(51,65,85,0.6)' }}>
+                      <b style={{ color: '#f8fafc', minWidth: 110 }}>{book.nome}</b>
+                      <span style={{ color: '#94a3b8', minWidth: 130 }}>{book.intestatario || '—'}</span>
+                      <span style={{ color: '#cbd5e1', flex: 1, minWidth: 160 }}>{giorni.map(([g, f]) => `${d(g)} ${[...f].join('')}`).join(' · ')}</span>
+                      <span style={{ color: '#94a3b8' }}>ora {formatCurrency(Number(book.saldo || 0))}</span>
+                      <input inputMode="decimal" placeholder="nuovo" value={saldoRapido[book.id] ?? ''} onChange={e => setSaldoRapido(prev => ({ ...prev, [book.id]: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') salvaSaldoRapido(book, false) }} style={inp} />
+                      <button onClick={() => salvaSaldoRapido(book, false)} style={{ background: '#16a34a', color: 'white', border: 0, borderRadius: 8, padding: '5px 10px', fontWeight: 800, cursor: 'pointer' }}>💾</button>
+                      <button onClick={() => salvaSaldoRapido(book, true)} title="Il saldo è ancora quello" style={{ background: '#334155', color: 'white', border: 0, borderRadius: 8, padding: '5px 10px', fontWeight: 800, cursor: 'pointer' }}>✓ Invariato</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })()}
         {activeTab === 'books' && (
           <div style={tabContent}>
             <div style={sectionTopBar}><div><h2 style={sectionTitle}>Books</h2><p style={sectionDescription}>Archivio bookmaker con filtri, note e azioni rapide</p></div><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>{Object.keys(pendingBookSaldi).some(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }) && (<button style={{ ...primaryButtonGreen, background: 'linear-gradient(135deg, #d97706, #f59e0b)', boxShadow: '0 0 14px rgba(245,158,11,0.4)', animation: 'blinkPrevisto 1.8s ease-in-out infinite' }} onClick={handleSalvaBookSaldi}>💾 Salva saldi ({Object.keys(pendingBookSaldi).filter(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }).length})</button>)}<button style={secondaryButton} onClick={() => { const nomiBookUnici = [...new Set(books.filter(b => b.nome && !/punti e monete/i.test(b.nome) && !/in corso/i.test(b.nome)).map(b => normalizzaBookKey(b.nome)))].filter(Boolean); if (!window.confirm(`Aggiornare i saldi di tutti i ${nomiBookUnici.length} book per tutti i clienti?`)) return; nomiBookUnici.forEach(b => eseguiSaldoJob(b, null)) }}>🔄 Aggiorna saldi</button><button style={primaryButtonGreen} onClick={() => setShowBookModal(true)}>+ Nuovo Book</button></div></div>
