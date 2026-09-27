@@ -159,7 +159,7 @@ const [pauseProf, setPauseProfState] = useState([])
 const [pausaForm, setPausaForm] = useState(null)   // { modo, ripresa } quando il pannello è aperto
 // 27/09/2026 — SALDI DA AGGIORNARE: conti usati (telefoni via Chrome, Lucy, registro manuale) dopo l'ultima verifica del saldo
 const [bookAttivita, setBookAttivita] = useState([])
-const [saldiDaAggAperto, setSaldiDaAggAperto] = useState(true)
+const [saldiDaAggAperto, setSaldiDaAggAperto] = useState(null)   // nome del book aperto nel pannello (null = solo i nomi dei book)
 const [saldoRapido, setSaldoRapido] = useState({})
 // 27/09/2026 — registro di profilazione manuale
 const [registroAperto, setRegistroAperto] = useState(false)
@@ -335,7 +335,7 @@ async function riprendiProf() {
 // 27/09/2026 — attività dei conti rilevata sui telefoni (tabella book_attivita, scritta da /api/book-lavorati)
 useEffect(() => {
   const da = aggiungiGiorniLucy(new Date().toLocaleDateString('sv-SE'), -45)
-  supabase.from('book_attivita').select('book_id,data,fonte').gte('data', da).then(({ data, error }) => { if (!error) setBookAttivita(data || []) })
+  supabase.from('book_attivita').select('book_id,data,fonte,host').gte('data', da).then(({ data, error }) => { if (!error) setBookAttivita(data || []) })
 }, [])
 async function segnaSaldoVerificato(ids) {
   const lista = [...new Set((ids || []).map(Number))].filter(Boolean)
@@ -364,6 +364,35 @@ function saldiDaAggiornare() {
     out.push({ book: b, giorni })
   }
   return out.sort((a, c) => String(a.book.intestatario || '').localeCompare(String(c.book.intestatario || '')) || String(a.book.nome).localeCompare(String(c.book.nome)))
+}
+// 28/09/2026 — AGENTE TELEFONI: apre un sito in Chrome sui telefoni di questi clienti (lo esegue lo script sul PC)
+function sitoBook(book) {
+  const righe = bookAttivita.filter(r => String(r.book_id) === String(book.id) && r.host).sort((a, c) => String(c.data).localeCompare(String(a.data)))
+  if (righe.length) return `https://${righe[0].host}/`
+  const altro = bookAttivita.find(r => r.host && books.some(b => String(b.id) === String(r.book_id) && normalizzaBookKey(b.nome) === normalizzaBookKey(book.nome)))
+  return altro ? `https://${altro.host}/` : `https://www.${String(book.nome || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9-]/g, '')}.it/`
+}
+async function apriSuTelefoni(nomeBook, url, intestatari) {
+  const nomi = [...new Set(intestatari.filter(Boolean))]
+  if (!nomi.length) return
+  if (!window.confirm(`Apro ${nomeBook} (${url.replace(/^https?:\/\//, '').replace(/\/$/, '')}) sui telefoni di:\n${nomi.join('\n')}?`)) return
+  const { data, error } = await supabase.from('comandi_telefoni').insert([{ azione: 'apri', url, intestatari: nomi }]).select().single()
+  if (error) { setErrorMessage('Comando non inviato: lancia agente_telefoni.sql (' + error.message + ')'); return }
+  setMessage(`📱 ${nomeBook}: apertura inviata a ${nomi.length} telefoni…`)
+  // resoconto: lo script risponde entro pochi secondi
+  for (let i = 0; i < 12; i++) {
+    await new Promise(r => setTimeout(r, 2500))
+    const { data: c } = await supabase.from('comandi_telefoni').select('stato,esito').eq('id', data.id).single()
+    if (c?.stato === 'fatto') {
+      const es = Object.entries(c.esito || {})
+      const ok = es.filter(([, v]) => v === 'aperto').length
+      const ko = es.filter(([, v]) => v !== 'aperto')
+      if (ko.length) setErrorMessage(`📱 ${nomeBook}: aperto su ${ok} · non riuscito: ${ko.map(([n, v]) => `${n} (${v})`).join(', ')}`)
+      else setMessage(`📱 ${nomeBook} aperto su ${ok} telefoni`)
+      return
+    }
+  }
+  setErrorMessage(`📱 ${nomeBook}: nessuna risposta dal PC dei telefoni (lo script book_lavorati è acceso?)`)
 }
 async function salvaSaldoRapido(book, invariato) {
   const oggiIso = new Date().toLocaleDateString('sv-SE')
@@ -8406,23 +8435,39 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           if (!lista.length) return null
           const d = x => x.split('-').reverse().slice(0, 2).join('/')
           const inp = { background: '#020617', color: '#f8fafc', border: '1px solid #475569', borderRadius: 8, padding: '5px 8px', width: 90, textAlign: 'right' }
+          // raggruppo per book: la riga mostra solo i nomi dei book, il clic apre i nominativi
+          const gruppi = new Map()
+          for (const x of lista) { const k = normalizzaBookKey(x.book.nome) || x.book.nome; if (!gruppi.has(k)) gruppi.set(k, { nome: x.book.nome, voci: [] }); gruppi.get(k).voci.push(x) }
+          const elenco = [...gruppi.values()].sort((a, c) => String(a.nome).localeCompare(String(c.nome)))
+          const aperto = elenco.find(g => g.nome === saldiDaAggAperto)
           return (
-            <div style={{ marginBottom: 14, padding: '12px 14px', borderRadius: 14, border: '1px solid rgba(34,197,94,0.45)', background: 'rgba(34,197,94,0.06)' }}>
-              <div onClick={() => setSaldiDaAggAperto(v => !v)} style={{ cursor: 'pointer', fontWeight: 900, color: '#4ade80', fontSize: 14 }}>💰 Saldi da aggiornare · {lista.length} {saldiDaAggAperto ? '▾' : '▸'}
-                <span style={{ fontWeight: 400, color: '#94a3b8', fontSize: 12 }}> · conti usati dopo l'ultima verifica del saldo (📱 telefono · 🎯 Lucy · ✍️ registro manuale)</span></div>
-              {saldiDaAggAperto && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
-                  {lista.map(({ book, giorni }) => (
-                    <div key={book.id} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12, padding: '6px 8px', borderRadius: 8, background: 'rgba(11,18,32,0.75)', border: '1px solid rgba(51,65,85,0.6)' }}>
-                      <b style={{ color: '#f8fafc', minWidth: 110 }}>{book.nome}</b>
-                      <span style={{ color: '#94a3b8', minWidth: 130 }}>{book.intestatario || '—'}</span>
-                      <span style={{ color: '#cbd5e1', flex: 1, minWidth: 160 }}>{giorni.map(([g, f]) => `${d(g)} ${[...f].join('')}`).join(' · ')}</span>
-                      <span style={{ color: '#94a3b8' }}>ora {formatCurrency(Number(book.saldo || 0))}</span>
-                      <input inputMode="decimal" placeholder="nuovo" value={saldoRapido[book.id] ?? ''} onChange={e => setSaldoRapido(prev => ({ ...prev, [book.id]: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') salvaSaldoRapido(book, false) }} style={inp} />
-                      <button onClick={() => salvaSaldoRapido(book, false)} style={{ background: '#16a34a', color: 'white', border: 0, borderRadius: 8, padding: '5px 10px', fontWeight: 800, cursor: 'pointer' }}>💾</button>
-                      <button onClick={() => salvaSaldoRapido(book, true)} title="Il saldo è ancora quello" style={{ background: '#334155', color: 'white', border: 0, borderRadius: 8, padding: '5px 10px', fontWeight: 800, cursor: 'pointer' }}>✓ Invariato</button>
-                    </div>
-                  ))}
+            <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 14, border: '1px solid rgba(34,197,94,0.35)', background: 'rgba(34,197,94,0.05)' }}>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <span style={{ fontWeight: 900, color: '#4ade80', fontSize: 13, marginRight: 4 }}>💰 Saldi da aggiornare · {lista.length}</span>
+                {elenco.map(g => (
+                  <button key={g.nome} onClick={() => setSaldiDaAggAperto(saldiDaAggAperto === g.nome ? null : g.nome)} style={{ padding: '3px 9px', borderRadius: 999, fontSize: 12, fontWeight: 700, cursor: 'pointer', border: `1px solid ${saldiDaAggAperto === g.nome ? '#4ade80' : 'rgba(74,222,128,0.35)'}`, background: saldiDaAggAperto === g.nome ? 'rgba(74,222,128,0.2)' : 'transparent', color: '#bbf7d0' }}>{g.nome} {g.voci.length}</button>
+                ))}
+              </div>
+              {aperto && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    <b style={{ color: '#f8fafc', fontSize: 13 }}>{aperto.nome}</b>
+                    <button onClick={() => apriSuTelefoni(aperto.nome, sitoBook(aperto.voci[0].book), aperto.voci.map(v => v.book.intestatario))} style={{ background: '#0ea5e9', color: 'white', border: 0, borderRadius: 8, padding: '5px 10px', fontWeight: 800, fontSize: 12, cursor: 'pointer' }}>📱 Apri sui {aperto.voci.length} telefoni</button>
+                    <span style={{ fontSize: 11, color: '#64748b' }}>📱 telefono · 🎯 Lucy · ✍️ registro manuale</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {aperto.voci.map(({ book, giorni }) => (
+                      <div key={book.id} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12, padding: '5px 8px', borderRadius: 8, background: 'rgba(11,18,32,0.75)', border: '1px solid rgba(51,65,85,0.6)' }}>
+                        <span style={{ color: '#e2e8f0', minWidth: 150, fontWeight: 700 }}>{book.intestatario || '—'}</span>
+                        <span style={{ color: '#94a3b8', flex: 1, minWidth: 120 }}>{giorni.map(([g, f]) => `${d(g)} ${[...f].join('')}`).join(' · ')}</span>
+                        <span style={{ color: '#94a3b8' }}>ora {formatCurrency(Number(book.saldo || 0))}</span>
+                        <input inputMode="decimal" placeholder="nuovo" value={saldoRapido[book.id] ?? ''} onChange={e => setSaldoRapido(prev => ({ ...prev, [book.id]: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') salvaSaldoRapido(book, false) }} style={inp} />
+                        <button onClick={() => salvaSaldoRapido(book, false)} style={{ background: '#16a34a', color: 'white', border: 0, borderRadius: 8, padding: '5px 10px', fontWeight: 800, cursor: 'pointer' }}>💾</button>
+                        <button onClick={() => salvaSaldoRapido(book, true)} title="Il saldo è ancora quello" style={{ background: '#334155', color: 'white', border: 0, borderRadius: 8, padding: '5px 10px', fontWeight: 800, cursor: 'pointer' }}>✓ Invariato</button>
+                        <button onClick={() => apriSuTelefoni(book.nome, sitoBook(book), [book.intestatario])} title="Apri sul suo telefono" style={{ background: 'transparent', color: '#7dd3fc', border: '1px solid rgba(125,211,252,0.4)', borderRadius: 8, padding: '4px 8px', cursor: 'pointer' }}>📱</button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
