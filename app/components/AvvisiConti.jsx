@@ -21,6 +21,9 @@ export const INVII_DOCUMENTO_GIORNO = 3    // inviare documento: 3 book al giorn
 export const GIORNI_VERIFICA_DOCUMENTO = 3 // dopo l'invio (o la seduta live): verifica l'esito dopo 3 giorni
 export const GIORNI_ATTESA_ASSISTENZA = 7  // assistenza "in attesa di risposta": ricontrolla dopo 7 giorni
 export const GIORNI_RIFIUTO_ASSISTENZA = 30 // assistenza "rifiutato": nuovo tentativo dopo 30 giorni
+// 27/09/2026 — tetto giornaliero per le cose "una tantum" nate tutte insieme (es. il primo giorno):
+// le eccedenze vengono spalmate sui giorni feriali successivi. Il recupero settimanale non è toccato.
+export const TETTO_GIORNO = { assistenza: 2, live: 1, documento: 1, nota: 3 }
 export const NOTE_AI_PER_SESSIONE = 40      // massimo di note lette dall'AI per ogni apertura (tetto di sicurezza sui costi)
 
 // ─── DATE ───────────────────────────────────────────────────────────
@@ -180,6 +183,40 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [books, avvisi, recuperi])
+
+  // ─── RIPARTIZIONE: se oggi sono nati troppi avvisi dello stesso tipo, sposta gli eccedenti sui prossimi giorni feriali ───
+  const ripartito = useRef(false)
+  useEffect(() => {
+    if (!Array.isArray(avvisi) || !avvisi.length || ripartito.current) return
+    ripartito.current = true
+    const tipoTetto = (a) => a.tipo === 'assistenza' ? 'assistenza' : a.tipo === 'nota' ? 'nota' : (a.tipo === 'live' && a.meta?.passo === 'appuntamento') ? 'live' : (a.tipo === 'documento' && a.meta?.passo === 'prepara') ? 'documento' : null
+    const nuoviDiOggi = (avvisi || []).filter(a => a.stato === 'aperto' && a.data_prevista === oggi && !(a.rimandi > 0) && tipoTetto(a) && new Date(a.creato).toLocaleDateString('sv-SE') === oggi)
+    const occupati = {}   // tipo|data → quanti
+    for (const a of avvisi) { const t = tipoTetto(a); if (t && a.stato !== 'annullato') { const k = `${t}|${a.data_prevista}`; occupati[k] = (occupati[k] || 0) + 1 } }
+    const spostamenti = []
+    for (const t of Object.keys(TETTO_GIORNO)) {
+      const lista = nuoviDiOggi.filter(a => tipoTetto(a) === t).sort((x, y) => x.id - y.id)
+      let oggiUsati = occupati[`${t}|${oggi}`] || 0
+      for (const a of lista.slice().reverse()) {          // i più recenti sono i primi a spostarsi
+        if (oggiUsati <= TETTO_GIORNO[t]) break
+        let d = prossimoFeriale(oggi)
+        while ((occupati[`${t}|${d}`] || 0) >= TETTO_GIORNO[t]) d = prossimoFeriale(d)
+        occupati[`${t}|${d}`] = (occupati[`${t}|${d}`] || 0) + 1
+        oggiUsati--
+        spostamenti.push({ id: a.id, data: d })
+      }
+    }
+    if (!spostamenti.length) return
+    ;(async () => {
+      const aggiornati = []
+      for (const sp of spostamenti) {
+        const { data } = await supabase.from('avvisi_conti').update({ data_prevista: sp.data }).eq('id', sp.id).select().single()
+        if (data) aggiornati.push(data)
+      }
+      if (aggiornati.length) setAvvisi(prev => prev.map(x => aggiornati.find(d => d.id === x.id) || x))
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [avvisi])
 
   // ─── azioni collegate agli esiti ──────────────────────────────────
   async function togliDallaNota(book, flusso, motivo) {
