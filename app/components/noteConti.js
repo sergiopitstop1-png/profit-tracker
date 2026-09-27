@@ -72,3 +72,20 @@ export async function aggiornaNotaBook(book, nuovaNota, motivo, setBooks) {
   if (setBooks) setBooks(prev => prev.map(b => b.id === book.id ? { ...b, note: nuovaNota } : b))
   return nuovaNota
 }
+
+// Annulla gli avvisi aperti di un flusso per un book. Si usa SOLO quando la parola chiave la toglie il sistema
+// dopo un esito confermato (recuperato, approvato, riaperto…). Se la toglie qualcuno a mano, gli avvisi
+// NON si annullano: finiscono tra quelli "da confermare" (vedi AvvisiConti.jsx).
+export async function annullaAvvisiFlusso(bookId, flusso, motivo, setAvvisi) {
+  const { data, error } = await supabase.from('avvisi_conti').update({ stato: 'annullato', esito: motivo || 'flusso chiuso' })
+    .eq('stato', 'aperto').eq('book_id', String(bookId)).contains('meta', { flusso }).select()
+  if (!error && data && data.length && setAvvisi) setAvvisi(prev => (prev || []).map(x => data.find(d => d.id === x.id) || x))
+}
+
+// Rimette una parola chiave in fondo alla nota (ripristino dopo una cancellazione per errore)
+export function aggiungiParola(note, flusso) {
+  const k = PAROLE_CHIAVE.find(x => x.flusso === flusso)
+  const n = pulisciNota(note)
+  if (!k || k.re.test(senzaAccenti(n))) return n
+  return (n ? `${n} - ` : '') + k.label.toUpperCase()
+}
