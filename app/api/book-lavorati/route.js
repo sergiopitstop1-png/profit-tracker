@@ -45,7 +45,9 @@ export async function POST(req) {
     if (!et || et.length < 3) continue
     const visto = new Date(v.visto || Date.now())
     const data = visto.toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' })
-    const candidati = perIntest.get(norm(v.intestatario)) || []
+    // intestatario: uguale, oppure uno inizia con l'altro (es. "Nicola Gandin" ↔ "Nicola Gandin Sanson")
+    const ni = norm(v.intestatario)
+    const candidati = perIntest.get(ni) || [...perIntest.entries()].filter(([k]) => ni.length >= 6 && (k.startsWith(ni) || ni.startsWith(k))).flatMap(([, l]) => l)
     const book = candidati.find(b => norm(b.nome) === et) || candidati.find(b => { const n = norm(b.nome); return n.length >= 4 && (n.startsWith(et) || et.startsWith(n)) })
     if (book) righe.set(`${book.id}|${data}`, { user_id: UTENTE, book_id: book.id, data, fonte: 'telefono', ultimo_visto: visto.toISOString() })
     else if (SEMBRA_BOOK.test(v.host)) sconosciuti.set(`${v.intestatario}|${v.host}`, { user_id: UTENTE, intestatario: String(v.intestatario || '').slice(0, 80), host: String(v.host).slice(0, 120), visto: visto.toISOString() })
