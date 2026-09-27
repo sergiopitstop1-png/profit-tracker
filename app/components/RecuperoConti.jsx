@@ -21,8 +21,14 @@ export const GIORNI_VERIFICA_SPORT = 30   // 27/09/2026: ogni 30 giorni verifica
 // poi la limitazione più vecchia. Colonne recupero_conti.attivo_dal / in_attesa_manuale (vedi recupero_attivi.sql).
 export const MAX_RECUPERI_ATTIVI = 20
 
+// 27/09/2026 — PAUSA PROFILAZIONE: impostata da ProfitTrackerClient. I giorni di pausa non contano per i 14 giorni
+// prima del contatto col supporto; in pausa "totale" il recupero non genera azioni.
+let PAUSA_REC = { giorni: () => 0, totale: () => false }
+export function impostaPausaRecupero(p) { PAUSA_REC = { ...PAUSA_REC, ...(p || {}) } }
+
 const oggiISO = () => new Date().toLocaleDateString('sv-SE')
 const diffGiorni = (da, a) => Math.round((new Date(a + 'T00:00:00') - new Date(da + 'T00:00:00')) / 86400000)
+const addGiorniISO = (iso, n) => { if (!n) return iso; const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('sv-SE') }
 const dataIt = (iso) => iso ? iso.split('-').reverse().join('/') : ''
 const hashStr = (t) => { let h = 2166136261; const s = String(t); for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) } h ^= h >>> 15; h = Math.imul(h, 2246822507); h ^= h >>> 13; return h >>> 0 }
 
@@ -89,7 +95,8 @@ export async function registraEsitoRecupero(book, tipo, stato, esito) {
 
 // Prossimo contatto col supporto: { data, motivo } — i giorni contano da quando il recupero è ATTIVO
 export function prossimoContatto(item, oggi = oggiISO()) {
-  const inizio = item.stato?.attivo_dal || item.stato?.iniziato || oggi
+  const inizio0 = item.stato?.attivo_dal || item.stato?.iniziato || oggi
+  const inizio = addGiorniISO(inizio0, PAUSA_REC.giorni(inizio0, oggi))   // + giorni di pausa
   const tentativi = item.stato?.tentativi || []
   const primo = item.proto?.primoContattoGiorni ?? GIORNI_PRIMO_CONTATTO
   if (!tentativi.length) {
@@ -145,6 +152,7 @@ export function avvisiRecupero(item, oggi = oggiISO()) {
   const { book, tipo, proto, stato } = item
   if (!proto || !proto.disponibile) return []
   if (!recuperoAttivo(item)) return []          // in coda: nessuna azione finché non entra tra gli attivi
+  if (PAUSA_REC.totale()) return []             // profilazione in pausa totale: il recupero si ferma
   const out = []
   const lbl = tipo === 'sport' ? 'limitato sport' : 'limitato bonus'
   const base = `rec|${book.id}|${tipo}`
