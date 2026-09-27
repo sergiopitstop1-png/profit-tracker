@@ -46,15 +46,16 @@ export async function POST(req) {
     const visto = new Date(v.visto || Date.now())
     const data = visto.toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' })
     // intestatario: uguale, oppure uno inizia con l'altro (es. "Nicola Gandin" ↔ "Nicola Gandin Sanson")
-    const ni = norm(v.intestatario)
-    const candidati = perIntest.get(ni) || [...perIntest.entries()].filter(([k]) => ni.length >= 6 && (k.startsWith(ni) || ni.startsWith(k))).flatMap(([, l]) => l)
+    // un telefono può valere per più nomi, separati da "|" (es. "Giampaolo Rizzieri|Paolo Rizzieri")
+    const candidati = String(v.intestatario || '').split('|').map(norm).filter(Boolean).flatMap(ni =>
+      perIntest.get(ni) || [...perIntest.entries()].filter(([k]) => ni.length >= 6 && (k.startsWith(ni) || ni.startsWith(k))).flatMap(([, l]) => l))
     // app di un book (es. "pkg:it.bet365.android"): il nome del book deve comparire nel nome dell'app
     const pk = String(v.host || '').startsWith('pkg:') ? norm(String(v.host).slice(4)) : ''
     const book = pk
       ? candidati.find(b => { const n = norm(b.nome); return n.length >= 4 && pk.includes(n) })
       : (candidati.find(b => norm(b.nome) === et) || candidati.find(b => { const n = norm(b.nome); return n.length >= 4 && (n.startsWith(et) || et.startsWith(n)) }))
     if (book) righe.set(`${book.id}|${data}`, { user_id: UTENTE, book_id: book.id, data, fonte: 'telefono', ultimo_visto: visto.toISOString(), host: String(v.host).startsWith('pkg:') ? null : String(v.host).slice(0, 120) })
-    else if (SEMBRA_BOOK.test(v.host)) sconosciuti.set(`${v.intestatario}|${v.host}`, { user_id: UTENTE, intestatario: String(v.intestatario || '').slice(0, 80), host: String(v.host).slice(0, 120), visto: visto.toISOString() })
+    else if (SEMBRA_BOOK.test(v.host)) sconosciuti.set(`${v.intestatario}|${v.host}`, { user_id: UTENTE, intestatario: String(v.intestatario || '').replace(/\|/g, ' / ').slice(0, 80), host: String(v.host).slice(0, 120), visto: visto.toISOString() })
   }
   if (righe.size) await db('book_attivita?on_conflict=user_id,book_id,data,fonte', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify([...righe.values()]) })
   if (sconosciuti.size) await db('book_attivita_sconosciuti?on_conflict=user_id,intestatario,host', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify([...sconosciuti.values()]) })
