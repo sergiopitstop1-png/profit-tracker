@@ -90,6 +90,7 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
   const [azione, setAzione] = useState(null)      // { id, modo: 'fatto' | 'rimanda', data }
   const [salvando, setSalvando] = useState(false)
   const [popupNote, setPopupNote] = useState(false)
+  const [sequenza, setSequenza] = useState(false)   // 🧹 "Ho tempo": tutte le cose da fare in sequenza, anche quelle future
   const tentate = useRef(new Set())
   const bookDi = (id) => (books || []).find(b => String(b.id) === String(id)) || null
   const aperti = (avvisi || []).filter(a => a.stato === 'aperto')
@@ -282,11 +283,24 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
       const stessoGiorno = aperti.find(x => x.tipo === 'live' && x.meta?.passo === 'seduta' && x.data_prevista === dataScelta && norm(x.meta?.intestatario) !== norm(a.meta?.intestatario))
       if (stessoGiorno && !window.confirm(`Il ${dataIt(dataScelta)} c'è già il riconoscimento live con ${stessoGiorno.meta?.intestatario}: la regola è una persona al giorno. Vuoi fissarlo lo stesso?`)) return
     }
-    const testo = `Confermi di aver fatto:\n${a.titolo}\n${chi}${esitoLbl ? `\n\nEsito: ${esitoLbl}` : ''}${dataScelta ? `\nAppuntamento: ${dataIt(dataScelta)}` : ''}`
+    const anticipo = a.data_prevista > oggi
+    if (anticipo && a.meta?.slot) {
+      // chiudere e riaprire anticipato: controlla il limite di 2 a settimana
+      const lun = lunediDi(oggi), dom = addGiorni(lun, 6)
+      const giaSett = (avvisi || []).filter(x => x.meta?.slot && x.stato === 'fatto' && x.data_prevista >= lun && x.data_prevista <= dom).length
+        + aperti.filter(x => x.meta?.slot && x.id !== a.id && x.data_prevista >= lun && x.data_prevista <= dom).length
+      if (giaSett >= RIAPERTURE_SETTIMANA && !window.confirm(`Questa settimana hai già ${giaSett} tra login e riaperture (la regola è massimo ${RIAPERTURE_SETTIMANA}). Vuoi anticiparlo lo stesso?`)) return
+    }
+    if (anticipo && a.tipo === 'documento' && a.meta?.passo === 'invio') {
+      const giaOggi = (avvisi || []).filter(x => x.tipo === 'documento' && x.meta?.passo === 'invio' && x.id !== a.id && x.data_prevista === oggi && x.stato !== 'annullato').length
+      if (giaOggi >= INVII_DOCUMENTO_GIORNO && !window.confirm(`Oggi hai già ${giaOggi} invii di documento (la regola è ${INVII_DOCUMENTO_GIORNO} al giorno). Vuoi anticiparlo lo stesso?`)) return
+    }
+    const testo = `Confermi di aver fatto${anticipo ? ` IN ANTICIPO (era previsto il ${dataIt(a.data_prevista)})` : ''}:\n${a.titolo}\n${chi}${esitoLbl ? `\n\nEsito: ${esitoLbl}` : ''}${dataScelta ? `\nAppuntamento: ${dataIt(dataScelta)}` : ''}`
     if (!window.confirm(testo)) return
     setSalvando(true)
     try {
-      const ok = await aggiornaAvviso(a, { stato: 'fatto', fatto_il: oggi, esito: esito || (dataScelta ? `appuntamento ${dataScelta}` : 'fatto') })
+      const campiAnticipo = anticipo ? { data_prevista: oggi, meta: { ...(a.meta || {}), anticipato_da: a.data_prevista } } : {}
+      const ok = await aggiornaAvviso(a, { stato: 'fatto', fatto_il: oggi, esito: esito || (dataScelta ? `appuntamento ${dataScelta}` : 'fatto'), ...campiAnticipo })
       if (ok) { await dopoFatto(a, esito, dataScelta); onMessage(`✅ ${a.titolo}${chi ? ` · ${chi}` : ''}`) }
     } catch (e) { onError('Errore: ' + (e.message || e)) }
     setSalvando(false)
@@ -377,6 +391,7 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
             🔔 Avvisi conti · {daFare.length} da fare{inRitardo ? <span style={{ color: '#f87171' }}> ({inRitardo} in ritardo)</span> : ''}{orfani.length ? <span style={{ color: '#f87171' }}> · ⚠️ {orfani.length} da confermare</span> : ''} {mostra ? '▾' : '▸'}
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button style={btn('#a78bfa')} onClick={() => setSequenza(true)}>🧹 Ho tempo: cosa posso sistemare</button>
             <button style={btn(noteAtt.length ? '#fbbf24' : '#64748b')} onClick={() => setPopupNote(true)}>📝 Note da attenzionare ({noteAtt.length})</button>
             <button style={btn('#94a3b8')} onClick={() => setMostraFuturi(!mostraFuturi)}>📅 In programma ({futuri.length})</button>
           </div>
@@ -419,6 +434,46 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
           </div>
         )}
       </div>
+
+      {sequenza && (() => {
+        const ritardo = daFare.filter(a => a.data_prevista < oggi)
+        const diOggi = daFare.filter(a => a.data_prevista === oggi)
+        const blocco = (titolo, colore, nota, lista) => lista.length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 900, color: colore }}>{titolo} · {lista.length}</div>
+            {nota && <div style={{ fontSize: 11, color: '#94a3b8', margin: '2px 0 6px' }}>{nota}</div>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>{lista.map(riga)}</div>
+          </div>
+        )
+        const tutto = ritardo.length + diOggi.length + orfani.length + noteAtt.length + futuri.length
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2050, padding: 16 }} onClick={() => setSequenza(false)}>
+            <div onClick={e => e.stopPropagation()} style={{ background: '#0f172a', border: '1px solid rgba(167,139,250,0.5)', borderRadius: 16, padding: 18, width: 'min(860px, 100%)', maxHeight: '88vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <div style={{ fontSize: 16, fontWeight: 900, color: '#c4b5fd' }}>🧹 Tutto quello che puoi sistemare, in ordine</div>
+                <button style={btn('#94a3b8')} onClick={() => setSequenza(false)}>Chiudi</button>
+              </div>
+              <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>Parti dall'alto e scendi finché hai voglia. Le cose future si possono fare in anticipo: il Fatto te lo segnala e controlla i limiti (2 riaperture a settimana, 3 invii di documento al giorno).</div>
+              {tutto === 0 && <div style={{ color: '#64748b', fontSize: 13 }}>Niente da sistemare: tutto in ordine 👌</div>}
+              {blocco('1. In ritardo', '#f87171', null, ritardo)}
+              {blocco('2. Di oggi', '#fbbf24', null, diOggi)}
+              {orfani.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 13, fontWeight: 900, color: '#fca5a5' }}>3. Parole chiave tolte dalla nota · {orfani.length}</div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', margin: '2px 0 6px' }}>Da confermare o ripristinare: li trovi nel riquadro rosso degli avvisi.</div>
+                </div>
+              )}
+              {noteAtt.length > 0 && (
+                <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <div style={{ fontSize: 13, fontWeight: 900, color: '#fde68a' }}>4. Note da attenzionare · {noteAtt.length}</div>
+                  <button style={btn('#fbbf24')} onClick={() => { setSequenza(false); setPopupNote(true) }}>Apri le note</button>
+                </div>
+              )}
+              {blocco('5. Si possono anticipare', '#a78bfa', 'In ordine di data prevista.', futuri)}
+            </div>
+          </div>
+        )
+      })()}
 
       {popupNote && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2100, padding: 16 }} onClick={() => setPopupNote(false)}>
