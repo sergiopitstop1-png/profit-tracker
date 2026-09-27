@@ -12,7 +12,7 @@
 // ════════════════════════════════════════════════════════════════════
 import React, { useEffect, useRef, useState } from 'react'
 import { supabase } from '../profit-tracker/supabaseClient'
-import { paroleChiave, motivoAssistenza, togliParola, aggiornaNotaBook, notaDaAttenzionare, pulisciNota, annullaAvvisiFlusso, aggiungiParola } from './noteConti'
+import { paroleChiave, motivoAssistenza, togliParola, aggiornaNotaBook, notaDaAttenzionare, pulisciNota, annullaAvvisiFlusso, aggiungiParola, soloParoleChiave, testoExtra, improntaNota } from './noteConti'
 import { contiInRecupero, avvisiRecupero, limitazioniDaNota } from './RecuperoConti'
 
 // ─── PARAMETRI ──────────────────────────────────────────────────────
@@ -21,6 +21,7 @@ export const INVII_DOCUMENTO_GIORNO = 3    // inviare documento: 3 book al giorn
 export const GIORNI_VERIFICA_DOCUMENTO = 3 // dopo l'invio (o la seduta live): verifica l'esito dopo 3 giorni
 export const GIORNI_ATTESA_ASSISTENZA = 7  // assistenza "in attesa di risposta": ricontrolla dopo 7 giorni
 export const GIORNI_RIFIUTO_ASSISTENZA = 30 // assistenza "rifiutato": nuovo tentativo dopo 30 giorni
+export const NOTE_AI_PER_SESSIONE = 40      // massimo di note lette dall'AI per ogni apertura (tetto di sicurezza sui costi)
 
 // ─── DATE ───────────────────────────────────────────────────────────
 const oggiISO = () => new Date().toLocaleDateString('sv-SE')
@@ -63,8 +64,8 @@ function prossimoGiornoInvio(dataMin, occupati) {
   return d
 }
 
-const ICONA = { recupero: '🔧', assistenza: '🎧', riapertura: '🔁', documento: '📄', live: '🎥' }
-const NOME_FLUSSO = { recupero: 'Recupero conti limitati', assistenza: 'Sentire assistenza', riapertura: 'Chiudere e riaprire', documento: 'Inviare documento', live: 'Riconoscimento live' }
+const ICONA = { nota: '🤖', recupero: '🔧', assistenza: '🎧', riapertura: '🔁', documento: '📄', live: '🎥' }
+const NOME_FLUSSO = { nota: 'Dalle note (letti dall\'AI)', recupero: 'Recupero conti limitati', assistenza: 'Sentire assistenza', riapertura: 'Chiudere e riaprire', documento: 'Inviare documento', live: 'Riconoscimento live' }
 
 // Esiti da scegliere quando si preme Fatto (null = basta la conferma)
 function esitiDi(a) {
@@ -90,7 +91,14 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
   const [azione, setAzione] = useState(null)      // { id, modo: 'fatto' | 'rimanda', data }
   const [salvando, setSalvando] = useState(false)
   const [popupNote, setPopupNote] = useState(false)
-  const [sequenza, setSequenza] = useState(false)   // 🧹 "Ho tempo": tutte le cose da fare in sequenza, anche quelle future
+  const [sequenza, setSequenza] = useState(false)
+  // ─── NOTE LETTE DALL'AI (tabella note_ai, route /api/note-ai) ───
+  const [noteAi, setNoteAi] = useState(null)          // null = non ancora caricate
+  const [aiInCorso, setAiInCorso] = useState(0)
+  const [aiErrore, setAiErrore] = useState('')
+  const [bozze, setBozze] = useState({})              // modifiche alla proposta prima della conferma, per book
+  const aiLette = useRef(0)
+  const aiAttivo = useRef(false)   // 🧹 "Ho tempo": tutte le cose da fare in sequenza, anche quelle future
   const tentate = useRef(new Set())
   const bookDi = (id) => (books || []).find(b => String(b.id) === String(id)) || null
   const aperti = (avvisi || []).filter(a => a.stato === 'aperto')
@@ -326,7 +334,91 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
   const daFare = aperti.filter(a => a.data_prevista <= oggi && !orfano(a)).sort((x, y) => x.data_prevista.localeCompare(y.data_prevista) || x.tipo.localeCompare(y.tipo))
   const futuri = aperti.filter(a => a.data_prevista > oggi && !orfano(a)).sort((x, y) => x.data_prevista.localeCompare(y.data_prevista))
   const inRitardo = daFare.filter(a => a.data_prevista < oggi).length
-  const noteAtt = (books || []).filter(b => notaDaAttenzionare(b.note))
+  // Una nota va vista se: non ha parole chiave, oppure ha testo in più per cui l'AI propone qualcosa.
+  // Sparisce quando la proposta è confermata / tenuta / scartata (per QUELLA versione della nota).
+  const rigaAi = (b) => (noteAi || []).find(r => r.book_id === String(b.id) && r.impronta === improntaNota(b.note)) || null
+  const noteAtt = (books || []).filter(b => {
+    if (!testoExtra(b.note)) return false
+    const r = rigaAi(b)
+    if (r && r.stato !== 'proposta') return false
+    if (notaDaAttenzionare(b.note)) return true
+    return !!(r && ((r.risultato?.avvisi || []).length || r.risultato?.parola_chiave))
+  })
+
+  // carica le letture già fatte
+  useEffect(() => {
+    supabase.from('note_ai').select('*').order('id', { ascending: true })
+      .then(({ data, error }) => { if (error) setAiErrore('Tabella note_ai mancante: lancia note_ai.sql'); else setNoteAi(data || []) })
+  }, [])
+
+  // legge con l'AI le note nuove o cambiate (una alla volta, al massimo NOTE_AI_PER_SESSIONE per apertura)
+  useEffect(() => {
+    if (!Array.isArray(noteAi) || !books?.length || aiAttivo.current || aiErrore) return
+    const daLeggere = books.filter(b => testoExtra(b.note) && !rigaAi(b))
+    if (!daLeggere.length || aiLette.current >= NOTE_AI_PER_SESSIONE) return
+    aiAttivo.current = true
+    ;(async () => {
+      const { data: sess } = await supabase.auth.getSession()
+      const token = sess?.session?.access_token
+      for (const b of daLeggere) {
+        if (aiLette.current >= NOTE_AI_PER_SESSIONE) break
+        aiLette.current++
+        setAiInCorso(daLeggere.length)
+        try {
+          const r = await fetch('/api/note-ai', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ nota: pulisciNota(b.note), nome: b.nome, intestatario: b.intestatario, oggi }) })
+          const risultato = await r.json()
+          if (!r.ok) { setAiErrore(`Lettura AI non riuscita: ${risultato.error || r.status}`); break }
+          const { data, error } = await supabase.from('note_ai').upsert([{ book_id: String(b.id), impronta: improntaNota(b.note), testo: pulisciNota(b.note), risultato, stato: 'proposta' }], { onConflict: 'user_id,book_id,impronta' }).select()
+          if (error) { setAiErrore('Errore note_ai: ' + error.message); break }
+          setNoteAi(prev => [...(prev || []).filter(x => !(data || []).some(d => d.id === x.id)), ...(data || [])])
+        } catch (e) { setAiErrore('Lettura AI non riuscita: ' + (e.message || e)); break }
+      }
+      setAiInCorso(0)
+      aiAttivo.current = false
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [books, noteAi, aiErrore])
+
+  const bozzaDi = (b) => {
+    if (bozze[b.id]) return bozze[b.id]
+    const r = rigaAi(b)?.risultato || {}
+    return { avvisi: (r.avvisi || []).map(a => ({ ...a, on: true })), pk: !!r.parola_chiave, cancella: !r.informazione }
+  }
+  const setBozza = (b, campi) => setBozze(prev => ({ ...prev, [b.id]: { ...bozzaDi(b), ...campi } }))
+  async function statoAi(b, stato) {
+    const r = rigaAi(b)
+    if (!r) return
+    const { data } = await supabase.from('note_ai').update({ stato }).eq('id', r.id).select().single()
+    if (data) setNoteAi(prev => prev.map(x => x.id === data.id ? data : x))
+  }
+  // la nuova versione della nota (dopo la conferma) non va riletta dall'AI: la segno già come confermata
+  async function segnaLetta(b, nuovaNota) {
+    if (!testoExtra(nuovaNota)) return
+    const { data } = await supabase.from('note_ai').upsert([{ book_id: String(b.id), impronta: improntaNota(nuovaNota), testo: pulisciNota(nuovaNota), risultato: { sintesi: 'nota riscritta dopo una conferma' }, stato: 'confermata' }], { onConflict: 'user_id,book_id,impronta' }).select()
+    if (data) setNoteAi(prev => [...(prev || []).filter(x => !data.some(d => d.id === x.id)), ...data])
+  }
+  async function confermaAi(b) {
+    const r = rigaAi(b); const ris = r?.risultato || {}; const bz = bozzaDi(b)
+    const scelti = bz.avvisi.filter(a => a.on && a.titolo && a.data)
+    const pk = bz.pk ? ris.parola_chiave : null
+    const righe = [...scelti.map(a => `• ${a.titolo} (${dataIt(a.data)})`), pk ? `• parola chiave: ${pk.toUpperCase()}` : null, bz.cancella && !pk ? '• la nota viene tolta dal book (resta nello storico)' : null].filter(Boolean)
+    if (!window.confirm(`${b.nome} – ${b.intestatario || '—'}\n"${pulisciNota(b.note)}"\n\nConfermi?\n${righe.join('\n') || '• nessun avviso'}`)) return
+    setSalvando(true)
+    try {
+      const imp = improntaNota(b.note)
+      if (scelti.length) await inserisci(scelti.map((a, i) => ({ chiave: `nota|${b.id}|${imp}|${i}`, tipo: 'nota', book_id: b.id, data_prevista: a.data, titolo: a.titolo, sottotitolo: `Dalla nota: "${pulisciNota(b.note).slice(0, 90)}"`, meta: { origine: 'nota_ai', impronta: imp } })))
+      await statoAi(b, 'confermata')
+      if (pk) {
+        const nuova = pk === 'sentire assistenza' ? `SENTIRE ASSISTENZA - ${pulisciNota(b.note)}` : aggiungiParola(soloParoleChiave(b.note), paroleChiave(pk)[0])
+        await segnaLetta(b, nuova)
+        await aggiornaNotaBook(b, nuova, `parola chiave "${pk}" aggiunta dall'AI, confermata il ${dataIt(oggi)}`, setBooks)
+      } else if (bz.cancella) {
+        await aggiornaNotaBook(b, soloParoleChiave(b.note), `nota gestita con l'AI il ${dataIt(oggi)}`, setBooks)
+      }
+      onMessage(`🤖 ${b.nome} (${b.intestatario || '—'}): ${scelti.length} avvisi creati${pk ? `, aggiunta "${pk}"` : ''}`)
+    } catch (e) { onError('Errore: ' + (e.message || e)) }
+    setSalvando(false)
+  }
 
   // popup note da attenzionare: si apre da solo una volta al giorno se ce ne sono
   useEffect(() => {
@@ -482,23 +574,63 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
               <div style={{ fontSize: 16, fontWeight: 900, color: '#fbbf24' }}>📝 Book con note da attenzionare · {noteAtt.length}</div>
               <button style={btn('#94a3b8')} onClick={() => setPopupNote(false)}>Chiudi</button>
             </div>
-            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>Note senza parole chiave (limitato bonus · limitato sport · sentire assistenza · chiudere e riaprire · inviare documento · riconoscimento live). Con ✓ la nota viene tolta dal book; il testo resta nello storico.</div>
+            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>Note senza parole chiave, oppure con testo in più per cui l'AI propone qualcosa. 🤖 legge la nota e propone gli avvisi: li puoi correggere prima di confermare. Il testo originale resta sempre nello storico.</div>
+            {aiInCorso > 0 && <div style={{ fontSize: 12, color: '#c4b5fd', marginBottom: 8 }}>🤖 Sto leggendo le note nuove… ({aiInCorso})</div>}
+            {aiErrore && <div style={{ fontSize: 12, color: '#fca5a5', marginBottom: 8 }}>⚠️ {aiErrore}</div>}
             {noteAtt.length === 0 && <div style={{ color: '#64748b', fontSize: 13 }}>Nessuna nota da attenzionare 👌</div>}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {noteAtt.sort((a, b) => norm(a.nome).localeCompare(norm(b.nome)) || norm(a.intestatario).localeCompare(norm(b.intestatario))).map(b => (
-                <div key={b.id} style={{ display: 'flex', gap: 8, alignItems: 'center', background: 'rgba(11,18,32,0.75)', border: '1px solid rgba(51,65,85,0.7)', borderRadius: 10, padding: '7px 10px', flexWrap: 'wrap' }}>
-                  <b style={{ color: '#f8fafc', fontSize: 13 }}>{b.nome}</b>
-                  <span style={{ color: '#94a3b8', fontSize: 12 }}>{b.intestatario || '—'}</span>
-                  <span style={{ color: '#fde68a', fontSize: 12, flex: 1, minWidth: 180 }}>{pulisciNota(b.note)}</span>
-                  <button style={btn('#22c55e')} disabled={salvando} onClick={async () => {
-                    if (!window.confirm(`${b.nome} – ${b.intestatario || '—'}\n"${pulisciNota(b.note)}"\n\nNota gestita: la tolgo dal book? (il testo resta nello storico)`)) return
-                    setSalvando(true)
-                    try { await aggiornaNotaBook(b, '', `nota gestita il ${dataIt(oggi)} (popup note da attenzionare)`, setBooks); onMessage(`📝 Nota tolta: ${b.nome} (${b.intestatario || '—'})`) }
-                    catch (e) { onError('Errore: ' + e.message) }
-                    setSalvando(false)
-                  }}>✓ Gestita</button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {noteAtt.sort((a, b) => norm(a.nome).localeCompare(norm(b.nome)) || norm(a.intestatario).localeCompare(norm(b.intestatario))).map(b => {
+                const r = rigaAi(b); const ris = r?.risultato; const bz = bozzaDi(b)
+                return (
+                <div key={b.id} style={{ background: 'rgba(11,18,32,0.75)', border: '1px solid rgba(51,65,85,0.7)', borderRadius: 10, padding: '8px 10px' }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <b style={{ color: '#f8fafc', fontSize: 13 }}>{b.nome}</b>
+                    <span style={{ color: '#94a3b8', fontSize: 12 }}>{b.intestatario || '—'}</span>
+                    <span style={{ color: '#fde68a', fontSize: 12, flex: 1, minWidth: 180 }}>{pulisciNota(b.note)}</span>
+                  </div>
+                  {!ris && <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>🤖 {aiErrore ? 'lettura non disponibile' : 'in attesa di lettura…'}</div>}
+                  {ris && (
+                    <div style={{ marginTop: 6, padding: '6px 8px', borderRadius: 8, background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.3)', fontSize: 12, color: '#e2e8f0' }}>
+                      <div>🤖 {ris.sintesi || '—'}</div>
+                      {ris.informazione && <div style={{ color: '#fde68a', marginTop: 2 }}>📌 Da conservare: {ris.informazione}</div>}
+                      {bz.avvisi.map((a, i) => (
+                        <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 4, flexWrap: 'wrap' }}>
+                          <input type="checkbox" checked={a.on} onChange={e => setBozza(b, { avvisi: bz.avvisi.map((x, k) => k === i ? { ...x, on: e.target.checked } : x) })} />
+                          <input value={a.titolo} onChange={e => setBozza(b, { avvisi: bz.avvisi.map((x, k) => k === i ? { ...x, titolo: e.target.value } : x) })} style={{ ...inp, flex: 1, minWidth: 180 }} />
+                          <input type="date" value={a.data} min={oggi} onChange={e => setBozza(b, { avvisi: bz.avvisi.map((x, k) => k === i ? { ...x, data: e.target.value } : x) })} style={inp} />
+                        </div>
+                      ))}
+                      {bz.avvisi.length === 0 && <div style={{ color: '#94a3b8', marginTop: 2 }}>Nessun avviso proposto.</div>}
+                      {ris.parola_chiave && (
+                        <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 4, cursor: 'pointer' }}>
+                          <input type="checkbox" checked={bz.pk} onChange={e => setBozza(b, { pk: e.target.checked })} />
+                          <span>Aggiungi la parola chiave <b style={{ color: '#7dd3fc' }}>{ris.parola_chiave.toUpperCase()}</b>{ris.parola_chiave === 'sentire assistenza' ? ' (il testo della nota diventa il motivo)' : ''}</span>
+                        </label>
+                      )}
+                      {!bz.pk && (
+                        <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 4, cursor: 'pointer', color: '#94a3b8' }}>
+                          <input type="checkbox" checked={bz.cancella} onChange={e => setBozza(b, { cancella: e.target.checked })} />
+                          <span>Dopo la conferma togli il testo dalla nota{paroleChiave(b.note).length ? ' (le parole chiave restano)' : ''}</span>
+                        </label>
+                      )}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    {ris && <button style={btn('#a78bfa')} disabled={salvando} onClick={() => confermaAi(b)}>✅ Conferma proposta</button>}
+                    <button style={btn('#fbbf24')} disabled={salvando || !r} title={!r ? 'Disponibile dopo la lettura' : ''} onClick={async () => {
+                      if (!window.confirm(`${b.nome} – ${b.intestatario || '—'}\n"${pulisciNota(b.note)}"\n\nTengo la nota così com'è e non la ripropongo (finché qualcuno non la modifica)?`)) return
+                      await statoAi(b, 'tenuta'); onMessage(`📌 Nota tenuta: ${b.nome} (${b.intestatario || '—'})`)
+                    }}>📌 Tieni la nota</button>
+                    <button style={btn('#22c55e')} disabled={salvando} onClick={async () => {
+                      if (!window.confirm(`${b.nome} – ${b.intestatario || '—'}\n"${pulisciNota(b.note)}"\n\nNota gestita: tolgo il testo dal book? (le parole chiave restano, il testo resta nello storico)`)) return
+                      setSalvando(true)
+                      try { await statoAi(b, 'scartata'); await aggiornaNotaBook(b, soloParoleChiave(b.note), `nota gestita il ${dataIt(oggi)} (popup note da attenzionare)`, setBooks); onMessage(`📝 Nota tolta: ${b.nome} (${b.intestatario || '—'})`) }
+                      catch (e) { onError('Errore: ' + e.message) }
+                      setSalvando(false)
+                    }}>✓ Gestita</button>
+                  </div>
                 </div>
-              ))}
+              )})}
             </div>
           </div>
         </div>
