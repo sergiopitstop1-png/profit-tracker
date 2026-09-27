@@ -49,7 +49,7 @@ export async function POST(req) {
     const ni = norm(v.intestatario)
     const candidati = perIntest.get(ni) || [...perIntest.entries()].filter(([k]) => ni.length >= 6 && (k.startsWith(ni) || ni.startsWith(k))).flatMap(([, l]) => l)
     const book = candidati.find(b => norm(b.nome) === et) || candidati.find(b => { const n = norm(b.nome); return n.length >= 4 && (n.startsWith(et) || et.startsWith(n)) })
-    if (book) righe.set(`${book.id}|${data}`, { user_id: UTENTE, book_id: book.id, data, fonte: 'telefono', ultimo_visto: visto.toISOString() })
+    if (book) righe.set(`${book.id}|${data}`, { user_id: UTENTE, book_id: book.id, data, fonte: 'telefono', ultimo_visto: visto.toISOString(), host: String(v.host).slice(0, 120) })
     else if (SEMBRA_BOOK.test(v.host)) sconosciuti.set(`${v.intestatario}|${v.host}`, { user_id: UTENTE, intestatario: String(v.intestatario || '').slice(0, 80), host: String(v.host).slice(0, 120), visto: visto.toISOString() })
   }
   if (righe.size) await db('book_attivita?on_conflict=user_id,book_id,data,fonte', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify([...righe.values()]) })
