@@ -10,9 +10,11 @@
 // ════════════════════════════════════════════════════════════════════
 import React, { useState } from 'react'
 import { supabase } from '../profit-tracker/supabaseClient'
+import { togliParola, aggiornaNotaBook } from './noteConti'
 
 export const GIORNI_PRIMO_CONTATTO = 14   // dopo quanti giorni di volume blando contattare il supporto
 export const GIORNI_TRA_TENTATIVI = 30    // dopo un "no" del supporto, riprova dopo questi giorni
+export const GIORNI_VERIFICA_SPORT = 30   // 27/09/2026: ogni 30 giorni verifica se la limitazione sport è stata tolta
 
 const oggiISO = () => new Date().toLocaleDateString('sv-SE')
 const diffGiorni = (da, a) => Math.round((new Date(a + 'T00:00:00') - new Date(da + 'T00:00:00')) / 86400000)
@@ -92,6 +94,32 @@ export function azioniRecuperoOggi(item, oggi = oggiISO()) {
   return azioni
 }
 
+// 27/09/2026 — Avvisi PERSISTENTI del recupero (tabella avvisi_conti, vedi AvvisiConti.jsx).
+// Stesse regole di azioniRecuperoOggi, ma ogni avviso ha una chiave stabile: resta finché Sergio non lo segna Fatto.
+//   periodica → una chiave per giornata · contatto → una chiave per data di contatto (non si duplica ogni giorno)
+//   verifica sport → ogni 30 giorni dall'inizio del recupero sport
+export function avvisiRecupero(item, oggi = oggiISO()) {
+  const { book, tipo, proto, stato } = item
+  if (!proto || !proto.disponibile) return []
+  const out = []
+  const lbl = tipo === 'sport' ? 'limitato sport' : 'limitato bonus'
+  const base = `rec|${book.id}|${tipo}`
+  const meta = { flusso: tipo, book_id: String(book.id) }
+  // periodica: se oggi azioniRecuperoOggi la prevede
+  const periodiche = azioniRecuperoOggi({ ...item, stato: { ...(stato || {}), tentativi: [{ data: oggi, esito: 'attesa' }] } }, oggi)
+  periodiche.forEach((testo, i) => out.push({ chiave: `${base}|per|${oggi}|${i}`, tipo: 'recupero', titolo: testo.replace(/^🔧 Recupero \([^)]*\): /, ''), sottotitolo: `🔧 Recupero ${lbl}`, meta: { ...meta, azione: 'periodica' } }))
+  const pc = prossimoContatto(item, oggi)
+  if (pc.data && oggi >= pc.data) out.push({ chiave: `${base}|contatto|${pc.data}`, tipo: 'recupero', data_prevista: pc.data, titolo: proto.testoContatto || 'contatta il supporto (chat/mail) per info sulle promozioni, da GIOCATORE, poi chiedi la rivalutazione del conto', sottotitolo: `🔧 Recupero ${lbl} · ${pc.motivo}`, meta: { ...meta, azione: 'contatto' } })
+  if (tipo === 'sport' && stato?.iniziato) {
+    const n = Math.floor(diffGiorni(stato.iniziato, oggi) / GIORNI_VERIFICA_SPORT)
+    if (n >= 1) {
+      const d = new Date(new Date(stato.iniziato + 'T00:00:00').getTime() + n * GIORNI_VERIFICA_SPORT * 86400000).toLocaleDateString('sv-SE')
+      out.push({ chiave: `${base}|verifica|${d}`, tipo: 'recupero', data_prevista: d, titolo: 'verifica se la limitazione sport è stata tolta', sottotitolo: `🔧 Recupero limitato sport · controllo ogni ${GIORNI_VERIFICA_SPORT} giorni`, meta: { ...meta, azione: 'verifica_sport' } })
+    }
+  }
+  return out
+}
+
 // ─── STILI ──────────────────────────────────────────────────────────
 const inp = { background: '#0b1220', color: '#f8fafc', border: '1px solid rgba(51,65,85,0.9)', borderRadius: 8, padding: '5px 8px', fontSize: 12 }
 const btn = (c) => ({ padding: '5px 10px', borderRadius: 8, border: `1px solid ${c}66`, background: `${c}1a`, color: c, fontWeight: 700, fontSize: 12, cursor: 'pointer' })
@@ -138,13 +166,10 @@ export default function RecuperoContiPanel({ books, recuperi, setRecuperi, setBo
     await aggiorna(it, { tentativi })
   }
   async function recuperato(it) {
-    if (!window.confirm(`${it.book.nome} · ${it.book.intestatario || ''}: segnare come RECUPERATO (limitazione ${it.tipo})? La nota viene aggiornata.`)) return
+    if (!window.confirm(`${it.book.nome} · ${it.book.intestatario || ''}: segnare come RECUPERATO (limitazione ${it.tipo})? La parola chiave esce dalla nota (il testo originale resta nello storico).`)) return
     setSalvando(true)
-    const re = new RegExp(`limitat[oa]\\s+${it.tipo}`, 'gi')
-    const nuovaNota = String(it.book.note || '').replace(re, `recuperato ${it.tipo} ${dataIt(oggi)}`)
-    const { error } = await supabase.from('books').update({ note: nuovaNota }).eq('id', it.book.id)
-    if (error) { setSalvando(false); onError('Errore aggiornamento nota: ' + error.message); return }
-    setBooks(prev => prev.map(b => b.id === it.book.id ? { ...b, note: nuovaNota } : b))
+    try { await aggiornaNotaBook(it.book, togliParola(it.book.note, it.tipo), `recuperato ${it.tipo} il ${dataIt(oggi)}`, setBooks) }
+    catch (error) { setSalvando(false); onError('Errore aggiornamento nota: ' + error.message); return }
     if (it.stato) {
       await supabase.from('recupero_conti').delete().eq('id', it.stato.id)
       setRecuperi(prev => prev.filter(r => r.id !== it.stato.id))
