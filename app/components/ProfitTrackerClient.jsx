@@ -161,6 +161,8 @@ const [pausaForm, setPausaForm] = useState(null)   // { modo, ripresa } quando i
 const [bookAttivita, setBookAttivita] = useState([])
 const [saldiDaAggAperto, setSaldiDaAggAperto] = useState(null)   // nome del book aperto nel pannello (null = solo i nomi dei book)
 const [saldoRapido, setSaldoRapido] = useState({})
+// 28/09/2026 — finestra "📱 Apri su telefoni": un book sui telefoni dei clienti che ce l'hanno
+const [apriTel, setApriTel] = useState(null)   // { cerca, key, url, esclusi: Set(id), filtri: {...} }
 // 27/09/2026 — registro di profilazione manuale
 const [registroAperto, setRegistroAperto] = useState(false)
 const [regForm, setRegForm] = useState({ cerca: '', bookId: '', data: new Date().toLocaleDateString('sv-SE'), tipoOp: 'Sport', importo: '', descrizione: '', copreGiorno: true })
@@ -6442,6 +6444,70 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           </div>
         ) })()}
 
+        {apriTel && (() => {
+          const nk = x => normalizzaBookKey(x)
+          const nomi = [...new Map(books.filter(b => b.nome && !/punti e monete|in corso/i.test(b.nome)).map(b => [nk(b.nome), b.nome])).entries()]
+          const q = apriTel.cerca.trim().toLowerCase()
+          const trovati = q ? nomi.filter(([, n]) => n.toLowerCase().includes(q)).slice(0, 15) : []
+          const conti = apriTel.key ? books.filter(b => nk(b.nome) === apriTel.key).sort((a, c) => String(a.intestatario || '').localeCompare(String(c.intestatario || ''))) : []
+          const f = apriTel.filtri
+          const nota = b => String(b.note || '').toLowerCase()
+          const escluso = b => (f.chiusi && /\bchius[oa]\b/.test(nota(b)) && !/chiuder\w*\s+e\s+riaprir/.test(nota(b)))
+            || (f.limBonus && /limitat[oa]\s+bonus/.test(nota(b)))
+            || (f.limSport && (b.sport_bloccato || /limitat[oa]\s+sport/.test(nota(b))))
+            || (f.soloProf && b.profilo_livello !== 'attivo')
+            || (f.soloSaldo && !(Number(b.saldo || 0) > 0))
+          const scelti = conti.filter(b => !escluso(b) && !apriTel.esclusi.has(b.id))
+          const liv = b => b.profilo_livello === 'attivo' ? '🟢' : String(b.profilo_livello || '').startsWith('mantenimento') ? '🟡' : b.profilo_livello === 'dormiente' ? '⚫' : '·'
+          const inp = { background: '#020617', color: '#f8fafc', border: '1px solid #475569', borderRadius: 8, padding: '7px 9px', fontSize: 13 }
+          const filtro = (k, l) => <label key={k} style={{ display: 'flex', gap: 5, alignItems: 'center', fontSize: 12, cursor: 'pointer', color: '#cbd5e1' }}><input type="checkbox" checked={!!f[k]} onChange={e => setApriTel({ ...apriTel, filtri: { ...f, [k]: e.target.checked } })} />{l}</label>
+          return (
+            <div onClick={() => setApriTel(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+              <div onClick={e => e.stopPropagation()} style={{ background: '#0f172a', border: '1px solid rgba(14,165,233,0.5)', borderRadius: 16, padding: 18, width: 'min(760px, 100%)', maxHeight: '88vh', overflowY: 'auto', color: '#e2e8f0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <div style={{ fontSize: 16, fontWeight: 900, color: '#7dd3fc' }}>📱 Apri un book sui telefoni</div>
+                  <button onClick={() => setApriTel(null)} style={{ ...inp, cursor: 'pointer' }}>Chiudi</button>
+                </div>
+                {!apriTel.key ? (
+                  <>
+                    <input autoFocus placeholder="Quale book? (es. eurobet)" value={apriTel.cerca} onChange={e => setApriTel({ ...apriTel, cerca: e.target.value })} style={{ ...inp, width: '100%' }} />
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                      {trovati.map(([k, n]) => <button key={k} onClick={() => { const primo = books.find(b => nk(b.nome) === k); setApriTel({ ...apriTel, key: k, url: primo ? sitoBook(primo) : '', esclusi: new Set() }) }} style={{ ...inp, cursor: 'pointer', padding: '5px 10px' }}>{n} <span style={{ color: '#64748b' }}>{books.filter(b => nk(b.nome) === k).length}</span></button>)}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+                      <b style={{ fontSize: 15, color: '#f8fafc' }}>{conti[0]?.nome}</b>
+                      <button onClick={() => setApriTel({ ...apriTel, key: '', cerca: '' })} style={{ ...inp, cursor: 'pointer', padding: '3px 8px', fontSize: 12 }}>cambia book</button>
+                      <input value={apriTel.url} onChange={e => setApriTel({ ...apriTel, url: e.target.value })} style={{ ...inp, flex: 1, minWidth: 200, fontSize: 12 }} title="Indirizzo che si apre sui telefoni" />
+                    </div>
+                    <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 8, padding: '8px 10px', borderRadius: 10, background: 'rgba(14,165,233,0.06)' }}>
+                      {filtro('chiusi', 'escludi i chiusi')}{filtro('limBonus', 'escludi limitati bonus')}{filtro('limSport', 'escludi limitati sport')}{filtro('soloProf', 'solo in profilazione')}{filtro('soloSaldo', 'solo con saldo')}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 6, fontSize: 12 }}>
+                      <button onClick={() => setApriTel({ ...apriTel, esclusi: new Set() })} style={{ ...inp, cursor: 'pointer', padding: '3px 8px', fontSize: 12 }}>tutti</button>
+                      <button onClick={() => setApriTel({ ...apriTel, esclusi: new Set(conti.map(b => b.id)) })} style={{ ...inp, cursor: 'pointer', padding: '3px 8px', fontSize: 12 }}>nessuno</button>
+                      <span style={{ color: '#94a3b8', alignSelf: 'center' }}>{scelti.length} di {conti.length} conti</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      {conti.map(b => { const fuori = escluso(b); const sp = !fuori && !apriTel.esclusi.has(b.id); return (
+                        <label key={b.id} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, padding: '5px 8px', borderRadius: 8, background: 'rgba(11,18,32,0.75)', opacity: fuori ? 0.4 : 1, cursor: fuori ? 'default' : 'pointer' }}>
+                          <input type="checkbox" disabled={fuori} checked={sp} onChange={e => { const n = new Set(apriTel.esclusi); if (e.target.checked) n.delete(b.id); else n.add(b.id); setApriTel({ ...apriTel, esclusi: n }) }} />
+                          <span>{liv(b)}</span><b style={{ color: '#f8fafc', minWidth: 160 }}>{b.intestatario || '—'}</b>
+                          <span style={{ color: '#94a3b8', flex: 1 }}>{String(b.note || '').replace(/\\n/g, ' ').slice(0, 60)}</span>
+                          <span style={{ color: '#94a3b8' }}>{formatCurrency(Number(b.saldo || 0))}</span>
+                        </label>) })}
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+                      <button disabled={!scelti.length || !apriTel.url} onClick={() => { const nome = conti[0]?.nome, url = apriTel.url, nomi = scelti.map(b => b.intestatario); setApriTel(null); apriSuTelefoni(nome, url, nomi) }} style={{ background: scelti.length ? '#0ea5e9' : '#334155', color: 'white', border: 0, borderRadius: 10, padding: '9px 16px', fontWeight: 900, cursor: scelti.length ? 'pointer' : 'default' }}>📱 Apri su {scelti.length} telefoni</button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )
+        })()}
         {registroAperto && (() => {
           const q = regForm.cerca.trim().toLowerCase()
           const trovati = q.length < 2 ? [] : books.filter(b => `${b.nome} ${b.intestatario || ''}`.toLowerCase().includes(q)).slice(0, 12)
@@ -8475,7 +8541,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         })()}
         {activeTab === 'books' && (
           <div style={tabContent}>
-            <div style={sectionTopBar}><div><h2 style={sectionTitle}>Books</h2><p style={sectionDescription}>Archivio bookmaker con filtri, note e azioni rapide</p></div><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>{Object.keys(pendingBookSaldi).some(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }) && (<button style={{ ...primaryButtonGreen, background: 'linear-gradient(135deg, #d97706, #f59e0b)', boxShadow: '0 0 14px rgba(245,158,11,0.4)', animation: 'blinkPrevisto 1.8s ease-in-out infinite' }} onClick={handleSalvaBookSaldi}>💾 Salva saldi ({Object.keys(pendingBookSaldi).filter(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }).length})</button>)}<button style={secondaryButton} onClick={() => { const nomiBookUnici = [...new Set(books.filter(b => b.nome && !/punti e monete/i.test(b.nome) && !/in corso/i.test(b.nome)).map(b => normalizzaBookKey(b.nome)))].filter(Boolean); if (!window.confirm(`Aggiornare i saldi di tutti i ${nomiBookUnici.length} book per tutti i clienti?`)) return; nomiBookUnici.forEach(b => eseguiSaldoJob(b, null)) }}>🔄 Aggiorna saldi</button><button style={primaryButtonGreen} onClick={() => setShowBookModal(true)}>+ Nuovo Book</button></div></div>
+            <div style={sectionTopBar}><div><h2 style={sectionTitle}>Books</h2><p style={sectionDescription}>Archivio bookmaker con filtri, note e azioni rapide</p></div><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>{Object.keys(pendingBookSaldi).some(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }) && (<button style={{ ...primaryButtonGreen, background: 'linear-gradient(135deg, #d97706, #f59e0b)', boxShadow: '0 0 14px rgba(245,158,11,0.4)', animation: 'blinkPrevisto 1.8s ease-in-out infinite' }} onClick={handleSalvaBookSaldi}>💾 Salva saldi ({Object.keys(pendingBookSaldi).filter(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }).length})</button>)}<button style={secondaryButton} onClick={() => { const nomiBookUnici = [...new Set(books.filter(b => b.nome && !/punti e monete/i.test(b.nome) && !/in corso/i.test(b.nome)).map(b => normalizzaBookKey(b.nome)))].filter(Boolean); if (!window.confirm(`Aggiornare i saldi di tutti i ${nomiBookUnici.length} book per tutti i clienti?`)) return; nomiBookUnici.forEach(b => eseguiSaldoJob(b, null)) }}>🔄 Aggiorna saldi</button><button style={primaryButtonGreen} onClick={() => setShowBookModal(true)}>+ Nuovo Book</button><button style={{ ...secondaryButton, borderColor: 'rgba(14,165,233,0.6)', color: '#7dd3fc' }} onClick={() => setApriTel({ cerca: '', key: '', url: '', esclusi: new Set(), filtri: { chiusi: true, limBonus: false, limSport: false, soloProf: false, soloSaldo: false } })}>📱 Apri su telefoni</button></div></div>
             <div style={statsGridCompact}><StatCard label='Totale books' value={formatCurrency(totaleBooks)} sub={`${books.length} records`} accent='#22c55e' /><StatCard label='Totale filtrato' value={formatCurrency(totaleBooksFiltrati)} sub={`${filteredBooks.length} risultati visibili`} accent='#38bdf8' /></div>
             <div style={panel}>
               <div style={filterRow}>
