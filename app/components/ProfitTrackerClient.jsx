@@ -11,7 +11,7 @@ import MemoTab from './MemoTab'
 import { calcolaRoyalty, RoyaltyRiepilogo, RoyaltyBadge, RoyaltyModal, inserisciPagamento } from './RoyaltyPanel'
 import { RisparmiCard, calcolaRisparmi, maturaInteressi, normalizza as normalizzaRisparmi } from './RisparmiPanel'
 import SlotConsigliate, { PulsanteSlot, parlaDiSlot } from './SlotConsigliate'
-import RecuperoContiPanel, { contiInRecupero, azioniRecuperoOggi, limitazioniDaNota, daPromuovere } from './RecuperoConti'
+import RecuperoContiPanel, { contiInRecupero, azioniRecuperoOggi, limitazioniDaNota, daPromuovere, recuperoSport } from './RecuperoConti'
 import AvvisiContiPanel from './AvvisiConti'
 
 // V32 — rete di sicurezza 60 giorni sui conti in MANTENIMENTO
@@ -276,6 +276,49 @@ const [importReport, setImportReport] = useState(null)
   loadData()
 }, [])
   useEffect(() => { caricaLucyDaSupabase() }, [])
+// 27/09/2026 — RETE DI SICUREZZA LUCY
+// 1) Se ieri (o prima) gli incroci sono stati preparati ma nessuna bet confermata, le bet attese non erano salvate
+//    e sparivano: ora si salvano al primo caricamento del giorno dopo, così Lucy le ripropone.
+// 2) Le bet di profilazione non fatte vengono riproposte da Lucy per LUCY_RECUPERO_MAX_GG giorni; oltre, invece di
+//    sparire, diventano un avviso 🎯 in plancia che resta finché Sergio non lo segna Fatto.
+const reteLucyRef = React.useRef(false)
+useEffect(() => {
+  if (reteLucyRef.current || lucySync?.stato !== 'ok' || !Array.isArray(avvisiConti) || !books.length) return
+  reteLucyRef.current = true
+  ;(async () => {
+    try {
+      const raw = localStorage.getItem('profittracker_lucy_attese_oggi')
+      const snap = raw ? JSON.parse(raw) : null
+      if (snap && snap.data < lucyOggi() && !snap.salvato && Array.isArray(snap.righe) && snap.righe.length) {
+        const uid = await lucyUserIdSync()
+        const { error } = await supabase.from('lucy_bet_attese').upsert(snap.righe.map(r => ({ ...r, user_id: uid })), { onConflict: 'user_id,key', ignoreDuplicates: true })
+        if (!error) localStorage.setItem('profittracker_lucy_attese_oggi', JSON.stringify({ ...snap, salvato: true }))
+      }
+    } catch (e) { console.warn('[Lucy] salvataggio attese del giorno prima fallito:', e?.message || e) }
+    try {
+      const oggiL = lucyOggi()
+      const uid = await lucyUserIdSync()
+      const { data: righe } = await supabase.from('lucy_bet_attese').select('*').eq('user_id', uid)
+        .gte('data', aggiungiGiorniLucy(oggiL, -60)).lt('data', aggiungiGiorniLucy(oggiL, -LUCY_RECUPERO_MAX_GG))
+      const nuove = []
+      for (const r of righe || []) {
+        const book = books.find(b => String(b.id) === String(r.book_id))
+        if (!book || book.profilo_livello !== 'attivo') continue            // ciclo finito o conto cambiato di stato
+        const fatte = lucyConfermate.filter(x => String(x?.bookId) === String(r.book_id) && x.data === r.data && x.tipo === 'profilazione' && !x.recupero).length
+        if (fatte >= Number(r.bet_numero)) continue
+        if (lucyConfermate.some(x => x?.recuperoKey === r.key)) continue
+        const chiave = `lucy|${r.key}`
+        if ((avvisiConti || []).some(a => a.chiave === chiave)) continue
+        nuove.push({ chiave, tipo: 'lucy', book_id: String(book.id), titolo: `Bet di profilazione non fatta dal ${String(r.data).split('-').reverse().join('/')} (bet ${r.bet_numero}${r.bet_richieste ? '/' + r.bet_richieste : ''}, ~${Math.round(Number(r.stake) || 0)}€)`, sottotitolo: r.azione ? String(r.azione).slice(0, 140) : null, data_prevista: new Date().toLocaleDateString('sv-SE'), stato: 'aperto', meta: { origine: 'lucy', key: r.key } })
+      }
+      if (nuove.length) {
+        const { data } = await supabase.from('avvisi_conti').upsert(nuove, { onConflict: 'user_id,chiave', ignoreDuplicates: true }).select()
+        if (data && data.length) setAvvisiConti(prev => [...(prev || []), ...data.filter(d => !(prev || []).some(p => p.id === d.id))])
+      }
+    } catch (e) { console.warn('[Lucy] rete di sicurezza bet arretrate:', e?.message || e) }
+  })()
+}, [lucySync, avvisiConti, books, lucyConfermate])
+
   // V55: il messaggio "Transazione eseguita correttamente" sparisce da solo dopo pochi secondi
   useEffect(() => { if (!message) return; const t = setTimeout(() => setMessage(''), 4500); return () => clearTimeout(t) }, [message])
 
@@ -2763,7 +2806,7 @@ function confermaSingolaBetLucy(p,a,tipo='profilazione') {
 
 async function chiudiAvvisiRecuperoDaLucy(bookId) {
   const oggiIso=new Date().toLocaleDateString('sv-SE')
-  const ids=(avvisiConti||[]).filter(x=>x.stato==='aperto'&&x.tipo==='recupero'&&x.meta?.azione==='periodica'&&String(x.book_id)===String(bookId)&&x.data_prevista<=oggiIso).map(x=>x.id)
+  const ids=(avvisiConti||[]).filter(x=>x.stato==='aperto'&&x.tipo==='recupero'&&x.meta?.azione==='periodica'&&recuperoSport(x.titolo)&&String(x.book_id)===String(bookId)&&x.data_prevista<=oggiIso).map(x=>x.id)
   if(!ids.length) return
   const { data, error } = await supabase.from('avvisi_conti').update({ stato:'fatto', fatto_il:oggiIso, esito:'bet di recupero confermata in Lucy' }).in('id',ids).select()
   if(!error&&data) setAvvisiConti(prev=>(prev||[]).map(x=>data.find(d=>d.id===x.id)||x))
@@ -5727,6 +5770,7 @@ const agendaRecuperoLucy = () => {
   const perBook = new Map()
   for (const a of avvisiConti || []) {
     if (a.stato !== 'aperto' || a.tipo !== 'recupero' || a.meta?.azione !== 'periodica' || a.data_prevista > oggiIso) continue
+    if (!recuperoSport(a.titolo)) continue   // Slot / Virtuali / giochi offline: li fa Sergio a mano (restano negli avvisi)
     const book = books.find(b => String(b.id) === String(a.book_id))
     if (!book) continue
     const lbl = a.meta?.flusso === 'sport' ? 'limitato sport' : 'limitato bonus'
@@ -6504,6 +6548,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         setBooks={setBooks}
         avvisi={avvisiConti}
         setAvvisi={setAvvisiConti}
+        lucyColloca={b => !/^(sisal|snai|pokerstars)$/.test(String(b?.nome || '').toLowerCase().replace(/[^a-z0-9]/g, '')) && !lucyMaiSport(b)}
         recuperi={recuperiConti}
         setRecuperi={setRecuperiConti}
         getRecuperoProtocollo={getRecuperoProtocollo}
