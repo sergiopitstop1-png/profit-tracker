@@ -12,7 +12,7 @@
 // ════════════════════════════════════════════════════════════════════
 import React, { useEffect, useRef, useState } from 'react'
 import { supabase } from '../profit-tracker/supabaseClient'
-import { paroleChiave, motivoAssistenza, togliParola, aggiornaNotaBook, notaDaAttenzionare, pulisciNota } from './noteConti'
+import { paroleChiave, motivoAssistenza, togliParola, aggiornaNotaBook, notaDaAttenzionare, pulisciNota, annullaAvvisiFlusso, aggiungiParola } from './noteConti'
 import { contiInRecupero, avvisiRecupero, limitazioniDaNota } from './RecuperoConti'
 
 // ─── PARAMETRI ──────────────────────────────────────────────────────
@@ -162,16 +162,9 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
     }
     if (nuovi.length) inserisci(nuovi)
 
-    // Annullo automatico: parola chiave tolta a mano dalla nota (o sport bloccato per sempre)
-    const daAnnullare = aperti.filter(a => {
-      const f = a.meta?.flusso
-      if (!f) return false
-      const ids = a.book_id ? [a.book_id] : (a.meta?.book_ids || [])
-      const presenti = ids.map(bookDi).filter(Boolean)
-      if (!presenti.length) return false
-      const ancora = presenti.some(b => (f === 'bonus' || f === 'sport') ? (limitazioniDaNota(b.note).includes(f) && !(f === 'sport' && b.sport_bloccato)) : paroleChiave(b.note).includes(f))
-      return !ancora
-    })
+    // Annullo automatico SOLO per lo sport bloccato per sempre (il pulsante 🚫 ha già chiesto la conferma).
+    // Una parola chiave tolta a mano dalla nota NON annulla niente: l'avviso va tra quelli da confermare.
+    const daAnnullare = aperti.filter(a => a.meta?.flusso === 'sport' && a.book_id && bookDi(a.book_id)?.sport_bloccato)
     if (daAnnullare.length) {
       supabase.from('avvisi_conti').update({ stato: 'annullato', esito: 'parola chiave tolta dalla nota' }).in('id', daAnnullare.map(a => a.id)).select()
         .then(({ data }) => { if (data) setAvvisi(prev => prev.map(x => data.find(d => d.id === x.id) || x)) })
@@ -183,6 +176,34 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
   async function togliDallaNota(book, flusso, motivo) {
     if (!book) return
     await aggiornaNotaBook(book, togliParola(book.note, flusso), motivo, setBooks)
+    await annullaAvvisiFlusso(book.id, flusso, `flusso chiuso: ${motivo}`, setAvvisi)   // gli altri avvisi di quel flusso non servono più
+  }
+
+  // ─── AVVISI "ORFANI": la parola chiave non c'è più nella nota, ma nessuno ha confermato ───
+  const libriDi = (a) => (a.book_id ? [a.book_id] : (a.meta?.book_ids || [])).map(bookDi).filter(Boolean)
+  const haParola = (b, f) => (f === 'bonus' || f === 'sport') ? limitazioniDaNota(b.note).includes(f) : paroleChiave(b.note).includes(f)
+  const orfano = (a) => { const f = a.meta?.flusso; const lib = libriDi(a); return !!f && lib.length > 0 && !lib.some(b => haParola(b, f)) }
+  const NOME_PAROLA = { bonus: 'limitato bonus', sport: 'limitato sport', assistenza: 'sentire assistenza', riapertura: 'chiudere e riaprire', documento: 'inviare documento', live: 'riconoscimento live' }
+
+  async function annullaOrfano(a) {
+    const lib = libriDi(a)
+    const chi = lib.map(b => `${b.nome} – ${b.intestatario || '—'}`).join(', ')
+    if (!window.confirm(`⚠️ Qualcuno ha tolto "${NOME_PAROLA[a.meta.flusso]}" dalla nota di:\n${chi}\n\nAvviso: ${a.titolo}\n\nConfermi che è stato fatto apposta e che l'avviso va ANNULLATO?`)) return
+    if (!window.confirm(`Ultima conferma: annullo l'avviso "${a.titolo}"? Non verrà più riproposto.`)) return
+    setSalvando(true)
+    await aggiornaAvviso(a, { stato: 'annullato', esito: 'parola chiave tolta dalla nota, annullo confermato' })
+    setSalvando(false)
+    onMessage(`Avviso annullato: ${a.titolo}`)
+  }
+  async function ripristinaOrfano(a) {
+    const lib = libriDi(a)
+    if (!window.confirm(`Rimetto "${NOME_PAROLA[a.meta.flusso].toUpperCase()}" nella nota di:\n${lib.map(b => `${b.nome} – ${b.intestatario || '—'}`).join('\n')}\n\nL'avviso resta attivo com'era.`)) return
+    setSalvando(true)
+    try {
+      for (const b of lib) await aggiornaNotaBook(b, aggiungiParola(b.note, a.meta.flusso), 'parola chiave ripristinata dopo cancellazione', setBooks)
+      onMessage(`↩️ Parola chiave ripristinata: ${lib.map(b => b.nome).join(', ')}`)
+    } catch (e) { onError('Errore: ' + e.message) }
+    setSalvando(false)
   }
   async function rigaRecupero(book, tipo) {
     const r = (recuperi || []).find(x => String(x.book_id) === String(book.id) && x.tipo === tipo)
@@ -287,8 +308,9 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
   }
 
   // ─── VISTA ────────────────────────────────────────────────────────
-  const daFare = aperti.filter(a => a.data_prevista <= oggi).sort((x, y) => x.data_prevista.localeCompare(y.data_prevista) || x.tipo.localeCompare(y.tipo))
-  const futuri = aperti.filter(a => a.data_prevista > oggi).sort((x, y) => x.data_prevista.localeCompare(y.data_prevista))
+  const orfani = aperti.filter(orfano)
+  const daFare = aperti.filter(a => a.data_prevista <= oggi && !orfano(a)).sort((x, y) => x.data_prevista.localeCompare(y.data_prevista) || x.tipo.localeCompare(y.tipo))
+  const futuri = aperti.filter(a => a.data_prevista > oggi && !orfano(a)).sort((x, y) => x.data_prevista.localeCompare(y.data_prevista))
   const inRitardo = daFare.filter(a => a.data_prevista < oggi).length
   const noteAtt = (books || []).filter(b => notaDaAttenzionare(b.note))
 
@@ -352,7 +374,7 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
       <div style={{ background: 'rgba(56,189,248,0.06)', border: '1px solid rgba(56,189,248,0.35)', borderRadius: 16, padding: '14px 16px', marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <div onClick={() => setMostra(!mostra)} style={{ fontSize: 14, fontWeight: 900, color: '#7dd3fc', cursor: 'pointer' }}>
-            🔔 Avvisi conti · {daFare.length} da fare{inRitardo ? <span style={{ color: '#f87171' }}> ({inRitardo} in ritardo)</span> : ''} {mostra ? '▾' : '▸'}
+            🔔 Avvisi conti · {daFare.length} da fare{inRitardo ? <span style={{ color: '#f87171' }}> ({inRitardo} in ritardo)</span> : ''}{orfani.length ? <span style={{ color: '#f87171' }}> · ⚠️ {orfani.length} da confermare</span> : ''} {mostra ? '▾' : '▸'}
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             <button style={btn(noteAtt.length ? '#fbbf24' : '#64748b')} onClick={() => setPopupNote(true)}>📝 Note da attenzionare ({noteAtt.length})</button>
@@ -361,6 +383,26 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
         </div>
         {mostra && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
+            {orfani.length > 0 && (
+              <div style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.55)', borderRadius: 12, padding: '10px 12px' }}>
+                <div style={{ fontSize: 13, fontWeight: 900, color: '#fca5a5' }}>⚠️ Parola chiave tolta dalla nota · {orfani.length} avvisi da confermare</div>
+                <div style={{ fontSize: 11, color: '#94a3b8', margin: '2px 0 8px' }}>Qualcuno ha cancellato la parola chiave a mano. Gli avvisi restano finché non confermi: se è stato un errore, ripristina la parola chiave.</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {orfani.map(a => (
+                    <div key={a.id} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', background: 'rgba(11,18,32,0.75)', borderRadius: 10, padding: '7px 10px' }}>
+                      <span>{ICONA[a.tipo] || '🔔'}</span>
+                      <b style={{ color: '#f8fafc', fontSize: 13 }}>{libriDi(a).map(b => `${b.nome} · ${b.intestatario || '—'}`).join(', ')}</b>
+                      <span style={{ color: '#e2e8f0', fontSize: 12 }}>{a.titolo}</span>
+                      <span style={{ fontSize: 11, color: '#fca5a5' }}>manca "{NOME_PAROLA[a.meta?.flusso]}"</span>
+                      <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                        <button style={btn('#38bdf8')} disabled={salvando} onClick={() => ripristinaOrfano(a)}>↩️ Ripristina parola chiave</button>
+                        <button style={btn('#f87171')} disabled={salvando} onClick={() => annullaOrfano(a)}>🗑 Annulla avviso</button>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {daFare.length === 0 && <div style={{ fontSize: 12, color: '#64748b' }}>Nessun avviso da gestire oggi.</div>}
             {Object.entries(perFlusso).map(([tipo, lista]) => (
               <div key={tipo}>
