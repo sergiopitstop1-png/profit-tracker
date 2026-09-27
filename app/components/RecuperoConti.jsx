@@ -59,6 +59,11 @@ export function prioritaRecupero(item, getClasseBook) {
 }
 const confrontaPriorita = (a, b) => a[0] - b[0] || a[1] - b[1] || String(a[2]).localeCompare(String(b[2]))
 export const recuperoAttivo = (item) => !!item?.stato?.attivo_dal
+// L'azione di recupero di oggi è SPORT? (solo queste le colloca Lucy negli incroci; Slot/Virtuali/offline sono a mano)
+export function recuperoSport(testo) {
+  const m = String(testo || '').match(/oggi (Sport|Slot|Virtuali|giochi offline)\s*$/i)
+  return m ? /^sport$/i.test(m[1]) : /sport/i.test(String(testo || ''))
+}
 
 // Conti della coda da attivare adesso per riempire i posti liberi
 export function daPromuovere(lista, getClasseBook, max = MAX_RECUPERI_ATTIVI) {
@@ -171,7 +176,7 @@ export default function RecuperoContiPanel({ books, recuperi, setRecuperi, setBo
   const [aperto, setAperto] = useState(null)
   const [nuovoTent, setNuovoTent] = useState({})
   const [salvando, setSalvando] = useState(false)
-  const [mostra, setMostra] = useState(true)
+  const [mostra, setMostra] = useState(false)   // 27/09/2026: chiuso di default, è una scheda da consultare
   const [mostraCoda, setMostraCoda] = useState(false)
   const [mostraRiepilogo, setMostraRiepilogo] = useState(false)
   const [esiti, setEsiti] = useState([])
