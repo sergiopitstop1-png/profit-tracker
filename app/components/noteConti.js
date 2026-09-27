@@ -89,3 +89,19 @@ export function aggiungiParola(note, flusso) {
   if (!k || k.re.test(senzaAccenti(n))) return n
   return (n ? `${n} - ` : '') + k.label.toUpperCase()
 }
+
+// Solo le parole chiave della nota (il testo in più viene tolto). '' se non ce ne sono.
+export function soloParoleChiave(note) {
+  const n = senzaAccenti(pulisciNota(note))
+  return PAROLE_CHIAVE.filter(k => k.re.test(n)).map(k => (n.match(new RegExp(k.re.source, 'i')) || [''])[0].toUpperCase()).join(' - ')
+}
+// Testo in più rispetto alle parole chiave (quello che legge l'AI)
+export function testoExtra(note) {
+  return motivoAssistenza(note)
+}
+// Impronta della nota: se cambia, la nota va riletta
+export function improntaNota(note) {
+  const s = pulisciNota(note).toLowerCase(); let h = 2166136261
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) }
+  return (h >>> 0).toString(36)
+}
