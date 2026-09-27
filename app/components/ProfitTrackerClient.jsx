@@ -157,6 +157,9 @@ const [avvisiConti, setAvvisiConti] = useState(null)
 // 27/09/2026 — pausa profilazione
 const [pauseProf, setPauseProfState] = useState([])
 const [pausaForm, setPausaForm] = useState(null)   // { modo, ripresa } quando il pannello è aperto
+// 27/09/2026 — registro di profilazione manuale
+const [registroAperto, setRegistroAperto] = useState(false)
+const [regForm, setRegForm] = useState({ cerca: '', bookId: '', data: new Date().toLocaleDateString('sv-SE'), tipoOp: 'Sport', importo: '', descrizione: '', copreGiorno: true })
 const setPauseProf = (righe) => { PAUSE_PROF = righe || []; setPauseProfState(PAUSE_PROF) }
 // Appena un book ha "limitato bonus"/"limitato sport" nella nota, registra l'inizio del recupero (una volta sola).
 const recuperiRegistratiRef = React.useRef(new Set())
@@ -407,6 +410,7 @@ useEffect(() => {
       for (const r of righe || []) {
         const book = books.find(b => String(b.id) === String(r.book_id))
         if (!book || book.profilo_livello !== 'attivo') continue            // ciclo finito o conto cambiato di stato
+        if (giornoCopertoManuale(r.book_id, r.data)) continue
         const fatte = lucyConfermate.filter(x => String(x?.bookId) === String(r.book_id) && x.data === r.data && x.tipo === 'profilazione' && !x.recupero).length
         if (fatte >= Number(r.bet_numero)) continue
         if (lucyConfermate.some(x => x?.recuperoKey === r.key)) continue
@@ -2677,6 +2681,38 @@ function ultimoMovimentoBookLucy(bookId) {
   return ultimo||null
 }
 
+// 27/09/2026 — REGISTRO DI PROFILAZIONE MANUALE: operazioni profilative fatte a mano su un conto.
+// Il conto passa in Profilazione (qualunque stato avesse) ed entra nel giro con gli altri; se "copre la giornata",
+// le bet di profilazione di quel giorno risultano fatte (niente doppioni negli incroci, niente arretrate).
+function giornoCopertoManuale(bookId, data) {
+  return lucyConfermate.some(x => x?.manualeProf && x.copreGiorno && String(x.bookId) === String(bookId) && x.data === data)
+}
+function registroManualeProf() {
+  return lucyConfermate.filter(x => x?.manualeProf).sort((a, b) => String(b.data).localeCompare(String(a.data)) || String(b.creato).localeCompare(String(a.creato)))
+}
+async function registraProfilazioneManuale({ book, data, tipoOp, importo, descrizione, copreGiorno }) {
+  if (!book) { setErrorMessage('Scegli il conto'); return false }
+  const oggiIso = lucyOggi()
+  if (!data || data > oggiIso) { setErrorMessage('La data non può essere nel futuro'); return false }
+  const cambia = book.profilo_livello !== 'attivo'
+  const stati = { dormiente: 'Dormiente', mantenimento: 'Mantenimento', attivo: 'Profilazione' }
+  if (!window.confirm(`${book.nome} – ${book.intestatario || '—'}\n${data.split('-').reverse().join('/')} · ${tipoOp}${importo ? ` · ${importo}€` : ''}${descrizione ? `\n"${descrizione}"` : ''}\n\n${cambia ? `Il conto passa da ${stati[String(book.profilo_livello || '').startsWith('mantenimento') ? 'mantenimento' : book.profilo_livello] || 'non impostato'} a PROFILAZIONE.\n` : ''}${copreGiorno ? 'Le bet di profilazione di quel giorno risultano fatte.' : 'Conta come una movimentazione, le bet del giorno restano da fare.'}\n\nRegistro?`)) return false
+  const rec = {
+    key: `manprof|${data}|${book.id}|${Date.now()}`, data, creato: new Date().toISOString(), tipo: 'manuale',
+    manualeProf: true, copreGiorno: !!copreGiorno, tipoOp,
+    bookId: book.id, book: book.nome, intestatario: book.intestatario,
+    partita: descrizione || `Profilazione manuale (${tipoOp})`, orario: '—', mercato: tipoOp, esito: '—', stake: Number(importo || 0), quota: 0
+  }
+  salvaLucyConfermate([...lucyConfermate, rec])
+  if (cambia) await updateProfiloLivello(book.id, 'attivo')   // per i book con più profilazioni si apre la scelta
+  setMessage(`✍️ Registrato: ${book.nome} (${book.intestatario || '—'})${cambia ? ' · ora in Profilazione' : ''}`)
+  return true
+}
+function annullaRegistrazioneManuale(rec) {
+  if (!window.confirm(`Tolgo dal registro: ${rec.book} – ${rec.intestatario || '—'} del ${String(rec.data).split('-').reverse().join('/')}?\n(lo stato del conto non cambia)`)) return
+  salvaLucyConfermate(lucyConfermate.filter(x => x.key !== rec.key))
+}
+
 // Movimentazione fatta fuori da Lucy (es. bet di protocollo giocata a mano): conta come uso del conto.
 function segnaMovimentatoLucy(book) {
   const key=`manuale|${lucyOggi()}|${book.id}`
@@ -2701,6 +2737,7 @@ function calcolaRecuperiLucy(righe, dataOggi) {
     if(giorniTraLucy(r.data,dataOggi)>LUCY_RECUPERO_MAX_GG) return
     const book=books.find(b=>String(b.id)===String(r.book_id))
     if(!book || book.profilo_livello!=='attivo' || lucyMaiSport(book) || lucyNoSportInProfilazione(book)) return          // ciclo finito, conto cambiato di stato o solo-casinò
+    if (giornoCopertoManuale(r.book_id, r.data)) return false   // 27/09/2026: profilazione registrata a mano quel giorno
     const fatte=lucyConfermate.filter(x=>String(x?.bookId)===String(r.book_id) && x.data===r.data && x.tipo==='profilazione' && !x.recupero).length
     if(fatte>=Number(r.bet_numero)) return                        // già coperta dalle bet confermate quel giorno
     if(lucyConfermate.some(x=>x?.recuperoKey===r.key)) return     // già recuperata
@@ -3649,6 +3686,8 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
       const fatteConto=giaFatte.filter(x=>x.bookId===item.book.id)
       const nFatte=fatteConto.filter(x=>x.tipo==='profilazione' || (item.tipoConto==='mantenimento' && x.tipo==='mantenimento') || (item.tipoConto==='recupero' && x.tipo==='recupero')).length
       const euroFatti=fatteConto.reduce((s,x)=>s+Number(x.stake||0),0)
+      // 27/09/2026: se oggi il conto è stato profilato a mano (registro manuale), la giornata è coperta
+      if (giornoCopertoManuale(item.book.id, lucyOggi()) && item.tipoConto!=='recupero') { item.betGiaFatte=item.betRichieste; item.betRichiesteResidue=0; item.budgetResiduo=0; item.stakeVariabili=[]; item.euroGiaFatti=euroFatti; return }
       item.betGiaFatte=nFatte
       item.euroGiaFatti=euroFatti
       item.betRichiesteResidue=Math.max(0,item.betRichieste-nFatte)
@@ -6317,6 +6356,59 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           </div>
         ) })()}
 
+        {registroAperto && (() => {
+          const q = regForm.cerca.trim().toLowerCase()
+          const trovati = q.length < 2 ? [] : books.filter(b => `${b.nome} ${b.intestatario || ''}`.toLowerCase().includes(q)).slice(0, 12)
+          const scelto = books.find(b => String(b.id) === String(regForm.bookId))
+          const reg = registroManualeProf().slice(0, 60)
+          const inp = { background: '#020617', color: '#f8fafc', border: '1px solid #475569', borderRadius: 8, padding: '7px 9px', fontSize: 13 }
+          const liv = b => b.profilo_livello === 'attivo' ? '🟢 Profilazione' : String(b.profilo_livello || '').startsWith('mantenimento') ? '🟡 Mantenimento' : b.profilo_livello === 'dormiente' ? '⚫ Dormiente' : '— non impostato'
+          return (
+            <div onClick={() => setRegistroAperto(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+              <div onClick={e => e.stopPropagation()} style={{ background: '#0f172a', border: '1px solid rgba(147,51,234,0.5)', borderRadius: 16, padding: 18, width: 'min(820px, 100%)', maxHeight: '88vh', overflowY: 'auto', color: '#e2e8f0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <div style={{ fontSize: 16, fontWeight: 900, color: '#c084fc' }}>✍️ Registro di profilazione manuale</div>
+                  <button onClick={() => setRegistroAperto(false)} style={{ ...inp, cursor: 'pointer' }}>Chiudi</button>
+                </div>
+                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>Operazioni profilative fatte a mano. Il conto passa in Profilazione (qualunque stato abbia) ed entra nel giro con gli altri.</div>
+                <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr', alignItems: 'center' }}>
+                  <div style={{ gridColumn: '1 / -1', position: 'relative' }}>
+                    {scelto
+                      ? <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}><b style={{ color: '#f8fafc' }}>{scelto.nome}</b><span style={{ color: '#94a3b8' }}>{scelto.intestatario || '—'}</span><span style={{ fontSize: 12 }}>{liv(scelto)}</span><button onClick={() => setRegForm({ ...regForm, bookId: '', cerca: '' })} style={{ ...inp, cursor: 'pointer', padding: '3px 8px' }}>cambia</button></div>
+                      : <input autoFocus placeholder="Cerca conto: book o intestatario (es. eurobet ivan)" value={regForm.cerca} onChange={e => setRegForm({ ...regForm, cerca: e.target.value })} style={{ ...inp, width: '100%' }} />}
+                    {!scelto && trovati.length > 0 && (
+                      <div style={{ marginTop: 4, border: '1px solid #334155', borderRadius: 8, overflow: 'hidden' }}>
+                        {trovati.map(b => <div key={b.id} onClick={() => setRegForm({ ...regForm, bookId: b.id, cerca: '' })} style={{ padding: '6px 10px', cursor: 'pointer', display: 'flex', gap: 8, fontSize: 13, borderTop: '1px solid #1e293b' }}><b>{b.nome}</b><span style={{ color: '#94a3b8' }}>{b.intestatario || '—'}</span><span style={{ marginLeft: 'auto', fontSize: 12 }}>{liv(b)}</span></div>)}
+                      </div>
+                    )}
+                  </div>
+                  <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>Data <input type="date" value={regForm.data} max={lucyOggi()} onChange={e => setRegForm({ ...regForm, data: e.target.value })} style={inp} /></label>
+                  <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>Tipo <select value={regForm.tipoOp} onChange={e => setRegForm({ ...regForm, tipoOp: e.target.value })} style={inp}><option>Sport</option><option>Casinò / slot</option><option>Ricarica</option><option>Promo / VXT</option><option>Altro</option></select></label>
+                  <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>Importo € <input inputMode="decimal" value={regForm.importo} onChange={e => setRegForm({ ...regForm, importo: e.target.value.replace(',', '.') })} style={{ ...inp, width: 90 }} /></label>
+                  <input placeholder="Cosa hai fatto (facoltativo)" value={regForm.descrizione} onChange={e => setRegForm({ ...regForm, descrizione: e.target.value })} style={inp} />
+                  <label style={{ gridColumn: '1 / -1', display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: '#cbd5e1', cursor: 'pointer' }}><input type="checkbox" checked={regForm.copreGiorno} onChange={e => setRegForm({ ...regForm, copreGiorno: e.target.checked })} /> Copre la profilazione di quel giorno (Lucy non propone altre bet di profilazione su questo conto per quella data)</label>
+                  <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end' }}>
+                    <button disabled={!scelto} onClick={async () => { const ok = await registraProfilazioneManuale({ book: scelto, data: regForm.data, tipoOp: regForm.tipoOp, importo: Number(regForm.importo || 0), descrizione: regForm.descrizione.trim(), copreGiorno: regForm.copreGiorno }); if (ok) setRegForm({ ...regForm, bookId: '', cerca: '', importo: '', descrizione: '' }) }} style={{ background: scelto ? '#9333ea' : '#334155', color: 'white', border: 0, borderRadius: 10, padding: '9px 16px', fontWeight: 900, cursor: scelto ? 'pointer' : 'default' }}>✍️ Registra</button>
+                  </div>
+                </div>
+                <div style={{ marginTop: 16, fontSize: 13, fontWeight: 800, color: '#cbd5e1' }}>Registrazioni · {registroManualeProf().length}</div>
+                {reg.length === 0 && <div style={{ fontSize: 12, color: '#64748b', marginTop: 6 }}>Ancora nessuna registrazione.</div>}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
+                  {reg.map(r => (
+                    <div key={r.key} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12, padding: '6px 8px', borderRadius: 8, background: 'rgba(11,18,32,0.75)', border: '1px solid rgba(51,65,85,0.6)' }}>
+                      <span style={{ color: '#94a3b8', width: 78 }}>{String(r.data).split('-').reverse().join('/')}</span>
+                      <b style={{ color: '#f8fafc' }}>{r.book}</b><span style={{ color: '#94a3b8' }}>{r.intestatario || '—'}</span>
+                      <span style={{ color: '#c084fc' }}>{r.tipoOp}</span>{r.stake ? <span>{r.stake}€</span> : null}
+                      <span style={{ color: '#cbd5e1', flex: 1, minWidth: 120 }}>{r.partita}</span>
+                      {r.copreGiorno && <span style={{ color: '#22c55e' }}>✓ giornata coperta</span>}
+                      <button onClick={() => annullaRegistrazioneManuale(r)} title="Togli dal registro" style={{ ...inp, cursor: 'pointer', padding: '2px 8px', fontSize: 12 }}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )
+        })()}
         <nav style={tabsBar}>
           <button style={activeTab === 'dashboard' ? activeTabButton : tabButton} onClick={() => handleTabChange('dashboard')}>Dashboard</button>
           <button style={activeTab === 'accantonamenti' ? activeTabButton : tabButton} onClick={() => handleTabChange('accantonamenti')}>💰 Accantonamenti</button>
@@ -6629,6 +6721,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               <button style={btn('#0f766e', lucySportProposte.length > 0)} disabled={!lucySportProposte.length} onClick={() => setLucyTabellaAperta(true)}>📊 Tabella bet{lucySportProposte.length ? ` · ${cont.fatte}/${cont.tot} fatte` : ''}</button>
               <button style={btn('#7c3aed', lucyLiveProposte.length > 0)} disabled={!lucyLiveProposte.length} onClick={() => setLucyLiveTabellaAperta(true)}>🎰 Tabella Live{lucyLiveProposte.length ? ` · ${lucyLiveProposte.length}` : ''}</button>
               <button style={btn('#16a34a', lucySportProposte.length > 0)} disabled={!lucySportProposte.length} onClick={confermaGiocateLucy}>✓ Conferma e archivia</button>
+              <button style={btn('#9333ea')} onClick={() => setRegistroAperto(true)}>✍️ Registro manuale</button>
               {pausaProfAttiva()
                 ? <button style={{ ...btn('#16a34a'), marginLeft: 'auto' }} onClick={riprendiProf}>▶ Riprendi profilazione</button>
                 : <button style={{ ...btn('#b45309'), marginLeft: 'auto' }} onClick={() => setPausaForm(pausaForm ? null : { modo: 'sport', ripresa: '' })}>⏸ Pausa</button>}
