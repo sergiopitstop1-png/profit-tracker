@@ -163,7 +163,7 @@ const [saldiDaAggAperto, setSaldiDaAggAperto] = useState(null)   // nome del boo
 const [saldoRapido, setSaldoRapido] = useState({})
 // 28/09/2026 — finestra "📱 Apri su telefoni": un book sui telefoni dei clienti che ce l'hanno
 const [puliziaSel, setPuliziaSel] = useState(null)   // { cerca, esclusi: Set(nome), tutti: bool } finestra 🧹
-const [apriTel, setApriTel] = useState(null)   // { cerca, key, url, esclusi: Set(id), filtri: {...} }
+const [apriTel, setApriTel] = useState(null)   // + modo: 'chrome' | 'app', parola: nome dell'app   // { cerca, key, url, esclusi: Set(id), filtri: {...} }
 // 27/09/2026 — registro di profilazione manuale
 const [registroAperto, setRegistroAperto] = useState(false)
 const [regForm, setRegForm] = useState({ cerca: '', bookId: '', data: new Date().toLocaleDateString('sv-SE'), tipoOp: 'Sport', importo: '', descrizione: '', copreGiorno: true })
@@ -386,11 +386,13 @@ function sitoWallet(nome) {
   const trovato = Object.keys(noti).find(x => k.includes(x))
   return trovato ? noti[trovato] : `https://www.${k}.com/`
 }
-async function apriSuTelefoni(nomeBook, url, intestatari) {
+// azione 'apri' = pagina in Chrome (url) · azione 'app' = l'app del book (url = parola, es. "sisal")
+async function apriSuTelefoni(nomeBook, url, intestatari, azione = 'apri') {
   const nomi = [...new Set(intestatari.filter(Boolean))]
   if (!nomi.length) return
-  if (!window.confirm(`Apro ${nomeBook} (${url.replace(/^https?:\/\//, '').replace(/\/$/, '')}) sui telefoni di:\n${nomi.join('\n')}?`)) return
-  const { data, error } = await supabase.from('comandi_telefoni').insert([{ azione: 'apri', url, intestatari: nomi }]).select().single()
+  const cosa = azione === 'app' ? `l'APP ${nomeBook} (parola "${url}")` : `${nomeBook} in Chrome (${url.replace(/^https?:\/\//, '').replace(/\/$/, '')})`
+  if (!window.confirm(`Apro ${cosa} sui telefoni di:\n${nomi.join('\n')}?`)) return
+  const { data, error } = await supabase.from('comandi_telefoni').insert([{ azione, url, intestatari: nomi }]).select().single()
   if (error) { setErrorMessage('Comando non inviato: lancia agente_telefoni.sql (' + error.message + ')'); return }
   setMessage(`📱 ${nomeBook}: apertura inviata a ${nomi.length} telefoni…`)
   // resoconto: lo script risponde entro pochi secondi
@@ -6542,7 +6544,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                   <>
                     <input autoFocus placeholder="Quale book? (es. eurobet)" value={apriTel.cerca} onChange={e => setApriTel({ ...apriTel, cerca: e.target.value })} style={{ ...inp, width: '100%' }} />
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-                      {trovati.map(([k, n]) => <button key={k} onClick={() => { const w = k.startsWith('w:'); const primo = elencoDi(k)[0]; setApriTel({ ...apriTel, key: k, url: w ? sitoWallet(n) : (primo ? sitoBook(primo) : ''), esclusi: new Set() }) }} style={{ ...inp, cursor: 'pointer', padding: '5px 10px' }}>{k.startsWith('w:') ? '💳 ' : ''}{n} <span style={{ color: '#64748b' }}>{elencoDi(k).length}</span></button>)}
+                      {trovati.map(([k, n]) => <button key={k} onClick={() => { const w = k.startsWith('w:'); const primo = elencoDi(k)[0]; setApriTel({ ...apriTel, key: k, url: w ? sitoWallet(n) : (primo ? sitoBook(primo) : ''), parola: String(n).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, ''), esclusi: new Set() }) }} style={{ ...inp, cursor: 'pointer', padding: '5px 10px' }}>{k.startsWith('w:') ? '💳 ' : ''}{n} <span style={{ color: '#64748b' }}>{elencoDi(k).length}</span></button>)}
                     </div>
                   </>
                 ) : (
@@ -6550,7 +6552,12 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
                       <b style={{ fontSize: 15, color: '#f8fafc' }}>{conti[0]?.nome}</b>
                       <button onClick={() => setApriTel({ ...apriTel, key: '', cerca: '' })} style={{ ...inp, cursor: 'pointer', padding: '3px 8px', fontSize: 12 }}>cambia book</button>
-                      <input value={apriTel.url} onChange={e => setApriTel({ ...apriTel, url: e.target.value })} style={{ ...inp, flex: 1, minWidth: 200, fontSize: 12 }} title="Indirizzo che si apre sui telefoni" />
+                      <span style={{ display: 'inline-flex', borderRadius: 8, overflow: 'hidden', border: '1px solid #475569' }}>
+                        {[['chrome', '🌐 Chrome'], ['app', '📲 App']].map(([m, l]) => <button key={m} onClick={() => setApriTel({ ...apriTel, modo: m })} style={{ padding: '5px 10px', fontSize: 12, fontWeight: 800, border: 0, cursor: 'pointer', background: (apriTel.modo || 'chrome') === m ? '#0ea5e9' : 'transparent', color: (apriTel.modo || 'chrome') === m ? 'white' : '#94a3b8' }}>{l}</button>)}
+                      </span>
+                      {(apriTel.modo || 'chrome') === 'chrome'
+                        ? <input value={apriTel.url} onChange={e => setApriTel({ ...apriTel, url: e.target.value })} style={{ ...inp, flex: 1, minWidth: 200, fontSize: 12 }} title="Indirizzo che si apre sui telefoni" />
+                        : <input value={apriTel.parola || ''} onChange={e => setApriTel({ ...apriTel, parola: e.target.value })} style={{ ...inp, flex: 1, minWidth: 140, fontSize: 12 }} title="Parola contenuta nel nome dell'app (es. sisal, bet365)" placeholder="parola dell'app (es. sisal)" />}
                     </div>
                     <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 8, padding: '8px 10px', borderRadius: 10, background: 'rgba(14,165,233,0.06)' }}>
                       {isWallet ? filtro('soloSaldo', 'solo con saldo') : <>{filtro('chiusi', 'escludi i chiusi')}{filtro('limBonus', 'escludi limitati bonus')}{filtro('limSport', 'escludi limitati sport')}{filtro('soloProf', 'solo in profilazione')}{filtro('soloSaldo', 'solo con saldo')}</>}
@@ -6570,7 +6577,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                         </label>) })}
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
-                      <button disabled={!scelti.length || !apriTel.url} onClick={() => { const nome = conti[0]?.nome, url = apriTel.url, nomi = scelti.map(b => b.intestatario); setApriTel(null); apriSuTelefoni(nome, url, nomi) }} style={{ background: scelti.length ? '#0ea5e9' : '#334155', color: 'white', border: 0, borderRadius: 10, padding: '9px 16px', fontWeight: 900, cursor: scelti.length ? 'pointer' : 'default' }}>📱 Apri su {scelti.length} telefoni</button>
+                      <button disabled={!scelti.length || !((apriTel.modo || 'chrome') === 'app' ? apriTel.parola : apriTel.url)} onClick={() => { const app = apriTel.modo === 'app'; const nome = conti[0]?.nome, dest = app ? String(apriTel.parola || '').trim().toLowerCase() : apriTel.url, nomi = scelti.map(b => b.intestatario); setApriTel(null); apriSuTelefoni(nome, dest, nomi, app ? 'app' : 'apri') }} style={{ background: scelti.length ? '#0ea5e9' : '#334155', color: 'white', border: 0, borderRadius: 10, padding: '9px 16px', fontWeight: 900, cursor: scelti.length ? 'pointer' : 'default' }}>📱 Apri {apriTel.modo === 'app' ? "l'app" : ''} su {scelti.length} telefoni</button>
                     </div>
                   </>
                 )}
