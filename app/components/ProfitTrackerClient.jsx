@@ -342,9 +342,17 @@ async function riprendiProf() {
 }
 
 // 27/09/2026 — attività dei conti rilevata sui telefoni (tabella book_attivita, scritta da /api/book-lavorati)
+// 28/09/2026: si ricarica ogni minuto, così un book aperto sui telefoni compare nella lista senza ricaricare la pagina
 useEffect(() => {
-  const da = aggiungiGiorniLucy(new Date().toLocaleDateString('sv-SE'), -45)
-  supabase.from('book_attivita').select('book_id,data,fonte,host,ultimo_visto').gte('data', da).then(({ data, error }) => { if (!error) setBookAttivita(data || []) })
+  const carica = () => {
+    if (document.visibilityState !== 'visible') return
+    const da = aggiungiGiorniLucy(new Date().toLocaleDateString('sv-SE'), -45)
+    supabase.from('book_attivita').select('book_id,data,fonte,host,ultimo_visto').gte('data', da).then(({ data, error }) => { if (!error) setBookAttivita(data || []) })
+  }
+  carica()
+  const t = setInterval(carica, 60000)
+  document.addEventListener('visibilitychange', carica)
+  return () => { clearInterval(t); document.removeEventListener('visibilitychange', carica) }
 }, [])
 async function segnaSaldoVerificato(ids) {
   const lista = [...new Set((ids || []).map(Number))].filter(Boolean)
