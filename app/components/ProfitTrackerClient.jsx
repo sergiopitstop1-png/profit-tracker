@@ -374,6 +374,13 @@ function sitoBook(book) {
   const altro = bookAttivita.find(r => r.host && books.some(b => String(b.id) === String(r.book_id) && normalizzaBookKey(b.nome) === normalizzaBookKey(book.nome)))
   return altro ? `https://${altro.host}/` : `https://www.${String(book.nome || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9-]/g, '')}.it/`
 }
+// indirizzo di un wallet (modificabile nella finestra prima di aprire)
+function sitoWallet(nome) {
+  const k = String(nome || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+  const noti = { paypal: 'https://www.paypal.com/myaccount/summary', skrill: 'https://account.skrill.com/', neteller: 'https://member.neteller.com/', revolut: 'https://app.revolut.com/', astropay: 'https://app.astropay.com/', satispay: 'https://web.satispay.com/' }
+  const trovato = Object.keys(noti).find(x => k.includes(x))
+  return trovato ? noti[trovato] : `https://www.${k}.com/`
+}
 async function apriSuTelefoni(nomeBook, url, intestatari) {
   const nomi = [...new Set(intestatari.filter(Boolean))]
   if (!nomi.length) return
@@ -6446,13 +6453,19 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 
         {apriTel && (() => {
           const nk = x => normalizzaBookKey(x)
-          const nomi = [...new Map(books.filter(b => b.nome && !/punti e monete|in corso/i.test(b.nome)).map(b => [nk(b.nome), b.nome])).entries()]
+          // 28/09/2026: oltre ai book anche i WALLET (PayPal, Skrill…) presi dalla tab Wallets, chiave "w:nome"
+          const nomi = [
+            ...new Map(books.filter(b => b.nome && !/punti e monete|in corso/i.test(b.nome)).map(b => [nk(b.nome), b.nome])).entries(),
+            ...new Map(wallets.filter(w => w.nome && w.intestatario).map(w => ['w:' + nk(w.nome), w.nome])).entries(),
+          ]
           const q = apriTel.cerca.trim().toLowerCase()
           const trovati = q ? nomi.filter(([, n]) => n.toLowerCase().includes(q)).slice(0, 15) : []
-          const conti = apriTel.key ? books.filter(b => nk(b.nome) === apriTel.key).sort((a, c) => String(a.intestatario || '').localeCompare(String(c.intestatario || ''))) : []
+          const isWallet = String(apriTel.key || '').startsWith('w:')
+          const elencoDi = k => String(k).startsWith('w:') ? wallets.filter(w => w.intestatario && 'w:' + nk(w.nome) === k) : books.filter(b => nk(b.nome) === k)
+          const conti = apriTel.key ? elencoDi(apriTel.key).sort((a, c) => String(a.intestatario || '').localeCompare(String(c.intestatario || ''))) : []
           const f = apriTel.filtri
           const nota = b => String(b.note || '').toLowerCase()
-          const escluso = b => (f.chiusi && /\bchius[oa]\b/.test(nota(b)) && !/chiuder\w*\s+e\s+riaprir/.test(nota(b)))
+          const escluso = b => isWallet ? (f.soloSaldo && !(Number(b.saldo || 0) > 0)) : (f.chiusi && /\bchius[oa]\b/.test(nota(b)) && !/chiuder\w*\s+e\s+riaprir/.test(nota(b)))
             || (f.limBonus && /limitat[oa]\s+bonus/.test(nota(b)))
             || (f.limSport && (b.sport_bloccato || /limitat[oa]\s+sport/.test(nota(b))))
             || (f.soloProf && b.profilo_livello !== 'attivo')
@@ -6472,7 +6485,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                   <>
                     <input autoFocus placeholder="Quale book? (es. eurobet)" value={apriTel.cerca} onChange={e => setApriTel({ ...apriTel, cerca: e.target.value })} style={{ ...inp, width: '100%' }} />
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-                      {trovati.map(([k, n]) => <button key={k} onClick={() => { const primo = books.find(b => nk(b.nome) === k); setApriTel({ ...apriTel, key: k, url: primo ? sitoBook(primo) : '', esclusi: new Set() }) }} style={{ ...inp, cursor: 'pointer', padding: '5px 10px' }}>{n} <span style={{ color: '#64748b' }}>{books.filter(b => nk(b.nome) === k).length}</span></button>)}
+                      {trovati.map(([k, n]) => <button key={k} onClick={() => { const w = k.startsWith('w:'); const primo = elencoDi(k)[0]; setApriTel({ ...apriTel, key: k, url: w ? sitoWallet(n) : (primo ? sitoBook(primo) : ''), esclusi: new Set() }) }} style={{ ...inp, cursor: 'pointer', padding: '5px 10px' }}>{k.startsWith('w:') ? '💳 ' : ''}{n} <span style={{ color: '#64748b' }}>{elencoDi(k).length}</span></button>)}
                     </div>
                   </>
                 ) : (
@@ -6483,7 +6496,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                       <input value={apriTel.url} onChange={e => setApriTel({ ...apriTel, url: e.target.value })} style={{ ...inp, flex: 1, minWidth: 200, fontSize: 12 }} title="Indirizzo che si apre sui telefoni" />
                     </div>
                     <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 8, padding: '8px 10px', borderRadius: 10, background: 'rgba(14,165,233,0.06)' }}>
-                      {filtro('chiusi', 'escludi i chiusi')}{filtro('limBonus', 'escludi limitati bonus')}{filtro('limSport', 'escludi limitati sport')}{filtro('soloProf', 'solo in profilazione')}{filtro('soloSaldo', 'solo con saldo')}
+                      {isWallet ? filtro('soloSaldo', 'solo con saldo') : <>{filtro('chiusi', 'escludi i chiusi')}{filtro('limBonus', 'escludi limitati bonus')}{filtro('limSport', 'escludi limitati sport')}{filtro('soloProf', 'solo in profilazione')}{filtro('soloSaldo', 'solo con saldo')}</>}
                     </div>
                     <div style={{ display: 'flex', gap: 8, marginBottom: 6, fontSize: 12 }}>
                       <button onClick={() => setApriTel({ ...apriTel, esclusi: new Set() })} style={{ ...inp, cursor: 'pointer', padding: '3px 8px', fontSize: 12 }}>tutti</button>
@@ -6494,7 +6507,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                       {conti.map(b => { const fuori = escluso(b); const sp = !fuori && !apriTel.esclusi.has(b.id); return (
                         <label key={b.id} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, padding: '5px 8px', borderRadius: 8, background: 'rgba(11,18,32,0.75)', opacity: fuori ? 0.4 : 1, cursor: fuori ? 'default' : 'pointer' }}>
                           <input type="checkbox" disabled={fuori} checked={sp} onChange={e => { const n = new Set(apriTel.esclusi); if (e.target.checked) n.delete(b.id); else n.add(b.id); setApriTel({ ...apriTel, esclusi: n }) }} />
-                          <span>{liv(b)}</span><b style={{ color: '#f8fafc', minWidth: 160 }}>{b.intestatario || '—'}</b>
+                          <span>{isWallet ? '💳' : liv(b)}</span><b style={{ color: '#f8fafc', minWidth: 160 }}>{b.intestatario || '—'}</b>
                           <span style={{ color: '#94a3b8', flex: 1 }}>{String(b.note || '').replace(/\\n/g, ' ').slice(0, 60)}</span>
                           <span style={{ color: '#94a3b8' }}>{formatCurrency(Number(b.saldo || 0))}</span>
                         </label>) })}
