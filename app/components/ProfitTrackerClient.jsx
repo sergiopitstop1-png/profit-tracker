@@ -13,6 +13,7 @@ import { RisparmiCard, calcolaRisparmi, maturaInteressi, normalizza as normalizz
 import SlotConsigliate, { PulsanteSlot, parlaDiSlot } from './SlotConsigliate'
 import RecuperoContiPanel, { contiInRecupero, azioniRecuperoOggi, limitazioniDaNota, daPromuovere, recuperoSport } from './RecuperoConti'
 import AvvisiContiPanel from './AvvisiConti'
+import ProfilazioniMiratePanel from './ProfilazioniMirate'
 import { impostaPausaRecupero } from './RecuperoConti'
 
 // V32 — rete di sicurezza 60 giorni sui conti in MANTENIMENTO
@@ -24,6 +25,9 @@ const aggiungiGiorniLucy = (d, n) => new Date(new Date(d + 'T00:00:00').getTime(
 // 27/09/2026 — PAUSA PROFILAZIONE (es. sosta per le nazionali). Periodi dalla tabella profilazione_pause:
 // { inizio, fine (null = in corso), ripresa_prevista, modo: 'sport' | 'totale' }. Letti dalle funzioni di agenda.
 let PAUSE_PROF = []
+// 28/09/2026 — conti dentro una PROFILAZIONE MIRATA: la loro profilazione casinò normale è sostituita dal gruppo
+let MIRATE_IDS = new Set()
+const RE_CASINO_MIRATE = /(slot|casin[oò]|live|roulette|blackjack|baccarat|numeri|spin|vxt)/i
 import DashboardTab from './DashboardTab'
 import AccantonamentiTab from './AccantonamentiTab'
 import SmsTab from './SmsTab'
@@ -157,6 +161,10 @@ const [avvisiConti, setAvvisiConti] = useState(null)
 // 27/09/2026 — pausa profilazione
 const [pauseProf, setPauseProfState] = useState([])
 const [pausaForm, setPausaForm] = useState(null)   // { modo, ripresa } quando il pannello è aperto
+// 28/09/2026 — PROFILAZIONI MIRATE
+const [gruppiMirati, setGruppiMiratiState] = useState([])
+const [fatteMirate, setFatteMirate] = useState([])
+const setGruppiMirati = (v) => setGruppiMiratiState(prev => { const n = typeof v === 'function' ? v(prev) : v; MIRATE_IDS = new Set(n.flatMap(g => (g.conti || []).map(String))); return n })
 // 27/09/2026 — SALDI DA AGGIORNARE: conti usati (telefoni via Chrome, Lucy, registro manuale) dopo l'ultima verifica del saldo
 const [bookAttivita, setBookAttivita] = useState([])
 const [saldiDaAggAperto, setSaldiDaAggAperto] = useState(null)   // nome del book aperto nel pannello (null = solo i nomi dei book)
@@ -555,6 +563,11 @@ async function salvaSaldoRapido(book, invariato) {
   setSaldoRapido(prev => { const n = { ...prev }; delete n[book.id]; return n })
   setMessage(`💾 ${book.nome} (${book.intestatario || '—'}): ${formatCurrency(nuovo)}`)
 }
+
+useEffect(() => {
+  supabase.from('profilazioni_mirate').select('*').order('id').then(({ data, error }) => { if (!error) setGruppiMirati(data || []) })
+  supabase.from('profilazioni_mirate_fatte').select('*').order('data', { ascending: false }).limit(2000).then(({ data, error }) => { if (!error) setFatteMirate(data || []) })
+}, [])
 
 // 27/09/2026 — CAMBIO GIORNO: se la pagina resta aperta da un giorno all'altro, si ricarica da sola
 // (così partono fotografia del giorno, avvisi e recuperi della nuova giornata). Controllo ogni 5 minuti e quando
@@ -1918,6 +1931,21 @@ function getAzioniOggi(book) {
   const azioni = a.azioni.map(t => a.tipo === 'mantenimento' && soloSport(t) ? 'Sessione Casinò/slot da 5-30€ (conto limitato sport)' : t).filter(t => !soloSport(t))
   return azioni.length ? { ...a, azioni } : null
 }
+// conto in una profilazione mirata: tolgo le azioni di casinò (le fa il gruppo), resta lo sport
+function togliCasinoMirate(book, azioni) {
+  if (!azioni || !MIRATE_IDS.has(String(book?.id))) return azioni
+  return azioni.filter(a => !RE_CASINO_MIRATE.test(String(a)))
+}
+function giorniPausaTotale(da, a) {
+  if (!da || !a || da >= a) return 0
+  let n = 0
+  for (const p of PAUSE_PROF) {
+    if (p.modo !== 'totale') continue
+    const f = finePausaProf(p) || a, s = p.inizio > da ? p.inizio : da, e = f < a ? f : a
+    if (e > s) n += giorniTraLucy(s, e)
+  }
+  return n
+}
 function getAzioniOggiBase(book) {
   const oggi = new Date()
   const giorno = oggi.getDay()
@@ -1927,6 +1955,7 @@ function getAzioniOggiBase(book) {
   const classe = getClasseBook(book.nome)
 
   if (livello === 'attivo') {
+    if (bookInPausaOggi(book)) return null   // 28/09/2026: la pausa vale per TUTTI i conti in profilazione
     // Nuovo sistema (Profiliamo, luglio 2026): prova prima i protocolli ri-profilati
     const tipoNuovo = getTipoProtocolloAttivo(book.nome)
     if (tipoNuovo) {
@@ -1936,7 +1965,7 @@ function getAzioniOggiBase(book) {
         if (!post.azioni.length) return null
         return { tipo: 'attivo', label: ['Dom','Lun','Mar','Mer','Gio','Ven','Sab'][giorno], azioni: post.azioni, badge: post.badge, postCiclo: true, riprendi: post.riprendi }
       }
-      const azioniV2 = getAgendaAttivoV2(book, giorno, settimana)
+      const azioniV2 = togliCasinoMirate(book, getAgendaAttivoV2(book, giorno, settimana))
       if (!azioniV2 || azioniV2.length === 0) return null
       return {
         tipo: 'attivo',
@@ -1947,7 +1976,7 @@ function getAzioniOggiBase(book) {
     }
     // Fallback: book non ancora ri-profilato -> vecchio sistema, invariato
     if (bookInPausaOggi(book)) return null   // 27/09/2026: profilazione in pausa
-    const azioniGiorno = getAgendaAttivo(book, giorno, settimana)
+    const azioniGiorno = togliCasinoMirate(book, getAgendaAttivo(book, giorno, settimana))
     if (!azioniGiorno || azioniGiorno.length === 0) return null
     return {
       tipo: 'attivo',
@@ -7239,6 +7268,18 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
       })()}
 
 
+      <ProfilazioniMiratePanel
+        books={books}
+        gruppi={gruppiMirati}
+        setGruppi={setGruppiMirati}
+        fatte={fatteMirate}
+        setFatte={setFatteMirate}
+        giorniPausa={giorniPausaTotale}
+        onProfilazione={id => updateProfiloLivello(Number(id), 'attivo')}
+        onApri={(nomeBook, conti) => apriSuTelefoni(nomeBook, sitoBook(conti[0]), conti.map(b => b.intestatario))}
+        onMessage={setMessage}
+        onError={setErrorMessage}
+      />
       <AvvisiContiPanel
         books={books}
         setBooks={setBooks}
