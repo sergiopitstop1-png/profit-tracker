@@ -162,6 +162,7 @@ const [bookAttivita, setBookAttivita] = useState([])
 const [saldiDaAggAperto, setSaldiDaAggAperto] = useState(null)   // nome del book aperto nel pannello (null = solo i nomi dei book)
 const [saldoRapido, setSaldoRapido] = useState({})
 // 28/09/2026 — finestra "📱 Apri su telefoni": un book sui telefoni dei clienti che ce l'hanno
+const [puliziaSel, setPuliziaSel] = useState(null)   // { cerca, esclusi: Set(nome), tutti: bool } finestra 🧹
 const [apriTel, setApriTel] = useState(null)   // { cerca, key, url, esclusi: Set(id), filtri: {...} }
 // 27/09/2026 — registro di profilazione manuale
 const [registroAperto, setRegistroAperto] = useState(false)
@@ -404,9 +405,12 @@ async function apriSuTelefoni(nomeBook, url, intestatari) {
   setErrorMessage(`📱 ${nomeBook}: nessuna risposta dal PC dei telefoni (lo script book_lavorati è acceso?)`)
 }
 // 28/09/2026 — 🧹 Pulizia telefoni dal Profit Tracker (la esegue lo script sul PC, come pulizia_telefoni.bat)
-async function pulisciTelefoni() {
-  if (!window.confirm('Pulizia di TUTTI i telefoni collegati?\n\n• chiude le schede di Chrome\n• chiude Chrome e libera la memoria\n• svuota la cache delle app\n• animazioni veloci\n\nLogin, cookie e password restano intatti. Dura circa un minuto.')) return
-  const { data, error } = await supabase.from('comandi_telefoni').insert([{ azione: 'pulizia', url: '-', intestatari: [] }]).select().single()
+// intestatari: [] = tutti i telefoni collegati (muletti compresi), altrimenti solo i telefoni di questi clienti
+async function pulisciTelefoni(intestatari = []) {
+  const quanti = intestatari.length ? `${intestatari.length} clienti:\n${intestatari.slice(0, 12).join(', ')}${intestatari.length > 12 ? '…' : ''}` : 'TUTTI i telefoni collegati (muletti compresi)'
+  if (!window.confirm(`Pulizia di ${quanti}\n\n• chiude le schede di Chrome\n• chiude Chrome e libera la memoria\n• svuota la cache delle app\n• animazioni veloci\n\nLogin, cookie e password restano intatti. Dura circa un minuto.`)) return
+  setPuliziaSel(null)
+  const { data, error } = await supabase.from('comandi_telefoni').insert([{ azione: 'pulizia', url: '-', intestatari }]).select().single()
   if (error) { setErrorMessage('Comando non inviato: ' + error.message); return }
   setMessage('🧹 Pulizia telefoni avviata…')
   for (let i = 0; i < 60; i++) {
@@ -6464,6 +6468,42 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           </div>
         ) })()}
 
+        {puliziaSel && (() => {
+          const clienti = [...new Set(books.map(b => String(b.intestatario || '').trim()).filter(Boolean))].sort((a, c) => a.localeCompare(c))
+          const q = puliziaSel.cerca.trim().toLowerCase()
+          const visibili = q ? clienti.filter(n => n.toLowerCase().includes(q)) : clienti
+          const scelti = clienti.filter(n => !puliziaSel.esclusi.has(n))
+          const tutti = scelti.length === clienti.length
+          const inp = { background: '#020617', color: '#f8fafc', border: '1px solid #475569', borderRadius: 8, padding: '6px 9px', fontSize: 13 }
+          return (
+            <div onClick={() => setPuliziaSel(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+              <div onClick={e => e.stopPropagation()} style={{ background: '#0f172a', border: '1px solid rgba(167,139,250,0.5)', borderRadius: 16, padding: 18, width: 'min(620px, 100%)', maxHeight: '88vh', overflowY: 'auto', color: '#e2e8f0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <div style={{ fontSize: 16, fontWeight: 900, color: '#c4b5fd' }}>🧹 Pulisci telefoni</div>
+                  <button onClick={() => setPuliziaSel(null)} style={{ ...inp, cursor: 'pointer' }}>Chiudi</button>
+                </div>
+                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>Schede di Chrome, memoria, cache e animazioni. Login, cookie e password restano intatti.</div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+                  <input placeholder="Cerca cliente…" value={puliziaSel.cerca} onChange={e => setPuliziaSel({ ...puliziaSel, cerca: e.target.value })} style={{ ...inp, flex: 1, minWidth: 160 }} />
+                  <button onClick={() => setPuliziaSel({ ...puliziaSel, esclusi: new Set() })} style={{ ...inp, cursor: 'pointer' }}>tutti</button>
+                  <button onClick={() => setPuliziaSel({ ...puliziaSel, esclusi: new Set(clienti) })} style={{ ...inp, cursor: 'pointer' }}>nessuno</button>
+                  <span style={{ fontSize: 12, color: '#94a3b8' }}>{scelti.length} di {clienti.length}</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 4 }}>
+                  {visibili.map(n => (
+                    <label key={n} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, padding: '5px 8px', borderRadius: 8, background: 'rgba(11,18,32,0.75)', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={!puliziaSel.esclusi.has(n)} onChange={e => { const x = new Set(puliziaSel.esclusi); if (e.target.checked) x.delete(n); else x.add(n); setPuliziaSel({ ...puliziaSel, esclusi: x }) }} />{n}
+                    </label>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12, alignItems: 'center' }}>
+                  {tutti && <span style={{ fontSize: 11, color: '#94a3b8' }}>tutti selezionati = anche i muletti</span>}
+                  <button disabled={!scelti.length} onClick={() => pulisciTelefoni(tutti ? [] : scelti)} style={{ background: scelti.length ? '#7c3aed' : '#334155', color: 'white', border: 0, borderRadius: 10, padding: '9px 16px', fontWeight: 900, cursor: scelti.length ? 'pointer' : 'default' }}>🧹 Pulisci {tutti ? 'tutti i telefoni' : `${scelti.length} telefoni`}</button>
+                </div>
+              </div>
+            </div>
+          )
+        })()}
         {apriTel && (() => {
           const nk = x => normalizzaBookKey(x)
           // 28/09/2026: oltre ai book anche i WALLET (PayPal, Skrill…) presi dalla tab Wallets, chiave "w:nome"
@@ -8567,7 +8607,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         })()}
         {activeTab === 'books' && (
           <div style={tabContent}>
-            <div style={sectionTopBar}><div><h2 style={sectionTitle}>Books</h2><p style={sectionDescription}>Archivio bookmaker con filtri, note e azioni rapide</p></div><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>{Object.keys(pendingBookSaldi).some(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }) && (<button style={{ ...primaryButtonGreen, background: 'linear-gradient(135deg, #d97706, #f59e0b)', boxShadow: '0 0 14px rgba(245,158,11,0.4)', animation: 'blinkPrevisto 1.8s ease-in-out infinite' }} onClick={handleSalvaBookSaldi}>💾 Salva saldi ({Object.keys(pendingBookSaldi).filter(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }).length})</button>)}<button style={secondaryButton} onClick={() => { const nomiBookUnici = [...new Set(books.filter(b => b.nome && !/punti e monete/i.test(b.nome) && !/in corso/i.test(b.nome)).map(b => normalizzaBookKey(b.nome)))].filter(Boolean); if (!window.confirm(`Aggiornare i saldi di tutti i ${nomiBookUnici.length} book per tutti i clienti?`)) return; nomiBookUnici.forEach(b => eseguiSaldoJob(b, null)) }}>🔄 Aggiorna saldi</button><button style={primaryButtonGreen} onClick={() => setShowBookModal(true)}>+ Nuovo Book</button><button style={{ ...secondaryButton, borderColor: 'rgba(167,139,250,0.6)', color: '#c4b5fd' }} onClick={pulisciTelefoni}>🧹 Pulisci telefoni</button><button style={{ ...secondaryButton, borderColor: 'rgba(14,165,233,0.6)', color: '#7dd3fc' }} onClick={() => setApriTel({ cerca: '', key: '', url: '', esclusi: new Set(), filtri: { chiusi: true, limBonus: false, limSport: false, soloProf: false, soloSaldo: false } })}>📱 Apri su telefoni</button></div></div>
+            <div style={sectionTopBar}><div><h2 style={sectionTitle}>Books</h2><p style={sectionDescription}>Archivio bookmaker con filtri, note e azioni rapide</p></div><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>{Object.keys(pendingBookSaldi).some(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }) && (<button style={{ ...primaryButtonGreen, background: 'linear-gradient(135deg, #d97706, #f59e0b)', boxShadow: '0 0 14px rgba(245,158,11,0.4)', animation: 'blinkPrevisto 1.8s ease-in-out infinite' }} onClick={handleSalvaBookSaldi}>💾 Salva saldi ({Object.keys(pendingBookSaldi).filter(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }).length})</button>)}<button style={secondaryButton} onClick={() => { const nomiBookUnici = [...new Set(books.filter(b => b.nome && !/punti e monete/i.test(b.nome) && !/in corso/i.test(b.nome)).map(b => normalizzaBookKey(b.nome)))].filter(Boolean); if (!window.confirm(`Aggiornare i saldi di tutti i ${nomiBookUnici.length} book per tutti i clienti?`)) return; nomiBookUnici.forEach(b => eseguiSaldoJob(b, null)) }}>🔄 Aggiorna saldi</button><button style={primaryButtonGreen} onClick={() => setShowBookModal(true)}>+ Nuovo Book</button><button style={{ ...secondaryButton, borderColor: 'rgba(167,139,250,0.6)', color: '#c4b5fd' }} onClick={() => setPuliziaSel({ cerca: '', esclusi: new Set() })}>🧹 Pulisci telefoni</button><button style={{ ...secondaryButton, borderColor: 'rgba(14,165,233,0.6)', color: '#7dd3fc' }} onClick={() => setApriTel({ cerca: '', key: '', url: '', esclusi: new Set(), filtri: { chiusi: true, limBonus: false, limSport: false, soloProf: false, soloSaldo: false } })}>📱 Apri su telefoni</button></div></div>
             <div style={statsGridCompact}><StatCard label='Totale books' value={formatCurrency(totaleBooks)} sub={`${books.length} records`} accent='#22c55e' /><StatCard label='Totale filtrato' value={formatCurrency(totaleBooksFiltrati)} sub={`${filteredBooks.length} risultati visibili`} accent='#38bdf8' /></div>
             <div style={panel}>
               <div style={filterRow}>
