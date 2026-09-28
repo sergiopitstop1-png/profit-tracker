@@ -24,7 +24,7 @@ export function prossimaMirata(g, fatte, giorniPausa) {
   return { ultima, prossima: addGiorni(ultima, n + (giorniPausa ? giorniPausa(ultima, oggiISO()) : 0)) }
 }
 
-export default function ProfilazioniMiratePanel({ books, gruppi, setGruppi, fatte, setFatte, giorniPausa, onProfilazione, onApri, onMessage, onError }) {
+export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setGruppi, fatte, setFatte, giorniPausa, onProfilazione, onApri, onMessage, onError }) {
   const [aperto, setAperto] = useState(true)
   const [edit, setEdit] = useState(null)          // { id?, nome, ogni_giorni, conti: [book_id], cerca }
   const [storico, setStorico] = useState(null)    // id gruppo con lo storico aperto
@@ -74,7 +74,9 @@ export default function ProfilazioniMiratePanel({ books, gruppi, setGruppi, fatt
     const q = edit.cerca.trim().toLowerCase()
     // ricerca a più parole: "snai laura" trova Snai di Laura Corà
     const parole = q.split(/\s+/).filter(Boolean)
-    const trovati = q.length < 2 ? [] : (books || []).filter(b => { const t = `${b.nome} ${b.intestatario || ''}`.toLowerCase(); return parole.every(w => t.includes(w)) && !edit.conti.includes(String(b.id)) }).slice(0, 12)
+    // niente clienti terminati; tutti i risultati (con scorrimento) + "aggiungi tutti"
+    const trovati = q.length < 2 ? [] : (books || []).filter(b => { const t = `${b.nome} ${b.intestatario || ''}`.toLowerCase(); return parole.every(w => t.includes(w)) && !edit.conti.includes(String(b.id)) && !(terminato && terminato(b.intestatario)) })
+      .sort((a, b) => String(a.nome).localeCompare(String(b.nome)) || String(a.intestatario || '').localeCompare(String(b.intestatario || '')))
     const inAltri = id => (gruppi || []).find(g => g.id !== edit.id && (g.conti || []).map(String).includes(String(id)))
     return (
       <div style={{ marginTop: 10, padding: 12, borderRadius: 12, border: '1px solid rgba(250,204,21,0.45)', background: 'rgba(250,204,21,0.05)' }}>
@@ -86,7 +88,13 @@ export default function ProfilazioniMiratePanel({ books, gruppi, setGruppi, fatt
         </div>
         <input placeholder="Aggiungi conti: cerca book o cliente (es. snai laura)" value={edit.cerca} onChange={e => setEdit({ ...edit, cerca: e.target.value })} style={{ ...inp, width: '100%' }} />
         {trovati.length > 0 && (
-          <div style={{ marginTop: 4, border: '1px solid #334155', borderRadius: 8, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, fontSize: 12, color: '#94a3b8' }}>
+            <span>{trovati.length} conti trovati</span>
+            <button style={btn('#facc15')} onClick={() => setEdit({ ...edit, conti: [...edit.conti, ...trovati.map(b => String(b.id))], cerca: '' })}>➕ Aggiungi tutti ({trovati.length})</button>
+          </div>
+        )}
+        {trovati.length > 0 && (
+          <div style={{ marginTop: 4, border: '1px solid #334155', borderRadius: 8, overflowY: 'auto', maxHeight: 320 }}>
             {trovati.map(b => {
               return <div key={b.id} onClick={() => setEdit({ ...edit, conti: [...edit.conti, String(b.id)] })} style={{ padding: '5px 10px', cursor: 'pointer', display: 'flex', gap: 8, fontSize: 12, borderTop: '1px solid #1e293b' }}>
                 <b>{b.nome}</b><span style={{ color: '#94a3b8' }}>{b.intestatario || '—'}</span>
