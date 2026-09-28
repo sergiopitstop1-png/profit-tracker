@@ -7283,6 +7283,15 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         setFatte={setFatteMirate}
         giorniPausa={giorniPausaTotale}
         onProfilazione={id => updateProfiloLivello(Number(id), 'attivo')}
+        onProfilazioneTutti={async ids => {
+          // in blocco: per i book con più profilazioni tengo quella già scelta, altrimenti la prima (niente finestra per ogni conto)
+          for (const id of ids) {
+            const b = books.find(x => String(x.id) === String(id)); if (!b) continue
+            const v = getVariantiProfilazione(b.nome)
+            await updateProfiloLivello(b.id, 'attivo', v ? (b.profilo_variante || v[0].key) : null)
+          }
+          setMessage(`🟢 ${ids.length} conti messi in profilazione`)
+        }}
         onApri={(nomeBook, conti) => apriSuTelefoni(nomeBook, sitoBook(conti[0]), conti.map(b => b.intestatario))}
         onMessage={setMessage}
         onError={setErrorMessage}
