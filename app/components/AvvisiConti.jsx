@@ -383,6 +383,8 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
   const orfani = aperti.filter(orfano)
   // recupero sport che Lucy sta ancora cercando di collocare (entro GIORNI_LUCY_RECUPERO giorni)
   const perLucy = (a) => {
+    // 28/09/2026: anche l'operazione spot (saldo fermo) la colloca Lucy, se sul book fa sport
+    if (a.meta?.origine === 'saldo_fermo') { const b = bookDi(a.book_id); return !!b && !!lucyColloca && lucyColloca(b) }
     if (a.tipo !== 'recupero' || a.meta?.azione !== 'periodica' || !recuperoSport(a.titolo)) return false
     const b = bookDi(a.book_id)
     return !!b && !!lucyColloca && lucyColloca(b)
