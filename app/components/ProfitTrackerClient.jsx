@@ -338,31 +338,35 @@ async function riprendiProf() {
 // 27/09/2026 — attività dei conti rilevata sui telefoni (tabella book_attivita, scritta da /api/book-lavorati)
 useEffect(() => {
   const da = aggiungiGiorniLucy(new Date().toLocaleDateString('sv-SE'), -45)
-  supabase.from('book_attivita').select('book_id,data,fonte,host').gte('data', da).then(({ data, error }) => { if (!error) setBookAttivita(data || []) })
+  supabase.from('book_attivita').select('book_id,data,fonte,host,ultimo_visto').gte('data', da).then(({ data, error }) => { if (!error) setBookAttivita(data || []) })
 }, [])
 async function segnaSaldoVerificato(ids) {
   const lista = [...new Set((ids || []).map(Number))].filter(Boolean)
   if (!lista.length) return
   const oggiIso = new Date().toLocaleDateString('sv-SE')
-  const { error } = await supabase.from('books').update({ saldo_verificato_il: oggiIso }).in('id', lista)
-  if (error) { setErrorMessage('Saldo verificato non salvato: lancia book_attivita.sql (' + error.message + ')'); return }
-  setBooks(prev => prev.map(b => lista.includes(Number(b.id)) ? { ...b, saldo_verificato_il: oggiIso } : b))
+  const ora = new Date().toISOString()   // 28/09/2026: anche l'ora, così un conto riusato più tardi nello stesso giorno ricompare
+  const { error } = await supabase.from('books').update({ saldo_verificato_il: oggiIso, saldo_verificato_at: ora }).in('id', lista)
+  if (error) { setErrorMessage('Saldo verificato non salvato: lancia saldi_orario.sql (' + error.message + ')'); return }
+  setBooks(prev => prev.map(b => lista.includes(Number(b.id)) ? { ...b, saldo_verificato_il: oggiIso, saldo_verificato_at: ora } : b))
 }
 // Conti da ricontrollare: usati dopo l'ultima verifica del saldo (senza verifica: da lunedì scorso in poi)
 function saldiDaAggiornare() {
   const oggiIso = new Date().toLocaleDateString('sv-SE')
   const g = new Date(oggiIso + 'T00:00:00').getDay()
   const lunediScorso = aggiungiGiorniLucy(oggiIso, -(((g + 6) % 7) + 7))
-  const usi = new Map()   // book_id → Map(data → Set(fonti))
-  const segna = (id, data, fonte) => { if (!id || !data) return; const k = String(id); if (!usi.has(k)) usi.set(k, new Map()); const m = usi.get(k); if (!m.has(data)) m.set(data, new Set()); m.get(data).add(fonte) }
-  for (const r of bookAttivita) segna(r.book_id, String(r.data).slice(0, 10), '📱')
-  for (const x of lucyConfermate) segna(x?.bookId, String(x?.data || '').slice(0, 10), x?.manualeProf ? '✍️' : '🎯')
+  const usi = new Map()   // book_id → Map(data → { fonti: Set, ultimo: ISO dell'ultimo utilizzo })
+  const segna = (id, data, fonte, quando) => { if (!id || !data) return; const k = String(id); if (!usi.has(k)) usi.set(k, new Map()); const m = usi.get(k); if (!m.has(data)) m.set(data, { fonti: new Set(), ultimo: '' }); const g = m.get(data); g.fonti.add(fonte); const q = quando || `${data}T12:00:00Z`; if (q > g.ultimo) g.ultimo = q }
+  for (const r of bookAttivita) segna(r.book_id, String(r.data).slice(0, 10), '📱', r.ultimo_visto ? new Date(r.ultimo_visto).toISOString() : null)
+  for (const x of lucyConfermate) segna(x?.bookId, String(x?.data || '').slice(0, 10), x?.manualeProf ? '✍️' : '🎯', x?.creato ? new Date(x.creato).toISOString() : null)
   const out = []
   for (const b of books) {
     if (!b.nome || /punti e monete|in corso/i.test(b.nome)) continue
     const m = usi.get(String(b.id)); if (!m) continue
     const rif = b.saldo_verificato_il || lunediScorso
-    const giorni = [...m.entries()].filter(([d]) => d > rif && d <= oggiIso).sort((a, c) => a[0].localeCompare(c[0]))
+    const rifOra = b.saldo_verificato_at ? new Date(b.saldo_verificato_at).toISOString() : null
+    // usato DOPO l'ultima verifica: con l'ora se c'è (anche nello stesso giorno), altrimenti per data
+    const giorni = [...m.entries()].filter(([d, g]) => d <= oggiIso && (rifOra ? g.ultimo > rifOra : d > rif))
+      .sort((a, c) => a[0].localeCompare(c[0])).map(([d, g]) => [d, g.fonti])
     if (!giorni.length) continue
     out.push({ book: b, giorni })
   }
@@ -8576,6 +8580,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 14, border: '1px solid rgba(34,197,94,0.35)', background: 'rgba(34,197,94,0.05)' }}>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                 <span style={{ fontWeight: 900, color: '#4ade80', fontSize: 13, marginRight: 4 }}>💰 Saldi da aggiornare · {lista.length}</span>
+                <button title="Il controllo l'ha già fatto qualcuno a mano" onClick={async () => { if (!window.confirm(`Segno come verificati TUTTI i ${lista.length} saldi della lista?\n(usalo se il controllo è già stato fatto a mano; se un conto viene riusato più tardi, ricompare)`)) return; await segnaSaldoVerificato(lista.map(v => v.book.id)); setMessage(`✓ ${lista.length} saldi segnati come verificati`) }} style={{ padding: '2px 8px', borderRadius: 999, fontSize: 11, cursor: 'pointer', border: '1px solid #475569', background: 'transparent', color: '#94a3b8', marginRight: 4 }}>✓ tutti verificati</button>
                 {elenco.map(g => (
                   <button key={g.nome} onClick={() => setSaldiDaAggAperto(saldiDaAggAperto === g.nome ? null : g.nome)} style={{ padding: '3px 9px', borderRadius: 999, fontSize: 12, fontWeight: 700, cursor: 'pointer', border: `1px solid ${saldiDaAggAperto === g.nome ? '#4ade80' : 'rgba(74,222,128,0.35)'}`, background: saldiDaAggAperto === g.nome ? 'rgba(74,222,128,0.2)' : 'transparent', color: '#bbf7d0' }}>{g.nome} {g.voci.length}</button>
                 ))}
@@ -8585,6 +8590,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                     <b style={{ color: '#f8fafc', fontSize: 13 }}>{aperto.nome}</b>
                     <button onClick={() => apriSuTelefoni(aperto.nome, sitoBook(aperto.voci[0].book), aperto.voci.map(v => v.book.intestatario))} style={{ background: '#0ea5e9', color: 'white', border: 0, borderRadius: 8, padding: '5px 10px', fontWeight: 800, fontSize: 12, cursor: 'pointer' }}>📱 Apri sui {aperto.voci.length} telefoni</button>
+                    <button onClick={async () => { if (!window.confirm(`${aperto.nome}: segno come verificati (invariati) tutti i ${aperto.voci.length} saldi?\nSe li riusi più tardi, ricompaiono.`)) return; await segnaSaldoVerificato(aperto.voci.map(v => v.book.id)); setMessage(`✓ ${aperto.nome}: ${aperto.voci.length} saldi segnati come verificati`) }} style={{ background: '#334155', color: 'white', border: 0, borderRadius: 8, padding: '5px 10px', fontWeight: 800, fontSize: 12, cursor: 'pointer' }}>✓ Tutti invariati</button>
                     <span style={{ fontSize: 11, color: '#64748b' }}>📱 telefono · 🎯 Lucy · ✍️ registro manuale</span>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
