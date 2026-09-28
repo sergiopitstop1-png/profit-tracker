@@ -395,9 +395,10 @@ async function apriSuTelefoni(nomeBook, url, intestatari, azione = 'apri') {
   const { data, error } = await supabase.from('comandi_telefoni').insert([{ azione, url, intestatari: nomi }]).select().single()
   if (error) { setErrorMessage('Comando non inviato: lancia agente_telefoni.sql (' + error.message + ')'); return }
   setMessage(`📱 ${nomeBook}: apertura inviata a ${nomi.length} telefoni…`)
-  // resoconto: lo script risponde entro pochi secondi
-  for (let i = 0; i < 12; i++) {
-    await new Promise(r => setTimeout(r, 2500))
+  // resoconto: lo script risponde di solito in pochi secondi; con tante app può servire un minuto
+  for (let i = 0; i < 40; i++) {
+    await new Promise(r => setTimeout(r, 3000))
+    if (i === 5) setMessage(`📱 ${nomeBook}: apertura in corso su ${nomi.length} telefoni…`)
     const { data: c } = await supabase.from('comandi_telefoni').select('stato,esito').eq('id', data.id).single()
     if (c?.stato === 'fatto') {
       const es = Object.entries(c.esito || {})
