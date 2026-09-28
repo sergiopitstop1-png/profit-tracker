@@ -3065,14 +3065,14 @@ function sportLabelLucy(p) {
 // ── V47: tabella bet a BLOCCHI — un riquadro per incrocio, colori per esito, filtri ───────────────
 function righeIncrocioLucy(p, pi) {
   const rows0=[
-    ...(p.assegnazioni||[]).map(a=>({...a,tipoRiga:a.recupero?'RECUPERO PROF.':a.tipoConto==='recupero'?'RECUPERO CONTO':a.tipoConto==='mantenimento'?'MANT. PROTOCOLLO':'PROFILAZIONE'})),
+    ...(p.assegnazioni||[]).map(a=>({...a,tipoRiga:a.recupero?'RECUPERO PROF.':a.tipoConto==='recupero'?(a.spot?'OPERAZIONE SPOT':'RECUPERO CONTO'):a.tipoConto==='mantenimento'?'MANT. PROTOCOLLO':'PROFILAZIONE'})),
     ...(p.extraProfilazione||[]).map(a=>({...a,tipoRiga:'EXTRA PROF.'})),
     ...(p.integrazioni||[]).map(a=>({...a,tipoRiga:'MANTENIMENTO'}))
   ]
   const rows=p.manuale?righeManualiLucy(p,pi,rows0):rows0
   const riep=p.manuale?riepilogoManualeLucy(p,pi,rows):null
   const dettagli=rows.map(a=>{
-    const tipo=(a.tipoRiga==='PROFILAZIONE'||a.tipoRiga==='RECUPERO PROF.')?'profilazione':a.tipoRiga==='RECUPERO CONTO'?'recupero':a.tipoRiga==='EXTRA PROF.'?'extra':'mantenimento'
+    const tipo=(a.tipoRiga==='PROFILAZIONE'||a.tipoRiga==='RECUPERO PROF.')?'profilazione':(a.tipoRiga==='RECUPERO CONTO'||a.tipoRiga==='OPERAZIONE SPOT')?'recupero':a.tipoRiga==='EXTRA PROF.'?'extra':'mantenimento'
     const key=keyBetLucy(p,a,tipo)
     return {a,tipo,key,ok:lucyConfermate.some(x=>x.key===key),pronta:!p.manuale||(Number(a.stake)>0&&Number(a.quota)>0)}
   })
@@ -3086,6 +3086,7 @@ function bloccoIncrocioLucy(p, pi, numero) {
   const ruoli={
     'PROFILAZIONE':{t:'Profilazione',bg:'#dcfce7',tx:'#166534'},
     'RECUPERO CONTO':{t:'Recupero conto',bg:'#fee2e2',tx:'#991b1b'},
+    'OPERAZIONE SPOT':{t:'Operazione spot',bg:'#fef9c3',tx:'#854d0e'},
     'RECUPERO PROF.':{t:'Recupero',bg:'#ffedd5',tx:'#9a3412'},
     'MANT. PROTOCOLLO':{t:'Mant. protocollo',bg:'#fef3c7',tx:'#92400e'},
     'MANTENIMENTO':{t:'Copertura',bg:'#e0e7ff',tx:'#3730a3'},
@@ -3205,7 +3206,7 @@ function confermaSingolaBetLucy(p,a,tipo='profilazione') {
 
 async function chiudiAvvisiRecuperoDaLucy(bookId) {
   const oggiIso=new Date().toLocaleDateString('sv-SE')
-  const ids=(avvisiConti||[]).filter(x=>x.stato==='aperto'&&x.tipo==='recupero'&&x.meta?.azione==='periodica'&&recuperoSport(x.titolo)&&String(x.book_id)===String(bookId)&&x.data_prevista<=oggiIso).map(x=>x.id)
+  const ids=(avvisiConti||[]).filter(x=>x.stato==='aperto'&&String(x.book_id)===String(bookId)&&x.data_prevista<=oggiIso&&((x.tipo==='recupero'&&x.meta?.azione==='periodica'&&recuperoSport(x.titolo))||x.meta?.origine==='saldo_fermo')).map(x=>x.id)
   if(!ids.length) return
   const { data, error } = await supabase.from('avvisi_conti').update({ stato:'fatto', fatto_il:oggiIso, esito:'bet di recupero confermata in Lucy' }).in('id',ids).select()
   if(!error&&data) setAvvisiConti(prev=>(prev||[]).map(x=>data.find(d=>d.id===x.id)||x))
@@ -3595,6 +3596,7 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
       book, azione, betRichieste, budgetBase, budgetTotale, daRicarica,
       // V31: un conto in MANTENIMENTO con bet di protocollo oggi resta mantenimento (prima finiva etichettato PROFILAZIONE)
       tipoConto: agenda?.tipo==='mantenimento' ? 'mantenimento' : isRecuperoLucy ? 'recupero' : 'profilazione',
+      spot: !!agenda?.spot,   // 28/09/2026: operazione spot (saldo fermo) — stessa gestione del recupero conto
       stakeVariabili: distribuisciStakeVariabili(book, betRichieste, budgetTotale),
       quotaMin: getQuotaMinSport(book, azione)
     })
@@ -6185,6 +6187,14 @@ const agendaRecuperoLucy = () => {
     x.agenda.avvisiIds.push(a.id)
     if (!x.agenda.dataPiuVecchia || a.data_prevista < x.agenda.dataPiuVecchia) x.agenda.dataPiuVecchia = a.data_prevista
     perBook.set(book.id, x)
+  }
+  // 28/09/2026 — OPERAZIONE SPOT (saldo fermo): una bet sport piccola, ruolo "Operazione spot", in fondo al giro.
+  // Se il conto ha già un recupero sport oggi, basta quella bet (una sola bet per conto).
+  for (const a of avvisiConti || []) {
+    if (a.stato !== 'aperto' || a.meta?.origine !== 'saldo_fermo' || a.data_prevista > oggiIso) continue
+    const book = books.find(b => String(b.id) === String(a.book_id))
+    if (!book || perBook.has(book.id)) continue
+    perBook.set(book.id, { book, agenda: { tipo: 'recupero', spot: true, azioni: ['Operazione spot: 1 bet sport da 15-25€ (saldo fermo)'], avvisiIds: [a.id], dataPiuVecchia: '0000' } })
   }
   // prima i recuperi di oggi, poi quelli rimasti indietro (in fondo al giro)
   return [...perBook.values()].sort((x, y) => String(y.agenda.dataPiuVecchia).localeCompare(String(x.agenda.dataPiuVecchia)))
@@ -8823,7 +8833,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         })()}
         {activeTab === 'books' && (
           <div style={tabContent}>
-            <div style={sectionTopBar}><div><h2 style={sectionTitle}>Books</h2><p style={sectionDescription}>Archivio bookmaker con filtri, note e azioni rapide</p></div><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>{Object.keys(pendingBookSaldi).some(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }) && (<button style={{ ...primaryButtonGreen, background: 'linear-gradient(135deg, #d97706, #f59e0b)', boxShadow: '0 0 14px rgba(245,158,11,0.4)', animation: 'blinkPrevisto 1.8s ease-in-out infinite' }} onClick={handleSalvaBookSaldi}>💾 Salva saldi ({Object.keys(pendingBookSaldi).filter(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }).length})</button>)}<button style={secondaryButton} onClick={() => { const nomiBookUnici = [...new Set(books.filter(b => b.nome && !/punti e monete/i.test(b.nome) && !/in corso/i.test(b.nome)).map(b => normalizzaBookKey(b.nome)))].filter(Boolean); if (!window.confirm(`Aggiornare i saldi di tutti i ${nomiBookUnici.length} book per tutti i clienti?`)) return; nomiBookUnici.forEach(b => eseguiSaldoJob(b, null)) }}>🔄 Aggiorna saldi</button><button style={primaryButtonGreen} onClick={() => setShowBookModal(true)}>+ Nuovo Book</button><button style={{ ...secondaryButton, borderColor: 'rgba(167,139,250,0.6)', color: '#c4b5fd' }} onClick={() => setPuliziaSel({ cerca: '', esclusi: new Set() })}>🧹 Pulisci telefoni</button><button style={{ ...secondaryButton, borderColor: 'rgba(34,197,94,0.6)', color: '#86efac' }} onClick={() => caricaRendimento('mese')}>📈 Rendimento</button><button disabled={!!lettureInCorso} style={{ ...secondaryButton, borderColor: 'rgba(217,70,239,0.6)', color: '#f0abfc' }} title="Legge il saldo di qualsiasi book aperto su tutti i telefoni" onClick={() => { const q = window.prompt('📸 Quale book vuoi leggere?\n(es. bet365, snai — lascia vuoto per leggere qualsiasi book aperto)', ''); if (q === null) return; const k = normalizzaBookKey(q); const nome = k ? (books.find(b => normalizzaBookKey(b.nome) === k)?.nome || books.find(b => normalizzaBookKey(b.nome).includes(k))?.nome) : ''; if (k && !nome) { setErrorMessage(`Nessun book "${q}" nel Profit Tracker`); return } leggiSaldiAperti('tutti', nome || '', []) }}>{lettureInCorso === 'tutti' ? '📸 Lettura…' : '📸 Leggi saldi aperti'}</button><button style={{ ...secondaryButton, borderColor: 'rgba(14,165,233,0.6)', color: '#7dd3fc' }} onClick={() => setApriTel({ cerca: '', key: '', url: '', esclusi: new Set(), filtri: { chiusi: true, limBonus: false, limSport: false, soloProf: false, soloSaldo: false } })}>📱 Apri su telefoni</button></div></div>
+            <div style={sectionTopBar}><div><h2 style={sectionTitle}>Books</h2><p style={sectionDescription}>Archivio bookmaker con filtri, note e azioni rapide</p></div><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>{Object.keys(pendingBookSaldi).some(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }) && (<button style={{ ...primaryButtonGreen, background: 'linear-gradient(135deg, #d97706, #f59e0b)', boxShadow: '0 0 14px rgba(245,158,11,0.4)', animation: 'blinkPrevisto 1.8s ease-in-out infinite' }} onClick={handleSalvaBookSaldi}>💾 Salva saldi ({Object.keys(pendingBookSaldi).filter(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }).length})</button>)}<button style={primaryButtonGreen} onClick={() => setShowBookModal(true)}>+ Nuovo Book</button><button style={{ ...secondaryButton, borderColor: 'rgba(167,139,250,0.6)', color: '#c4b5fd' }} onClick={() => setPuliziaSel({ cerca: '', esclusi: new Set() })}>🧹 Pulisci telefoni</button><button style={{ ...secondaryButton, borderColor: 'rgba(34,197,94,0.6)', color: '#86efac' }} onClick={() => caricaRendimento('mese')}>📈 Rendimento</button><button disabled={!!lettureInCorso} style={{ ...secondaryButton, borderColor: 'rgba(217,70,239,0.6)', color: '#f0abfc' }} title="Legge il saldo di qualsiasi book aperto su tutti i telefoni" onClick={() => { const q = window.prompt('📸 Quale book vuoi leggere?\n(es. bet365, snai — lascia vuoto per leggere qualsiasi book aperto)', ''); if (q === null) return; const k = normalizzaBookKey(q); const nome = k ? (books.find(b => normalizzaBookKey(b.nome) === k)?.nome || books.find(b => normalizzaBookKey(b.nome).includes(k))?.nome) : ''; if (k && !nome) { setErrorMessage(`Nessun book "${q}" nel Profit Tracker`); return } leggiSaldiAperti('tutti', nome || '', []) }}>{lettureInCorso === 'tutti' ? '📸 Lettura…' : '📸 Leggi saldi aperti'}</button><button style={{ ...secondaryButton, borderColor: 'rgba(14,165,233,0.6)', color: '#7dd3fc' }} onClick={() => setApriTel({ cerca: '', key: '', url: '', esclusi: new Set(), filtri: { chiusi: true, limBonus: false, limSport: false, soloProf: false, soloSaldo: false } })}>📱 Apri su telefoni</button></div></div>
             <div style={statsGridCompact}><StatCard label='Totale books' value={formatCurrency(totaleBooks)} sub={`${books.length} records`} accent='#22c55e' /><StatCard label='Totale filtrato' value={formatCurrency(totaleBooksFiltrati)} sub={`${filteredBooks.length} risultati visibili`} accent='#38bdf8' /></div>
             <div style={panel}>
               <div style={filterRow}>
@@ -8838,20 +8848,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 </label>
                 <button type='button' style={secondaryButton} onClick={clearBookFilters}>Pulisci</button>
               </div>
-              {bookFilters.nome.trim() && (
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-                  {[...new Map(
-                    books
-                      .filter(b => b.nome && !/punti e monete/i.test(b.nome) && !/in corso/i.test(b.nome))
-                      .filter(b => b.nome.toLowerCase().includes(bookFilters.nome.toLowerCase()))
-                      .map(b => [normalizzaBookKey(b.nome), b.nome])
-                  ).entries()]
-                    .sort((a, b) => a[1].localeCompare(b[1]))
-                    .map(([key, nomeVisualizzato]) => (
-                      <button key={key} type='button' style={tinyBlueButton} onClick={() => queueSaldoJob(key, null, nomeVisualizzato)}>🔄 {nomeVisualizzato}</button>
-                    ))}
-                </div>
-              )}
+              {/* 28/09/2026: tolte le etichette 🔄 del vecchio lettore saldi (ora 📸 Leggi saldi aperti) */}
               <div style={tableWrap}>
                 <table style={tableLarge}><thead><tr><th style={th}>ID</th><th style={th}>Nome</th><th style={th}>Intestatario</th><th style={th}>Saldo</th><th style={th}>Note</th><th style={th}>Azioni</th></tr></thead><tbody>
                   {filteredBooks.map((book) => {
