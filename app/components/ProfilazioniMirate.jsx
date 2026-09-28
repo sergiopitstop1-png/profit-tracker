@@ -24,7 +24,7 @@ export function prossimaMirata(g, fatte, giorniPausa) {
   return { ultima, prossima: addGiorni(ultima, n + (giorniPausa ? giorniPausa(ultima, oggiISO()) : 0)) }
 }
 
-export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setGruppi, fatte, setFatte, giorniPausa, onProfilazione, onApri, onMessage, onError }) {
+export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setGruppi, fatte, setFatte, giorniPausa, onProfilazione, onProfilazioneTutti, onApri, onMessage, onError }) {
   const [aperto, setAperto] = useState(true)
   const [edit, setEdit] = useState(null)          // { id?, nome, ogni_giorni, conti: [book_id], cerca }
   const [storico, setStorico] = useState(null)    // id gruppo con lo storico aperto
@@ -61,6 +61,9 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
     if (error) { onError('Non registrata: ' + error.message); return }
     setFatte(prev => [...prev, data])
     onMessage(`✅ ${g.nome} registrata · prossima il ${dataIt(addGiorni(oggi, g.ogni_giorni))}`)
+    // i conti del gruppo non ancora in profilazione: chiedo se metterli dentro (così entrano anche nel giro sport)
+    const fuori = g.conti.map(bookDi).filter(b => b && b.profilo_livello !== 'attivo')
+    if (fuori.length && onProfilazioneTutti && window.confirm(`${fuori.length} conti del gruppo non sono in profilazione:\n${fuori.map(b => `${b.nome} – ${b.intestatario || '—'}`).join('\n')}\n\nLi metto in profilazione?`)) await onProfilazioneTutti(fuori.map(b => b.id))
   }
   async function annullaFatta(f) {
     if (!window.confirm(`Tolgo dallo storico l'operazione del ${dataIt(f.data)}?`)) return
@@ -152,7 +155,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
                 <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>{conti.map(b => `${b.nome} · ${b.intestatario || '—'}`).join('  ·  ')}</div>
                 {nonProf.length > 0 && (
                   <div style={{ fontSize: 11, color: '#fbbf24', marginTop: 4, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                    ⚠️ non in profilazione: {nonProf.map(b => <button key={b.id} style={{ ...btn('#22c55e'), padding: '2px 6px', fontSize: 11 }} onClick={() => onProfilazione(b.id)}>🟢 {b.nome} · {b.intestatario}</button>)}
+                    ⚠️ non in profilazione: {onProfilazioneTutti && nonProf.length > 1 && <button style={{ ...btn('#22c55e'), padding: '2px 8px', fontSize: 11, fontWeight: 900 }} onClick={() => { if (window.confirm(`Metto in profilazione tutti i ${nonProf.length} conti?`)) onProfilazioneTutti(nonProf.map(b => b.id)) }}>🟢 Tutti ({nonProf.length})</button>}{nonProf.map(b => <button key={b.id} style={{ ...btn('#22c55e'), padding: '2px 6px', fontSize: 11 }} onClick={() => onProfilazione(b.id)}>🟢 {b.nome} · {b.intestatario}</button>)}
                   </div>
                 )}
                 {storico === g.id && (
