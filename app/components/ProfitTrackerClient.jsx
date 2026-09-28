@@ -546,6 +546,12 @@ async function caricaRendimento(periodo) {
   }
   setRendimento(prev => ({ ...(prev || {}), periodo, caricando: false, righe }))
 }
+// 28/09/2026: cliente segnato "terminato" nella tab Clienti (per non proporre i suoi conti nelle scelte)
+function clienteTerminato(intestatario) {
+  const n = String(intestatario || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '')
+  if (!n) return false
+  return (clienti || []).some(c => c.terminato && String(c.nome || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '') === n)
+}
 async function salvaSaldoRapido(book, invariato) {
   const oggiIso = new Date().toLocaleDateString('sv-SE')
   if (invariato) { await segnaSaldoVerificato([book.id]); setMessage(`✓ Saldo invariato: ${book.nome} (${book.intestatario || '—'})`); return }
@@ -6762,7 +6768,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           const trovati = q ? nomi.filter(([, n]) => n.toLowerCase().includes(q)).slice(0, 15) : []
           const isWallet = String(apriTel.key || '').startsWith('w:')
           const elencoDi = k => String(k).startsWith('w:') ? wallets.filter(w => w.intestatario && 'w:' + nk(w.nome) === k) : books.filter(b => nk(b.nome) === k)
-          const conti = apriTel.key ? elencoDi(apriTel.key).sort((a, c) => String(a.intestatario || '').localeCompare(String(c.intestatario || ''))) : []
+          const conti = apriTel.key ? elencoDi(apriTel.key).filter(b => !clienteTerminato(b.intestatario)).sort((a, c) => String(a.intestatario || '').localeCompare(String(c.intestatario || ''))) : []
           const f = apriTel.filtri
           const nota = b => String(b.note || '').toLowerCase()
           const escluso = b => isWallet ? (f.soloSaldo && !(Number(b.saldo || 0) > 0)) : (f.chiusi && /\bchius[oa]\b/.test(nota(b)) && !/chiuder\w*\s+e\s+riaprir/.test(nota(b)))
@@ -7270,6 +7276,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 
       <ProfilazioniMiratePanel
         books={books}
+        terminato={clienteTerminato}
         gruppi={gruppiMirati}
         setGruppi={setGruppiMirati}
         fatte={fatteMirate}
