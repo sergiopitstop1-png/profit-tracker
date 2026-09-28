@@ -163,7 +163,9 @@ const [saldiDaAggAperto, setSaldiDaAggAperto] = useState(null)   // nome del boo
 const [saldoRapido, setSaldoRapido] = useState({})
 // 28/09/2026 — 📸 Leggi saldi con l'AI: { [book.id]: { stato, saldo, bonus, motivo, img } } + zoom della miniatura
 const [lettureInCorso, setLettureInCorso] = useState('')
-const [risultatiLettura, setRisultatiLettura] = useState(null)   // { titolo, righe: [[chiave, esito]] }
+const [risultatiLettura, setRisultatiLettura] = useState(null)
+// 28/09/2026 — 📈 Rendimento: somma dei delta delle correzioni saldo (manuali + automatiche) per cliente e per book
+const [rendimento, setRendimento] = useState(null)   // { periodo, righe, caricando, cliente }   // { titolo, righe: [[chiave, esito]] }
 const [zoomImg, setZoomImg] = useState(null)
 // 28/09/2026 — finestra "📱 Apri su telefoni": un book sui telefoni dei clienti che ce l'hanno
 const [puliziaSel, setPuliziaSel] = useState(null)   // { cerca, esclusi: Set(nome), tutti: bool } finestra 🧹
@@ -500,6 +502,33 @@ async function avvisoOperazioneSpot(bookId, giorni) {
   if (error) { setErrorMessage(error.message.includes('duplicate') ? 'Avviso già creato oggi' : 'Errore avviso: ' + error.message); return }
   setAvvisiConti(prev => [...(prev || []), ...(data || [])])
   setMessage(`📌 Avviso creato in plancia: ${book.nome} (${book.intestatario || '—'})`)
+}
+// Le correzioni saldo registrano "Book (Cliente) | prima -> dopo": la loro somma è il risultato del gioco
+// (versamenti e prelievi registrati hanno già mosso il saldo per conto loro).
+const numeroEuro = t => { const x = String(t || '').replace(/[€\s]/g, '').replace(/\./g, '').replace(',', '.'); const n = Number(x); return Number.isFinite(n) ? n : null }
+async function caricaRendimento(periodo) {
+  setRendimento(prev => ({ ...(prev || {}), periodo, caricando: true, righe: prev?.righe || [] }))
+  const oggi = new Date()
+  const da = periodo === '7' ? new Date(Date.now() - 7 * 86400000)
+    : periodo === '30' ? new Date(Date.now() - 30 * 86400000)
+    : periodo === 'mese' ? new Date(oggi.getFullYear(), oggi.getMonth(), 1)
+    : periodo === 'anno' ? new Date(oggi.getFullYear(), 0, 1) : new Date(2000, 0, 1)
+  const righe = []
+  for (let from = 0; from < 50000; from += 1000) {
+    const { data, error } = await supabase.from('transactions').select('riferimento,data,tipo,azione')
+      .in('azione', ['manual_balance_adjustment', 'auto_balance_adjustment']).gte('data', da.toISOString())
+      .order('data', { ascending: false }).range(from, from + 999)
+    if (error) { setErrorMessage('Rendimento: ' + error.message); break }
+    for (const t of data || []) {
+      const m = String(t.riferimento || '').match(/^(.*?)(?: \((.*)\))? \| (.*?) -> (.*)$/)
+      if (!m) continue
+      const prima = numeroEuro(m[3]), dopo = numeroEuro(m[4])
+      if (prima === null || dopo === null) continue
+      righe.push({ book: m[1].trim(), cliente: (m[2] || '—').trim(), delta: Math.round((dopo - prima) * 100) / 100, data: t.data, auto: t.azione === 'auto_balance_adjustment' })
+    }
+    if (!data || data.length < 1000) break
+  }
+  setRendimento(prev => ({ ...(prev || {}), periodo, caricando: false, righe }))
 }
 async function salvaSaldoRapido(book, invariato) {
   const oggiIso = new Date().toLocaleDateString('sv-SE')
@@ -6550,6 +6579,43 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           </div>
         ) })()}
 
+        {rendimento && (() => {
+          const r = rendimento
+          const somma = (lista, chiave) => { const m = new Map(); for (const x of lista) { const k = x[chiave]; const v = m.get(k) || { nome: k, delta: 0, n: 0, auto: 0 }; v.delta += x.delta; v.n++; if (x.auto) v.auto++; m.set(k, v) } return [...m.values()].map(v => ({ ...v, delta: Math.round(v.delta * 100) / 100 })).sort((a, b) => b.delta - a.delta) }
+          const base = r.cliente ? r.righe.filter(x => x.cliente === r.cliente) : r.righe
+          const perCliente = somma(r.righe, 'cliente'), perBook = somma(base, 'book')
+          const tot = Math.round(r.righe.reduce((a, x) => a + x.delta, 0) * 100) / 100
+          const cella = v => <span style={{ color: v > 0 ? '#4ade80' : v < 0 ? '#f87171' : '#94a3b8', fontWeight: 800 }}>{v > 0 ? '+' : ''}{formatCurrency(v)}</span>
+          const tab = (titolo, lista, clic) => (
+            <div style={{ flex: 1, minWidth: 280 }}>
+              <div style={{ fontSize: 13, fontWeight: 900, color: '#cbd5e1', margin: '4px 0 6px' }}>{titolo}</div>
+              <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                <thead><tr style={{ color: '#94a3b8', textAlign: 'right' }}><th style={{ textAlign: 'left', padding: 4 }}>Nome</th><th>Correzioni</th><th style={{ paddingRight: 4 }}>Delta</th></tr></thead>
+                <tbody>{lista.map(v => (
+                  <tr key={v.nome} onClick={clic ? () => clic(v.nome) : undefined} style={{ textAlign: 'right', borderTop: '1px solid rgba(51,65,85,0.5)', cursor: clic ? 'pointer' : 'default', background: r.cliente === v.nome ? 'rgba(34,197,94,0.1)' : 'transparent' }}>
+                    <td style={{ textAlign: 'left', padding: 4, color: '#f8fafc', fontWeight: 700 }}>{v.nome}</td><td style={{ color: '#94a3b8' }}>{v.n}{v.auto ? ` (${v.auto} auto)` : ''}</td><td style={{ paddingRight: 4 }}>{cella(v.delta)}</td>
+                  </tr>))}</tbody>
+              </table>
+            </div>)
+          return (
+            <div onClick={() => setRendimento(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.8)', zIndex: 1050, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+              <div onClick={e => e.stopPropagation()} style={{ background: '#0f172a', border: '1px solid rgba(34,197,94,0.5)', borderRadius: 16, padding: 18, width: 'min(980px, 100%)', maxHeight: '88vh', overflowY: 'auto', color: '#e2e8f0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+                  <div style={{ fontSize: 16, fontWeight: 900, color: '#86efac' }}>📈 Rendimento · totale {cella(tot)}</div>
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                    {[['7', '7 giorni'], ['30', '30 giorni'], ['mese', 'Questo mese'], ['anno', "Quest'anno"], ['tutto', 'Tutto']].map(([k, l]) => <button key={k} onClick={() => caricaRendimento(k)} style={{ padding: '5px 10px', borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: 'pointer', border: '1px solid #475569', background: r.periodo === k ? '#16a34a' : 'transparent', color: r.periodo === k ? 'white' : '#cbd5e1' }}>{l}</button>)}
+                    <button onClick={() => setRendimento(null)} style={{ padding: '5px 10px', borderRadius: 8, fontSize: 12, cursor: 'pointer', border: '1px solid #475569', background: '#020617', color: '#f8fafc' }}>Chiudi</button>
+                  </div>
+                </div>
+                <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 10 }}>Somma delle correzioni di saldo (manuali e automatiche) dei book: è il risultato del gioco, perché versamenti e prelievi registrati hanno già mosso il saldo per conto loro. Un versamento o prelievo NON registrato finisce qui e falsa il numero. Clic su un cliente per vedere i suoi book.</div>
+                {r.caricando ? <div style={{ fontSize: 13, color: '#94a3b8' }}>Caricamento…</div> : (
+                  <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                    {tab('Per cliente', perCliente, nome => setRendimento({ ...r, cliente: r.cliente === nome ? null : nome }))}
+                    {tab(r.cliente ? `Book di ${r.cliente}` : 'Per book', perBook)}
+                  </div>)}
+              </div>
+            </div>)
+        })()}
         {risultatiLettura && (() => {
           const r = risultatiLettura
           const giorniDa = iso => iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 86400000) : null
@@ -6578,6 +6644,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                     <span style={{ color: col, fontWeight: 800, minWidth: 100 }}>{r.fatti[k] || e.esito}</span>
                     <span style={{ color: '#cbd5e1', flex: 1, minWidth: 160 }}>
                       {e.saldo !== undefined && e.saldo !== null ? `${formatCurrency(Number(e.prec || 0))} → ${formatCurrency(Number(e.saldo))}${e.bonus ? ` (+${e.bonus} bonus)` : ''}` : ''}
+                      {e.testo ? <span style={{ color: '#a5b4fc' }}>{` · letto: "${e.testo}"`}</span> : null}
                       {e.motivo ? ` ${e.motivo}` : ''}
                       {gFermo !== null && <span style={{ color: fermo ? '#fbbf24' : '#94a3b8', fontWeight: fermo ? 800 : 400 }}>{` · ${fermo ? '💤 ' : ''}invariato da ${gFermo} gg`}</span>}
                     </span>
@@ -8748,7 +8815,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         })()}
         {activeTab === 'books' && (
           <div style={tabContent}>
-            <div style={sectionTopBar}><div><h2 style={sectionTitle}>Books</h2><p style={sectionDescription}>Archivio bookmaker con filtri, note e azioni rapide</p></div><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>{Object.keys(pendingBookSaldi).some(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }) && (<button style={{ ...primaryButtonGreen, background: 'linear-gradient(135deg, #d97706, #f59e0b)', boxShadow: '0 0 14px rgba(245,158,11,0.4)', animation: 'blinkPrevisto 1.8s ease-in-out infinite' }} onClick={handleSalvaBookSaldi}>💾 Salva saldi ({Object.keys(pendingBookSaldi).filter(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }).length})</button>)}<button style={secondaryButton} onClick={() => { const nomiBookUnici = [...new Set(books.filter(b => b.nome && !/punti e monete/i.test(b.nome) && !/in corso/i.test(b.nome)).map(b => normalizzaBookKey(b.nome)))].filter(Boolean); if (!window.confirm(`Aggiornare i saldi di tutti i ${nomiBookUnici.length} book per tutti i clienti?`)) return; nomiBookUnici.forEach(b => eseguiSaldoJob(b, null)) }}>🔄 Aggiorna saldi</button><button style={primaryButtonGreen} onClick={() => setShowBookModal(true)}>+ Nuovo Book</button><button style={{ ...secondaryButton, borderColor: 'rgba(167,139,250,0.6)', color: '#c4b5fd' }} onClick={() => setPuliziaSel({ cerca: '', esclusi: new Set() })}>🧹 Pulisci telefoni</button><button disabled={!!lettureInCorso} style={{ ...secondaryButton, borderColor: 'rgba(217,70,239,0.6)', color: '#f0abfc' }} title="Legge il saldo di qualsiasi book aperto su tutti i telefoni" onClick={() => { const q = window.prompt('📸 Quale book vuoi leggere?\n(es. bet365, snai — lascia vuoto per leggere qualsiasi book aperto)', ''); if (q === null) return; const k = normalizzaBookKey(q); const nome = k ? (books.find(b => normalizzaBookKey(b.nome) === k)?.nome || books.find(b => normalizzaBookKey(b.nome).includes(k))?.nome) : ''; if (k && !nome) { setErrorMessage(`Nessun book "${q}" nel Profit Tracker`); return } leggiSaldiAperti('tutti', nome || '', []) }}>{lettureInCorso === 'tutti' ? '📸 Lettura…' : '📸 Leggi saldi aperti'}</button><button style={{ ...secondaryButton, borderColor: 'rgba(14,165,233,0.6)', color: '#7dd3fc' }} onClick={() => setApriTel({ cerca: '', key: '', url: '', esclusi: new Set(), filtri: { chiusi: true, limBonus: false, limSport: false, soloProf: false, soloSaldo: false } })}>📱 Apri su telefoni</button></div></div>
+            <div style={sectionTopBar}><div><h2 style={sectionTitle}>Books</h2><p style={sectionDescription}>Archivio bookmaker con filtri, note e azioni rapide</p></div><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>{Object.keys(pendingBookSaldi).some(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }) && (<button style={{ ...primaryButtonGreen, background: 'linear-gradient(135deg, #d97706, #f59e0b)', boxShadow: '0 0 14px rgba(245,158,11,0.4)', animation: 'blinkPrevisto 1.8s ease-in-out infinite' }} onClick={handleSalvaBookSaldi}>💾 Salva saldi ({Object.keys(pendingBookSaldi).filter(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }).length})</button>)}<button style={secondaryButton} onClick={() => { const nomiBookUnici = [...new Set(books.filter(b => b.nome && !/punti e monete/i.test(b.nome) && !/in corso/i.test(b.nome)).map(b => normalizzaBookKey(b.nome)))].filter(Boolean); if (!window.confirm(`Aggiornare i saldi di tutti i ${nomiBookUnici.length} book per tutti i clienti?`)) return; nomiBookUnici.forEach(b => eseguiSaldoJob(b, null)) }}>🔄 Aggiorna saldi</button><button style={primaryButtonGreen} onClick={() => setShowBookModal(true)}>+ Nuovo Book</button><button style={{ ...secondaryButton, borderColor: 'rgba(167,139,250,0.6)', color: '#c4b5fd' }} onClick={() => setPuliziaSel({ cerca: '', esclusi: new Set() })}>🧹 Pulisci telefoni</button><button style={{ ...secondaryButton, borderColor: 'rgba(34,197,94,0.6)', color: '#86efac' }} onClick={() => caricaRendimento('mese')}>📈 Rendimento</button><button disabled={!!lettureInCorso} style={{ ...secondaryButton, borderColor: 'rgba(217,70,239,0.6)', color: '#f0abfc' }} title="Legge il saldo di qualsiasi book aperto su tutti i telefoni" onClick={() => { const q = window.prompt('📸 Quale book vuoi leggere?\n(es. bet365, snai — lascia vuoto per leggere qualsiasi book aperto)', ''); if (q === null) return; const k = normalizzaBookKey(q); const nome = k ? (books.find(b => normalizzaBookKey(b.nome) === k)?.nome || books.find(b => normalizzaBookKey(b.nome).includes(k))?.nome) : ''; if (k && !nome) { setErrorMessage(`Nessun book "${q}" nel Profit Tracker`); return } leggiSaldiAperti('tutti', nome || '', []) }}>{lettureInCorso === 'tutti' ? '📸 Lettura…' : '📸 Leggi saldi aperti'}</button><button style={{ ...secondaryButton, borderColor: 'rgba(14,165,233,0.6)', color: '#7dd3fc' }} onClick={() => setApriTel({ cerca: '', key: '', url: '', esclusi: new Set(), filtri: { chiusi: true, limBonus: false, limSport: false, soloProf: false, soloSaldo: false } })}>📱 Apri su telefoni</button></div></div>
             <div style={statsGridCompact}><StatCard label='Totale books' value={formatCurrency(totaleBooks)} sub={`${books.length} records`} accent='#22c55e' /><StatCard label='Totale filtrato' value={formatCurrency(totaleBooksFiltrati)} sub={`${filteredBooks.length} risultati visibili`} accent='#38bdf8' /></div>
             <div style={panel}>
               <div style={filterRow}>
