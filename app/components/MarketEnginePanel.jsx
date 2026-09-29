@@ -1196,6 +1196,36 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
         ))}
       </div>
 
+      {!labOnly && data && (
+        <div style={{...panel,marginBottom:14,border:"1px solid rgba(125,211,252,.32)"}}>
+          <div style={{fontSize:13,fontWeight:900,color:"#bae6fd"}}>📍 Prezzo stimato a 1H e 3H</div>
+          <div style={{fontSize:10,color:"#94a3b8",marginTop:4}}>
+            Stima dai movimenti M15 passati della stessa versione e direzione. È separata dal segnale BUY/SELL/WAIT e non lo modifica.
+          </div>
+          {forecastDirection === "WAIT" ? <div style={{marginTop:10,color:"#fde68a"}}>Segnale WAIT: nessuna stima direzionale.</div>
+            : priceEstimateLoading ? <div style={{marginTop:10,color:"#94a3b8"}}>Calcolo la verifica storica…</div>
+            : priceEstimateError ? <div style={{marginTop:10,color:"#fca5a5"}}>{priceEstimateError}</div>
+            : priceEstimate?.available === false ? <div style={{marginTop:10,color:"#fde68a"}}>{priceEstimate.reason}</div>
+            : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))",gap:10,marginTop:12}}>
+              {[1,3].map(hours => {
+                const h = priceEstimate?.horizons?.[hours];
+                const current = Number(data.session.current);
+                const validated = h?.available && h.beatsBaseline && h.coverage >= 0.6;
+                return <div key={hours} style={{...statCard,padding:12}}>
+                  <div style={statLabel}>Fra {hours} {hours === 1 ? "ora" : "ore"}</div>
+                  {validated ? <>
+                    <div style={{fontSize:20,fontWeight:900,color:"#e2e8f0"}}>{fmt(current + h.deltaMedian,priceDecimals(symbol))}</div>
+                    <div style={{fontSize:11,color:"#bae6fd"}}>Fascia storica: {fmt(current + h.deltaLow,priceDecimals(symbol))} – {fmt(current + h.deltaHigh,priceDecimals(symbol))}</div>
+                  </> : <div style={{fontSize:14,fontWeight:800,color:"#fde68a"}}>Stima non ancora validata</div>}
+                  <div style={{fontSize:9,color:"#94a3b8",marginTop:6}}>
+                    {h?.available ? `${h.samples} segnali · verifica su ${h.testSamples} più recenti · errore medio ${fmt(h.mae,2)} contro ${fmt(h.baselineMae,2)} del prezzo invariato · copertura ${fmt(h.coverage * 100,0)}%` : (h?.reason || "Dati insufficienti")}
+                  </div>
+                </div>;
+              })}
+            </div>}
+        </div>
+      )}
+
       <div style={{
         marginBottom:14,padding:"15px",borderRadius:17,
         border:"1px solid rgba(34,211,238,.38)",
@@ -1438,36 +1468,6 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
           </div>
         </div>
       </div>
-
-      {!labOnly && data && (
-        <div style={{...panel,marginBottom:14,border:"1px solid rgba(125,211,252,.32)"}}>
-          <div style={{fontSize:13,fontWeight:900,color:"#bae6fd"}}>📍 Prezzo stimato a 1H e 3H</div>
-          <div style={{fontSize:10,color:"#94a3b8",marginTop:4}}>
-            Stima dai movimenti M15 passati della stessa versione e direzione. È separata dal segnale BUY/SELL/WAIT e non lo modifica.
-          </div>
-          {forecastDirection === "WAIT" ? <div style={{marginTop:10,color:"#fde68a"}}>Segnale WAIT: nessuna stima direzionale.</div>
-            : priceEstimateLoading ? <div style={{marginTop:10,color:"#94a3b8"}}>Calcolo la verifica storica…</div>
-            : priceEstimateError ? <div style={{marginTop:10,color:"#fca5a5"}}>{priceEstimateError}</div>
-            : priceEstimate?.available === false ? <div style={{marginTop:10,color:"#fde68a"}}>{priceEstimate.reason}</div>
-            : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))",gap:10,marginTop:12}}>
-              {[1,3].map(hours => {
-                const h = priceEstimate?.horizons?.[hours];
-                const current = Number(data.session.current);
-                const validated = h?.available && h.beatsBaseline && h.coverage >= 0.6;
-                return <div key={hours} style={{...statCard,padding:12}}>
-                  <div style={statLabel}>Fra {hours} {hours === 1 ? "ora" : "ore"}</div>
-                  {validated ? <>
-                    <div style={{fontSize:20,fontWeight:900,color:"#e2e8f0"}}>{fmt(current + h.deltaMedian,priceDecimals(symbol))}</div>
-                    <div style={{fontSize:11,color:"#bae6fd"}}>Fascia storica: {fmt(current + h.deltaLow,priceDecimals(symbol))} – {fmt(current + h.deltaHigh,priceDecimals(symbol))}</div>
-                  </> : <div style={{fontSize:14,fontWeight:800,color:"#fde68a"}}>Stima non ancora validata</div>}
-                  <div style={{fontSize:9,color:"#94a3b8",marginTop:6}}>
-                    {h?.available ? `${h.samples} segnali · verifica su ${h.testSamples} più recenti · errore medio ${fmt(h.mae,2)} contro ${fmt(h.baselineMae,2)} del prezzo invariato · copertura ${fmt(h.coverage * 100,0)}%` : (h?.reason || "Dati insufficienti")}
-                  </div>
-                </div>;
-              })}
-            </div>}
-        </div>
-      )}
 
       {challenges.length > 0 && (
         <div style={{
