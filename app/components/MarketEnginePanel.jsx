@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import TradingViewChart from "./TradingViewChart";
 import {
   panel, panelHeader, panelTitle, panelSubtitle, input,
-  primaryButtonBlue, secondaryButton
+  primaryButtonBlue, secondaryButton, statCard, statLabel
 } from "./styles";
 
 const ASSETS = {
@@ -93,9 +93,13 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
   const [labLoading, setLabLoading] = useState(false);
   const [labError, setLabError] = useState("");
   const [labLimit, setLabLimit] = useState(25);
+  const [labScope, setLabScope] = useState("all");
   const [labStatsData, setLabStatsData] = useState(null);
   const [labStatsLoading, setLabStatsLoading] = useState(false);
   const [labStatsError, setLabStatsError] = useState("");
+  const [priceEstimate, setPriceEstimate] = useState(null);
+  const [priceEstimateLoading, setPriceEstimateLoading] = useState(false);
+  const [priceEstimateError, setPriceEstimateError] = useState("");
 
   // Prop/Broker Path Analysis — lettura separata, non modifica il Market Engine
   const [pathHours, setPathHours] = useState(1);
@@ -232,7 +236,7 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
     try {
       const limitValue = requestedLimit === "ALL" ? "ALL" : Number(requestedLimit || 25);
       const r = await fetch(
-        `/api/market-signal-stats?symbol=${encodeURIComponent(requestedSymbol)}&include_rows=1&limit=${encodeURIComponent(limitValue)}`,
+        `/api/market-signal-stats?symbol=${encodeURIComponent(requestedSymbol)}&include_rows=1&limit=${encodeURIComponent(limitValue)}&scope=${labScope}`,
         { cache:"no-store" }
       );
       const j = await r.json();
@@ -259,7 +263,28 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
     const id = setInterval(() => loadLab(symbol, labLimit), 60_000);
 
     return () => clearInterval(id);
-  }, [symbol, labLimit]);
+  }, [symbol, labLimit, labScope]);
+
+  useEffect(() => {
+    const direction = data?.combined?.forecastDirection;
+    if (labOnly || !["BUY", "SELL"].includes(direction) || !data?.session?.current) {
+      setPriceEstimate(null);
+      return;
+    }
+    let cancelled = false;
+    setPriceEstimate(null);
+    setPriceEstimateLoading(true);
+    setPriceEstimateError("");
+    fetch(`/api/market-price-forecast?symbol=${encodeURIComponent(symbol)}&direction=${direction}`, { cache: "no-store" })
+      .then(async response => {
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || "Stima non disponibile");
+        if (!cancelled) setPriceEstimate(result);
+      })
+      .catch(error => { if (!cancelled) setPriceEstimateError(error?.message || "Stima non disponibile"); })
+      .finally(() => { if (!cancelled) setPriceEstimateLoading(false); });
+    return () => { cancelled = true; };
+  }, [symbol, data?.combined?.forecastDirection, data?.session?.current, labOnly]);
 
 
   const loadPathAnalysis = async (requestedSymbol = symbol, requestedHours = pathHours) => {
@@ -463,7 +488,7 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
         <div>
           <div style={{fontSize:15,fontWeight:1000,color:"#f3e8ff"}}>🧪 MARKET ENGINE LAB — Validazione segnali</div>
           <div style={{fontSize:10,color:"#94a3b8",marginTop:3}}>
-            Statistiche globali sull'intero storico. La tabella sotto mostra solo la finestra selezionata.
+            {labScope === "all" ? "Statistiche su tutte le versioni del motore; i risultati di versioni diverse sono aggregati." : "Statistiche della versione corrente del motore."} La tabella mostra solo la finestra selezionata.
           </div>
           {labStatsData?.engineVersion && (
             <div style={{fontSize:9,color:"#64748b",marginTop:3}}>
@@ -473,6 +498,10 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
         </div>
 
         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+          <select value={labScope} onChange={e=>setLabScope(e.target.value)} style={{...input,marginBottom:0,padding:"8px 10px"}} title="Versioni incluse nelle statistiche">
+            <option value="all">Tutte le versioni</option>
+            <option value="current">Solo versione corrente</option>
+          </select>
           <select
             value={String(labLimit)}
             onChange={e=>setLabLimit(e.target.value === "ALL" ? "ALL" : Number(e.target.value))}
@@ -1409,6 +1438,36 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
           </div>
         </div>
       </div>
+
+      {!labOnly && data && (
+        <div style={{...panel,marginBottom:14,border:"1px solid rgba(125,211,252,.32)"}}>
+          <div style={{fontSize:13,fontWeight:900,color:"#bae6fd"}}>📍 Prezzo stimato a 1H e 3H</div>
+          <div style={{fontSize:10,color:"#94a3b8",marginTop:4}}>
+            Stima dai movimenti M15 passati della stessa versione e direzione. È separata dal segnale BUY/SELL/WAIT e non lo modifica.
+          </div>
+          {forecastDirection === "WAIT" ? <div style={{marginTop:10,color:"#fde68a"}}>Segnale WAIT: nessuna stima direzionale.</div>
+            : priceEstimateLoading ? <div style={{marginTop:10,color:"#94a3b8"}}>Calcolo la verifica storica…</div>
+            : priceEstimateError ? <div style={{marginTop:10,color:"#fca5a5"}}>{priceEstimateError}</div>
+            : priceEstimate?.available === false ? <div style={{marginTop:10,color:"#fde68a"}}>{priceEstimate.reason}</div>
+            : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))",gap:10,marginTop:12}}>
+              {[1,3].map(hours => {
+                const h = priceEstimate?.horizons?.[hours];
+                const current = Number(data.session.current);
+                const validated = h?.available && h.beatsBaseline && h.coverage >= 0.6;
+                return <div key={hours} style={{...statCard,padding:12}}>
+                  <div style={statLabel}>Fra {hours} {hours === 1 ? "ora" : "ore"}</div>
+                  {validated ? <>
+                    <div style={{fontSize:20,fontWeight:900,color:"#e2e8f0"}}>{fmt(current + h.deltaMedian,priceDecimals(symbol))}</div>
+                    <div style={{fontSize:11,color:"#bae6fd"}}>Fascia storica: {fmt(current + h.deltaLow,priceDecimals(symbol))} – {fmt(current + h.deltaHigh,priceDecimals(symbol))}</div>
+                  </> : <div style={{fontSize:14,fontWeight:800,color:"#fde68a"}}>Stima non ancora validata</div>}
+                  <div style={{fontSize:9,color:"#94a3b8",marginTop:6}}>
+                    {h?.available ? `${h.samples} segnali · verifica su ${h.testSamples} più recenti · errore medio ${fmt(h.mae,2)} contro ${fmt(h.baselineMae,2)} del prezzo invariato · copertura ${fmt(h.coverage * 100,0)}%` : (h?.reason || "Dati insufficienti")}
+                  </div>
+                </div>;
+              })}
+            </div>}
+        </div>
+      )}
 
       {challenges.length > 0 && (
         <div style={{

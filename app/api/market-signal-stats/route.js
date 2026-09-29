@@ -230,7 +230,7 @@ async function readRecentRows(
       );
   }
 
-  let url =
+  const baseUrl =
     `${SUPABASE_URL}/rest/v1/${SIGNAL_TABLE}` +
     `?symbol=eq.${encodeURIComponent(symbol)}` +
     `&select=` +
@@ -259,13 +259,16 @@ async function readRecentRows(
       "result_3h",
       "created_at"
     ].join(",") +
-    `&order=signal_m15_time.desc` +
-    `&limit=${safeLimit}`;
+    `&order=signal_m15_time.desc`;
 
-  if (engineVersion) {
-    url +=
-      `&engine_version=eq.${encodeURIComponent(engineVersion)}`;
-  }
+  const filteredUrl = engineVersion
+    ? baseUrl + `&engine_version=eq.${encodeURIComponent(engineVersion)}`
+    : baseUrl;
+
+  const all = [];
+  for (let offset = 0; offset < safeLimit; offset += 1000) {
+    const pageSize = Math.min(1000, safeLimit - offset);
+    const url = filteredUrl + `&limit=${pageSize}&offset=${offset}`;
 
   const response =
     await fetch(
@@ -303,9 +306,12 @@ async function readRecentRows(
     );
   }
 
-  return Array.isArray(data)
-    ? data
-    : [];
+    if (!Array.isArray(data)) throw new Error("Market Signal Stats rows: formato non valido");
+    all.push(...data);
+    if (data.length < pageSize) break;
+  }
+
+  return all;
 }
 
 
@@ -651,7 +657,9 @@ export async function GET(request) {
         ) ||
         ""
       )
-        .trim();
+      .trim();
+
+    const allVersions = searchParams.get("scope") === "all" && !requestedVersion;
 
 
     let rows =
@@ -720,7 +728,7 @@ export async function GET(request) {
 
 
       if (
-        activeVersion
+        activeVersion && !allVersions
       ) {
         rows =
           rows.filter(
@@ -763,7 +771,7 @@ export async function GET(request) {
       includeRows
         ? await readRecentRows(
             symbol,
-            activeVersion,
+            allVersions ? "" : activeVersion,
             requestedLimit
           )
         : [];
@@ -776,8 +784,11 @@ export async function GET(request) {
       symbol,
 
       engineVersion:
-        activeVersion ||
+        (allVersions ? "" : activeVersion) ||
         null,
+
+      latestEngineVersion: activeVersion || null,
+      scope: allVersions ? "all" : "current",
 
       availableVersions:
         versions,

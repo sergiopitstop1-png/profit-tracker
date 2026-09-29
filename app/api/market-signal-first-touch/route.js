@@ -556,13 +556,16 @@ async function getRows(
       ","
     );
 
-  const url =
+  const baseUrl =
     `${SUPABASE_URL}/rest/v1/${SIGNAL_TABLE}` +
     `?symbol=eq.${encodeURIComponent(symbol)}` +
     `&forecast_direction=in.(BUY,SELL)` +
     `&select=${select}` +
-    `&order=signal_m15_time.asc` +
-    `&limit=5000`;
+    `&order=signal_m15_time.desc`;
+
+  const rows = [];
+  for (let offset = 0; offset < 5000; offset += 1000) {
+    const url = baseUrl + `&limit=1000&offset=${offset}`;
 
   const r =
     await fetch(
@@ -612,11 +615,12 @@ async function getRows(
     );
   }
 
-  return Array.isArray(
-    j
-  )
-    ? j
-    : [];
+    if (!Array.isArray(j)) throw new Error("Supabase: formato segnali non valido");
+    rows.push(...j);
+    if (j.length < 1000) break;
+  }
+
+  return rows;
 }
 
 
