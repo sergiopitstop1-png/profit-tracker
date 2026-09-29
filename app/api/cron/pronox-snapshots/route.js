@@ -280,6 +280,9 @@ export async function GET(request) {
       const league = LEAGUES.find((l) => l.code === code);
       if (league?.oddsKey) allOdds[code] = await fetchOddsForLeague(league.oddsKey, date, apiOdds);
     }
+    report.debug.odds_events = Object.fromEntries(
+      Object.entries(allOdds).map(([c, m]) => [c, Object.keys(m || {}).length])
+    );
 
     // 4. News delle ultime 72 ore
     let recentNews = [];
