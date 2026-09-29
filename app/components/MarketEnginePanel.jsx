@@ -93,6 +93,7 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
   const [labLoading, setLabLoading] = useState(false);
   const [labError, setLabError] = useState("");
   const [labLimit, setLabLimit] = useState(25);
+  const [labScope, setLabScope] = useState("all");
   const [labStatsData, setLabStatsData] = useState(null);
   const [labStatsLoading, setLabStatsLoading] = useState(false);
   const [labStatsError, setLabStatsError] = useState("");
@@ -232,7 +233,7 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
     try {
       const limitValue = requestedLimit === "ALL" ? "ALL" : Number(requestedLimit || 25);
       const r = await fetch(
-        `/api/market-signal-stats?symbol=${encodeURIComponent(requestedSymbol)}&include_rows=1&limit=${encodeURIComponent(limitValue)}`,
+        `/api/market-signal-stats?symbol=${encodeURIComponent(requestedSymbol)}&include_rows=1&limit=${encodeURIComponent(limitValue)}&scope=${labScope}`,
         { cache:"no-store" }
       );
       const j = await r.json();
@@ -259,7 +260,7 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
     const id = setInterval(() => loadLab(symbol, labLimit), 60_000);
 
     return () => clearInterval(id);
-  }, [symbol, labLimit]);
+  }, [symbol, labLimit, labScope]);
 
 
   const loadPathAnalysis = async (requestedSymbol = symbol, requestedHours = pathHours) => {
@@ -463,7 +464,7 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
         <div>
           <div style={{fontSize:15,fontWeight:1000,color:"#f3e8ff"}}>🧪 MARKET ENGINE LAB — Validazione segnali</div>
           <div style={{fontSize:10,color:"#94a3b8",marginTop:3}}>
-            Statistiche globali sull'intero storico. La tabella sotto mostra solo la finestra selezionata.
+            {labScope === "all" ? "Statistiche su tutte le versioni del motore; i risultati di versioni diverse sono aggregati." : "Statistiche della versione corrente del motore."} La tabella mostra solo la finestra selezionata.
           </div>
           {labStatsData?.engineVersion && (
             <div style={{fontSize:9,color:"#64748b",marginTop:3}}>
@@ -473,6 +474,10 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
         </div>
 
         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+          <select value={labScope} onChange={e=>setLabScope(e.target.value)} style={{...input,marginBottom:0,padding:"8px 10px"}} title="Versioni incluse nelle statistiche">
+            <option value="all">Tutte le versioni</option>
+            <option value="current">Solo versione corrente</option>
+          </select>
           <select
             value={String(labLimit)}
             onChange={e=>setLabLimit(e.target.value === "ALL" ? "ALL" : Number(e.target.value))}
