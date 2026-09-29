@@ -175,6 +175,8 @@ const [risultatiLettura, setRisultatiLettura] = useState(null)
 // 28/09/2026 — 📈 Rendimento: somma dei delta delle correzioni saldo (manuali + automatiche) per cliente e per book
 const [rendimento, setRendimento] = useState(null)   // { periodo, righe, caricando, cliente }   // { titolo, righe: [[chiave, esito]] }
 const [zoomImg, setZoomImg] = useState(null)
+// 29/09/2026 — 📷 screenshot di un telefono (salvato nella galleria del telefono + scaricabile dal Profit Tracker)
+const [scatto, setScatto] = useState(null)   // { cerca, inCorso: nome, risultato: { nome, img, file, motivo } }
 // 28/09/2026 — finestra "📱 Apri su telefoni": un book sui telefoni dei clienti che ce l'hanno
 const [puliziaSel, setPuliziaSel] = useState(null)   // { cerca, esclusi: Set(nome), tutti: bool } finestra 🧹
 const [apriTel, setApriTel] = useState(null)   // + modo: 'chrome' | 'app', parola: nome dell'app   // { cerca, key, url, esclusi: Set(id), filtri: {...} }
@@ -551,6 +553,24 @@ function clienteTerminato(intestatario) {
   const n = String(intestatario || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '')
   if (!n) return false
   return (clienti || []).some(c => c.terminato && String(c.nome || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '') === n)
+}
+async function screenshotTelefono(nome) {
+  setScatto(prev => ({ ...(prev || {}), inCorso: nome, risultato: null }))
+  const { data, error } = await supabase.from('comandi_telefoni').insert([{ azione: 'screenshot', url: '-', intestatari: [nome] }]).select().single()
+  if (error) { setErrorMessage('Comando non inviato: ' + error.message); setScatto(prev => ({ ...prev, inCorso: '' })); return }
+  for (let i = 0; i < 30; i++) {
+    await new Promise(r => setTimeout(r, 2000))
+    const { data: c } = await supabase.from('comandi_telefoni').select('stato,esito').eq('id', data.id).single()
+    if (c?.stato !== 'fatto') continue
+    const e = (c.esito || {})[nome] || {}
+    if (e.stato !== 'ok') { setErrorMessage(`📷 ${nome}: ${e.motivo || 'screenshot non riuscito'}`); setScatto(prev => ({ ...prev, inCorso: '' })); return }
+    setScatto(prev => ({ ...prev, inCorso: '', risultato: { nome, ...e } }))
+    // l'immagine è grande: la tolgo dal comando una volta ricevuta
+    supabase.from('comandi_telefoni').update({ esito: { [nome]: { stato: 'ok', file: e.file } } }).eq('id', data.id).then(() => {})
+    return
+  }
+  setScatto(prev => ({ ...prev, inCorso: '' }))
+  setErrorMessage('📷 Nessuna risposta dal PC dei telefoni (lo script book_lavorati è acceso?)')
 }
 async function salvaSaldoRapido(book, invariato) {
   const oggiIso = new Date().toLocaleDateString('sv-SE')
@@ -6632,6 +6652,38 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           </div>
         ) })()}
 
+        {scatto && (() => {
+          const clienti0 = [...new Set(books.map(b => String(b.intestatario || '').trim()).filter(n => n && !clienteTerminato(n)))].sort((a, b) => a.localeCompare(b))
+          const q = scatto.cerca.trim().toLowerCase()
+          const lista = q ? clienti0.filter(n => n.toLowerCase().includes(q)) : clienti0
+          const r = scatto.risultato
+          return (
+            <div onClick={() => setScatto(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.8)', zIndex: 1050, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+              <div onClick={e => e.stopPropagation()} style={{ background: '#0f172a', border: '1px solid #475569', borderRadius: 16, padding: 18, width: 'min(760px, 100%)', maxHeight: '90vh', overflowY: 'auto', color: '#e2e8f0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <div style={{ fontSize: 16, fontWeight: 900 }}>📷 Screenshot di un telefono</div>
+                  <button onClick={() => setScatto(null)} style={{ background: '#020617', color: '#f8fafc', border: '1px solid #475569', borderRadius: 8, padding: '6px 10px', cursor: 'pointer' }}>Chiudi</button>
+                </div>
+                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>Fotografa lo schermo così com'è. L'immagine viene salvata nella <b>Galleria del telefono</b> (cartella Screenshots, per allegarla da lì) e la puoi <b>scaricare sul PC</b> da qui.</div>
+                {!r && <>
+                  <input autoFocus placeholder="Cerca cliente…" value={scatto.cerca} onChange={e => setScatto({ ...scatto, cerca: e.target.value })} style={{ background: '#020617', color: '#f8fafc', border: '1px solid #475569', borderRadius: 8, padding: '7px 9px', fontSize: 13, width: '100%' }} />
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 4, marginTop: 8 }}>
+                    {lista.map(n => <button key={n} disabled={!!scatto.inCorso} onClick={() => screenshotTelefono(n)} style={{ textAlign: 'left', padding: '7px 10px', borderRadius: 8, border: '1px solid #334155', background: scatto.inCorso === n ? '#334155' : 'rgba(11,18,32,0.75)', color: '#e2e8f0', fontSize: 12, cursor: scatto.inCorso ? 'default' : 'pointer' }}>{scatto.inCorso === n ? '⏳ ' : '📷 '}{n}</button>)}
+                  </div>
+                </>}
+                {r && (
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 13, marginBottom: 8 }}>✅ <b>{r.nome}</b> · salvato sul telefono in <b>{r.file}</b>{r.motivo ? ` · ${r.motivo}` : ''}</div>
+                    {r.img && <img src={r.img} alt="" style={{ maxHeight: '60vh', maxWidth: '100%', borderRadius: 10, border: '1px solid #334155' }} />}
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 10 }}>
+                      {r.img && <a href={r.img} download={`screenshot_${r.nome.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.${r.img.startsWith('data:image/png') ? 'png' : 'jpg'}`} style={{ background: '#16a34a', color: 'white', borderRadius: 10, padding: '9px 16px', fontWeight: 900, textDecoration: 'none' }}>⬇️ Scarica sul PC</a>}
+                      <button onClick={() => setScatto({ ...scatto, risultato: null })} style={{ background: '#334155', color: 'white', border: 0, borderRadius: 10, padding: '9px 16px', fontWeight: 800, cursor: 'pointer' }}>📷 Un altro</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>)
+        })()}
         {rendimento && (() => {
           const r = rendimento
           const somma = (lista, chiave) => { const m = new Map(); for (const x of lista) { const k = x[chiave]; const v = m.get(k) || { nome: k, delta: 0, n: 0, auto: 0 }; v.delta += x.delta; v.n++; if (x.auto) v.auto++; m.set(k, v) } return [...m.values()].map(v => ({ ...v, delta: Math.round(v.delta * 100) / 100 })).sort((a, b) => b.delta - a.delta) }
@@ -8890,7 +8942,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         })()}
         {activeTab === 'books' && (
           <div style={tabContent}>
-            <div style={sectionTopBar}><div><h2 style={sectionTitle}>Books</h2><p style={sectionDescription}>Archivio bookmaker con filtri, note e azioni rapide</p></div><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>{Object.keys(pendingBookSaldi).some(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }) && (<button style={{ ...primaryButtonGreen, background: 'linear-gradient(135deg, #d97706, #f59e0b)', boxShadow: '0 0 14px rgba(245,158,11,0.4)', animation: 'blinkPrevisto 1.8s ease-in-out infinite' }} onClick={handleSalvaBookSaldi}>💾 Salva saldi ({Object.keys(pendingBookSaldi).filter(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }).length})</button>)}<button style={primaryButtonGreen} onClick={() => setShowBookModal(true)}>+ Nuovo Book</button><button style={{ ...secondaryButton, borderColor: 'rgba(167,139,250,0.6)', color: '#c4b5fd' }} onClick={() => setPuliziaSel({ cerca: '', esclusi: new Set() })}>🧹 Pulisci telefoni</button><button style={{ ...secondaryButton, borderColor: 'rgba(34,197,94,0.6)', color: '#86efac' }} onClick={() => caricaRendimento('mese')}>📈 Rendimento</button><button disabled={!!lettureInCorso} style={{ ...secondaryButton, borderColor: 'rgba(217,70,239,0.6)', color: '#f0abfc' }} title="Legge il saldo di qualsiasi book aperto su tutti i telefoni" onClick={() => { const q = window.prompt('📸 Quale book vuoi leggere?\n(es. bet365, snai — lascia vuoto per leggere qualsiasi book aperto)', ''); if (q === null) return; const k = normalizzaBookKey(q); const nome = k ? (books.find(b => normalizzaBookKey(b.nome) === k)?.nome || books.find(b => normalizzaBookKey(b.nome).includes(k))?.nome) : ''; if (k && !nome) { setErrorMessage(`Nessun book "${q}" nel Profit Tracker`); return } leggiSaldiAperti('tutti', nome || '', []) }}>{lettureInCorso === 'tutti' ? '📸 Lettura…' : '📸 Leggi saldi aperti'}</button><button style={{ ...secondaryButton, borderColor: 'rgba(14,165,233,0.6)', color: '#7dd3fc' }} onClick={() => setApriTel({ cerca: '', key: '', url: '', esclusi: new Set(), filtri: { chiusi: true, limBonus: false, limSport: false, soloProf: false, soloSaldo: false } })}>📱 Apri su telefoni</button></div></div>
+            <div style={sectionTopBar}><div><h2 style={sectionTitle}>Books</h2><p style={sectionDescription}>Archivio bookmaker con filtri, note e azioni rapide</p></div><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>{Object.keys(pendingBookSaldi).some(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }) && (<button style={{ ...primaryButtonGreen, background: 'linear-gradient(135deg, #d97706, #f59e0b)', boxShadow: '0 0 14px rgba(245,158,11,0.4)', animation: 'blinkPrevisto 1.8s ease-in-out infinite' }} onClick={handleSalvaBookSaldi}>💾 Salva saldi ({Object.keys(pendingBookSaldi).filter(id => { const b = books.find(b => b.id === Number(id)); return b && Number(String(pendingBookSaldi[id]).replace(',','.')) !== Number(b.saldo || 0) }).length})</button>)}<button style={primaryButtonGreen} onClick={() => setShowBookModal(true)}>+ Nuovo Book</button><button style={{ ...secondaryButton, borderColor: 'rgba(167,139,250,0.6)', color: '#c4b5fd' }} onClick={() => setPuliziaSel({ cerca: '', esclusi: new Set() })}>🧹 Pulisci telefoni</button><button style={{ ...secondaryButton, borderColor: 'rgba(148,163,184,0.6)', color: '#e2e8f0' }} onClick={() => setScatto({ cerca: '', inCorso: '', risultato: null })}>📷 Screenshot</button><button style={{ ...secondaryButton, borderColor: 'rgba(34,197,94,0.6)', color: '#86efac' }} onClick={() => caricaRendimento('mese')}>📈 Rendimento</button><button disabled={!!lettureInCorso} style={{ ...secondaryButton, borderColor: 'rgba(217,70,239,0.6)', color: '#f0abfc' }} title="Legge il saldo di qualsiasi book aperto su tutti i telefoni" onClick={() => { const q = window.prompt('📸 Quale book vuoi leggere?\n(es. bet365, snai — lascia vuoto per leggere qualsiasi book aperto)', ''); if (q === null) return; const k = normalizzaBookKey(q); const nome = k ? (books.find(b => normalizzaBookKey(b.nome) === k)?.nome || books.find(b => normalizzaBookKey(b.nome).includes(k))?.nome) : ''; if (k && !nome) { setErrorMessage(`Nessun book "${q}" nel Profit Tracker`); return } leggiSaldiAperti('tutti', nome || '', []) }}>{lettureInCorso === 'tutti' ? '📸 Lettura…' : '📸 Leggi saldi aperti'}</button><button style={{ ...secondaryButton, borderColor: 'rgba(14,165,233,0.6)', color: '#7dd3fc' }} onClick={() => setApriTel({ cerca: '', key: '', url: '', esclusi: new Set(), filtri: { chiusi: true, limBonus: false, limSport: false, soloProf: false, soloSaldo: false } })}>📱 Apri su telefoni</button></div></div>
             <div style={statsGridCompact}><StatCard label='Totale books' value={formatCurrency(totaleBooks)} sub={`${books.length} records`} accent='#22c55e' /><StatCard label='Totale filtrato' value={formatCurrency(totaleBooksFiltrati)} sub={`${filteredBooks.length} risultati visibili`} accent='#38bdf8' /></div>
             <div style={panel}>
               <div style={filterRow}>
