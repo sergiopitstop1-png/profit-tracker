@@ -54,6 +54,46 @@ function tomorrowUTC() {
   return d.toISOString().split("T")[0];
 }
 
+function addDays(dateStr, n) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().split("T")[0];
+}
+
+// Partite di una data (UTC). Prima prova con una sola chiamata globale;
+// se non trova nulla, interroga campionato per campionato (come fa /oggi).
+async function getDayMatches(date, coveredCodes, report) {
+  const sameDay = (m) => (m.utcDate || "").startsWith(date);
+  let found = [];
+  try {
+    const d = await fdGet(`matches?dateFrom=${date}&dateTo=${addDays(date, 1)}`);
+    const raw = d.matches || [];
+    found = raw.filter((m) => sameDay(m) && coveredCodes.includes(m.competition?.code));
+    report.debug.global_raw = raw.length;
+    report.debug.global_found = found.length;
+  } catch (e) {
+    report.debug.global_error = String(e?.message || e);
+  }
+  if (found.length > 0) { report.debug.method = "globale"; return found; }
+
+  report.debug.method = "per campionato";
+  report.debug.per_league = {};
+  for (const code of coveredCodes) {
+    try {
+      const d = await fdGet(`competitions/${code}/matches?dateFrom=${date}&dateTo=${date}`);
+      const list = (d.matches || []).map((m) => ({
+        ...m,
+        competition: m.competition?.code ? m.competition : { ...(m.competition || {}), code },
+      }));
+      report.debug.per_league[code] = list.length;
+      found.push(...list);
+    } catch (e) {
+      report.debug.per_league[code] = `errore: ${String(e?.message || e)}`;
+    }
+  }
+  return found;
+}
+
 function cleanProb(p) {
   const clamped = Math.min(0.99999, Math.max(0.00001, p));
   return Math.round(clamped * 100000) / 100000;
@@ -194,15 +234,15 @@ export async function GET(request) {
     { auth: { persistSession: false } }
   );
 
-  const report = { date, horizon, leagues: {}, fixtures: 0, skipped_started: 0, rows: 0, inserted: 0, odds_matched: 0, errors: [] };
+  const report = { date, horizon, leagues: {}, fixtures: 0, skipped_started: 0, rows: 0, inserted: 0, odds_matched: 0, errors: [], debug: {} };
 
   try {
-    // 1. Partite del giorno (una sola chiamata per tutte le competizioni)
+    // 1. Partite del giorno
     const coveredCodes = LEAGUES.map((l) => l.code);
-    const day = await fdGet(`matches?dateFrom=${date}&dateTo=${date}`);
+    const dayMatches = await getDayMatches(date, coveredCodes, report);
     const minStart = Date.now() + 5 * 60 * 1000;
     const fixturesByCode = {};
-    for (const fix of day.matches || []) {
+    for (const fix of dayMatches) {
       const code = fix.competition?.code;
       if (!coveredCodes.includes(code)) continue;
       if (!["SCHEDULED", "TIMED"].includes(fix.status)) continue;
