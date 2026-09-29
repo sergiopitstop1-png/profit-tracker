@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import TradingViewChart from "./TradingViewChart";
 import {
   panel, panelHeader, panelTitle, panelSubtitle, input,
-  primaryButtonBlue, secondaryButton
+  primaryButtonBlue, secondaryButton, statCard, statLabel
 } from "./styles";
 
 const ASSETS = {
