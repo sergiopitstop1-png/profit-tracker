@@ -15,7 +15,7 @@ import {
   LEAGUES, DOMESTIC_LEAGUES, CUP_LEAGUES,
   MODEL_NAME, MODEL_VERSION,
   calcRatings, currentSeasonFor, getSeasonData,
-  fetchOddsForLeague, matchOdds, computeFixtureModel,
+  parseOddsForDate, matchOdds, computeFixtureModel,
   calibrateFootballProbability,
 } from "../../../../lib/pronox/footballModel";
 
@@ -273,16 +273,39 @@ export async function GET(request) {
       allAvgs[code] = { lgAvgHome, lgAvgAway };
     }
 
-    // 3. Quote (tramite il proxy già esistente del sito)
-    const apiOdds = `${url.origin}/api/odds`;
+    // 3. Quote: chiamata diretta a The Odds API (il proxy del sito richiede login)
+    const oddsKey = process.env.ODDS_API_KEY || process.env.THE_ODDS_API_KEY || process.env.ODDSAPI_KEY;
+    report.debug.odds_key_found = !!oddsKey;
+    report.debug.odds = {};
     const allOdds = {};
-    for (const code of playingCodes) {
-      const league = LEAGUES.find((l) => l.code === code);
-      if (league?.oddsKey) allOdds[code] = await fetchOddsForLeague(league.oddsKey, date, apiOdds);
+    if (oddsKey) {
+      for (const code of playingCodes) {
+        const league = LEAGUES.find((l) => l.code === code);
+        if (!league?.oddsKey) continue;
+        try {
+          const r = await fetch(
+            `https://api.the-odds-api.com/v4/sports/${league.oddsKey}/odds?apiKey=${oddsKey}` +
+            `&regions=eu&markets=h2h,totals&dateFormat=iso&oddsFormat=decimal`,
+            { cache: "no-store" }
+          );
+          const data = await r.json();
+          if (!r.ok || !Array.isArray(data)) {
+            report.debug.odds[code] = `errore ${r.status}: ${data?.message || "risposta non valida"}`;
+            continue;
+          }
+          allOdds[code] = parseOddsForDate(data, date);
+          const times = data.map((g) => g.commence_time).filter(Boolean).sort();
+          report.debug.odds[code] = {
+            eventi_totali: data.length,
+            eventi_nella_data: Object.keys(allOdds[code]).length,
+            ultima_partita_quotata: times[times.length - 1] || null,
+          };
+          report.debug.odds_credits_left = r.headers.get("x-requests-remaining");
+        } catch (e) {
+          report.debug.odds[code] = `errore: ${String(e?.message || e)}`;
+        }
+      }
     }
-    report.debug.odds_events = Object.fromEntries(
-      Object.entries(allOdds).map(([c, m]) => [c, Object.keys(m || {}).length])
-    );
 
     // 4. News delle ultime 72 ore
     let recentNews = [];
