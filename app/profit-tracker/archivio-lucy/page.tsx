@@ -3,14 +3,18 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useState,
 } from 'react'
 
 import { useRouter } from 'next/navigation'
 
+type Canale = 'EMAIL' | 'SMS'
 
-type Mail = {
-  id: number
+type Comunicazione = {
+  id: string
+  source_id: string | number
+  canale: Canale
   data_mail: string | null
   cliente_nome: string | null
   bookmaker: string | null
@@ -31,7 +35,6 @@ type Mail = {
   feedback_utente: string | null
 }
 
-
 type Counters = {
   tutte: number
   opportunita: number
@@ -41,7 +44,6 @@ type Counters = {
   da_analizzare: number
 }
 
-
 type Vista =
   | 'opportunita'
   | 'da_valutare'
@@ -49,7 +51,6 @@ type Vista =
   | 'ignora'
   | 'da_analizzare'
   | 'tutte'
-
 
 const emptyCounters: Counters = {
   tutte: 0,
@@ -60,32 +61,58 @@ const emptyCounters: Counters = {
   da_analizzare: 0,
 }
 
+const matrixColumns = [
+  '010010110101001101001011',
+  '101101001011010010110100',
+  '001011010110010101101001',
+  '110100101101001011010010',
+  '010110100101101001011010',
+  '101001011010010110100101',
+  '011010010110100101101001',
+  '100101101001011010010110',
+  '001101001011010010110100',
+  '110010110100101101001011',
+  '010010110101001101001011',
+  '101101001011010010110100',
+  '001011010110010101101001',
+  '110100101101001011010010',
+  '010110100101101001011010',
+  '101001011010010110100101',
+  '011010010110100101101001',
+  '100101101001011010010110',
+]
 
 export default function ArchivioLucyPage() {
-
   const router = useRouter()
 
   const [rows, setRows] =
-    useState<Mail[]>([])
+    useState<Comunicazione[]>([])
 
   const [count, setCount] =
     useState(0)
 
   const [counters, setCounters] =
-    useState<Counters>(
-      emptyCounters
-    )
+    useState<Counters>(emptyCounters)
+
+  const [clienti, setClienti] =
+    useState<string[]>([])
 
   const [loading, setLoading] =
     useState(false)
 
-  const [mailAperta, setMailAperta] =
-    useState<Mail | null>(null)
+  const [
+    comunicazioneAperta,
+    setComunicazioneAperta,
+  ] = useState<Comunicazione | null>(null)
 
   const [vista, setVista] =
-    useState<Vista>(
-      'opportunita'
-    )
+    useState<Vista>('opportunita')
+
+  const [periodo, setPeriodo] =
+    useState('1m')
+
+  const [canale, setCanale] =
+    useState('TUTTI')
 
   const [f, setF] =
     useState({
@@ -97,332 +124,151 @@ export default function ArchivioLucyPage() {
       priorita: '',
     })
 
+  const load = useCallback(
+    async () => {
+      setLoading(true)
 
-  /*
-   * =======================================================
-   * CARICAMENTO
-   * =======================================================
-   */
+      try {
+        const p =
+          new URLSearchParams()
 
-  const load =
-    useCallback(
-      async () => {
-
-        setLoading(true)
-
-        try {
-
-          const p =
-            new URLSearchParams()
-
-          if (
-            vista !==
-            'tutte'
-          ) {
-            p.set(
-              'vista',
-              vista
-            )
-          }
-
-          Object.entries(
-            f
-          ).forEach(
-            ([key, value]) => {
-
-              if (value) {
-                p.set(
-                  key,
-                  value
-                )
-              }
-
-            }
-          )
-
-          p.set(
-            'page_size',
-            '100'
-          )
-
-          const r =
-            await fetch(
-              '/api/lucy-mail/archive?' +
-                p.toString(),
-              {
-                cache:
-                  'no-store',
-              }
-            )
-
-          const j =
-            await r.json()
-
-          setRows(
-            j.data || []
-          )
-
-          setCount(
-            j.count || 0
-          )
-
-          setCounters(
-            j.counters ||
-              emptyCounters
-          )
-
-        } finally {
-
-          setLoading(false)
-
+        if (vista !== 'tutte') {
+          p.set('vista', vista)
         }
 
-      },
-      [
-        f,
-        vista,
-      ]
-    )
+        Object.entries(f).forEach(
+          ([key, value]) => {
+            if (value) {
+              p.set(key, value)
+            }
+          }
+        )
 
+        p.set('periodo', periodo)
+
+        if (canale !== 'TUTTI') {
+          p.set('canale', canale)
+        }
+
+        p.set('page_size', '100')
+
+        const r = await fetch(
+          '/api/lucy-mail/archive?' +
+            p.toString(),
+          {
+            cache: 'no-store',
+          }
+        )
+
+        const j = await r.json()
+
+        if (!r.ok) {
+          console.error(
+            '[Lucy Archive]',
+            j
+          )
+          return
+        }
+
+        setRows(j.data || [])
+        setCount(j.count || 0)
+        setCounters(
+          j.counters ||
+            emptyCounters
+        )
+        setClienti(
+          j.clienti || []
+        )
+      } catch (error) {
+        console.error(
+          '[Lucy Archive]',
+          error
+        )
+      } finally {
+        setLoading(false)
+      }
+    },
+    [
+      f,
+      vista,
+      periodo,
+      canale,
+    ]
+  )
 
   useEffect(() => {
     load()
   }, [load])
 
-
-  /*
-   * =======================================================
-   * FEEDBACK
-   * =======================================================
-   */
-
   async function feedback(
-    id: number,
+    item: Comunicazione,
     value: string
   ) {
-
     await fetch(
       '/api/lucy-mail/archive',
       {
         method: 'PATCH',
-
         headers: {
           'Content-Type':
             'application/json',
         },
-
-        body:
-          JSON.stringify({
-            id,
-            feedback_utente:
-              value,
-          }),
+        body: JSON.stringify({
+          id: item.id,
+          source_id:
+            item.source_id,
+          canale:
+            item.canale,
+          feedback_utente:
+            value,
+        }),
       }
     )
 
     load()
-
   }
 
-
-  /*
-   * =======================================================
-   * APERTURA MAIL
-   * =======================================================
-   */
-
-  async function apriMail(
-    mail: Mail
+  async function apriComunicazione(
+    item: Comunicazione
   ) {
-
-    setMailAperta(mail)
-
-    /*
-     * Segniamo la mail come letta.
-     */
+    setComunicazioneAperta(item)
 
     try {
-
       await fetch(
         '/api/lucy-mail/archive',
         {
           method: 'PATCH',
-
           headers: {
             'Content-Type':
               'application/json',
           },
-
-          body:
-            JSON.stringify({
-              id: mail.id,
-              letta: true,
-            }),
+          body: JSON.stringify({
+            id: item.id,
+            source_id:
+              item.source_id,
+            canale:
+              item.canale,
+            letta: true,
+          }),
         }
       )
-
     } catch (error) {
-
       console.error(
         '[Lucy lettura]',
         error
       )
-
     }
-
   }
-
-
-  /*
-   * =======================================================
-   * CAMBIO VISTA
-   * =======================================================
-   */
 
   function cambiaVista(
     nuovaVista: Vista
   ) {
-
-    setVista(
-      nuovaVista
-    )
-
-    setF({
-      q: '',
-      cliente: '',
-      bookmaker: '',
-      giudizio: '',
-      categoria: '',
-      priorita: '',
-    })
-
+    setVista(nuovaVista)
   }
-
-
-  /*
-   * =======================================================
-   * INPUT
-   * =======================================================
-   */
-
-  const field = (
-    key: keyof typeof f,
-    placeholder: string
-  ) => (
-
-    <input
-
-      className="
-        border
-        border-sky-200
-        rounded-lg
-        px-3
-        py-2
-        bg-white
-        text-black
-        w-full
-      "
-
-      placeholder={
-        placeholder
-      }
-
-      value={
-        f[key]
-      }
-
-      onChange={
-        e =>
-          setF({
-            ...f,
-            [key]:
-              e.target.value,
-          })
-      }
-
-    />
-
-  )
-
-
-  /*
-   * =======================================================
-   * PULSANTI VISTA
-   * =======================================================
-   */
-
-  function tabClass(
-    key: Vista
-  ) {
-
-    const active =
-      vista === key
-
-    return `
-      border
-      border-sky-200
-      rounded-xl
-      px-4
-      py-3
-      text-left
-      transition
-      ${
-        active
-          ? 'bg-slate-900 text-white shadow-md border-slate-900'
-          : 'bg-white text-slate-900 hover:bg-sky-50'
-      }
-    `
-
-  }
-
-
-  /*
-   * =======================================================
-   * PRIORITÀ
-   * =======================================================
-   */
-
-  function priorityClass(
-    priority:
-      string | null
-  ) {
-
-    if (
-      priority === 'alta'
-    ) {
-      return (
-        'text-red-600 font-bold'
-      )
-    }
-
-    if (
-      priority === 'media'
-    ) {
-      return (
-        'text-orange-600 font-semibold'
-      )
-    }
-
-    return (
-      'text-gray-500'
-    )
-
-  }
-
-
-  /*
-   * =======================================================
-   * DATA
-   * =======================================================
-   */
 
   function formatDate(
     value: string | null
   ) {
-
-    if (!value) {
-      return '-'
-    }
+    if (!value) return '-'
 
     const date =
       new Date(value)
@@ -435,131 +281,421 @@ export default function ArchivioLucyPage() {
       return value
     }
 
-    return date
-      .toLocaleString(
-        'it-IT'
-      )
-
+    return date.toLocaleString(
+      'it-IT'
+    )
   }
 
+  function priorityClass(
+    priority: string | null
+  ) {
+    if (priority === 'alta') {
+      return 'text-red-400 font-bold'
+    }
 
-  /*
-   * =======================================================
-   * RENDER
-   * =======================================================
-   */
+    if (priority === 'media') {
+      return 'text-amber-300 font-semibold'
+    }
+
+    return 'text-emerald-400'
+  }
+
+  function tabClass(
+    key: Vista
+  ) {
+    const active =
+      vista === key
+
+    return `
+      relative
+      overflow-hidden
+      rounded-xl
+      border
+      px-4
+      py-3
+      text-left
+      transition-all
+      duration-200
+      ${
+        active
+          ? `
+            border-green-400
+            bg-green-500/15
+            shadow-[0_0_22px_rgba(34,197,94,0.25)]
+            text-green-300
+          `
+          : `
+            border-green-900/70
+            bg-[#07100a]
+            text-slate-300
+            hover:border-green-500
+            hover:bg-green-950/40
+          `
+      }
+    `
+  }
+
+  const periodLabel =
+    useMemo(() => {
+      if (periodo === '15g') {
+        return 'Ultimi 15 giorni'
+      }
+
+      if (periodo === '3m') {
+        return 'Ultimi 3 mesi'
+      }
+
+      if (periodo === 'tutto') {
+        return 'Tutto'
+      }
+
+      return 'Ultimo mese'
+    }, [periodo])
 
   return (
-
     <div
       className="
         min-h-screen
-        bg-sky-50
-        text-slate-900
+        bg-[#020604]
+        text-slate-100
       "
     >
+      {/* ==================================================
+          MATRIX HERO
+          ================================================== */}
 
-      <main
+      <header
         className="
-          p-6
-          max-w-[1700px]
-          mx-auto
+          relative
+          h-[230px]
+          overflow-hidden
+          border-b
+          border-green-500/30
+          bg-black
         "
       >
-
-        {/* HEADER */}
+        {/* MATRIX RAIN - SOLO HEADER */}
 
         <div
           className="
-            flex
-            flex-wrap
-            items-center
-            justify-between
-            gap-4
-            mb-6
+            absolute
+            inset-0
+            overflow-hidden
+            pointer-events-none
+            select-none
           "
+          aria-hidden="true"
         >
+          <div
+            className="
+              absolute
+              inset-0
+              bg-[radial-gradient(circle_at_center,rgba(22,163,74,0.12),transparent_65%)]
+            "
+          />
 
-          <div>
-
-            <h1
-              className="
-                text-3xl
-                font-bold
-              "
-            >
-              🧠 Lucy
-            </h1>
-
-            <p
-              className="
-                text-slate-600
-                mt-1
-              "
-            >
-              Opportunità e comunicazioni
-              dai tuoi account
-            </p>
-
+          <div
+            className="
+              absolute
+              inset-0
+              flex
+              justify-around
+              opacity-30
+            "
+          >
+            {matrixColumns.map(
+              (digits, index) => (
+                <div
+                  key={index}
+                  className="
+                    matrix-column
+                    font-mono
+                    text-[12px]
+                    leading-[15px]
+                    text-green-400
+                    whitespace-pre-wrap
+                    break-all
+                    w-[18px]
+                    text-center
+                  "
+                  style={{
+                    animationDuration:
+                      `${
+                        7 +
+                        (index % 6) *
+                          1.3
+                      }s`,
+                    animationDelay:
+                      `-${
+                        (index % 8) *
+                        1.1
+                      }s`,
+                  }}
+                >
+                  {digits
+                    .repeat(5)
+                    .split('')
+                    .join('\n')}
+                </div>
+              )
+            )}
           </div>
 
+          <div
+            className="
+              absolute
+              inset-0
+              bg-gradient-to-r
+              from-black/95
+              via-black/55
+              to-black/90
+            "
+          />
 
+          <div
+            className="
+              absolute
+              inset-x-0
+              bottom-0
+              h-24
+              bg-gradient-to-b
+              from-transparent
+              to-[#020604]
+            "
+          />
+        </div>
+
+        {/* CONTENUTO HEADER */}
+
+        <div
+          className="
+            relative
+            z-10
+            max-w-[1800px]
+            mx-auto
+            h-full
+            px-6
+            flex
+            items-center
+            justify-between
+            gap-6
+          "
+        >
           <div
             className="
               flex
               items-center
+              gap-5
+            "
+          >
+            <div
+              className="
+                relative
+                shrink-0
+              "
+            >
+              <div
+                className="
+                  absolute
+                  -inset-2
+                  rounded-2xl
+                  bg-green-400/20
+                  blur-xl
+                "
+              />
+
+              <img
+                src="/Lucy.png"
+                alt="Lucy"
+                className="
+                  relative
+                  w-28
+                  h-28
+                  object-cover
+                  rounded-2xl
+                  border
+                  border-green-400
+                  shadow-[0_0_30px_rgba(34,197,94,0.45)]
+                "
+              />
+            </div>
+
+            <div>
+              <div
+                className="
+                  flex
+                  items-center
+                  gap-3
+                "
+              >
+                <h1
+                  className="
+                    text-4xl
+                    md:text-5xl
+                    font-black
+                    tracking-[0.18em]
+                    text-green-400
+                    drop-shadow-[0_0_12px_rgba(34,197,94,0.6)]
+                  "
+                >
+                  LUCY
+                </h1>
+
+                <span
+                  className="
+                    hidden
+                    md:inline-flex
+                    items-center
+                    rounded-full
+                    border
+                    border-green-500/50
+                    bg-green-950/60
+                    px-3
+                    py-1
+                    text-xs
+                    font-bold
+                    text-green-300
+                  "
+                >
+                  ● ONLINE
+                </span>
+              </div>
+
+              <div
+                className="
+                  mt-2
+                  font-mono
+                  text-green-300
+                  text-sm
+                  md:text-base
+                "
+              >
+                AI OPERATIVA
+              </div>
+
+              <p
+                className="
+                  mt-2
+                  text-slate-300
+                  max-w-xl
+                "
+              >
+                Analisi intelligente di
+                email e SMS per trovare
+                opportunità, bonus e
+                comunicazioni importanti.
+              </p>
+            </div>
+          </div>
+
+          <div
+            className="
+              hidden
+              sm:flex
+              items-center
               gap-2
             "
           >
-
             <button
-
               onClick={() =>
                 router.push(
                   '/profit-tracker'
                 )
               }
-
               className="
-                border
-                border-sky-300
                 rounded-lg
+                border
+                border-green-500/50
+                bg-black/70
                 px-4
                 py-2
-                bg-sky-600
-                hover:bg-sky-700
-                text-white
                 font-semibold
-                shadow-sm
+                text-green-300
+                hover:bg-green-950
+                hover:border-green-400
               "
             >
               🏠 Dashboard
             </button>
 
-
             <button
-
               onClick={load}
-
               className="
-                border
-                border-sky-200
                 rounded-lg
+                border
+                border-green-500/50
+                bg-green-500/10
                 px-4
                 py-2
-                bg-white
-                hover:bg-sky-50
-                text-slate-900
                 font-semibold
+                text-green-300
+                hover:bg-green-500/20
               "
             >
-              🔄 Aggiorna
+              ↻ Aggiorna
             </button>
-
           </div>
-
         </div>
+      </header>
 
+      {/* ==================================================
+          CONTENUTO OPERATIVO
+          ================================================== */}
+
+      <main
+        className="
+          max-w-[1800px]
+          mx-auto
+          px-6
+          py-6
+        "
+      >
+        {/* MOBILE BUTTONS */}
+
+        <div
+          className="
+            sm:hidden
+            flex
+            gap-2
+            mb-5
+          "
+        >
+          <button
+            onClick={() =>
+              router.push(
+                '/profit-tracker'
+              )
+            }
+            className="
+              flex-1
+              rounded-lg
+              border
+              border-green-500/50
+              bg-[#07100a]
+              px-3
+              py-2
+              text-green-300
+            "
+          >
+            🏠 Dashboard
+          </button>
+
+          <button
+            onClick={load}
+            className="
+              flex-1
+              rounded-lg
+              border
+              border-green-500/50
+              bg-[#07100a]
+              px-3
+              py-2
+              text-green-300
+            "
+          >
+            ↻ Aggiorna
+          </button>
+        </div>
 
         {/* CONTATORI */}
 
@@ -573,286 +709,483 @@ export default function ArchivioLucyPage() {
             mb-6
           "
         >
-
           <button
-            className={tabClass('opportunita')}
+            className={
+              tabClass(
+                'opportunita'
+              )
+            }
             onClick={() =>
-              cambiaVista('opportunita')
+              cambiaVista(
+                'opportunita'
+              )
             }
           >
-            <div className="text-xl font-bold">
-              🔥 {counters.opportunita}
+            <div
+              className="
+                text-2xl
+                font-black
+                text-green-400
+              "
+            >
+              {counters.opportunita}
             </div>
 
-            <div>
-              Opportunità
+            <div className="mt-1 font-semibold">
+              🔥 Opportunità
             </div>
           </button>
 
-
           <button
-            className={tabClass('da_valutare')}
+            className={
+              tabClass(
+                'da_valutare'
+              )
+            }
             onClick={() =>
-              cambiaVista('da_valutare')
+              cambiaVista(
+                'da_valutare'
+              )
             }
           >
-            <div className="text-xl font-bold">
-              ⚠️ {counters.da_valutare}
+            <div
+              className="
+                text-2xl
+                font-black
+                text-amber-300
+              "
+            >
+              {counters.da_valutare}
             </div>
 
-            <div>
-              Da valutare
+            <div className="mt-1 font-semibold">
+              ⚠️ Da valutare
             </div>
           </button>
 
-
           <button
-            className={tabClass('problemi')}
+            className={
+              tabClass(
+                'problemi'
+              )
+            }
             onClick={() =>
-              cambiaVista('problemi')
+              cambiaVista(
+                'problemi'
+              )
             }
           >
-            <div className="text-xl font-bold">
-              🚨 {counters.problemi}
+            <div
+              className="
+                text-2xl
+                font-black
+                text-red-400
+              "
+            >
+              {counters.problemi}
             </div>
 
-            <div>
-              Problemi
+            <div className="mt-1 font-semibold">
+              🚨 Problemi
             </div>
           </button>
 
-
           <button
-            className={tabClass('ignora')}
+            className={
+              tabClass('ignora')
+            }
             onClick={() =>
               cambiaVista('ignora')
             }
           >
-            <div className="text-xl font-bold">
-              ⚪ {counters.ignora}
+            <div
+              className="
+                text-2xl
+                font-black
+                text-slate-400
+              "
+            >
+              {counters.ignora}
             </div>
 
-            <div>
-              Ignora
+            <div className="mt-1 font-semibold">
+              ⚪ Ignora
             </div>
           </button>
 
-
           <button
-            className={tabClass('da_analizzare')}
+            className={
+              tabClass(
+                'da_analizzare'
+              )
+            }
             onClick={() =>
-              cambiaVista('da_analizzare')
+              cambiaVista(
+                'da_analizzare'
+              )
             }
           >
-            <div className="text-xl font-bold">
-              ⏳ {counters.da_analizzare}
+            <div
+              className="
+                text-2xl
+                font-black
+                text-cyan-300
+              "
+            >
+              {counters.da_analizzare}
             </div>
 
-            <div>
-              Da analizzare
+            <div className="mt-1 font-semibold">
+              ⏳ Da analizzare
             </div>
           </button>
 
-
           <button
-            className={tabClass('tutte')}
+            className={
+              tabClass('tutte')
+            }
             onClick={() =>
               cambiaVista('tutte')
             }
           >
-            <div className="text-xl font-bold">
-              📚 {counters.tutte}
+            <div
+              className="
+                text-2xl
+                font-black
+                text-green-300
+              "
+            >
+              {counters.tutte}
             </div>
 
-            <div>
-              Tutte
+            <div className="mt-1 font-semibold">
+              📚 Tutte
             </div>
           </button>
-
         </div>
-
-
-        <div
-          className="
-            mb-3
-            font-semibold
-            text-slate-700
-          "
-        >
-          {count} mail
-        </div>
-
 
         {/* FILTRI */}
 
-        <div
+        <section
           className="
-            grid
-            md:grid-cols-3
-            xl:grid-cols-6
-            gap-2
             mb-5
+            rounded-xl
+            border
+            border-green-900/70
+            bg-[#07100a]
+            p-4
+            shadow-[0_0_20px_rgba(0,0,0,0.35)]
           "
         >
-
-          {field(
-            'q',
-            'Cerca testo...'
-          )}
-
-          {field(
-            'cliente',
-            'Cliente'
-          )}
-
-          {field(
-            'bookmaker',
-            'Bookmaker'
-          )}
-
-
-          <select
+          <div
             className="
-              border
-              border-sky-200
-              rounded-lg
-              px-3
-              py-2
-              bg-white
-              text-black
+              mb-3
+              flex
+              flex-wrap
+              items-center
+              justify-between
+              gap-3
             "
-            value={f.giudizio}
-            onChange={e =>
-              setF({
-                ...f,
-                giudizio:
-                  e.target.value,
-              })
-            }
           >
+            <div
+              className="
+                font-mono
+                text-sm
+                text-green-400
+              "
+            >
+              &gt; LUCY_FILTER
+            </div>
 
-            <option value="">
-              Tutti i giudizi
-            </option>
+            <div
+              className="
+                flex
+                flex-wrap
+                gap-2
+                text-xs
+              "
+            >
+              <span
+                className="
+                  rounded-full
+                  border
+                  border-green-800
+                  bg-black
+                  px-3
+                  py-1
+                  text-green-300
+                "
+              >
+                {count}{' '}
+                {count === 1
+                  ? 'comunicazione'
+                  : 'comunicazioni'}
+              </span>
 
-            <option>UTILE</option>
-            <option>DA_VALUTARE</option>
-            <option>IGNORA</option>
-            <option>DA_ANALIZZARE</option>
+              <span
+                className="
+                  rounded-full
+                  border
+                  border-green-800
+                  bg-black
+                  px-3
+                  py-1
+                  text-green-300
+                "
+              >
+                {periodLabel}
+              </span>
 
-          </select>
+              <span
+                className="
+                  rounded-full
+                  border
+                  border-green-800
+                  bg-black
+                  px-3
+                  py-1
+                  text-green-300
+                "
+              >
+                {canale === 'EMAIL'
+                  ? '📧 Email'
+                  : canale === 'SMS'
+                    ? '📱 SMS'
+                    : '📨 Email + SMS'}
+              </span>
+            </div>
+          </div>
 
-
-          <select
+          <div
             className="
-              border
-              border-sky-200
-              rounded-lg
-              px-3
-              py-2
-              bg-white
-              text-black
+              grid
+              md:grid-cols-2
+              xl:grid-cols-4
+              2xl:grid-cols-8
+              gap-2
             "
-            value={f.categoria}
-            onChange={e =>
-              setF({
-                ...f,
-                categoria:
-                  e.target.value,
-              })
-            }
           >
+            <input
+              className="
+                matrix-input
+              "
+              placeholder="🔎 Cerca..."
+              value={f.q}
+              onChange={e =>
+                setF({
+                  ...f,
+                  q: e.target.value,
+                })
+              }
+            />
 
-            <option value="">
-              Tutte le categorie
-            </option>
+            {/* CLIENTE */}
 
-            <option>BONUS</option>
-            <option>FREEBET</option>
-            <option>CASHBACK</option>
-            <option>PROMO_DEPOSITO</option>
-            <option>PROMO_CASINO</option>
-            <option>PROMO_SLOT</option>
-            <option>PROMO_PERSONALIZZATA</option>
-            <option>RIMBORSO</option>
-            <option>KYC</option>
-            <option>LIMITAZIONE</option>
-            <option>SOSPENSIONE</option>
-            <option>PRELIEVO</option>
-            <option>DEPOSITO</option>
-            <option>SICUREZZA</option>
-            <option>SCADENZA</option>
-            <option>NEWSLETTER</option>
-            <option>PUBBLICITA</option>
-            <option>ALTRO</option>
+            <select
+              className="matrix-input"
+              value={f.cliente}
+              onChange={e =>
+                setF({
+                  ...f,
+                  cliente:
+                    e.target.value,
+                })
+              }
+            >
+              <option value="">
+                👤 Tutti i clienti
+              </option>
 
-          </select>
+              {clienti.map(
+                cliente => (
+                  <option
+                    key={cliente}
+                    value={cliente}
+                  >
+                    {cliente}
+                  </option>
+                )
+              )}
+            </select>
 
+            <input
+              className="matrix-input"
+              placeholder="🎰 Bookmaker"
+              value={f.bookmaker}
+              onChange={e =>
+                setF({
+                  ...f,
+                  bookmaker:
+                    e.target.value,
+                })
+              }
+            />
 
-          <select
-            className="
-              border
-              border-sky-200
-              rounded-lg
-              px-3
-              py-2
-              bg-white
-              text-black
-            "
-            value={f.priorita}
-            onChange={e =>
-              setF({
-                ...f,
-                priorita:
-                  e.target.value,
-              })
-            }
-          >
+            {/* PERIODO */}
 
-            <option value="">
-              Tutte le priorità
-            </option>
+            <select
+              className="matrix-input"
+              value={periodo}
+              onChange={e =>
+                setPeriodo(
+                  e.target.value
+                )
+              }
+            >
+              <option value="15g">
+                📅 Ultimi 15 giorni
+              </option>
 
-            <option>alta</option>
-            <option>media</option>
-            <option>bassa</option>
+              <option value="1m">
+                📅 Ultimo mese
+              </option>
 
-          </select>
+              <option value="3m">
+                📅 Ultimi 3 mesi
+              </option>
 
-        </div>
+              <option value="tutto">
+                📅 Tutto l'archivio
+              </option>
+            </select>
 
+            {/* CANALE */}
+
+            <select
+              className="matrix-input"
+              value={canale}
+              onChange={e =>
+                setCanale(
+                  e.target.value
+                )
+              }
+            >
+              <option value="TUTTI">
+                📨 Email + SMS
+              </option>
+
+              <option value="EMAIL">
+                📧 Solo Email
+              </option>
+
+              <option value="SMS">
+                📱 Solo SMS
+              </option>
+            </select>
+
+            <select
+              className="matrix-input"
+              value={f.giudizio}
+              onChange={e =>
+                setF({
+                  ...f,
+                  giudizio:
+                    e.target.value,
+                })
+              }
+            >
+              <option value="">
+                Tutti i giudizi
+              </option>
+
+              <option>UTILE</option>
+              <option>DA_VALUTARE</option>
+              <option>IGNORA</option>
+              <option>DA_ANALIZZARE</option>
+            </select>
+
+            <select
+              className="matrix-input"
+              value={f.categoria}
+              onChange={e =>
+                setF({
+                  ...f,
+                  categoria:
+                    e.target.value,
+                })
+              }
+            >
+              <option value="">
+                Tutte le categorie
+              </option>
+
+              <option>BONUS</option>
+              <option>FREEBET</option>
+              <option>CASHBACK</option>
+              <option>PROMO_DEPOSITO</option>
+              <option>PROMO_CASINO</option>
+              <option>PROMO_SLOT</option>
+              <option>PROMO_PERSONALIZZATA</option>
+              <option>RIMBORSO</option>
+              <option>KYC</option>
+              <option>LIMITAZIONE</option>
+              <option>SOSPENSIONE</option>
+              <option>PRELIEVO</option>
+              <option>DEPOSITO</option>
+              <option>SICUREZZA</option>
+              <option>SCADENZA</option>
+              <option>NEWSLETTER</option>
+              <option>PUBBLICITA</option>
+              <option>ALTRO</option>
+            </select>
+
+            <select
+              className="matrix-input"
+              value={f.priorita}
+              onChange={e =>
+                setF({
+                  ...f,
+                  priorita:
+                    e.target.value,
+                })
+              }
+            >
+              <option value="">
+                Tutte le priorità
+              </option>
+
+              <option>alta</option>
+              <option>media</option>
+              <option>bassa</option>
+            </select>
+          </div>
+        </section>
 
         {/* TABELLA */}
 
         <div
           className="
             overflow-x-auto
-            border
-            border-sky-200
             rounded-xl
-            bg-white/90
-            shadow-sm
+            border
+            border-green-900/70
+            bg-[#040a06]
+            shadow-[0_0_30px_rgba(0,0,0,0.45)]
           "
         >
-
           <table
             className="
               w-full
               text-sm
-              text-black
             "
           >
-
             <thead>
-
               <tr
                 className="
-                  text-left
                   border-b
-                  border-sky-200
-                  bg-sky-100
+                  border-green-800/60
+                  bg-[#08140c]
+                  text-left
+                  font-mono
+                  text-xs
+                  uppercase
+                  tracking-wider
+                  text-green-400
                 "
               >
+                <th className="p-3">
+                  Canale
+                </th>
 
                 <th className="p-3">
                   Data
@@ -867,7 +1200,7 @@ export default function ArchivioLucyPage() {
                 </th>
 
                 <th className="p-3">
-                  Oggetto
+                  Comunicazione
                 </th>
 
                 <th className="p-3">
@@ -879,472 +1212,524 @@ export default function ArchivioLucyPage() {
                 </th>
 
                 <th className="p-3">
-                  Dettagli
+                  Analisi
                 </th>
 
                 <th className="p-3">
                   Feedback
                 </th>
-
               </tr>
-
             </thead>
 
-
             <tbody>
-
               {loading && (
-
                 <tr>
-
                   <td
-                    className="p-5"
-                    colSpan={8}
+                    className="
+                      p-8
+                      text-center
+                      font-mono
+                      text-green-400
+                    "
+                    colSpan={9}
                   >
-                    Lucy sta caricando…
+                    &gt; Lucy sta
+                    analizzando i dati...
                   </td>
-
                 </tr>
-
               )}
 
-
               {!loading &&
-                rows.map(
-                  mail => (
-
-                    <tr
-                      key={mail.id}
+                rows.map(item => (
+                  <tr
+                    key={item.id}
+                    className="
+                      border-b
+                      border-green-950
+                      align-top
+                      text-slate-300
+                      transition
+                      hover:bg-green-950/20
+                    "
+                  >
+                    <td
                       className="
-                        border-b
-                        border-sky-100
-                        align-top
-                        hover:bg-sky-50
+                        p-3
+                        whitespace-nowrap
                       "
                     >
-
-                      <td
-                        className="
-                          p-3
-                          whitespace-nowrap
-                        "
+                      <span
+                        className={`
+                          inline-flex
+                          rounded-full
+                          border
+                          px-2.5
+                          py-1
+                          text-xs
+                          font-bold
+                          ${
+                            item.canale ===
+                            'SMS'
+                              ? `
+                                border-violet-500/40
+                                bg-violet-500/10
+                                text-violet-300
+                              `
+                              : `
+                                border-cyan-500/40
+                                bg-cyan-500/10
+                                text-cyan-300
+                              `
+                          }
+                        `}
                       >
-                        {
-                          formatDate(
-                            mail.data_mail
+                        {item.canale ===
+                        'SMS'
+                          ? '📱 SMS'
+                          : '📧 EMAIL'}
+                      </span>
+                    </td>
+
+                    <td
+                      className="
+                        p-3
+                        whitespace-nowrap
+                        text-slate-400
+                      "
+                    >
+                      {formatDate(
+                        item.data_mail
+                      )}
+                    </td>
+
+                    <td
+                      className="
+                        p-3
+                        font-semibold
+                        text-slate-200
+                      "
+                    >
+                      {item.cliente_nome ||
+                        '-'}
+                    </td>
+
+                    <td
+                      className="
+                        p-3
+                        whitespace-nowrap
+                        text-green-300
+                      "
+                    >
+                      {item.bookmaker ||
+                        item.mittente ||
+                        '-'}
+                    </td>
+
+                    <td
+                      className="
+                        p-3
+                        min-w-[280px]
+                      "
+                    >
+                      <button
+                        onClick={() =>
+                          apriComunicazione(
+                            item
                           )
                         }
-                      </td>
-
-
-                      <td
                         className="
-                          p-3
-                          font-medium
+                          text-left
+                          font-semibold
+                          text-green-300
+                          hover:text-green-200
+                          hover:underline
                         "
                       >
-                        {
-                          mail.cliente_nome ||
-                          '-'
-                        }
-                      </td>
+                        {item.canale ===
+                          'SMS'
+                          ? item.testo_completo
+                              ?.slice(
+                                0,
+                                110
+                              ) ||
+                            'SMS'
+                          : item.oggetto ||
+                            '(senza oggetto)'}
+                      </button>
 
-
-                      <td
-                        className="
-                          p-3
-                          whitespace-nowrap
-                        "
-                      >
-                        {
-                          mail.bookmaker ||
-                          mail.mittente ||
-                          '-'
-                        }
-                      </td>
-
-
-                      {/* OGGETTO CLICCABILE */}
-
-                      <td
-                        className="
-                          p-3
-                          min-w-[260px]
-                        "
-                      >
-
+                      <div className="mt-2">
                         <button
                           onClick={() =>
-                            apriMail(mail)
+                            apriComunicazione(
+                              item
+                            )
                           }
                           className="
-                            text-left
+                            rounded-md
+                            border
+                            border-green-800
+                            bg-green-950/30
+                            px-2
+                            py-1
+                            text-xs
                             font-semibold
-                            text-blue-700
-                            hover:text-blue-900
-                            hover:underline
+                            text-green-400
+                            hover:border-green-500
                           "
-                          title="Apri la mail"
                         >
-                          {
-                            mail.oggetto ||
-                            '(senza oggetto)'
-                          }
+                          {item.canale ===
+                          'SMS'
+                            ? '📱 Apri SMS'
+                            : '📧 Apri email'}
                         </button>
+                      </div>
+                    </td>
 
-                        <div className="mt-2">
-
-                          <button
-                            onClick={() =>
-                              apriMail(mail)
-                            }
-                            className="
-                              text-xs
-                              bg-sky-100
-                              hover:bg-sky-200
-                              text-sky-800
-                              px-2
-                              py-1
-                              rounded-md
-                              font-semibold
-                            "
-                          >
-                            📩 Apri mail
-                          </button>
-
-                        </div>
-
-                      </td>
-
-
-                      <td
+                    <td
+                      className="
+                        p-3
+                        min-w-[150px]
+                      "
+                    >
+                      <div
                         className="
-                          p-3
-                          min-w-[150px]
+                          font-bold
+                          text-green-300
                         "
                       >
+                        {item.giudizio ||
+                          '-'}
+                      </div>
 
-                        <div className="font-bold">
-                          {mail.giudizio}
-                        </div>
+                      <div
+                        className="
+                          mt-1
+                          text-xs
+                          text-slate-400
+                        "
+                      >
+                        {item.categoria ||
+                          '-'}
+                      </div>
 
-                        <div>
-                          {mail.categoria}
-                        </div>
+                      <div
+                        className={`
+                          mt-1
+                          text-xs
+                          ${priorityClass(
+                            item.priorita
+                          )}
+                        `}
+                      >
+                        {item.priorita ||
+                          '-'}
+                      </div>
+                    </td>
 
+                    <td
+                      className="
+                        p-3
+                        min-w-[150px]
+                      "
+                    >
+                      {item.bonus_importo !=
+                        null && (
                         <div
-                          className={
-                            priorityClass(
-                              mail.priorita
-                            )
-                          }
+                          className="
+                            font-bold
+                            text-green-400
+                          "
                         >
-                          {mail.priorita}
-                        </div>
-
-                      </td>
-
-
-                      <td
-                        className="
-                          p-3
-                          min-w-[150px]
-                        "
-                      >
-
-                        {
-                          mail.bonus_importo != null && (
-
-                            <div
-                              className="
-                                font-bold
-                                text-green-700
-                              "
-                            >
-                              Bonus €{mail.bonus_importo}
-                            </div>
-
-                          )
-                        }
-
-
-                        {
-                          mail.deposito_richiesto != null && (
-
-                            <div>
-                              Deposito €{mail.deposito_richiesto}
-                            </div>
-
-                          )
-                        }
-
-
-                        {
-                          mail.rollover && (
-
-                            <div>
-                              Rollover: {mail.rollover}
-                            </div>
-
-                          )
-                        }
-
-
-                        {
-                          mail.scadenza && (
-
-                            <div
-                              className="
-                                mt-1
-                                font-semibold
-                              "
-                            >
-                              ⏰ {formatDate(mail.scadenza)}
-                            </div>
-
-                          )
-                        }
-
-
-                        {
-                          mail.bonus_importo == null &&
-                          mail.deposito_richiesto == null &&
-                          !mail.rollover &&
-                          !mail.scadenza &&
-                          '-'
-                        }
-
-                      </td>
-
-
-                      <td
-                        className="
-                          p-3
-                          min-w-[320px]
-                        "
-                      >
-
-                        <div>
+                          + €
                           {
-                            mail.motivazione_ai ||
-                            'In attesa di analisi'
+                            item.bonus_importo
                           }
                         </div>
+                      )}
 
+                      {item.deposito_richiesto !=
+                        null && (
+                        <div className="mt-1">
+                          Deposito €
+                          {
+                            item.deposito_richiesto
+                          }
+                        </div>
+                      )}
 
-                        {
-                          mail.condizioni && (
+                      {item.rollover && (
+                        <div
+                          className="
+                            mt-1
+                            text-slate-400
+                          "
+                        >
+                          Rollover:{' '}
+                          {item.rollover}
+                        </div>
+                      )}
 
-                            <div
-                              className="
-                                mt-2
-                                text-gray-600
-                              "
-                            >
-                              {mail.condizioni}
-                            </div>
+                      {item.scadenza && (
+                        <div
+                          className="
+                            mt-1
+                            font-semibold
+                            text-amber-300
+                          "
+                        >
+                          ⏰{' '}
+                          {formatDate(
+                            item.scadenza
+                          )}
+                        </div>
+                      )}
 
+                      {item.bonus_importo ==
+                        null &&
+                        item.deposito_richiesto ==
+                          null &&
+                        !item.rollover &&
+                        !item.scadenza &&
+                        '-'}
+                    </td>
+
+                    <td
+                      className="
+                        p-3
+                        min-w-[330px]
+                        text-slate-300
+                      "
+                    >
+                      <div>
+                        {item.motivazione_ai ||
+                          'In attesa di analisi'}
+                      </div>
+
+                      {item.condizioni && (
+                        <div
+                          className="
+                            mt-2
+                            text-xs
+                            text-slate-500
+                          "
+                        >
+                          {item.condizioni}
+                        </div>
+                      )}
+
+                      {item.richiede_azione && (
+                        <div
+                          className="
+                            mt-2
+                            font-bold
+                            text-red-400
+                          "
+                        >
+                          ⚡ Richiede azione
+                        </div>
+                      )}
+                    </td>
+
+                    <td
+                      className="
+                        p-3
+                        whitespace-nowrap
+                      "
+                    >
+                      <button
+                        onClick={() =>
+                          feedback(
+                            item,
+                            'UTILE'
                           )
                         }
-
-
-                        {
-                          mail.richiede_azione && (
-
-                            <div
-                              className="
-                                mt-2
-                                font-bold
-                                text-red-600
-                              "
-                            >
-                              ⚡ Richiede azione
-                            </div>
-
-                          )
-                        }
-
-                      </td>
-
-
-                      <td
                         className="
-                          p-3
-                          whitespace-nowrap
+                          mr-3
+                          text-lg
+                          opacity-80
+                          hover:opacity-100
                         "
+                        title="Classificazione corretta"
                       >
+                        👍
+                      </button>
 
-                        <button
-                          onClick={() =>
-                            feedback(
-                              mail.id,
-                              'UTILE'
-                            )
-                          }
-                          className="
-                            mr-3
-                            text-lg
-                          "
-                          title="Lucy ha classificato bene"
-                        >
-                          👍
-                        </button>
-
-
-                        <button
-                          onClick={() =>
-                            feedback(
-                              mail.id,
-                              'INUTILE'
-                            )
-                          }
-                          className="
-                            text-lg
-                          "
-                          title="Lucy ha sbagliato"
-                        >
-                          👎
-                        </button>
-
-                      </td>
-
-                    </tr>
-
-                  )
-                )}
-
+                      <button
+                        onClick={() =>
+                          feedback(
+                            item,
+                            'INUTILE'
+                          )
+                        }
+                        className="
+                          text-lg
+                          opacity-80
+                          hover:opacity-100
+                        "
+                        title="Classificazione errata"
+                      >
+                        👎
+                      </button>
+                    </td>
+                  </tr>
+                ))}
 
               {!loading &&
                 rows.length === 0 && (
-
                   <tr>
-
                     <td
-                      className="p-6"
-                      colSpan={8}
+                      className="
+                        p-10
+                        text-center
+                        font-mono
+                        text-slate-500
+                      "
+                      colSpan={9}
                     >
-                      Nessuna mail
-                      in questa sezione.
+                      &gt; Nessuna
+                      comunicazione trovata.
                     </td>
-
                   </tr>
-
                 )}
-
             </tbody>
-
           </table>
-
         </div>
-
       </main>
 
+      {/* ==================================================
+          MODAL
+          ================================================== */}
 
-      {/* ===================================================
-          MODAL LETTURA MAIL
-          =================================================== */}
-
-      {mailAperta && (
-
+      {comunicazioneAperta && (
         <div
           className="
             fixed
             inset-0
             z-50
-            bg-black/60
             flex
             items-center
             justify-center
+            bg-black/85
             p-4
+            backdrop-blur-sm
           "
           onClick={() =>
-            setMailAperta(null)
+            setComunicazioneAperta(
+              null
+            )
           }
         >
-
           <div
             className="
-              bg-white
-              text-slate-900
-              rounded-2xl
-              shadow-2xl
+              flex
+              max-h-[90vh]
               w-full
               max-w-5xl
-              max-h-[90vh]
-              overflow-hidden
-              flex
               flex-col
+              overflow-hidden
+              rounded-2xl
+              border
+              border-green-500/50
+              bg-[#030805]
+              text-slate-200
+              shadow-[0_0_50px_rgba(34,197,94,0.18)]
             "
             onClick={e =>
               e.stopPropagation()
             }
           >
-
-            {/* HEADER MODAL */}
+            {/* MODAL HEADER */}
 
             <div
               className="
-                bg-sky-100
-                border-b
-                border-sky-200
-                p-5
                 flex
-                justify-between
                 items-start
+                justify-between
                 gap-4
+                border-b
+                border-green-900
+                bg-[#07100a]
+                p-5
               "
             >
-
-              <div>
-
-                <div
+              <div
+                className="
+                  flex
+                  items-center
+                  gap-4
+                "
+              >
+                <img
+                  src="/Lucy.png"
+                  alt="Lucy"
                   className="
-                    text-sm
-                    text-sky-700
-                    font-bold
-                    mb-1
+                    h-14
+                    w-14
+                    rounded-xl
+                    border
+                    border-green-400
+                    object-cover
+                    shadow-[0_0_18px_rgba(34,197,94,0.35)]
                   "
-                >
-                  📩 MAIL
+                />
+
+                <div>
+                  <div
+                    className="
+                      font-mono
+                      text-xs
+                      font-bold
+                      text-green-400
+                    "
+                  >
+                    {comunicazioneAperta.canale ===
+                    'SMS'
+                      ? '📱 SMS // LUCY'
+                      : '📧 EMAIL // LUCY'}
+                  </div>
+
+                  <h2
+                    className="
+                      mt-1
+                      text-xl
+                      font-bold
+                      text-slate-100
+                    "
+                  >
+                    {comunicazioneAperta.canale ===
+                    'SMS'
+                      ? comunicazioneAperta.bookmaker ||
+                        comunicazioneAperta.mittente ||
+                        'SMS'
+                      : comunicazioneAperta.oggetto ||
+                        '(senza oggetto)'}
+                  </h2>
                 </div>
-
-                <h2
-                  className="
-                    text-xl
-                    font-bold
-                  "
-                >
-                  {
-                    mailAperta.oggetto ||
-                    '(senza oggetto)'
-                  }
-                </h2>
-
               </div>
-
 
               <button
                 onClick={() =>
-                  setMailAperta(null)
+                  setComunicazioneAperta(
+                    null
+                  )
                 }
                 className="
-                  bg-slate-900
-                  hover:bg-black
-                  text-white
                   rounded-lg
+                  border
+                  border-green-700
+                  bg-black
                   px-4
                   py-2
                   font-bold
-                  whitespace-nowrap
+                  text-green-300
+                  hover:bg-green-950
                 "
               >
-                ✕ Chiudi
+                ✕
               </button>
-
             </div>
 
-
-            {/* CONTENUTO SCORREVOLE */}
+            {/* MODAL BODY */}
 
             <div
               className="
@@ -1352,349 +1737,390 @@ export default function ArchivioLucyPage() {
                 p-6
               "
             >
+              <div
+                className="
+                  mb-5
+                  grid
+                  gap-3
+                  rounded-xl
+                  border
+                  border-green-900
+                  bg-[#07100a]
+                  p-4
+                  text-sm
+                  md:grid-cols-2
+                "
+              >
+                <div>
+                  <strong className="text-green-400">
+                    Canale:
+                  </strong>{' '}
+                  {comunicazioneAperta.canale ===
+                  'SMS'
+                    ? '📱 SMS'
+                    : '📧 Email'}
+                </div>
 
-              {/* DATI MAIL */}
+                <div>
+                  <strong className="text-green-400">
+                    Cliente:
+                  </strong>{' '}
+                  {comunicazioneAperta.cliente_nome ||
+                    '-'}
+                </div>
+
+                <div>
+                  <strong className="text-green-400">
+                    Book:
+                  </strong>{' '}
+                  {comunicazioneAperta.bookmaker ||
+                    '-'}
+                </div>
+
+                <div>
+                  <strong className="text-green-400">
+                    Mittente:
+                  </strong>{' '}
+                  {comunicazioneAperta.mittente ||
+                    '-'}
+                </div>
+
+                {comunicazioneAperta.canale ===
+                  'EMAIL' && (
+                  <div>
+                    <strong className="text-green-400">
+                      A:
+                    </strong>{' '}
+                    {comunicazioneAperta.destinatario_originale ||
+                      '-'}
+                  </div>
+                )}
+
+                <div>
+                  <strong className="text-green-400">
+                    Data:
+                  </strong>{' '}
+                  {formatDate(
+                    comunicazioneAperta.data_mail
+                  )}
+                </div>
+              </div>
+
+              {/* ANALISI */}
 
               <div
                 className="
-                  grid
-                  md:grid-cols-2
-                  gap-3
-                  bg-slate-50
-                  border
-                  rounded-xl
-                  p-4
                   mb-5
-                  text-sm
+                  rounded-xl
+                  border
+                  border-green-500/40
+                  bg-green-950/20
+                  p-5
                 "
               >
-
-                <div>
-                  <strong>Cliente:</strong>{' '}
-                  {
-                    mailAperta.cliente_nome ||
-                    '-'
-                  }
-                </div>
-
-                <div>
-                  <strong>Book:</strong>{' '}
-                  {
-                    mailAperta.bookmaker ||
-                    '-'
-                  }
-                </div>
-
-                <div>
-                  <strong>Da:</strong>{' '}
-                  {
-                    mailAperta.mittente ||
-                    '-'
-                  }
-                </div>
-
-                <div>
-                  <strong>A:</strong>{' '}
-                  {
-                    mailAperta.destinatario_originale ||
-                    '-'
-                  }
-                </div>
-
-                <div>
-                  <strong>Data:</strong>{' '}
-                  {
-                    formatDate(
-                      mailAperta.data_mail
-                    )
-                  }
-                </div>
-
-                <div>
-                  <strong>Priorità:</strong>{' '}
+                <div
+                  className="
+                    mb-4
+                    flex
+                    items-center
+                    gap-3
+                  "
+                >
+                  <div
+                    className="
+                      font-mono
+                      font-black
+                      tracking-wider
+                      text-green-400
+                    "
+                  >
+                    &gt; ANALISI LUCY
+                  </div>
 
                   <span
-                    className={
-                      priorityClass(
-                        mailAperta.priorita
-                      )
-                    }
+                    className="
+                      rounded-full
+                      border
+                      border-green-700
+                      bg-black
+                      px-2
+                      py-1
+                      text-xs
+                      text-green-300
+                    "
                   >
                     {
-                      mailAperta.priorita ||
-                      '-'
-                    }
-                  </span>
-
-                </div>
-
-              </div>
-
-
-              {/* ANALISI LUCY */}
-
-              <div
-                className="
-                  bg-blue-50
-                  border
-                  border-blue-200
-                  rounded-xl
-                  p-4
-                  mb-5
-                "
-              >
-
-                <div
-                  className="
-                    font-bold
-                    text-blue-900
-                    mb-2
-                  "
-                >
-                  🧠 Analisi Lucy
-                </div>
-
-                <div className="mb-2">
-                  <strong>
-                    {
-                      mailAperta.giudizio ||
+                      comunicazioneAperta.giudizio ||
                       'DA_ANALIZZARE'
                     }
-                  </strong>
-
-                  {' · '}
-
-                  {
-                    mailAperta.categoria ||
-                    '-'
-                  }
+                  </span>
                 </div>
-
-
-                {
-                  mailAperta.motivazione_ai && (
-
-                    <div className="mb-3">
-                      {
-                        mailAperta.motivazione_ai
-                      }
-                    </div>
-
-                  )
-                }
-
 
                 <div
                   className="
+                    text-lg
+                    text-slate-200
+                  "
+                >
+                  {comunicazioneAperta.motivazione_ai ||
+                    'Analisi non ancora disponibile.'}
+                </div>
+
+                <div
+                  className="
+                    mt-4
                     flex
                     flex-wrap
-                    gap-4
-                    text-sm
+                    gap-3
                   "
                 >
+                  {comunicazioneAperta.bonus_importo !=
+                    null && (
+                    <span
+                      className="
+                        rounded-lg
+                        border
+                        border-green-500/50
+                        bg-green-500/10
+                        px-3
+                        py-2
+                        font-bold
+                        text-green-300
+                      "
+                    >
+                      💰 Bonus €
+                      {
+                        comunicazioneAperta.bonus_importo
+                      }
+                    </span>
+                  )}
 
-                  {
-                    mailAperta.bonus_importo != null && (
+                  {comunicazioneAperta.deposito_richiesto !=
+                    null && (
+                    <span
+                      className="
+                        rounded-lg
+                        border
+                        border-slate-700
+                        bg-black
+                        px-3
+                        py-2
+                      "
+                    >
+                      💳 Deposito €
+                      {
+                        comunicazioneAperta.deposito_richiesto
+                      }
+                    </span>
+                  )}
 
-                      <div
-                        className="
-                          font-bold
-                          text-green-700
-                        "
-                      >
-                        💰 Bonus €
-                        {
-                          mailAperta.bonus_importo
-                        }
-                      </div>
+                  {comunicazioneAperta.rollover && (
+                    <span
+                      className="
+                        rounded-lg
+                        border
+                        border-slate-700
+                        bg-black
+                        px-3
+                        py-2
+                      "
+                    >
+                      🔁{' '}
+                      {
+                        comunicazioneAperta.rollover
+                      }
+                    </span>
+                  )}
 
-                    )
-                  }
-
-
-                  {
-                    mailAperta.deposito_richiesto != null && (
-
-                      <div>
-                        💳 Deposito €
-                        {
-                          mailAperta.deposito_richiesto
-                        }
-                      </div>
-
-                    )
-                  }
-
-
-                  {
-                    mailAperta.rollover && (
-
-                      <div>
-                        🔁 Rollover:{' '}
-                        {
-                          mailAperta.rollover
-                        }
-                      </div>
-
-                    )
-                  }
-
-
-                  {
-                    mailAperta.scadenza && (
-
-                      <div
-                        className="
-                          font-semibold
-                          text-red-700
-                        "
-                      >
-                        ⏰ Scadenza:{' '}
-                        {
-                          formatDate(
-                            mailAperta.scadenza
-                          )
-                        }
-                      </div>
-
-                    )
-                  }
-
+                  {comunicazioneAperta.scadenza && (
+                    <span
+                      className="
+                        rounded-lg
+                        border
+                        border-amber-500/50
+                        bg-amber-500/10
+                        px-3
+                        py-2
+                        font-semibold
+                        text-amber-300
+                      "
+                    >
+                      ⏰{' '}
+                      {formatDate(
+                        comunicazioneAperta.scadenza
+                      )}
+                    </span>
+                  )}
                 </div>
 
+                {comunicazioneAperta.condizioni && (
+                  <div
+                    className="
+                      mt-4
+                      border-t
+                      border-green-900
+                      pt-4
+                      text-slate-400
+                    "
+                  >
+                    <strong className="text-green-400">
+                      Condizioni:
+                    </strong>{' '}
+                    {
+                      comunicazioneAperta.condizioni
+                    }
+                  </div>
+                )}
 
-                {
-                  mailAperta.condizioni && (
-
-                    <div
-                      className="
-                        mt-3
-                        pt-3
-                        border-t
-                        border-blue-200
-                      "
-                    >
-                      <strong>
-                        Condizioni:
-                      </strong>{' '}
-
-                      {
-                        mailAperta.condizioni
-                      }
-                    </div>
-
-                  )
-                }
-
-
-                {
-                  mailAperta.richiede_azione && (
-
-                    <div
-                      className="
-                        mt-3
-                        font-bold
-                        text-red-600
-                      "
-                    >
-                      ⚡ Questa comunicazione
-                      richiede un'azione.
-                    </div>
-
-                  )
-                }
-
+                {comunicazioneAperta.richiede_azione && (
+                  <div
+                    className="
+                      mt-4
+                      font-bold
+                      text-red-400
+                    "
+                  >
+                    ⚡ RICHIEDE AZIONE
+                  </div>
+                )}
               </div>
 
-
-              {/* TESTO ORIGINALE */}
+              {/* TESTO */}
 
               <div>
-
                 <div
                   className="
-                    font-bold
-                    text-lg
                     mb-3
+                    font-mono
+                    font-bold
+                    text-green-400
                   "
                 >
-                  ✉️ Testo originale
+                  &gt;{' '}
+                  {comunicazioneAperta.canale ===
+                  'SMS'
+                    ? 'TESTO SMS'
+                    : 'MESSAGGIO ORIGINALE'}
                 </div>
 
                 <div
                   className="
-                    border
-                    border-slate-200
-                    bg-white
-                    rounded-xl
-                    p-5
                     whitespace-pre-wrap
                     break-words
-                    leading-relaxed
+                    rounded-xl
+                    border
+                    border-green-900
+                    bg-black
+                    p-5
+                    font-mono
                     text-sm
+                    leading-relaxed
+                    text-slate-300
                   "
                 >
-                  {
-                    mailAperta.testo_completo ||
-                    'Testo della mail non disponibile.'
-                  }
+                  {comunicazioneAperta.testo_completo ||
+                    'Testo non disponibile.'}
                 </div>
-
               </div>
-
             </div>
 
-
-            {/* FOOTER MODAL */}
+            {/* MODAL FOOTER */}
 
             <div
               className="
-                border-t
-                bg-slate-50
-                p-4
                 flex
-                justify-between
                 items-center
+                justify-between
                 gap-3
+                border-t
+                border-green-900
+                bg-[#07100a]
+                p-4
               "
             >
-
               <div
                 className="
-                  text-sm
-                  text-slate-500
+                  font-mono
+                  text-xs
+                  text-green-700
                 "
               >
-                Mail archiviata da Lucy
+                LUCY // ARCHIVE SYSTEM
               </div>
-
 
               <button
                 onClick={() =>
-                  setMailAperta(null)
+                  setComunicazioneAperta(
+                    null
+                  )
                 }
                 className="
-                  bg-sky-600
-                  hover:bg-sky-700
-                  text-white
                   rounded-lg
+                  bg-green-500
                   px-5
                   py-2
                   font-bold
+                  text-black
+                  hover:bg-green-400
                 "
               >
                 Chiudi
               </button>
-
             </div>
-
           </div>
-
         </div>
-
       )}
 
-    </div>
+      {/* ==================================================
+          CSS MATRIX
+          ================================================== */}
 
+      <style jsx global>{`
+        @keyframes lucyMatrixRain {
+          0% {
+            transform: translateY(-75%);
+          }
+
+          100% {
+            transform: translateY(20%);
+          }
+        }
+
+        .matrix-column {
+          animation-name: lucyMatrixRain;
+          animation-timing-function: linear;
+          animation-iteration-count: infinite;
+          text-shadow:
+            0 0 5px rgba(34, 197, 94, 0.85),
+            0 0 10px rgba(34, 197, 94, 0.35);
+        }
+
+        .matrix-input {
+          width: 100%;
+          border: 1px solid rgba(22, 101, 52, 0.85);
+          border-radius: 0.5rem;
+          background: #020604;
+          color: #d1fae5;
+          padding: 0.6rem 0.75rem;
+          outline: none;
+        }
+
+        .matrix-input:focus {
+          border-color: #22c55e;
+          box-shadow:
+            0 0 0 1px rgba(34, 197, 94, 0.35),
+            0 0 14px rgba(34, 197, 94, 0.12);
+        }
+
+        .matrix-input::placeholder {
+          color: #64748b;
+        }
+
+        .matrix-input option {
+          background: #020604;
+          color: #d1fae5;
+        }
+      `}</style>
+    </div>
   )
 }
