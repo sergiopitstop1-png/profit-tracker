@@ -5,7 +5,16 @@ export const runtime = 'nodejs'
 export const maxDuration = 60
 
 const MODEL = 'openai/gpt-oss-20b'
-const BATCH_SIZE = 5
+
+const EMAIL_BATCH_SIZE = 5
+const SMS_BATCH_SIZE = 5
+
+/*
+ * Non vogliamo arrivare al timeout Vercel.
+ * Dopo circa 50 secondi Lucy smette di iniziare
+ * nuove analisi e lascia il resto al giro successivo.
+ */
+const MAX_WORK_TIME_MS = 50_000
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -127,7 +136,41 @@ const lucySchema = {
 }
 
 
-function compactMailBody(
+/*
+ * =========================================================
+ * TIPI INTERNI
+ * =========================================================
+ */
+
+type Canale = 'EMAIL' | 'SMS'
+
+type LucyItem = {
+  id: number | string
+  canale: Canale
+
+  cliente_nome: string | null
+  mittente: string | null
+  oggetto: string | null
+  testo_completo: string | null
+  data_comunicazione: string | null
+
+  /*
+   * Tabella nella quale deve essere
+   * salvato il risultato.
+   */
+  tabella:
+    | 'lucy_mail_archive'
+    | 'sms_clienti'
+}
+
+
+/*
+ * =========================================================
+ * TESTO
+ * =========================================================
+ */
+
+function compactBody(
   value: string | null | undefined
 ) {
   const text =
@@ -154,11 +197,55 @@ function sleep(ms: number) {
 }
 
 
-function buildPrompt(mail: any) {
+/*
+ * =========================================================
+ * PROMPT UNICO EMAIL + SMS
+ * =========================================================
+ */
+
+function buildPrompt(
+  item: LucyItem
+) {
+  const dataRicezione =
+    item.data_comunicazione
+      ? new Date(
+          item.data_comunicazione
+        ).toLocaleString(
+          'it-IT',
+          {
+            timeZone:
+              'Europe/Rome',
+
+            weekday:
+              'long',
+
+            day:
+              '2-digit',
+
+            month:
+              '2-digit',
+
+            year:
+              'numeric',
+
+            hour:
+              '2-digit',
+
+            minute:
+              '2-digit',
+          }
+        )
+      : 'sconosciuta'
+
   return `
 Sei Lucy, l'assistente operativo di ProfitTracker.
 
-Devi analizzare una email ricevuta da uno degli account del sistema.
+Devi analizzare una comunicazione ricevuta da uno degli account del sistema.
+
+La comunicazione può provenire da EMAIL oppure SMS.
+
+Canale della comunicazione:
+${item.canale}
 
 OBIETTIVO PRINCIPALE:
 individuare opportunità economiche REALI relative esclusivamente a:
@@ -194,7 +281,7 @@ ESEMPI DA IGNORARE:
 - newsletter generiche
 - offerte non legate al gioco online
 
-Anche se una mail non gaming contiene parole come:
+Anche se una comunicazione non gaming contiene parole come:
 BONUS, CASHBACK, PREMIO, GRATIS, SCONTO
 deve essere classificata IGNORA.
 
@@ -244,6 +331,9 @@ IGNORA:
 - viaggi
 - hotel
 - contenuti irrilevanti
+- codici OTP
+- codici temporanei di accesso
+- codici di verifica senza altra informazione utile
 
 ------------------------------------
 
@@ -282,18 +372,23 @@ VALORI
 bonus_importo:
 SOLO l'importo che QUESTO conto riceve con certezza
 se rispetta le condizioni.
-Esempio: "deposita 100€, ricevi 50€" -> 50.
+
+Esempio:
+"deposita 100€, ricevi 50€" -> 50.
+
 Usa null se:
 - è un montepremi o premi in palio condivisi tra i giocatori
   (tornei, Drop & Wins, estrazioni, classifiche);
 - è solo un massimale ("fino a 500€", "100% fino a 1.000€"):
   scrivi il massimale nelle condizioni;
-- ci sono più bonus diversi: NON sommarli mai,
+- ci sono più bonus diversi:
+  NON sommarli mai,
   descrivili nelle condizioni;
 - l'importo non è chiaro.
 
 deposito_richiesto:
 solo la ricarica/deposito richiesto per ottenere la promo.
+
 La puntata minima o la giocata minima NON è un deposito:
 va nelle condizioni.
 
@@ -301,46 +396,66 @@ rollover:
 scrivi le condizioni di wagering/rollover se presenti.
 
 scadenza:
-scrivila SEMPRE nel formato "AAAA-MM-GG HH:mm", ora italiana,
-calcolandola dalla data di ricezione della mail indicata sotto.
-Esempi (mail del 30/09/2026):
-"entro il 4 ottobre" -> "2026-10-04 23:59";
-"domani alle 21" -> "2026-10-01 21:00";
-"entro domenica" -> "2026-10-04 23:59".
+scrivila SEMPRE nel formato
+"AAAA-MM-GG HH:mm",
+ora italiana,
+calcolandola dalla data di ricezione
+della comunicazione indicata sotto.
+
+Esempi:
+comunicazione del 30/09/2026
+
+"entro il 4 ottobre"
+-> "2026-10-04 23:59"
+
+"domani alle 21"
+-> "2026-10-01 21:00"
+
+"entro domenica"
+-> "2026-10-04 23:59"
+
 Se l'ora non è indicata usa 23:59.
-Se la scadenza non esiste o non è determinabile usa null.
+
+Se la scadenza non esiste
+o non è determinabile usa null.
 
 condizioni:
-riassunto MOLTO breve delle condizioni importanti.
+riassunto MOLTO breve
+delle condizioni importanti.
 
 motivazione_ai:
-spiega in italiano, in modo sintetico,
-perché la mail è utile, da valutare o da ignorare.
+spiega in italiano,
+in modo sintetico,
+perché la comunicazione è utile,
+da valutare o da ignorare.
 
 richiede_azione:
-true solo se Sergio deve effettivamente fare qualcosa.
+true solo se Sergio deve
+effettivamente fare qualcosa.
 
 ------------------------------------
 
-EMAIL
+COMUNICAZIONE
+
+Canale:
+${item.canale}
 
 Data di ricezione:
-${mail.data_mail ? new Date(mail.data_mail).toLocaleString('it-IT', { timeZone: 'Europe/Rome', weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'sconosciuta'}
+${dataRicezione}
 
 Cliente:
-${mail.cliente_nome || 'non identificato'}
+${item.cliente_nome || 'non identificato'}
 
 Mittente:
-${mail.mittente || '-'}
-
-Destinatario originale:
-${mail.destinatario_originale || '-'}
+${item.mittente || '-'}
 
 Oggetto:
-${mail.oggetto || '(senza oggetto)'}
+${item.oggetto || '(nessun oggetto)'}
 
 Testo:
-${compactMailBody(mail.testo_completo)}
+${compactBody(
+  item.testo_completo
+)}
 
 ------------------------------------
 
@@ -349,7 +464,15 @@ Rispondi esclusivamente secondo lo schema JSON richiesto.
 }
 
 
-async function analyzeMail(mail: any) {
+/*
+ * =========================================================
+ * GROQ
+ * =========================================================
+ */
+
+async function analyzeItem(
+  item: LucyItem
+) {
   const apiKey =
     process.env.GROQ_API_KEY
 
@@ -359,43 +482,46 @@ async function analyzeMail(mail: any) {
     )
   }
 
+
   const body = {
     model: MODEL,
 
-    reasoning_effort: 'low',
+    reasoning_effort:
+      'low',
 
-    max_completion_tokens: 700,
+    max_completion_tokens:
+      700,
 
     messages: [
       {
         role: 'user',
-        content: buildPrompt(mail),
+        content:
+          buildPrompt(item),
       },
     ],
 
     response_format: {
-      type: 'json_schema',
+      type:
+        'json_schema',
 
       json_schema: {
         name:
-          'lucy_mail_analysis',
+          'lucy_message_analysis',
 
-        strict: true,
+        strict:
+          true,
 
-        schema: lucySchema,
+        schema:
+          lucySchema,
       },
     },
   }
 
 
-  let lastError: Error | null =
-    null
+  let lastError:
+    Error | null = null
 
-  /*
-   * Due tentativi.
-   * Se Groq risponde 429 aspettiamo
-   * prima di riprovare.
-   */
+
   for (
     let attempt = 1;
     attempt <= 2;
@@ -406,7 +532,8 @@ async function analyzeMail(mail: any) {
         await fetch(
           'https://api.groq.com/openai/v1/chat/completions',
           {
-            method: 'POST',
+            method:
+              'POST',
 
             headers: {
               Authorization:
@@ -417,7 +544,9 @@ async function analyzeMail(mail: any) {
             },
 
             body:
-              JSON.stringify(body),
+              JSON.stringify(
+                body
+              ),
           }
         )
 
@@ -431,7 +560,9 @@ async function analyzeMail(mail: any) {
           )
 
         let waitSeconds =
-          Number(retryHeader)
+          Number(
+            retryHeader
+          )
 
         if (
           !Number.isFinite(
@@ -442,11 +573,13 @@ async function analyzeMail(mail: any) {
           waitSeconds = 12
         }
 
+
         waitSeconds =
           Math.min(
             waitSeconds,
             25
           )
+
 
         if (attempt < 2) {
           console.warn(
@@ -454,7 +587,8 @@ async function analyzeMail(mail: any) {
           )
 
           await sleep(
-            waitSeconds * 1000
+            waitSeconds *
+              1000
           )
 
           continue
@@ -475,9 +609,12 @@ async function analyzeMail(mail: any) {
       const json =
         await response.json()
 
+
       const content =
         json?.choices?.[0]
-          ?.message?.content
+          ?.message
+          ?.content
+
 
       if (!content) {
         throw new Error(
@@ -486,10 +623,9 @@ async function analyzeMail(mail: any) {
       }
 
 
-      const parsed =
-        JSON.parse(content)
-
-      return parsed
+      return JSON.parse(
+        content
+      )
 
     } catch (error: any) {
       lastError =
@@ -498,6 +634,7 @@ async function analyzeMail(mail: any) {
           : new Error(
               String(error)
             )
+
 
       if (attempt < 2) {
         await sleep(1500)
@@ -514,119 +651,525 @@ async function analyzeMail(mail: any) {
   )
 }
 
+
 /*
  * =========================================================
- * SCADENZE (30/09/2026)
- * Il vecchio Date.parse leggeva "04/10" all'americana
- * (10 aprile) e a volte con anno 2001.
- * Ora: giorno/mese all'italiana, anno e riferimenti relativi
- * (oggi, domani, domenica, entro il 5) calcolati dalla data
- * della mail, ora italiana (senza ora = 23:59).
- * Se la data non è sicura restituisce null: il testo
- * originale finisce nelle condizioni, non si perde.
+ * SCADENZE ITALIANE
  * =========================================================
  */
-const MESI: Record<string, number> = { gennaio: 1, gen: 1, febbraio: 2, feb: 2, marzo: 3, mar: 3, aprile: 4, apr: 4, maggio: 5, mag: 5, giugno: 6, giu: 6, luglio: 7, lug: 7, agosto: 8, ago: 8, settembre: 9, sett: 9, set: 9, ottobre: 10, ott: 10, novembre: 11, nov: 11, dicembre: 12, dic: 12 }
-const GIORNI: Record<string, number> = { domenica: 0, lunedi: 1, martedi: 2, mercoledi: 3, giovedi: 4, venerdi: 5, sabato: 6 }
 
-function romeParts(ts: number) {
-  const f = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
-  const p: Record<string, string> = {}
-  for (const x of f.formatToParts(new Date(ts))) p[x.type] = x.value
-  return { y: Number(p.year), m: Number(p.month), d: Number(p.day), h: Number(p.hour), mi: Number(p.minute) }
+const MESI:
+  Record<string, number> = {
+    gennaio: 1,
+    gen: 1,
+    febbraio: 2,
+    feb: 2,
+    marzo: 3,
+    mar: 3,
+    aprile: 4,
+    apr: 4,
+    maggio: 5,
+    mag: 5,
+    giugno: 6,
+    giu: 6,
+    luglio: 7,
+    lug: 7,
+    agosto: 8,
+    ago: 8,
+    settembre: 9,
+    sett: 9,
+    set: 9,
+    ottobre: 10,
+    ott: 10,
+    novembre: 11,
+    nov: 11,
+    dicembre: 12,
+    dic: 12,
+  }
+
+
+const GIORNI:
+  Record<string, number> = {
+    domenica: 0,
+    lunedi: 1,
+    martedi: 2,
+    mercoledi: 3,
+    giovedi: 4,
+    venerdi: 5,
+    sabato: 6,
+  }
+
+
+function romeParts(
+  ts: number
+) {
+  const f =
+    new Intl.DateTimeFormat(
+      'en-GB',
+      {
+        timeZone:
+          'Europe/Rome',
+
+        year:
+          'numeric',
+
+        month:
+          '2-digit',
+
+        day:
+          '2-digit',
+
+        hour:
+          '2-digit',
+
+        minute:
+          '2-digit',
+
+        hourCycle:
+          'h23',
+      }
+    )
+
+
+  const p:
+    Record<string, string> =
+    {}
+
+
+  for (
+    const x of
+    f.formatToParts(
+      new Date(ts)
+    )
+  ) {
+    p[x.type] =
+      x.value
+  }
+
+
+  return {
+    y:
+      Number(p.year),
+
+    m:
+      Number(p.month),
+
+    d:
+      Number(p.day),
+
+    h:
+      Number(p.hour),
+
+    mi:
+      Number(p.minute),
+  }
 }
 
-// ora italiana -> timestamp (gestisce ora legale/solare)
-function romeToTs(y: number, m: number, d: number, h: number, mi: number) {
-  const voluto = Date.UTC(y, m - 1, d, h, mi)
-  let ts = voluto
-  for (let i = 0; i < 2; i++) {
-    const p = romeParts(ts)
-    ts += voluto - Date.UTC(p.y, p.m - 1, p.d, p.h, p.mi)
+
+function romeToTs(
+  y: number,
+  m: number,
+  d: number,
+  h: number,
+  mi: number
+) {
+  const voluto =
+    Date.UTC(
+      y,
+      m - 1,
+      d,
+      h,
+      mi
+    )
+
+  let ts =
+    voluto
+
+
+  for (
+    let i = 0;
+    i < 2;
+    i++
+  ) {
+    const p =
+      romeParts(ts)
+
+    ts +=
+      voluto -
+      Date.UTC(
+        p.y,
+        p.m - 1,
+        p.d,
+        p.h,
+        p.mi
+      )
   }
+
+
   return ts
 }
 
-function giornoValido(y: number, m: number, d: number) {
-  if (m < 1 || m > 12 || d < 1 || d > 31) return false
-  return new Date(Date.UTC(y, m - 1, d)).getUTCDate() === d
+
+function giornoValido(
+  y: number,
+  m: number,
+  d: number
+) {
+  if (
+    m < 1 ||
+    m > 12 ||
+    d < 1 ||
+    d > 31
+  ) {
+    return false
+  }
+
+
+  return (
+    new Date(
+      Date.UTC(
+        y,
+        m - 1,
+        d
+      )
+    ).getUTCDate() === d
+  )
 }
+
 
 function normalizeScadenza(
   value: unknown,
-  dataMail?: string | null
+  dataComunicazione?:
+    string | null
 ): string | null {
-  if (value === null || value === undefined) return null
-  let s = String(value).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-  if (!s) return null
 
-  const refTs = dataMail && !Number.isNaN(new Date(dataMail).getTime()) ? new Date(dataMail).getTime() : Date.now()
-  const ref = romeParts(refTs)
-  const oggiTs = Date.UTC(ref.y, ref.m - 1, ref.d)
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return null
+  }
 
-  // ora: "ore 21", "alle 12.00", "23:59" (senza ora = 23:59)
+
+  let s =
+    String(value)
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(
+        /[\u0300-\u036f]/g,
+        ''
+      )
+
+
+  if (!s) {
+    return null
+  }
+
+
+  const refTs =
+    dataComunicazione &&
+    !Number.isNaN(
+      new Date(
+        dataComunicazione
+      ).getTime()
+    )
+      ? new Date(
+          dataComunicazione
+        ).getTime()
+      : Date.now()
+
+
+  const ref =
+    romeParts(refTs)
+
+
+  const oggiTs =
+    Date.UTC(
+      ref.y,
+      ref.m - 1,
+      ref.d
+    )
+
+
   let h = 23
   let mi = 59
-  const ora = s.match(/\b(?:ore|alle)\s*(\d{1,2})(?:[:.](\d{2}))?\b/) || s.match(/\b(\d{1,2}):(\d{2})\b/)
-  if (ora) {
-    h = Number(ora[1])
-    mi = Number(ora[2] || 0)
-    s = s.replace(ora[0], ' ')
-  }
-  if (h > 23 || mi > 59) return null
 
-  let y: number | null = null
+
+  const ora =
+    s.match(
+      /\b(?:ore|alle)\s*(\d{1,2})(?:[:.](\d{2}))?\b/
+    ) ||
+    s.match(
+      /\b(\d{1,2}):(\d{2})\b/
+    )
+
+
+  if (ora) {
+    h =
+      Number(
+        ora[1]
+      )
+
+    mi =
+      Number(
+        ora[2] || 0
+      )
+
+    s =
+      s.replace(
+        ora[0],
+        ' '
+      )
+  }
+
+
+  if (
+    h > 23 ||
+    mi > 59
+  ) {
+    return null
+  }
+
+
+  let y:
+    number | null =
+    null
+
   let m = 0
   let d = 0
-  let r: RegExpMatchArray | null
 
-  if ((r = s.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})/))) {
-    y = +r[1]; m = +r[2]; d = +r[3]
-  } else if ((r = s.match(/\b(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?\b/))) {
-    d = +r[1]; m = +r[2]
-    if (r[3]) y = r[3].length === 2 ? 2000 + +r[3] : +r[3]
-  } else if ((r = s.match(/\b(\d{1,2})\s+(?:di\s+)?([a-z]+)(?:\s+(\d{4}))?/)) && MESI[r[2]]) {
-    d = +r[1]; m = MESI[r[2]]
-    if (r[3]) y = +r[3]
-  } else if (/\b(dopodomani|domani|oggi|stasera|mezzanotte)\b/.test(s)) {
-    const piu = /\bdopodomani\b/.test(s) ? 2 : /\bdomani\b/.test(s) ? 1 : 0
-    const t = new Date(oggiTs + piu * 86400000)
-    y = t.getUTCFullYear(); m = t.getUTCMonth() + 1; d = t.getUTCDate()
-  } else if ((r = s.match(/\b(domenica|lunedi|martedi|mercoledi|giovedi|venerdi|sabato)\b/))) {
-    const diff = (GIORNI[r[1]] - new Date(oggiTs).getUTCDay() + 7) % 7
-    const t = new Date(oggiTs + diff * 86400000)
-    y = t.getUTCFullYear(); m = t.getUTCMonth() + 1; d = t.getUTCDate()
-  } else if ((r = s.match(/\b(?:entro\s+il|fino\s+al|il)\s+(\d{1,2})\b/))) {
-    d = +r[1]; m = ref.m; y = ref.y
-    if (d < ref.d) { m++; if (m > 12) { m = 1; y++ } }
+  let r:
+    RegExpMatchArray |
+    null
+
+
+  if (
+    (
+      r =
+        s.match(
+          /\b(\d{4})-(\d{1,2})-(\d{1,2})/
+        )
+    )
+  ) {
+    y = +r[1]
+    m = +r[2]
+    d = +r[3]
+
+  } else if (
+    (
+      r =
+        s.match(
+          /\b(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?\b/
+        )
+    )
+  ) {
+    d = +r[1]
+    m = +r[2]
+
+    if (r[3]) {
+      y =
+        r[3].length === 2
+          ? 2000 + +r[3]
+          : +r[3]
+    }
+
+  } else if (
+    (
+      r =
+        s.match(
+          /\b(\d{1,2})\s+(?:di\s+)?([a-z]+)(?:\s+(\d{4}))?/
+        )
+    ) &&
+    MESI[r[2]]
+  ) {
+    d = +r[1]
+    m = MESI[r[2]]
+
+    if (r[3]) {
+      y = +r[3]
+    }
+
+  } else if (
+    /\b(dopodomani|domani|oggi|stasera|mezzanotte)\b/
+      .test(s)
+  ) {
+    const piu =
+      /\bdopodomani\b/
+        .test(s)
+        ? 2
+        : /\bdomani\b/
+            .test(s)
+          ? 1
+          : 0
+
+
+    const t =
+      new Date(
+        oggiTs +
+        piu *
+          86400000
+      )
+
+
+    y =
+      t.getUTCFullYear()
+
+    m =
+      t.getUTCMonth() +
+      1
+
+    d =
+      t.getUTCDate()
+
+  } else if (
+    (
+      r =
+        s.match(
+          /\b(domenica|lunedi|martedi|mercoledi|giovedi|venerdi|sabato)\b/
+        )
+    )
+  ) {
+    const diff =
+      (
+        GIORNI[r[1]] -
+        new Date(
+          oggiTs
+        ).getUTCDay() +
+        7
+      ) % 7
+
+
+    const t =
+      new Date(
+        oggiTs +
+        diff *
+          86400000
+      )
+
+
+    y =
+      t.getUTCFullYear()
+
+    m =
+      t.getUTCMonth() +
+      1
+
+    d =
+      t.getUTCDate()
+
+  } else if (
+    (
+      r =
+        s.match(
+          /\b(?:entro\s+il|fino\s+al|il)\s+(\d{1,2})\b/
+        )
+    )
+  ) {
+    d = +r[1]
+    m = ref.m
+    y = ref.y
+
+
+    if (d < ref.d) {
+      m++
+
+      if (m > 12) {
+        m = 1
+        y++
+      }
+    }
+
   } else {
     return null
   }
 
-  let annoDedotto = false
-  if (y === null) { y = ref.y; annoDedotto = true }
-  if (!giornoValido(y, m, d)) return null
 
-  let ts = romeToTs(y, m, d, h, mi)
-  // es. mail del 28/12 con scadenza "03/01" -> anno successivo
-  if (annoDedotto && ts < refTs - 60 * 86400000 && giornoValido(y + 1, m, d)) ts = romeToTs(y + 1, m, d, h, mi)
-  // fuori scala (es. 2001): meglio nessuna data che una data sbagliata
-  if (ts < refTs - 2 * 86400000 || ts > refTs + 400 * 86400000) return null
+  let annoDedotto =
+    false
 
-  return new Date(ts).toISOString()
+
+  if (y === null) {
+    y = ref.y
+    annoDedotto = true
+  }
+
+
+  if (
+    !giornoValido(
+      y,
+      m,
+      d
+    )
+  ) {
+    return null
+  }
+
+
+  let ts =
+    romeToTs(
+      y,
+      m,
+      d,
+      h,
+      mi
+    )
+
+
+  if (
+    annoDedotto &&
+    ts <
+      refTs -
+      60 *
+        86400000 &&
+    giornoValido(
+      y + 1,
+      m,
+      d
+    )
+  ) {
+    ts =
+      romeToTs(
+        y + 1,
+        m,
+        d,
+        h,
+        mi
+      )
+  }
+
+
+  if (
+    ts <
+      refTs -
+      2 *
+        86400000 ||
+    ts >
+      refTs +
+      400 *
+        86400000
+  ) {
+    return null
+  }
+
+
+  return new Date(
+    ts
+  ).toISOString()
 }
 
-async function runAnalysis() {
-  /*
-   * Prendiamo fino a 5 mail.
-   *
-   * Manteniamo l'ordinamento
-   * dalla più recente alla più vecchia:
-   * una nuova promo non deve aspettare
-   * dietro tutto l'arretrato.
-   */
+
+/*
+ * =========================================================
+ * RECUPERO EMAIL
+ * =========================================================
+ */
+
+async function getEmails():
+  Promise<LucyItem[]> {
+
   const {
-    data: mails,
+    data,
     error,
   } =
     await supabase
@@ -641,10 +1184,13 @@ async function runAnalysis() {
       .order(
         'data_mail',
         {
-          ascending: false,
+          ascending:
+            false,
         }
       )
-      .limit(BATCH_SIZE)
+      .limit(
+        EMAIL_BATCH_SIZE
+      )
 
 
   if (error) {
@@ -652,15 +1198,295 @@ async function runAnalysis() {
   }
 
 
+  return (
+    data || []
+  ).map(mail => ({
+    id:
+      mail.id,
+
+    canale:
+      'EMAIL' as const,
+
+    cliente_nome:
+      mail.cliente_nome,
+
+    mittente:
+      mail.mittente,
+
+    oggetto:
+      mail.oggetto,
+
+    testo_completo:
+      mail.testo_completo,
+
+    data_comunicazione:
+      mail.data_mail,
+
+    tabella:
+      'lucy_mail_archive'
+        as const,
+  }))
+}
+
+
+/*
+ * =========================================================
+ * RECUPERO SMS
+ * =========================================================
+ */
+
+async function getSms():
+  Promise<LucyItem[]> {
+
+  const {
+    data,
+    error,
+  } =
+    await supabase
+      .from(
+        'sms_clienti'
+      )
+      .select('*')
+      .eq(
+        'giudizio',
+        'DA_ANALIZZARE'
+      )
+      /*
+       * Doppia protezione.
+       * Gli OTP dovrebbero essere
+       * già IGNORA grazie allo SQL,
+       * ma non li prendiamo comunque.
+       */
+      .neq(
+        'tipo',
+        'OTP'
+      )
+      .order(
+        'data_ricezione',
+        {
+          ascending:
+            false,
+        }
+      )
+      .limit(
+        SMS_BATCH_SIZE
+      )
+
+
+  if (error) {
+    throw error
+  }
+
+
+  return (
+    data || []
+  ).map(sms => ({
+    id:
+      sms.id,
+
+    canale:
+      'SMS' as const,
+
+    cliente_nome:
+      sms.cliente ||
+      sms.telefono ||
+      null,
+
+    mittente:
+      sms.mittente,
+
+    oggetto:
+      'SMS',
+
+    testo_completo:
+      sms.testo,
+
+    data_comunicazione:
+      sms.data_ricezione,
+
+    tabella:
+      'sms_clienti'
+        as const,
+  }))
+}
+
+
+/*
+ * =========================================================
+ * SALVATAGGIO RISULTATO
+ * =========================================================
+ */
+
+async function saveResult(
+  item: LucyItem,
+  result: any
+) {
+  const now =
+    new Date()
+      .toISOString()
+
+
+  const scadenza =
+    normalizeScadenza(
+      result.scadenza,
+      item.data_comunicazione
+    )
+
+
+  const condizioni =
+    result.scadenza &&
+    !scadenza
+      ? [
+          result.condizioni,
+
+          `Scadenza indicata: ${result.scadenza}`,
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      : result.condizioni
+
+
+  const {
+    error,
+  } =
+    await supabase
+      .from(
+        item.tabella
+      )
+      .update({
+        giudizio:
+          result.giudizio,
+
+        categoria:
+          result.categoria,
+
+        priorita:
+          result.priorita,
+
+        confidenza:
+          result.confidenza,
+
+        bookmaker:
+          result.bookmaker,
+
+        tipo_offerta:
+          result.tipo_offerta,
+
+        bonus_importo:
+          result.bonus_importo,
+
+        deposito_richiesto:
+          result.deposito_richiesto,
+
+        rollover:
+          result.rollover,
+
+        scadenza,
+
+        condizioni,
+
+        motivazione_ai:
+          result.motivazione_ai,
+
+        richiede_azione:
+          result.richiede_azione,
+
+        analizzata_at:
+          now,
+
+        updated_at:
+          now,
+      })
+      .eq(
+        'id',
+        item.id
+      )
+
+
+  if (error) {
+    throw error
+  }
+}
+
+
+/*
+ * =========================================================
+ * ANALISI EMAIL + SMS
+ * =========================================================
+ */
+
+async function runAnalysis() {
+
+  const startedAt =
+    Date.now()
+
+
+  /*
+   * Recuperiamo contemporaneamente
+   * fino a:
+   *
+   * 5 email
+   * 5 SMS
+   */
+  const [
+    emails,
+    sms,
+  ] =
+    await Promise.all([
+      getEmails(),
+      getSms(),
+    ])
+
+
+  /*
+   * Alterniamo EMAIL e SMS.
+   *
+   * In questo modo, se il tempo
+   * disponibile finisce, una
+   * sorgente non blocca l'altra.
+   */
+  const items:
+    LucyItem[] = []
+
+
+  const max =
+    Math.max(
+      emails.length,
+      sms.length
+    )
+
+
+  for (
+    let i = 0;
+    i < max;
+    i++
+  ) {
+    if (emails[i]) {
+      items.push(
+        emails[i]
+      )
+    }
+
+    if (sms[i]) {
+      items.push(
+        sms[i]
+      )
+    }
+  }
+
+
   if (
-    !mails ||
-    mails.length === 0
+    items.length === 0
   ) {
     return {
       ok: true,
-      trovate: 0,
+
+      email_trovate: 0,
+      sms_trovati: 0,
+
       analizzate: 0,
       errori: 0,
+
       risultati: [],
     }
   }
@@ -669,140 +1495,106 @@ async function runAnalysis() {
   let analizzate = 0
   let errori = 0
 
-  const risultati: any[] = []
+  let emailAnalizzate = 0
+  let smsAnalizzati = 0
+
+  const risultati:
+    any[] = []
 
 
-  /*
-   * Le analizziamo una alla volta.
-   *
-   * È intenzionale:
-   * evita 5 richieste contemporanee
-   * verso Groq e riduce il rischio
-   * di rate limit.
-   */
-  for (const mail of mails) {
+  for (
+    const item of items
+  ) {
+
+    /*
+     * Lasciamo margine prima
+     * del timeout Vercel.
+     */
+    if (
+      Date.now() -
+        startedAt >
+      MAX_WORK_TIME_MS
+    ) {
+      console.log(
+        '[Lucy AI] Stop preventivo per limite tempo'
+      )
+
+      break
+    }
+
+
     try {
       const result =
-        await analyzeMail(mail)
+        await analyzeItem(
+          item
+        )
 
 
-      const now =
-        new Date()
-          .toISOString()
-
-      // scadenza calcolata dalla data della mail; se non è sicura
-      // il testo originale resta nelle condizioni
-      const scadenza =
-        normalizeScadenza(result.scadenza, mail.data_mail)
-      const condizioni =
-        result.scadenza && !scadenza
-          ? [result.condizioni, `Scadenza indicata: ${result.scadenza}`].filter(Boolean).join(' · ')
-          : result.condizioni
-
-
-      const {
-        error: updateError,
-      } =
-        await supabase
-          .from(
-            'lucy_mail_archive'
-          )
-          .update({
-            giudizio:
-              result.giudizio,
-
-            categoria:
-              result.categoria,
-
-            priorita:
-              result.priorita,
-
-            confidenza:
-              result.confidenza,
-
-            bookmaker:
-              result.bookmaker,
-
-            tipo_offerta:
-              result.tipo_offerta,
-
-            bonus_importo:
-              result.bonus_importo,
-
-            deposito_richiesto:
-              result.deposito_richiesto,
-
-            rollover:
-              result.rollover,
-
-            scadenza,
-
-            condizioni,
-
-            motivazione_ai:
-              result.motivazione_ai,
-
-            richiede_azione:
-              result.richiede_azione,
-
-            analizzata_at: now,
-            updated_at: now,
-          })
-          .eq(
-            'id',
-            mail.id
-          )
-
-
-      if (updateError) {
-        throw updateError
-      }
+      await saveResult(
+        item,
+        result
+      )
 
 
       analizzate++
 
 
+      if (
+        item.canale ===
+        'EMAIL'
+      ) {
+        emailAnalizzate++
+      } else {
+        smsAnalizzati++
+      }
+
+
       risultati.push({
-        id: mail.id,
+        id:
+          item.id,
+
+        canale:
+          item.canale,
+
         giudizio:
           result.giudizio,
+
         categoria:
           result.categoria,
+
         bookmaker:
           result.bookmaker,
       })
 
 
       console.log(
-        `[Lucy AI] OK ${mail.id} ${result.giudizio} ${result.categoria} ${result.bookmaker || '-'}`
+        `[Lucy AI] OK ${item.canale} ${item.id} ${result.giudizio} ${result.categoria} ${result.bookmaker || '-'}`
       )
 
 
-      /*
-       * Piccola pausa tra una mail
-       * e la successiva.
-       */
       await sleep(700)
 
     } catch (error: any) {
       errori++
 
+
       console.error(
-        `[Lucy AI] ERRORE mail ${mail.id}`,
+        `[Lucy AI] ERRORE ${item.canale} ${item.id}`,
         error
       )
 
 
       /*
-       * IMPORTANTISSIMO:
-       * non cambiamo il giudizio.
-       *
-       * Rimane DA_ANALIZZARE e Lucy
-       * potrà riprovarci alla prossima
-       * esecuzione.
+       * Non modifichiamo il giudizio.
+       * Rimane DA_ANALIZZARE.
        */
       risultati.push({
-        id: mail.id,
+        id:
+          item.id,
+
+        canale:
+          item.canale,
+
         errore:
           error?.message ||
           String(error),
@@ -813,10 +1605,28 @@ async function runAnalysis() {
 
   return {
     ok: true,
-    trovate:
-      mails.length,
+
+    email_trovate:
+      emails.length,
+
+    sms_trovati:
+      sms.length,
+
+    email_analizzate:
+      emailAnalizzate,
+
+    sms_analizzati:
+      smsAnalizzati,
+
     analizzate,
+
     errori,
+
+    rimaste_per_prossimo_giro:
+      items.length -
+      analizzate -
+      errori,
+
     risultati,
   }
 }
@@ -824,7 +1634,7 @@ async function runAnalysis() {
 
 /*
  * =========================================================
- * GET - Vercel Cron
+ * GET - VERCEL CRON
  * =========================================================
  */
 
@@ -835,11 +1645,13 @@ export async function GET(
     const cronSecret =
       process.env.CRON_SECRET
 
+
     if (cronSecret) {
       const auth =
         req.headers.get(
           'authorization'
         )
+
 
       if (
         auth !==
@@ -861,19 +1673,23 @@ export async function GET(
     const result =
       await runAnalysis()
 
+
     return NextResponse.json(
       result
     )
 
   } catch (error: any) {
+
     console.error(
       '[Lucy AI] errore generale',
       error
     )
 
+
     return NextResponse.json(
       {
         ok: false,
+
         error:
           error?.message ||
           String(error),
