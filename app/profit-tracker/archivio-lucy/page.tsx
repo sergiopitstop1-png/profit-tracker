@@ -6,6 +6,8 @@ import {
   useState,
 } from 'react'
 
+import { useRouter } from 'next/navigation'
+
 
 type Mail = {
   id: number
@@ -58,6 +60,9 @@ const emptyCounters: Counters = {
 
 
 export default function ArchivioLucyPage() {
+
+  const router = useRouter()
+
   const [rows, setRows] =
     useState<Mail[]>([])
 
@@ -72,10 +77,6 @@ export default function ArchivioLucyPage() {
   const [loading, setLoading] =
     useState(false)
 
-  /*
-   * Apriamo Lucy direttamente
-   * sulle opportunità.
-   */
   const [vista, setVista] =
     useState<Vista>(
       'opportunita'
@@ -101,9 +102,11 @@ export default function ArchivioLucyPage() {
   const load =
     useCallback(
       async () => {
+
         setLoading(true)
 
         try {
+
           const p =
             new URLSearchParams()
 
@@ -121,12 +124,16 @@ export default function ArchivioLucyPage() {
             f
           ).forEach(
             ([key, value]) => {
+
               if (value) {
+
                 p.set(
                   key,
                   value
                 )
+
               }
+
             }
           )
 
@@ -160,9 +167,13 @@ export default function ArchivioLucyPage() {
             j.counters ||
               emptyCounters
           )
+
         } finally {
+
           setLoading(false)
+
         }
+
       },
       [
         f,
@@ -186,6 +197,7 @@ export default function ArchivioLucyPage() {
     id: number,
     value: string
   ) {
+
     await fetch(
       '/api/lucy-mail/archive',
       {
@@ -206,6 +218,7 @@ export default function ArchivioLucyPage() {
     )
 
     load()
+
   }
 
 
@@ -218,15 +231,10 @@ export default function ArchivioLucyPage() {
   function cambiaVista(
     nuovaVista: Vista
   ) {
+
     setVista(
       nuovaVista
     )
-
-    /*
-     * Quando cambiamo
-     * sezione azzeriamo
-     * i filtri avanzati.
-     */
 
     setF({
       q: '',
@@ -236,6 +244,7 @@ export default function ArchivioLucyPage() {
       categoria: '',
       priorita: '',
     })
+
   }
 
 
@@ -249,9 +258,12 @@ export default function ArchivioLucyPage() {
     key: keyof typeof f,
     placeholder: string
   ) => (
+
     <input
+
       className="
         border
+        border-sky-200
         rounded-lg
         px-3
         py-2
@@ -259,35 +271,45 @@ export default function ArchivioLucyPage() {
         text-black
         w-full
       "
+
       placeholder={
         placeholder
       }
-      value={f[key]}
-      onChange={e =>
-        setF({
-          ...f,
-          [key]:
-            e.target.value,
-        })
+
+      value={
+        f[key]
       }
+
+      onChange={
+        e =>
+          setF({
+            ...f,
+            [key]:
+              e.target.value,
+          })
+      }
+
     />
+
   )
 
 
   /*
    * =======================================================
-   * STILE PULSANTI VISTA
+   * PULSANTI VISTA
    * =======================================================
    */
 
   function tabClass(
     key: Vista
   ) {
+
     const active =
       vista === key
 
     return `
       border
+      border-sky-200
       rounded-xl
       px-4
       py-3
@@ -295,16 +317,17 @@ export default function ArchivioLucyPage() {
       transition
       ${
         active
-          ? 'bg-black text-white shadow-md'
-          : 'bg-white text-black hover:bg-gray-50'
+          ? 'bg-slate-900 text-white shadow-md border-slate-900'
+          : 'bg-white text-slate-900 hover:bg-sky-50'
       }
     `
+
   }
 
 
   /*
    * =======================================================
-   * COLORI PRIORITÀ
+   * PRIORITÀ
    * =======================================================
    */
 
@@ -312,37 +335,44 @@ export default function ArchivioLucyPage() {
     priority:
       string | null
   ) {
+
     if (
       priority === 'alta'
     ) {
+
       return (
         'text-red-600 font-bold'
       )
+
     }
 
     if (
       priority === 'media'
     ) {
+
       return (
         'text-orange-600 font-semibold'
       )
+
     }
 
     return (
       'text-gray-500'
     )
+
   }
 
 
   /*
    * =======================================================
-   * FORMATO DATA
+   * DATA
    * =======================================================
    */
 
   function formatDate(
     value: string | null
   ) {
+
     if (!value) {
       return '-'
     }
@@ -362,6 +392,7 @@ export default function ArchivioLucyPage() {
       .toLocaleString(
         'it-IT'
       )
+
   }
 
 
@@ -372,889 +403,917 @@ export default function ArchivioLucyPage() {
    */
 
   return (
-    <main
+
+    /*
+     * Sfondo generale Lucy.
+     * Occupa almeno tutta
+     * l'altezza dello schermo.
+     */
+
+    <div
       className="
-        p-6
-        max-w-[1700px]
-        mx-auto
+        min-h-screen
+        bg-sky-50
+        text-slate-900
       "
     >
 
-      {/* HEADER */}
-
-      <div
+      <main
         className="
-          flex
-          flex-wrap
-          items-end
-          justify-between
-          gap-4
-          mb-6
-        "
-      >
-        <div>
-          <h1
-            className="
-              text-3xl
-              font-bold
-            "
-          >
-            🧠 Lucy
-          </h1>
-
-          <p
-            className="
-              opacity-70
-              mt-1
-            "
-          >
-            Opportunità e
-            comunicazioni dai
-            tuoi account
-          </p>
-        </div>
-
-        <button
-          onClick={load}
-          className="
-            border
-            rounded-lg
-            px-4
-            py-2
-            bg-white
-            text-black
-          "
-        >
-          🔄 Aggiorna
-        </button>
-      </div>
-
-
-      {/* ===================================================
-          DASHBOARD
-          =================================================== */}
-
-      <div
-        className="
-          grid
-          grid-cols-2
-          md:grid-cols-3
-          xl:grid-cols-6
-          gap-3
-          mb-6
+          p-6
+          max-w-[1700px]
+          mx-auto
         "
       >
 
-        <button
-          className={
-            tabClass(
-              'opportunita'
-            )
-          }
-          onClick={() =>
-            cambiaVista(
-              'opportunita'
-            )
-          }
-        >
-          <div
-            className="
-              text-xl
-              font-bold
-            "
-          >
-            🔥 {
-              counters
-                .opportunita
-            }
-          </div>
+        {/* ================================================
+            HEADER
+            ================================================ */}
 
-          <div>
-            Opportunità
-          </div>
-        </button>
-
-
-        <button
-          className={
-            tabClass(
-              'da_valutare'
-            )
-          }
-          onClick={() =>
-            cambiaVista(
-              'da_valutare'
-            )
-          }
-        >
-          <div
-            className="
-              text-xl
-              font-bold
-            "
-          >
-            ⚠️ {
-              counters
-                .da_valutare
-            }
-          </div>
-
-          <div>
-            Da valutare
-          </div>
-        </button>
-
-
-        <button
-          className={
-            tabClass(
-              'problemi'
-            )
-          }
-          onClick={() =>
-            cambiaVista(
-              'problemi'
-            )
-          }
-        >
-          <div
-            className="
-              text-xl
-              font-bold
-            "
-          >
-            🚨 {
-              counters
-                .problemi
-            }
-          </div>
-
-          <div>
-            Problemi
-          </div>
-        </button>
-
-
-        <button
-          className={
-            tabClass(
-              'ignora'
-            )
-          }
-          onClick={() =>
-            cambiaVista(
-              'ignora'
-            )
-          }
-        >
-          <div
-            className="
-              text-xl
-              font-bold
-            "
-          >
-            ⚪ {
-              counters
-                .ignora
-            }
-          </div>
-
-          <div>
-            Ignora
-          </div>
-        </button>
-
-
-        <button
-          className={
-            tabClass(
-              'da_analizzare'
-            )
-          }
-          onClick={() =>
-            cambiaVista(
-              'da_analizzare'
-            )
-          }
-        >
-          <div
-            className="
-              text-xl
-              font-bold
-            "
-          >
-            ⏳ {
-              counters
-                .da_analizzare
-            }
-          </div>
-
-          <div>
-            Da analizzare
-          </div>
-        </button>
-
-
-        <button
-          className={
-            tabClass(
-              'tutte'
-            )
-          }
-          onClick={() =>
-            cambiaVista(
-              'tutte'
-            )
-          }
-        >
-          <div
-            className="
-              text-xl
-              font-bold
-            "
-          >
-            📚 {
-              counters
-                .tutte
-            }
-          </div>
-
-          <div>
-            Tutte
-          </div>
-        </button>
-
-      </div>
-
-
-      {/* RISULTATI */}
-
-      <div
-        className="
-          mb-3
-          font-semibold
-        "
-      >
-        {count}{' '}
-        {
-          count === 1
-            ? 'mail'
-            : 'mail'
-        }
-      </div>
-
-
-      {/* ===================================================
-          FILTRI
-          =================================================== */}
-
-      <div
-        className="
-          grid
-          md:grid-cols-3
-          xl:grid-cols-6
-          gap-2
-          mb-5
-        "
-      >
-
-        {field(
-          'q',
-          'Cerca testo...'
-        )}
-
-        {field(
-          'cliente',
-          'Cliente'
-        )}
-
-        {field(
-          'bookmaker',
-          'Bookmaker'
-        )}
-
-
-        <select
+        <div
           className="
-            border
-            rounded-lg
-            px-3
-            py-2
-            bg-white
-            text-black
-          "
-          value={
-            f.giudizio
-          }
-          onChange={e =>
-            setF({
-              ...f,
-              giudizio:
-                e.target.value,
-            })
-          }
-        >
-          <option value="">
-            Tutti i giudizi
-          </option>
-
-          <option>
-            UTILE
-          </option>
-
-          <option>
-            DA_VALUTARE
-          </option>
-
-          <option>
-            IGNORA
-          </option>
-
-          <option>
-            DA_ANALIZZARE
-          </option>
-        </select>
-
-
-        <select
-          className="
-            border
-            rounded-lg
-            px-3
-            py-2
-            bg-white
-            text-black
-          "
-          value={
-            f.categoria
-          }
-          onChange={e =>
-            setF({
-              ...f,
-              categoria:
-                e.target.value,
-            })
-          }
-        >
-          <option value="">
-            Tutte le categorie
-          </option>
-
-          <option>
-            BONUS
-          </option>
-
-          <option>
-            FREEBET
-          </option>
-
-          <option>
-            CASHBACK
-          </option>
-
-          <option>
-            PROMO_DEPOSITO
-          </option>
-
-          <option>
-            PROMO_CASINO
-          </option>
-
-          <option>
-            PROMO_SLOT
-          </option>
-
-          <option>
-            PROMO_PERSONALIZZATA
-          </option>
-
-          <option>
-            RIMBORSO
-          </option>
-
-          <option>
-            KYC
-          </option>
-
-          <option>
-            LIMITAZIONE
-          </option>
-
-          <option>
-            SOSPENSIONE
-          </option>
-
-          <option>
-            PRELIEVO
-          </option>
-
-          <option>
-            DEPOSITO
-          </option>
-
-          <option>
-            SICUREZZA
-          </option>
-
-          <option>
-            SCADENZA
-          </option>
-
-          <option>
-            NEWSLETTER
-          </option>
-
-          <option>
-            PUBBLICITA
-          </option>
-
-          <option>
-            ALTRO
-          </option>
-        </select>
-
-
-        <select
-          className="
-            border
-            rounded-lg
-            px-3
-            py-2
-            bg-white
-            text-black
-          "
-          value={
-            f.priorita
-          }
-          onChange={e =>
-            setF({
-              ...f,
-              priorita:
-                e.target.value,
-            })
-          }
-        >
-          <option value="">
-            Tutte le priorità
-          </option>
-
-          <option>
-            alta
-          </option>
-
-          <option>
-            media
-          </option>
-
-          <option>
-            bassa
-          </option>
-        </select>
-
-      </div>
-
-
-      {/* ===================================================
-          TABELLA
-          =================================================== */}
-
-      <div
-        className="
-          overflow-x-auto
-          border
-          rounded-xl
-          bg-white
-        "
-      >
-
-        <table
-          className="
-            w-full
-            text-sm
-            text-black
+            flex
+            flex-wrap
+            items-center
+            justify-between
+            gap-4
+            mb-6
           "
         >
 
-          <thead>
-            <tr
+          <div>
+
+            <h1
               className="
-                text-left
-                border-b
-                bg-gray-50
+                text-3xl
+                font-bold
               "
             >
-              <th className="p-3">
-                Data
-              </th>
+              🧠 Lucy
+            </h1>
 
-              <th className="p-3">
-                Cliente
-              </th>
+            <p
+              className="
+                text-slate-600
+                mt-1
+              "
+            >
+              Opportunità e comunicazioni
+              dai tuoi account
+            </p>
 
-              <th className="p-3">
-                Book
-              </th>
-
-              <th className="p-3">
-                Oggetto
-              </th>
-
-              <th className="p-3">
-                Lucy
-              </th>
-
-              <th className="p-3">
-                Valore
-              </th>
-
-              <th className="p-3">
-                Dettagli
-              </th>
-
-              <th className="p-3">
-                Feedback
-              </th>
-            </tr>
-          </thead>
+          </div>
 
 
-          <tbody>
+          <div
+            className="
+              flex
+              items-center
+              gap-2
+            "
+          >
 
-            {loading && (
-              <tr>
-                <td
-                  className="p-5"
-                  colSpan={8}
-                >
-                  Lucy sta
-                  caricando…
-                </td>
+            {/* TORNA AL PROFIT */}
+
+            <button
+
+              onClick={() =>
+                router.push(
+                  '/profit-tracker'
+                )
+              }
+
+              className="
+                border
+                border-sky-300
+                rounded-lg
+                px-4
+                py-2
+                bg-sky-600
+                hover:bg-sky-700
+                text-white
+                font-semibold
+                shadow-sm
+              "
+            >
+              🏠 Dashboard
+            </button>
+
+
+            {/* AGGIORNA */}
+
+            <button
+
+              onClick={load}
+
+              className="
+                border
+                border-sky-200
+                rounded-lg
+                px-4
+                py-2
+                bg-white
+                hover:bg-sky-50
+                text-slate-900
+                font-semibold
+              "
+            >
+              🔄 Aggiorna
+            </button>
+
+          </div>
+
+        </div>
+
+
+        {/* ================================================
+            DASHBOARD LUCY
+            ================================================ */}
+
+        <div
+          className="
+            grid
+            grid-cols-2
+            md:grid-cols-3
+            xl:grid-cols-6
+            gap-3
+            mb-6
+          "
+        >
+
+          <button
+            className={
+              tabClass(
+                'opportunita'
+              )
+            }
+            onClick={() =>
+              cambiaVista(
+                'opportunita'
+              )
+            }
+          >
+            <div
+              className="
+                text-xl
+                font-bold
+              "
+            >
+              🔥 {
+                counters
+                  .opportunita
+              }
+            </div>
+
+            <div>
+              Opportunità
+            </div>
+          </button>
+
+
+          <button
+            className={
+              tabClass(
+                'da_valutare'
+              )
+            }
+            onClick={() =>
+              cambiaVista(
+                'da_valutare'
+              )
+            }
+          >
+            <div
+              className="
+                text-xl
+                font-bold
+              "
+            >
+              ⚠️ {
+                counters
+                  .da_valutare
+              }
+            </div>
+
+            <div>
+              Da valutare
+            </div>
+          </button>
+
+
+          <button
+            className={
+              tabClass(
+                'problemi'
+              )
+            }
+            onClick={() =>
+              cambiaVista(
+                'problemi'
+              )
+            }
+          >
+            <div
+              className="
+                text-xl
+                font-bold
+              "
+            >
+              🚨 {
+                counters
+                  .problemi
+              }
+            </div>
+
+            <div>
+              Problemi
+            </div>
+          </button>
+
+
+          <button
+            className={
+              tabClass(
+                'ignora'
+              )
+            }
+            onClick={() =>
+              cambiaVista(
+                'ignora'
+              )
+            }
+          >
+            <div
+              className="
+                text-xl
+                font-bold
+              "
+            >
+              ⚪ {
+                counters
+                  .ignora
+              }
+            </div>
+
+            <div>
+              Ignora
+            </div>
+          </button>
+
+
+          <button
+            className={
+              tabClass(
+                'da_analizzare'
+              )
+            }
+            onClick={() =>
+              cambiaVista(
+                'da_analizzare'
+              )
+            }
+          >
+            <div
+              className="
+                text-xl
+                font-bold
+              "
+            >
+              ⏳ {
+                counters
+                  .da_analizzare
+              }
+            </div>
+
+            <div>
+              Da analizzare
+            </div>
+          </button>
+
+
+          <button
+            className={
+              tabClass(
+                'tutte'
+              )
+            }
+            onClick={() =>
+              cambiaVista(
+                'tutte'
+              )
+            }
+          >
+            <div
+              className="
+                text-xl
+                font-bold
+              "
+            >
+              📚 {
+                counters
+                  .tutte
+              }
+            </div>
+
+            <div>
+              Tutte
+            </div>
+          </button>
+
+        </div>
+
+
+        {/* RISULTATI */}
+
+        <div
+          className="
+            mb-3
+            font-semibold
+            text-slate-700
+          "
+        >
+          {count} mail
+        </div>
+
+
+        {/* ================================================
+            FILTRI
+            ================================================ */}
+
+        <div
+          className="
+            grid
+            md:grid-cols-3
+            xl:grid-cols-6
+            gap-2
+            mb-5
+          "
+        >
+
+          {field(
+            'q',
+            'Cerca testo...'
+          )}
+
+          {field(
+            'cliente',
+            'Cliente'
+          )}
+
+          {field(
+            'bookmaker',
+            'Bookmaker'
+          )}
+
+
+          <select
+            className="
+              border
+              border-sky-200
+              rounded-lg
+              px-3
+              py-2
+              bg-white
+              text-black
+            "
+            value={
+              f.giudizio
+            }
+            onChange={
+              e =>
+                setF({
+                  ...f,
+                  giudizio:
+                    e.target.value,
+                })
+            }
+          >
+
+            <option value="">
+              Tutti i giudizi
+            </option>
+
+            <option>
+              UTILE
+            </option>
+
+            <option>
+              DA_VALUTARE
+            </option>
+
+            <option>
+              IGNORA
+            </option>
+
+            <option>
+              DA_ANALIZZARE
+            </option>
+
+          </select>
+
+
+          <select
+            className="
+              border
+              border-sky-200
+              rounded-lg
+              px-3
+              py-2
+              bg-white
+              text-black
+            "
+            value={
+              f.categoria
+            }
+            onChange={
+              e =>
+                setF({
+                  ...f,
+                  categoria:
+                    e.target.value,
+                })
+            }
+          >
+
+            <option value="">
+              Tutte le categorie
+            </option>
+
+            <option> BONUS </option>
+            <option> FREEBET </option>
+            <option> CASHBACK </option>
+            <option> PROMO_DEPOSITO </option>
+            <option> PROMO_CASINO </option>
+            <option> PROMO_SLOT </option>
+            <option> PROMO_PERSONALIZZATA </option>
+            <option> RIMBORSO </option>
+            <option> KYC </option>
+            <option> LIMITAZIONE </option>
+            <option> SOSPENSIONE </option>
+            <option> PRELIEVO </option>
+            <option> DEPOSITO </option>
+            <option> SICUREZZA </option>
+            <option> SCADENZA </option>
+            <option> NEWSLETTER </option>
+            <option> PUBBLICITA </option>
+            <option> ALTRO </option>
+
+          </select>
+
+
+          <select
+            className="
+              border
+              border-sky-200
+              rounded-lg
+              px-3
+              py-2
+              bg-white
+              text-black
+            "
+            value={
+              f.priorita
+            }
+            onChange={
+              e =>
+                setF({
+                  ...f,
+                  priorita:
+                    e.target.value,
+                })
+            }
+          >
+
+            <option value="">
+              Tutte le priorità
+            </option>
+
+            <option>alta</option>
+            <option>media</option>
+            <option>bassa</option>
+
+          </select>
+
+        </div>
+
+
+        {/* ================================================
+            TABELLA
+            ================================================ */}
+
+        <div
+          className="
+            overflow-x-auto
+            border
+            border-sky-200
+            rounded-xl
+            bg-white/90
+            shadow-sm
+          "
+        >
+
+          <table
+            className="
+              w-full
+              text-sm
+              text-black
+            "
+          >
+
+            <thead>
+
+              <tr
+                className="
+                  text-left
+                  border-b
+                  border-sky-200
+                  bg-sky-100
+                "
+              >
+
+                <th className="p-3">
+                  Data
+                </th>
+
+                <th className="p-3">
+                  Cliente
+                </th>
+
+                <th className="p-3">
+                  Book
+                </th>
+
+                <th className="p-3">
+                  Oggetto
+                </th>
+
+                <th className="p-3">
+                  Lucy
+                </th>
+
+                <th className="p-3">
+                  Valore
+                </th>
+
+                <th className="p-3">
+                  Dettagli
+                </th>
+
+                <th className="p-3">
+                  Feedback
+                </th>
+
               </tr>
-            )}
+
+            </thead>
 
 
-            {!loading &&
-              rows.map(
-                mail => (
-                  <tr
-                    key={
-                      mail.id
-                    }
-                    className="
-                      border-b
-                      align-top
-                      hover:bg-gray-50
-                    "
+            <tbody>
+
+              {loading && (
+
+                <tr>
+
+                  <td
+                    className="p-5"
+                    colSpan={8}
                   >
+                    Lucy sta caricando…
+                  </td>
 
-                    {/* DATA */}
+                </tr>
 
-                    <td
-                      className="
-                        p-3
-                        whitespace-nowrap
-                      "
-                    >
-                      {
-                        formatDate(
-                          mail.data_mail
-                        )
+              )}
+
+
+              {!loading &&
+                rows.map(
+                  mail => (
+
+                    <tr
+                      key={
+                        mail.id
                       }
-                    </td>
-
-
-                    {/* CLIENTE */}
-
-                    <td
                       className="
-                        p-3
-                        font-medium
+                        border-b
+                        border-sky-100
+                        align-top
+                        hover:bg-sky-50
                       "
                     >
-                      {
-                        mail
-                          .cliente_nome ||
-                        '-'
-                      }
-                    </td>
 
-
-                    {/* BOOK */}
-
-                    <td
-                      className="
-                        p-3
-                        whitespace-nowrap
-                      "
-                    >
-                      {
-                        mail.bookmaker ||
-                        mail.mittente ||
-                        '-'
-                      }
-                    </td>
-
-
-                    {/* OGGETTO */}
-
-                    <td
-                      className="
-                        p-3
-                        min-w-[240px]
-                      "
-                    >
-                      {
-                        mail.oggetto ||
-                        '(senza oggetto)'
-                      }
-                    </td>
-
-
-                    {/* LUCY */}
-
-                    <td
-                      className="
-                        p-3
-                        min-w-[150px]
-                      "
-                    >
-                      <div
+                      <td
                         className="
-                          font-bold
+                          p-3
+                          whitespace-nowrap
                         "
                       >
                         {
-                          mail.giudizio
-                        }
-                      </div>
-
-                      <div>
-                        {
-                          mail.categoria
-                        }
-                      </div>
-
-                      <div
-                        className={
-                          priorityClass(
-                            mail.priorita
+                          formatDate(
+                            mail.data_mail
                           )
                         }
+                      </td>
+
+
+                      <td
+                        className="
+                          p-3
+                          font-medium
+                        "
                       >
-                        {
-                          mail.priorita
-                        }
-                      </div>
-                    </td>
-
-
-                    {/* VALORE */}
-
-                    <td
-                      className="
-                        p-3
-                        min-w-[150px]
-                      "
-                    >
-
-                      {
-                        mail.bonus_importo !=
-                          null && (
-                          <div
-                            className="
-                              font-bold
-                              text-green-700
-                            "
-                          >
-                            Bonus €
-                            {
-                              mail
-                                .bonus_importo
-                            }
-                          </div>
-                        )
-                      }
-
-
-                      {
-                        mail.deposito_richiesto !=
-                          null && (
-                          <div>
-                            Deposito €
-                            {
-                              mail
-                                .deposito_richiesto
-                            }
-                          </div>
-                        )
-                      }
-
-
-                      {
-                        mail.rollover && (
-                          <div>
-                            Rollover:{' '}
-                            {
-                              mail.rollover
-                            }
-                          </div>
-                        )
-                      }
-
-
-                      {
-                        mail.scadenza && (
-                          <div
-                            className="
-                              mt-1
-                              font-semibold
-                            "
-                          >
-                            ⏰{' '}
-                            {
-                              formatDate(
-                                mail.scadenza
-                              )
-                            }
-                          </div>
-                        )
-                      }
-
-
-                      {
-                        mail.bonus_importo ==
-                          null &&
-                        mail.deposito_richiesto ==
-                          null &&
-                        !mail.rollover &&
-                        !mail.scadenza &&
-                        '-'
-                      }
-
-                    </td>
-
-
-                    {/* DETTAGLI */}
-
-                    <td
-                      className="
-                        p-3
-                        min-w-[320px]
-                      "
-                    >
-
-                      <div>
                         {
                           mail
-                            .motivazione_ai ||
-                          'In attesa di analisi'
+                            .cliente_nome ||
+                          '-'
                         }
-                      </div>
+                      </td>
 
 
-                      {
-                        mail.condizioni && (
-                          <div
-                            className="
-                              mt-2
-                              text-gray-600
-                            "
-                          >
-                            {
-                              mail
-                                .condizioni
-                            }
-                          </div>
-                        )
-                      }
+                      <td
+                        className="
+                          p-3
+                          whitespace-nowrap
+                        "
+                      >
+                        {
+                          mail.bookmaker ||
+                          mail.mittente ||
+                          '-'
+                        }
+                      </td>
 
 
-                      {
-                        mail.richiede_azione && (
-                          <div
-                            className="
-                              mt-2
-                              font-bold
-                              text-red-600
-                            "
-                          >
-                            ⚡ Richiede
-                            azione
-                          </div>
-                        )
-                      }
-
-                    </td>
+                      <td
+                        className="
+                          p-3
+                          min-w-[240px]
+                        "
+                      >
+                        {
+                          mail.oggetto ||
+                          '(senza oggetto)'
+                        }
+                      </td>
 
 
-                    {/* FEEDBACK */}
+                      <td
+                        className="
+                          p-3
+                          min-w-[150px]
+                        "
+                      >
+
+                        <div
+                          className="
+                            font-bold
+                          "
+                        >
+                          {
+                            mail.giudizio
+                          }
+                        </div>
+
+                        <div>
+                          {
+                            mail.categoria
+                          }
+                        </div>
+
+                        <div
+                          className={
+                            priorityClass(
+                              mail.priorita
+                            )
+                          }
+                        >
+                          {
+                            mail.priorita
+                          }
+                        </div>
+
+                      </td>
+
+
+                      <td
+                        className="
+                          p-3
+                          min-w-[150px]
+                        "
+                      >
+
+                        {
+                          mail.bonus_importo !=
+                            null && (
+
+                            <div
+                              className="
+                                font-bold
+                                text-green-700
+                              "
+                            >
+                              Bonus €
+                              {
+                                mail
+                                  .bonus_importo
+                              }
+                            </div>
+
+                          )
+                        }
+
+
+                        {
+                          mail.deposito_richiesto !=
+                            null && (
+
+                            <div>
+                              Deposito €
+                              {
+                                mail
+                                  .deposito_richiesto
+                              }
+                            </div>
+
+                          )
+                        }
+
+
+                        {
+                          mail.rollover && (
+
+                            <div>
+                              Rollover:{' '}
+                              {
+                                mail.rollover
+                              }
+                            </div>
+
+                          )
+                        }
+
+
+                        {
+                          mail.scadenza && (
+
+                            <div
+                              className="
+                                mt-1
+                                font-semibold
+                              "
+                            >
+                              ⏰{' '}
+                              {
+                                formatDate(
+                                  mail.scadenza
+                                )
+                              }
+                            </div>
+
+                          )
+                        }
+
+
+                        {
+                          mail.bonus_importo ==
+                            null &&
+                          mail.deposito_richiesto ==
+                            null &&
+                          !mail.rollover &&
+                          !mail.scadenza &&
+                          '-'
+                        }
+
+                      </td>
+
+
+                      <td
+                        className="
+                          p-3
+                          min-w-[320px]
+                        "
+                      >
+
+                        <div>
+                          {
+                            mail
+                              .motivazione_ai ||
+                            'In attesa di analisi'
+                          }
+                        </div>
+
+
+                        {
+                          mail.condizioni && (
+
+                            <div
+                              className="
+                                mt-2
+                                text-gray-600
+                              "
+                            >
+                              {
+                                mail
+                                  .condizioni
+                              }
+                            </div>
+
+                          )
+                        }
+
+
+                        {
+                          mail.richiede_azione && (
+
+                            <div
+                              className="
+                                mt-2
+                                font-bold
+                                text-red-600
+                              "
+                            >
+                              ⚡ Richiede azione
+                            </div>
+
+                          )
+                        }
+
+                      </td>
+
+
+                      <td
+                        className="
+                          p-3
+                          whitespace-nowrap
+                        "
+                      >
+
+                        <button
+                          onClick={() =>
+                            feedback(
+                              mail.id,
+                              'UTILE'
+                            )
+                          }
+                          className="
+                            mr-3
+                            text-lg
+                          "
+                          title="Lucy ha classificato bene"
+                        >
+                          👍
+                        </button>
+
+
+                        <button
+                          onClick={() =>
+                            feedback(
+                              mail.id,
+                              'INUTILE'
+                            )
+                          }
+                          className="
+                            text-lg
+                          "
+                          title="Lucy ha sbagliato"
+                        >
+                          👎
+                        </button>
+
+                      </td>
+
+                    </tr>
+
+                  )
+                )}
+
+
+              {!loading &&
+                rows.length === 0 && (
+
+                  <tr>
 
                     <td
-                      className="
-                        p-3
-                        whitespace-nowrap
-                      "
+                      className="p-6"
+                      colSpan={8}
                     >
-
-                      <button
-                        onClick={() =>
-                          feedback(
-                            mail.id,
-                            'UTILE'
-                          )
-                        }
-                        className="
-                          mr-3
-                          text-lg
-                        "
-                        title="Lucy ha classificato bene"
-                      >
-                        👍
-                      </button>
-
-
-                      <button
-                        onClick={() =>
-                          feedback(
-                            mail.id,
-                            'INUTILE'
-                          )
-                        }
-                        className="
-                          text-lg
-                        "
-                        title="Lucy ha sbagliato"
-                      >
-                        👎
-                      </button>
-
+                      Nessuna mail
+                      in questa sezione.
                     </td>
 
                   </tr>
-                )
-              )}
 
+                )}
 
-            {!loading &&
-              rows.length ===
-                0 && (
-                <tr>
-                  <td
-                    className="p-6"
-                    colSpan={8}
-                  >
-                    Nessuna mail
-                    in questa sezione.
-                  </td>
-                </tr>
-              )}
+            </tbody>
 
-          </tbody>
+          </table>
 
-        </table>
+        </div>
 
-      </div>
+      </main>
 
-    </main>
+    </div>
+
   )
 }
