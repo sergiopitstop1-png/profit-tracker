@@ -1,788 +1,753 @@
-import {
-  NextRequest,
-  NextResponse,
-} from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 
-import {
-  createClient,
-} from '@supabase/supabase-js'
+export const runtime = 'nodejs'
+export const maxDuration = 60
 
-import {
-  createServerClient,
-} from '@supabase/ssr'
+const MODEL = 'openai/gpt-oss-20b'
+const BATCH_SIZE = 5
 
-
-const adminSupabase =
-  createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-
-
-/*
- * =========================================================
- * AUTORIZZAZIONE
- * =========================================================
- */
-
-async function authorize(
-  req: NextRequest
-) {
-  const response =
-    NextResponse.next()
-
-  const supabase =
-    createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          get(name) {
-            return req.cookies
-              .get(name)?.value
-          },
-
-          set(
-            name,
-            value,
-            options
-          ) {
-            response.cookies.set({
-              name,
-              value,
-              ...options,
-            })
-          },
-
-          remove(
-            name,
-            options
-          ) {
-            response.cookies.set({
-              name,
-              value: '',
-              ...options,
-            })
-          },
-        },
-      }
-    )
-
-  const {
-    data: { session },
-  } =
-    await supabase.auth
-      .getSession()
-
-  if (!session) {
-    return false
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
   }
+)
 
-  const {
-    data: profile,
-  } =
-    await supabase
-      .from('user_profiles')
-      .select('role')
-      .eq(
-        'id',
-        session.user.id
-      )
-      .single()
+const lucySchema = {
+  type: 'object',
+
+  properties: {
+    giudizio: {
+      type: 'string',
+      enum: [
+        'UTILE',
+        'DA_VALUTARE',
+        'IGNORA',
+      ],
+    },
+
+    categoria: {
+      type: 'string',
+      enum: [
+        'BONUS',
+        'FREEBET',
+        'CASHBACK',
+        'PROMO_DEPOSITO',
+        'PROMO_CASINO',
+        'PROMO_SLOT',
+        'PROMO_PERSONALIZZATA',
+        'RIMBORSO',
+        'KYC',
+        'LIMITAZIONE',
+        'SOSPENSIONE',
+        'PRELIEVO',
+        'DEPOSITO',
+        'SICUREZZA',
+        'SCADENZA',
+        'NEWSLETTER',
+        'PUBBLICITA',
+        'ALTRO',
+      ],
+    },
+
+    priorita: {
+      type: 'string',
+      enum: [
+        'alta',
+        'media',
+        'bassa',
+      ],
+    },
+
+    confidenza: {
+      type: 'number',
+      minimum: 0,
+      maximum: 1,
+    },
+
+    bookmaker: {
+      type: ['string', 'null'],
+    },
+
+    tipo_offerta: {
+      type: ['string', 'null'],
+    },
+
+    bonus_importo: {
+      type: ['number', 'null'],
+    },
+
+    deposito_richiesto: {
+      type: ['number', 'null'],
+    },
+
+    rollover: {
+      type: ['string', 'null'],
+    },
+
+    scadenza: {
+      type: ['string', 'null'],
+    },
+
+    condizioni: {
+      type: ['string', 'null'],
+    },
+
+    motivazione_ai: {
+      type: 'string',
+    },
+
+    richiede_azione: {
+      type: 'boolean',
+    },
+  },
+
+  required: [
+    'giudizio',
+    'categoria',
+    'priorita',
+    'confidenza',
+    'bookmaker',
+    'tipo_offerta',
+    'bonus_importo',
+    'deposito_richiesto',
+    'rollover',
+    'scadenza',
+    'condizioni',
+    'motivazione_ai',
+    'richiede_azione',
+  ],
+
+  additionalProperties: false,
+}
+
+
+function compactMailBody(
+  value: string | null | undefined
+) {
+  const text =
+    String(value || '')
+      .replace(/\u0000/g, '')
+      .trim()
+
+  if (text.length <= 3000) {
+    return text
+  }
 
   return (
-    profile?.role === 'vip' ||
-    profile?.role === 'admin'
+    text.slice(0, 1800) +
+    '\n\n[...contenuto abbreviato...]\n\n' +
+    text.slice(-1200)
   )
 }
 
 
-/*
- * =========================================================
- * SICUREZZA RICERCA
- * =========================================================
- */
-
-function safeSearch(
-  value: string
-) {
-  return value
-    .replace(
-      /[,%()]/g,
-      ' '
-    )
-    .replace(
-      /\s+/g,
-      ' '
-    )
-    .trim()
+function sleep(ms: number) {
+  return new Promise(resolve =>
+    setTimeout(resolve, ms)
+  )
 }
 
 
-/*
- * =========================================================
- * CATEGORIE PROBLEMI ACCOUNT
- * =========================================================
- */
+function buildPrompt(mail: any) {
+  return `
+Sei Lucy, l'assistente operativo di ProfitTracker.
 
-const PROBLEM_CATEGORIES = [
-  'KYC',
-  'LIMITAZIONE',
-  'SOSPENSIONE',
-  'PRELIEVO',
-  'DEPOSITO',
-  'SICUREZZA',
-  'SCADENZA',
-]
+Devi analizzare una email ricevuta da uno degli account del sistema.
 
+OBIETTIVO PRINCIPALE:
+individuare opportunità economiche REALI relative esclusivamente a:
 
-/*
- * =========================================================
- * CONTATORI LUCY
- * =========================================================
- */
+- bookmaker
+- scommesse
+- casinò online
+- poker
+- slot
+- conti gioco
+- promozioni gaming
+- bonus gaming
+- cashback gaming
+- freebet
+- rimborsi gaming
+- comunicazioni operative importanti dei conti gioco
 
-async function getCounters() {
-  /*
-   * Totale archivio
-   */
+NON considerare opportunità economiche generiche.
 
-  const totalQuery =
-    adminSupabase
-      .from(
-        'lucy_mail_archive'
-      )
-      .select(
-        'id',
-        {
-          count: 'exact',
-          head: true,
-        }
-      )
+ESEMPI DA IGNORARE:
+- banche
+- Revolut
+- carte di credito
+- ecommerce
+- negozi
+- Decathlon
+- telefonia
+- hotel
+- viaggi
+- assicurazioni
+- cashback non gaming
+- sconti commerciali
+- newsletter generiche
+- offerte non legate al gioco online
 
+Anche se una mail non gaming contiene parole come:
+BONUS, CASHBACK, PREMIO, GRATIS, SCONTO
+deve essere classificata IGNORA.
 
-  /*
-   * Opportunità
-   */
+ECCEZIONE:
+una comunicazione tecnica riguardante Lucy o ProfitTracker
+può essere DA_VALUTARE, ma NON deve essere classificata
+come opportunità/promozione gaming.
 
-  const usefulQuery =
-    adminSupabase
-      .from(
-        'lucy_mail_archive'
-      )
-      .select(
-        'id',
-        {
-          count: 'exact',
-          head: true,
-        }
-      )
-      .eq(
-        'giudizio',
-        'UTILE'
-      )
+------------------------------------
 
+GIUDIZIO
 
-  /*
-   * Da valutare
-   */
+UTILE:
+- bonus bookmaker/casinò/poker/slot
+- freebet
+- cashback gaming
+- rimborso
+- promo deposito gaming
+- promo personale
+- offerta riservata
+- promozione con valore economico
+- comunicazione importante sul conto gioco
+- KYC importante
+- limitazione
+- sospensione
+- problema deposito/prelievo
+- sicurezza del conto
+- scadenza importante
 
-  const evaluateQuery =
-    adminSupabase
-      .from(
-        'lucy_mail_archive'
-      )
-      .select(
-        'id',
-        {
-          count: 'exact',
-          head: true,
-        }
-      )
-      .eq(
-        'giudizio',
-        'DA_VALUTARE'
-      )
+DA_VALUTARE:
+- comunicazione gaming ambigua
+- condizioni non sufficientemente chiare
+- possibile opportunità che richiede verifica
+- problema tecnico ProfitTracker/Lucy
 
+IGNORA:
+- pubblicità generica
+- newsletter senza valore operativo
+- offerte non gaming
+- comunicazioni commerciali generiche
+- social
+- ecommerce
+- banche
+- Revolut
+- negozi
+- telecomunicazioni
+- viaggi
+- hotel
+- contenuti irrilevanti
 
-  /*
-   * Ignora
-   */
+------------------------------------
 
-  const ignoredQuery =
-    adminSupabase
-      .from(
-        'lucy_mail_archive'
-      )
-      .select(
-        'id',
-        {
-          count: 'exact',
-          head: true,
-        }
-      )
-      .eq(
-        'giudizio',
-        'IGNORA'
-      )
+PRIORITÀ
 
+alta:
+opportunità concreta, scadenza vicina,
+bonus importante, problema serio sul conto,
+azione urgente.
 
-  /*
-   * Da analizzare
-   */
+media:
+utile ma non urgente oppure da verificare.
 
-  const pendingQuery =
-    adminSupabase
-      .from(
-        'lucy_mail_archive'
-      )
-      .select(
-        'id',
-        {
-          count: 'exact',
-          head: true,
-        }
-      )
-      .eq(
-        'giudizio',
-        'DA_ANALIZZARE'
-      )
+bassa:
+informazione secondaria o contenuto da ignorare.
 
+------------------------------------
 
-  /*
-   * Problemi account
-   *
-   * Qui contiamo in base
-   * alla categoria AI.
-   */
+BOOKMAKER
 
-  const problemsQuery =
-    adminSupabase
-      .from(
-        'lucy_mail_archive'
-      )
-      .select(
-        'id',
-        {
-          count: 'exact',
-          head: true,
-        }
-      )
-      .in(
-        'categoria',
-        PROBLEM_CATEGORIES
-      )
+Se riconosci il bookmaker o casinò,
+scrivine il nome in "bookmaker".
 
+Se non è riconoscibile usa null.
 
-  const [
-    total,
-    useful,
-    evaluate,
-    ignored,
-    pending,
-    problems,
-  ] =
-    await Promise.all([
-      totalQuery,
-      usefulQuery,
-      evaluateQuery,
-      ignoredQuery,
-      pendingQuery,
-      problemsQuery,
-    ])
+Non inventare il bookmaker.
+
+------------------------------------
+
+VALORI
+
+bonus_importo:
+solo importo monetario del bonus se chiaramente indicato.
+
+deposito_richiesto:
+solo importo richiesto per ottenere la promo se chiaramente indicato.
+
+rollover:
+scrivi le condizioni di wagering/rollover se presenti.
+
+scadenza:
+riporta la scadenza indicata nella mail.
+Se non esiste usa null.
+
+condizioni:
+riassunto MOLTO breve delle condizioni importanti.
+
+motivazione_ai:
+spiega in italiano, in modo sintetico,
+perché la mail è utile, da valutare o da ignorare.
+
+richiede_azione:
+true solo se Sergio deve effettivamente fare qualcosa.
+
+------------------------------------
+
+EMAIL
+
+Cliente:
+${mail.cliente_nome || 'non identificato'}
+
+Mittente:
+${mail.mittente || '-'}
+
+Destinatario originale:
+${mail.destinatario_originale || '-'}
+
+Oggetto:
+${mail.oggetto || '(senza oggetto)'}
+
+Testo:
+${compactMailBody(mail.testo_completo)}
+
+------------------------------------
+
+Rispondi esclusivamente secondo lo schema JSON richiesto.
+`
+}
 
 
-  return {
-    tutte:
-      total.count || 0,
+async function analyzeMail(mail: any) {
+  const apiKey =
+    process.env.GROQ_API_KEY
 
-    opportunita:
-      useful.count || 0,
-
-    da_valutare:
-      evaluate.count || 0,
-
-    problemi:
-      problems.count || 0,
-
-    ignora:
-      ignored.count || 0,
-
-    da_analizzare:
-      pending.count || 0,
+  if (!apiKey) {
+    throw new Error(
+      'GROQ_API_KEY mancante'
+    )
   }
-}
 
+  const body = {
+    model: MODEL,
 
-/*
- * =========================================================
- * LETTURA ARCHIVIO
- * =========================================================
- */
+    reasoning_effort: 'low',
 
-export async function GET(
-  req: NextRequest
-) {
-  if (
-    !(await authorize(req))
-  ) {
-    return NextResponse.json(
+    max_completion_tokens: 700,
+
+    messages: [
       {
-        error:
-          'Non autorizzato',
+        role: 'user',
+        content: buildPrompt(mail),
       },
-      {
-        status: 401,
-      }
-    )
+    ],
+
+    response_format: {
+      type: 'json_schema',
+
+      json_schema: {
+        name:
+          'lucy_mail_analysis',
+
+        strict: true,
+
+        schema: lucySchema,
+      },
+    },
   }
 
 
-  const sp =
-    req.nextUrl.searchParams
+  let lastError: Error | null =
+    null
 
+  /*
+   * Due tentativi.
+   * Se Groq risponde 429 aspettiamo
+   * prima di riprovare.
+   */
+  for (
+    let attempt = 1;
+    attempt <= 2;
+    attempt++
+  ) {
+    try {
+      const response =
+        await fetch(
+          'https://api.groq.com/openai/v1/chat/completions',
+          {
+            method: 'POST',
 
-  const page =
-    Math.max(
-      1,
-      Number(
-        sp.get('page') || 1
-      )
-    )
+            headers: {
+              Authorization:
+                `Bearer ${apiKey}`,
 
+              'Content-Type':
+                'application/json',
+            },
 
-  const pageSize =
-    Math.min(
-      100,
-      Math.max(
-        10,
-        Number(
-          sp.get(
-            'page_size'
-          ) || 50
+            body:
+              JSON.stringify(body),
+          }
         )
-      )
-    )
 
 
-  const from =
-    (page - 1) *
-    pageSize
+      if (
+        response.status === 429
+      ) {
+        const retryHeader =
+          response.headers.get(
+            'retry-after'
+          )
 
-  const to =
-    from +
-    pageSize -
-    1
+        let waitSeconds =
+          Number(retryHeader)
 
-
-  let q =
-    adminSupabase
-      .from(
-        'lucy_mail_archive'
-      )
-      .select(
-        '*',
-        {
-          count: 'exact',
+        if (
+          !Number.isFinite(
+            waitSeconds
+          ) ||
+          waitSeconds <= 0
+        ) {
+          waitSeconds = 12
         }
-      )
+
+        waitSeconds =
+          Math.min(
+            waitSeconds,
+            25
+          )
+
+        if (attempt < 2) {
+          console.warn(
+            `[Lucy AI] Groq 429, attendo ${waitSeconds}s`
+          )
+
+          await sleep(
+            waitSeconds * 1000
+          )
+
+          continue
+        }
+      }
 
 
-  /*
-   * =======================================================
-   * FILTRI
-   * =======================================================
-   */
+      if (!response.ok) {
+        const errorText =
+          await response.text()
 
-  const cliente =
-    sp.get('cliente')
-
-  const bookmaker =
-    sp.get('bookmaker')
-
-  const giudizio =
-    sp.get('giudizio')
-
-  const categoria =
-    sp.get('categoria')
-
-  const priorita =
-    sp.get('priorita')
-
-  const search =
-    sp.get('q')
-
-  const dal =
-    sp.get('dal')
-
-  const al =
-    sp.get('al')
-
-  /*
-   * Nuovo filtro rapido
-   * della dashboard Lucy.
-   */
-
-  const vista =
-    sp.get('vista')
-
-
-  /*
-   * =======================================================
-   * VISTE RAPIDE
-   * =======================================================
-   */
-
-  if (
-    vista ===
-    'opportunita'
-  ) {
-    q =
-      q.eq(
-        'giudizio',
-        'UTILE'
-      )
-  }
-
-
-  if (
-    vista ===
-    'da_valutare'
-  ) {
-    q =
-      q.eq(
-        'giudizio',
-        'DA_VALUTARE'
-      )
-  }
-
-
-  if (
-    vista ===
-    'ignora'
-  ) {
-    q =
-      q.eq(
-        'giudizio',
-        'IGNORA'
-      )
-  }
-
-
-  if (
-    vista ===
-    'da_analizzare'
-  ) {
-    q =
-      q.eq(
-        'giudizio',
-        'DA_ANALIZZARE'
-      )
-  }
-
-
-  if (
-    vista ===
-    'problemi'
-  ) {
-    q =
-      q.in(
-        'categoria',
-        PROBLEM_CATEGORIES
-      )
-  }
-
-
-  /*
-   * =======================================================
-   * FILTRI MANUALI
-   * =======================================================
-   */
-
-  if (cliente) {
-    q =
-      q.ilike(
-        'cliente_nome',
-        `%${safeSearch(
-          cliente
-        )}%`
-      )
-  }
-
-
-  if (bookmaker) {
-    q =
-      q.ilike(
-        'bookmaker',
-        `%${safeSearch(
-          bookmaker
-        )}%`
-      )
-  }
-
-
-  if (giudizio) {
-    q =
-      q.eq(
-        'giudizio',
-        giudizio
-      )
-  }
-
-
-  if (categoria) {
-    q =
-      q.eq(
-        'categoria',
-        categoria
-      )
-  }
-
-
-  if (priorita) {
-    q =
-      q.eq(
-        'priorita',
-        priorita
-      )
-  }
-
-
-  if (dal) {
-    q =
-      q.gte(
-        'data_mail',
-        dal
-      )
-  }
-
-
-  if (al) {
-    q =
-      q.lte(
-        'data_mail',
-        al
-      )
-  }
-
-
-  if (search) {
-    const s =
-      safeSearch(
-        search
-      )
-
-    if (s) {
-      q =
-        q.or(
-          `oggetto.ilike.%${s}%,mittente.ilike.%${s}%,testo_completo.ilike.%${s}%`
+        throw new Error(
+          `Groq ${response.status}: ${errorText.slice(0, 500)}`
         )
+      }
+
+
+      const json =
+        await response.json()
+
+      const content =
+        json?.choices?.[0]
+          ?.message?.content
+
+      if (!content) {
+        throw new Error(
+          'Groq non ha restituito contenuto'
+        )
+      }
+
+
+      const parsed =
+        JSON.parse(content)
+
+      return parsed
+
+    } catch (error: any) {
+      lastError =
+        error instanceof Error
+          ? error
+          : new Error(
+              String(error)
+            )
+
+      if (attempt < 2) {
+        await sleep(1500)
+      }
     }
   }
 
 
-  /*
-   * =======================================================
-   * QUERY MAIL
-   * =======================================================
-   */
+  throw (
+    lastError ||
+    new Error(
+      'Errore AI sconosciuto'
+    )
+  )
+}
 
-  const mailPromise =
-    q
+
+async function runAnalysis() {
+  /*
+   * Prendiamo fino a 5 mail.
+   *
+   * Manteniamo l'ordinamento
+   * dalla più recente alla più vecchia:
+   * una nuova promo non deve aspettare
+   * dietro tutto l'arretrato.
+   */
+  const {
+    data: mails,
+    error,
+  } =
+    await supabase
+      .from(
+        'lucy_mail_archive'
+      )
+      .select('*')
+      .eq(
+        'giudizio',
+        'DA_ANALIZZARE'
+      )
       .order(
         'data_mail',
         {
           ascending: false,
         }
       )
-      .range(
-        from,
-        to
-      )
-
-
-  /*
-   * Mail + contatori
-   * contemporaneamente.
-   */
-
-  const [
-    mailResult,
-    counters,
-  ] =
-    await Promise.all([
-      mailPromise,
-      getCounters(),
-    ])
-
-
-  const {
-    data,
-    error,
-    count,
-  } =
-    mailResult
+      .limit(BATCH_SIZE)
 
 
   if (error) {
-    return NextResponse.json(
-      {
-        error:
-          error.message,
-      },
-      {
-        status: 500,
-      }
-    )
+    throw error
   }
 
 
-  return NextResponse.json({
-    data,
+  if (
+    !mails ||
+    mails.length === 0
+  ) {
+    return {
+      ok: true,
+      trovate: 0,
+      analizzate: 0,
+      errori: 0,
+      risultati: [],
+    }
+  }
 
-    /*
-     * Numero risultati
-     * della vista/filtro corrente.
-     */
 
-    count:
-      count || 0,
+  let analizzate = 0
+  let errori = 0
 
-    /*
-     * Contatori globali Lucy.
-     */
+  const risultati: any[] = []
 
-    counters,
 
-    page,
+  /*
+   * Le analizziamo una alla volta.
+   *
+   * È intenzionale:
+   * evita 5 richieste contemporanee
+   * verso Groq e riduce il rischio
+   * di rate limit.
+   */
+  for (const mail of mails) {
+    try {
+      const result =
+        await analyzeMail(mail)
 
-    pageSize,
-  })
+
+      const now =
+        new Date()
+          .toISOString()
+
+
+      const {
+        error: updateError,
+      } =
+        await supabase
+          .from(
+            'lucy_mail_archive'
+          )
+          .update({
+            giudizio:
+              result.giudizio,
+
+            categoria:
+              result.categoria,
+
+            priorita:
+              result.priorita,
+
+            confidenza:
+              result.confidenza,
+
+            bookmaker:
+              result.bookmaker,
+
+            tipo_offerta:
+              result.tipo_offerta,
+
+            bonus_importo:
+              result.bonus_importo,
+
+            deposito_richiesto:
+              result.deposito_richiesto,
+
+            rollover:
+              result.rollover,
+
+            scadenza:
+              result.scadenza,
+
+            condizioni:
+              result.condizioni,
+
+            motivazione_ai:
+              result.motivazione_ai,
+
+            richiede_azione:
+              result.richiede_azione,
+
+            analizzata_at: now,
+            updated_at: now,
+          })
+          .eq(
+            'id',
+            mail.id
+          )
+
+
+      if (updateError) {
+        throw updateError
+      }
+
+
+      analizzate++
+
+
+      risultati.push({
+        id: mail.id,
+        giudizio:
+          result.giudizio,
+        categoria:
+          result.categoria,
+        bookmaker:
+          result.bookmaker,
+      })
+
+
+      console.log(
+        `[Lucy AI] OK ${mail.id} ${result.giudizio} ${result.categoria} ${result.bookmaker || '-'}`
+      )
+
+
+      /*
+       * Piccola pausa tra una mail
+       * e la successiva.
+       */
+      await sleep(700)
+
+    } catch (error: any) {
+      errori++
+
+      console.error(
+        `[Lucy AI] ERRORE mail ${mail.id}`,
+        error
+      )
+
+
+      /*
+       * IMPORTANTISSIMO:
+       * non cambiamo il giudizio.
+       *
+       * Rimane DA_ANALIZZARE e Lucy
+       * potrà riprovarci alla prossima
+       * esecuzione.
+       */
+      risultati.push({
+        id: mail.id,
+        errore:
+          error?.message ||
+          String(error),
+      })
+    }
+  }
+
+
+  return {
+    ok: true,
+    trovate:
+      mails.length,
+    analizzate,
+    errori,
+    risultati,
+  }
 }
 
 
 /*
  * =========================================================
- * FEEDBACK / LETTURA EMAIL
+ * GET - Vercel Cron
  * =========================================================
  */
 
-export async function PATCH(
+export async function GET(
   req: NextRequest
 ) {
-  if (
-    !(await authorize(req))
-  ) {
-    return NextResponse.json(
-      {
-        error:
-          'Non autorizzato',
-      },
-      {
-        status: 401,
+  try {
+    const cronSecret =
+      process.env.CRON_SECRET
+
+    if (cronSecret) {
+      const auth =
+        req.headers.get(
+          'authorization'
+        )
+
+      if (
+        auth !==
+        `Bearer ${cronSecret}`
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              'Unauthorized',
+          },
+          {
+            status: 401,
+          }
+        )
       }
-    )
-  }
-
-
-  const body =
-    await req.json()
-
-
-  const {
-    id,
-    feedback_utente,
-    feedback_note,
-    letta,
-  } =
-    body
-
-
-  if (!id) {
-    return NextResponse.json(
-      {
-        error:
-          'id mancante',
-      },
-      {
-        status: 400,
-      }
-    )
-  }
-
-
-  const patch:
-    Record<
-      string,
-      unknown
-    > =
-    {
-      updated_at:
-        new Date()
-          .toISOString(),
     }
 
 
-  if (
-    feedback_utente !==
-    undefined
-  ) {
-    patch.feedback_utente =
-      feedback_utente
-  }
+    const result =
+      await runAnalysis()
 
+    return NextResponse.json(
+      result
+    )
 
-  if (
-    feedback_note !==
-    undefined
-  ) {
-    patch.feedback_note =
-      feedback_note
-  }
+  } catch (error: any) {
+    console.error(
+      '[Lucy AI] errore generale',
+      error
+    )
 
-
-  if (
-    letta !==
-    undefined
-  ) {
-    patch.letta =
-      letta
-  }
-
-
-  const {
-    data,
-    error,
-  } =
-    await adminSupabase
-      .from(
-        'lucy_mail_archive'
-      )
-      .update(
-        patch
-      )
-      .eq(
-        'id',
-        id
-      )
-      .select()
-      .single()
-
-
-  if (error) {
     return NextResponse.json(
       {
+        ok: false,
         error:
-          error.message,
+          error?.message ||
+          String(error),
       },
       {
         status: 500,
       }
     )
   }
-
-
-  return NextResponse.json(
-    data
-  )
 }
