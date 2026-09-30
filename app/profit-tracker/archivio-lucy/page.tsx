@@ -61,26 +61,20 @@ const emptyCounters: Counters = {
   da_analizzare: 0,
 }
 
-const matrixColumns = [
-  '010010110101001101001011',
-  '101101001011010010110100',
-  '001011010110010101101001',
-  '110100101101001011010010',
-  '010110100101101001011010',
-  '101001011010010110100101',
-  '011010010110100101101001',
-  '100101101001011010010110',
-  '001101001011010010110100',
-  '110010110100101101001011',
-  '010010110101001101001011',
-  '101101001011010010110100',
-  '001011010110010101101001',
-  '110100101101001011010010',
-  '010110100101101001011010',
-  '101001011010010110100101',
-  '011010010110100101101001',
-  '100101101001011010010110',
-]
+const matrixColumns = Array.from({ length: 72 }, (_, index) => {
+  const patterns = [
+    '010110101001011010010110100101',
+    '101001101011010010110100101101',
+    '001101001011010110100101101001',
+    '110100101101001011010010110100',
+    '011010010110100101101001011010',
+    '100101101001011010010110100101',
+    '010011010110010110100101101001',
+    '101100101101001011010010110100',
+  ]
+
+  return patterns[index % patterns.length]
+})
 
 export default function ArchivioLucyPage() {
   const router = useRouter()
@@ -374,96 +368,12 @@ export default function ArchivioLucyPage() {
           bg-black
         "
       >
-        {/* MATRIX RAIN - SOLO HEADER */}
+        {/* CONTENUTO HEADER */}
 
-        <div
-          className="
-            absolute
-            inset-0
-            overflow-hidden
-            pointer-events-none
-            select-none
-          "
-          aria-hidden="true"
-        >
-          <div
-            className="
-              absolute
-              inset-0
-              bg-[radial-gradient(circle_at_center,rgba(22,163,74,0.12),transparent_65%)]
-            "
-          />
-
-          <div
-            className="
-              absolute
-              inset-0
-              flex
-              justify-around
-              opacity-30
-            "
-          >
-            {matrixColumns.map(
-              (digits, index) => (
-                <div
-                  key={index}
-                  className="
-                    matrix-column
-                    font-mono
-                    text-[12px]
-                    leading-[15px]
-                    text-green-400
-                    whitespace-pre-wrap
-                    break-all
-                    w-[18px]
-                    text-center
-                  "
-                  style={{
-                    animationDuration:
-                      `${
-                        7 +
-                        (index % 6) *
-                          1.3
-                      }s`,
-                    animationDelay:
-                      `-${
-                        (index % 8) *
-                        1.1
-                      }s`,
-                  }}
-                >
-                  {digits
-                    .repeat(5)
-                    .split('')
-                    .join('\n')}
-                </div>
-              )
-            )}
-          </div>
-
-          <div
-            className="
-              absolute
-              inset-0
-              bg-gradient-to-r
-              from-black/95
-              via-black/55
-              to-black/90
-            "
-          />
-
-          <div
-            className="
-              absolute
-              inset-x-0
-              bottom-0
-              h-24
-              bg-gradient-to-b
-              from-transparent
-              to-[#020604]
-            "
-          />
-        </div>
+<div
+  className="
+    relative
+    z-10
 
         {/* CONTENUTO HEADER */}
 
