@@ -1,1064 +1,1752 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { createServerClient } from '@supabase/ssr'
+'use client'
 
-const adminSupabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+import {
+  useCallback,
+  useEffect,
+  useState,
+} from 'react'
 
-const PROBLEM_CATEGORIES = [
-  'KYC',
-  'LIMITAZIONE',
-  'SOSPENSIONE',
-  'PRELIEVO',
-  'DEPOSITO',
-  'SICUREZZA',
-  'SCADENZA',
-]
+import { useRouter } from 'next/navigation'
 
 type Canale = 'EMAIL' | 'SMS'
 
-type UnifiedRow = {
+type Comunicazione = {
   id: string
   source_id: string | number
   canale: Canale
-
   data_mail: string | null
   cliente_nome: string | null
   bookmaker: string | null
   mittente: string | null
   destinatario_originale: string | null
-
   oggetto: string | null
   testo_completo: string | null
-
   categoria: string | null
   giudizio: string | null
   priorita: string | null
-  confidenza: number | null
-
-  tipo_offerta: string | null
+  motivazione_ai: string | null
   bonus_importo: number | null
   deposito_richiesto: number | null
   rollover: string | null
   scadenza: string | null
   condizioni: string | null
-  motivazione_ai: string | null
   richiede_azione: boolean | null
-
-  letta: boolean | null
   feedback_utente: string | null
-  feedback_note: string | null
 }
 
-/*
- * =========================================================
- * AUTORIZZAZIONE
- * =========================================================
- */
-
-async function authorize(req: NextRequest) {
-  const response = NextResponse.next()
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name) {
-          return req.cookies.get(name)?.value
-        },
-
-        set(name, value, options) {
-          response.cookies.set({
-            name,
-            value,
-            ...options,
-          })
-        },
-
-        remove(name, options) {
-          response.cookies.set({
-            name,
-            value: '',
-            ...options,
-          })
-        },
-      },
-    }
-  )
-
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
-
-  if (!session) {
-    return false
-  }
-
-  const { data: profile } =
-    await supabase
-      .from('user_profiles')
-      .select('role')
-      .eq('id', session.user.id)
-      .single()
-
-  return (
-    profile?.role === 'vip' ||
-    profile?.role === 'admin'
-  )
+type Counters = {
+  tutte: number
+  opportunita: number
+  da_valutare: number
+  problemi: number
+  ignora: number
+  da_analizzare: number
 }
 
-/*
- * =========================================================
- * UTILITÀ
- * =========================================================
- */
+type Vista =
+  | 'opportunita'
+  | 'da_valutare'
+  | 'problemi'
+  | 'ignora'
+  | 'da_analizzare'
+  | 'tutte'
 
-function safeSearch(value: string) {
-  return value
-    .replace(/[,%()]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase()
+const emptyCounters: Counters = {
+  tutte: 0,
+  opportunita: 0,
+  da_valutare: 0,
+  problemi: 0,
+  ignora: 0,
+  da_analizzare: 0,
 }
 
-function normalize(value: unknown) {
-  return String(value || '')
-    .trim()
-    .toLowerCase()
-}
+export default function ArchivioLucyPage() {
+  const router = useRouter()
 
-function getPeriodoStart(periodo: string | null) {
-  if (!periodo || periodo === 'tutto') {
-    return null
-  }
+  const [rows, setRows] =
+    useState<Comunicazione[]>([])
 
-  const now = new Date()
-  const d = new Date(now)
+  const [count, setCount] =
+    useState(0)
 
-  if (periodo === '15g') {
-    d.setDate(d.getDate() - 15)
-    return d
-  }
+  const [counters, setCounters] =
+    useState<Counters>(emptyCounters)
 
-  if (periodo === '1m') {
-    d.setMonth(d.getMonth() - 1)
-    return d
-  }
+  const [clienti, setClienti] =
+    useState<string[]>([])
 
-  if (periodo === '3m') {
-    d.setMonth(d.getMonth() - 3)
-    return d
-  }
-
-  return null
-}
-
-function toTime(value: string | null) {
-  if (!value) {
-    return 0
-  }
-
-  const t = new Date(value).getTime()
-
-  return Number.isNaN(t)
-    ? 0
-    : t
-}
-
-/*
- * =========================================================
- * NORMALIZZAZIONE EMAIL
- * =========================================================
- */
-
-function normalizeEmail(row: any): UnifiedRow {
-  return {
-    id: `EMAIL:${row.id}`,
-    source_id: row.id,
-    canale: 'EMAIL',
-
-    data_mail:
-      row.data_mail ?? null,
-
-    cliente_nome:
-      row.cliente_nome ?? null,
-
-    bookmaker:
-      row.bookmaker ?? null,
-
-    mittente:
-      row.mittente ?? null,
-
-    destinatario_originale:
-      row.destinatario_originale ?? null,
-
-    oggetto:
-      row.oggetto ?? null,
-
-    testo_completo:
-      row.testo_completo ?? null,
-
-    categoria:
-      row.categoria ?? null,
-
-    giudizio:
-      row.giudizio ?? null,
-
-    priorita:
-      row.priorita ?? null,
-
-    confidenza:
-      row.confidenza ?? null,
-
-    tipo_offerta:
-      row.tipo_offerta ?? null,
-
-    bonus_importo:
-      row.bonus_importo ?? null,
-
-    deposito_richiesto:
-      row.deposito_richiesto ?? null,
-
-    rollover:
-      row.rollover ?? null,
-
-    scadenza:
-      row.scadenza ?? null,
-
-    condizioni:
-      row.condizioni ?? null,
-
-    motivazione_ai:
-      row.motivazione_ai ?? null,
-
-    richiede_azione:
-      row.richiede_azione ?? false,
-
-    letta:
-      row.letta ?? false,
-
-    feedback_utente:
-      row.feedback_utente ?? null,
-
-    feedback_note:
-      row.feedback_note ?? null,
-  }
-}
-
-/*
- * =========================================================
- * NORMALIZZAZIONE SMS
- * =========================================================
- */
-
-function normalizeSms(row: any): UnifiedRow {
-  return {
-    id: `SMS:${row.id}`,
-    source_id: row.id,
-    canale: 'SMS',
-
-    data_mail:
-      row.data_ricezione ?? null,
-
-    cliente_nome:
-      row.cliente ??
-      row.telefono ??
-      null,
-
-    bookmaker:
-      row.bookmaker ?? null,
-
-    mittente:
-      row.mittente ?? null,
-
-    destinatario_originale:
-      row.telefono ?? null,
-
-    oggetto:
-      row.tipo === 'OTP'
-        ? 'SMS OTP'
-        : 'SMS',
-
-    testo_completo:
-      row.testo ?? null,
-
-    categoria:
-      row.categoria ?? null,
-
-    giudizio:
-      row.giudizio ?? null,
-
-    priorita:
-      row.priorita ?? null,
-
-    confidenza:
-      row.confidenza ?? null,
-
-    tipo_offerta:
-      row.tipo_offerta ?? null,
-
-    bonus_importo:
-      row.bonus_importo ?? null,
-
-    deposito_richiesto:
-      row.deposito_richiesto ?? null,
-
-    rollover:
-      row.rollover ?? null,
-
-    scadenza:
-      row.scadenza ?? null,
-
-    condizioni:
-      row.condizioni ?? null,
-
-    motivazione_ai:
-      row.motivazione_ai ?? null,
-
-    richiede_azione:
-      row.richiede_azione ?? false,
-
-    letta:
-      row.letta ?? false,
-
-    feedback_utente:
-      row.feedback_utente ?? null,
-
-    feedback_note:
-      row.feedback_note ?? null,
-  }
-}
-
-/*
- * =========================================================
- * FILTRI COMUNI
- * =========================================================
- */
-
-function matchesVista(
-  row: UnifiedRow,
-  vista: string | null
-) {
-  if (
-    !vista ||
-    vista === 'tutte'
-  ) {
-    return true
-  }
-
-  if (vista === 'opportunita') {
-    return row.giudizio === 'UTILE'
-  }
-
-  if (vista === 'da_valutare') {
-    return row.giudizio === 'DA_VALUTARE'
-  }
-
-  if (vista === 'ignora') {
-    return row.giudizio === 'IGNORA'
-  }
-
-  if (vista === 'da_analizzare') {
-    return (
-      row.giudizio === 'DA_ANALIZZARE'
-    )
-  }
-
-  if (vista === 'problemi') {
-    return PROBLEM_CATEGORIES.includes(
-      row.categoria || ''
-    )
-  }
-
-  return true
-}
-
-function matchesFilters(
-  row: UnifiedRow,
-  params: {
-    cliente: string | null
-    bookmaker: string | null
-    giudizio: string | null
-    categoria: string | null
-    priorita: string | null
-    search: string | null
-    canale: string | null
-    periodoStart: Date | null
-  }
-) {
-  const {
-    cliente,
-    bookmaker,
-    giudizio,
-    categoria,
-    priorita,
-    search,
-    canale,
-    periodoStart,
-  } = params
-
-  if (
-    canale &&
-    canale !== 'TUTTI' &&
-    row.canale !== canale
-  ) {
-    return false
-  }
-
-  if (
-    cliente &&
-    normalize(row.cliente_nome) !==
-      normalize(cliente)
-  ) {
-    return false
-  }
-
-  if (
-    bookmaker &&
-    !normalize(row.bookmaker).includes(
-      normalize(bookmaker)
-    )
-  ) {
-    return false
-  }
-
-  if (
-    giudizio &&
-    row.giudizio !== giudizio
-  ) {
-    return false
-  }
-
-  if (
-    categoria &&
-    row.categoria !== categoria
-  ) {
-    return false
-  }
-
-  if (
-    priorita &&
-    row.priorita !== priorita
-  ) {
-    return false
-  }
-
-  if (periodoStart) {
-    const rowTime =
-      toTime(row.data_mail)
-
-    if (
-      !rowTime ||
-      rowTime <
-        periodoStart.getTime()
-    ) {
-      return false
-    }
-  }
-
-  if (search) {
-    const s =
-      safeSearch(search)
-
-    if (s) {
-      const haystack =
-        [
-          row.cliente_nome,
-          row.bookmaker,
-          row.mittente,
-          row.oggetto,
-          row.testo_completo,
-          row.motivazione_ai,
-          row.condizioni,
-        ]
-          .map(normalize)
-          .join(' ')
-
-      if (!haystack.includes(s)) {
-        return false
-      }
-    }
-  }
-
-  return true
-}
-
-/*
- * =========================================================
- * CONTATORI
- * =========================================================
- */
-
-function getCounters(
-  rows: UnifiedRow[]
-) {
-  return {
-    tutte:
-      rows.length,
-
-    opportunita:
-      rows.filter(
-        row =>
-          row.giudizio ===
-          'UTILE'
-      ).length,
-
-    da_valutare:
-      rows.filter(
-        row =>
-          row.giudizio ===
-          'DA_VALUTARE'
-      ).length,
-
-    problemi:
-      rows.filter(
-        row =>
-          PROBLEM_CATEGORIES.includes(
-            row.categoria || ''
-          )
-      ).length,
-
-    ignora:
-      rows.filter(
-        row =>
-          row.giudizio ===
-          'IGNORA'
-      ).length,
-
-    da_analizzare:
-      rows.filter(
-        row =>
-          row.giudizio ===
-          'DA_ANALIZZARE'
-      ).length,
-  }
-}
-
-/*
- * =========================================================
- * CLIENTI PER MENU A TENDINA
- * =========================================================
- */
-
-function getClienti(
-  rows: UnifiedRow[]
-) {
-  return Array.from(
-    new Set(
-      rows
-        .map(
-          row =>
-            row.cliente_nome
-              ?.trim()
-        )
-        .filter(
-          (
-            value
-          ): value is string =>
-            Boolean(value)
-        )
-    )
-  ).sort(
-    (a, b) =>
-      a.localeCompare(
-        b,
-        'it',
-        {
-          sensitivity:
-            'base',
-        }
-      )
-  )
-}
-
-/*
- * =========================================================
- * CARICAMENTO DATI
- * =========================================================
- */
-
-async function loadAll() {
-  /*
-   * Per ora prendiamo l'intero archivio.
-   *
-   * La pagina applicherà di default "1 mese".
-   * In seguito, se l'archivio diventa enorme,
-   * possiamo spostare l'unione in una VIEW SQL.
-   */
+  const [loading, setLoading] =
+    useState(false)
 
   const [
-    emailResult,
-    smsResult,
-  ] = await Promise.all([
-    adminSupabase
-      .from('lucy_mail_archive')
-      .select('*')
-      .order(
-        'data_mail',
-        {
-          ascending: false,
+    comunicazioneAperta,
+    setComunicazioneAperta,
+  ] = useState<Comunicazione | null>(null)
+
+  const [vista, setVista] =
+    useState<Vista>('opportunita')
+
+  /*
+   * Default: ultimo mese.
+   */
+  const [periodo, setPeriodo] =
+    useState('1m')
+
+  const [canale, setCanale] =
+    useState('TUTTI')
+
+  const [f, setF] =
+    useState({
+      q: '',
+      cliente: '',
+      bookmaker: '',
+      giudizio: '',
+      categoria: '',
+      priorita: '',
+    })
+
+  /*
+   * =======================================================
+   * CARICAMENTO
+   * =======================================================
+   */
+
+  const load =
+    useCallback(async () => {
+      setLoading(true)
+
+      try {
+        const p =
+          new URLSearchParams()
+
+        if (vista !== 'tutte') {
+          p.set('vista', vista)
         }
-      )
-      .limit(5000),
 
-    adminSupabase
-      .from('sms_clienti')
-      .select('*')
-      .order(
-        'data_ricezione',
-        {
-          ascending: false,
+        Object.entries(f).forEach(
+          ([key, value]) => {
+            if (value) {
+              p.set(key, value)
+            }
+          }
+        )
+
+        p.set('periodo', periodo)
+
+        if (canale !== 'TUTTI') {
+          p.set('canale', canale)
         }
-      )
-      .limit(5000),
-  ])
 
-  if (emailResult.error) {
-    throw new Error(
-      emailResult.error.message
-    )
-  }
+        p.set('page_size', '100')
 
-  if (smsResult.error) {
-    throw new Error(
-      smsResult.error.message
-    )
-  }
+        const r =
+          await fetch(
+            '/api/lucy-mail/archive?' +
+              p.toString(),
+            {
+              cache: 'no-store',
+            }
+          )
 
-  const emails =
-    (emailResult.data || [])
-      .map(normalizeEmail)
+        const j =
+          await r.json()
 
-  const sms =
-    (smsResult.data || [])
-      .map(normalizeSms)
+        if (!r.ok) {
+          console.error(
+            '[Lucy Archive]',
+            j
+          )
+          return
+        }
 
-  return [
-    ...emails,
-    ...sms,
-  ].sort(
-    (a, b) =>
-      toTime(b.data_mail) -
-      toTime(a.data_mail)
-  )
-}
+        setRows(j.data || [])
+        setCount(j.count || 0)
+        setCounters(
+          j.counters ||
+            emptyCounters
+        )
 
-/*
- * =========================================================
- * GET
- * =========================================================
- */
-
-export async function GET(
-  req: NextRequest
-) {
-  if (!(await authorize(req))) {
-    return NextResponse.json(
-      {
-        error:
-          'Non autorizzato',
-      },
-      {
-        status: 401,
+        setClienti(
+          j.clienti || []
+        )
+      } finally {
+        setLoading(false)
       }
-    )
-  }
-
-  try {
-    const sp =
-      req.nextUrl.searchParams
-
-    const page =
-      Math.max(
-        1,
-        Number(
-          sp.get('page') ||
-            1
-        )
-      )
-
-    const pageSize =
-      Math.min(
-        100,
-        Math.max(
-          10,
-          Number(
-            sp.get(
-              'page_size'
-            ) || 50
-          )
-        )
-      )
-
-    const vista =
-      sp.get('vista')
-
-    const cliente =
-      sp.get('cliente')
-
-    const bookmaker =
-      sp.get('bookmaker')
-
-    const giudizio =
-      sp.get('giudizio')
-
-    const categoria =
-      sp.get('categoria')
-
-    const priorita =
-      sp.get('priorita')
-
-    const search =
-      sp.get('q')
-
-    const canale =
-      sp.get('canale')
-
-    /*
-     * Default:
-     * ultimo mese.
-     */
-    const periodo =
-      sp.get('periodo') ||
-      '1m'
-
-    const periodoStart =
-      getPeriodoStart(
-        periodo
-      )
-
-    const allRows =
-      await loadAll()
-
-    /*
-     * I contatori rispettano:
-     * - periodo
-     * - canale
-     *
-     * ma NON la vista selezionata.
-     *
-     * Così i sei pulsanti continuano
-     * a mostrare il quadro generale
-     * del periodo scelto.
-     */
-
-    const rowsForCounters =
-      allRows.filter(
-        row =>
-          matchesFilters(
-            row,
-            {
-              cliente: null,
-              bookmaker: null,
-              giudizio: null,
-              categoria: null,
-              priorita: null,
-              search: null,
-              canale,
-              periodoStart,
-            }
-          )
-      )
-
-    const counters =
-      getCounters(
-        rowsForCounters
-      )
-
-    /*
-     * Lista clienti.
-     *
-     * La ricaviamo dall'intero archivio,
-     * così il menu non cambia quando
-     * si passa da una vista all'altra.
-     */
-
-    const clienti =
-      getClienti(allRows)
-
-    /*
-     * Filtri effettivi.
-     */
-
-    let filtered =
-      allRows.filter(
-        row =>
-          matchesVista(
-            row,
-            vista
-          ) &&
-          matchesFilters(
-            row,
-            {
-              cliente,
-              bookmaker,
-              giudizio,
-              categoria,
-              priorita,
-              search,
-              canale,
-              periodoStart,
-            }
-          )
-      )
-
-    const count =
-      filtered.length
-
-    /*
-     * Paginazione dopo l'unione
-     * EMAIL + SMS.
-     */
-
-    const from =
-      (page - 1) *
-      pageSize
-
-    const to =
-      from +
-      pageSize
-
-    filtered =
-      filtered.slice(
-        from,
-        to
-      )
-
-    return NextResponse.json({
-      data:
-        filtered,
-
-      count,
-
-      counters,
-
-      clienti,
-
+    }, [
+      f,
+      vista,
       periodo,
-
-      page,
-
-      pageSize,
-    })
-  } catch (error) {
-    console.error(
-      '[Lucy Archive]',
-      error
-    )
-
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : 'Errore archivio Lucy',
-      },
-      {
-        status: 500,
-      }
-    )
-  }
-}
-
-/*
- * =========================================================
- * PATCH
- * =========================================================
- */
-
-export async function PATCH(
-  req: NextRequest
-) {
-  if (!(await authorize(req))) {
-    return NextResponse.json(
-      {
-        error:
-          'Non autorizzato',
-      },
-      {
-        status: 401,
-      }
-    )
-  }
-
-  try {
-    const body =
-      await req.json()
-
-    const {
-      id,
-      source_id,
       canale,
-      feedback_utente,
-      feedback_note,
-      letta,
-    } = body
+    ])
 
-    /*
-     * Accettiamo sia il nuovo formato:
-     *
-     * EMAIL:123
-     * SMS:abc
-     *
-     * sia source_id + canale.
-     */
+  useEffect(() => {
+    load()
+  }, [load])
 
-    let realId =
-      source_id
+  /*
+   * =======================================================
+   * FEEDBACK
+   * =======================================================
+   */
 
-    let realCanale:
-      Canale | null =
-      canale === 'SMS'
-        ? 'SMS'
-        : canale === 'EMAIL'
-          ? 'EMAIL'
-          : null
+  async function feedback(
+    item: Comunicazione,
+    value: string
+  ) {
+    await fetch(
+      '/api/lucy-mail/archive',
+      {
+        method: 'PATCH',
 
-    if (
-      !realId &&
-      typeof id === 'string' &&
-      id.includes(':')
-    ) {
-      const [
-        prefix,
-        ...rest
-      ] = id.split(':')
-
-      realCanale =
-        prefix === 'SMS'
-          ? 'SMS'
-          : 'EMAIL'
-
-      realId =
-        rest.join(':')
-    }
-
-    /*
-     * Compatibilità con le vecchie
-     * chiamate della pagina:
-     * un ID numerico senza canale
-     * viene considerato EMAIL.
-     */
-
-    if (
-      !realId &&
-      id !== undefined &&
-      id !== null
-    ) {
-      realId = id
-
-      if (!realCanale) {
-        realCanale =
-          'EMAIL'
-      }
-    }
-
-    if (
-      realId === undefined ||
-      realId === null ||
-      !realCanale
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            'id o canale mancante',
+        headers: {
+          'Content-Type':
+            'application/json',
         },
-        {
-          status: 400,
-        }
-      )
-    }
 
-    const patch:
-      Record<
-        string,
-        unknown
-      > = {
-        updated_at:
-          new Date()
-            .toISOString(),
+        body: JSON.stringify({
+          id: item.id,
+          source_id:
+            item.source_id,
+          canale:
+            item.canale,
+          feedback_utente:
+            value,
+        }),
       }
-
-    if (
-      feedback_utente !==
-      undefined
-    ) {
-      patch.feedback_utente =
-        feedback_utente
-    }
-
-    if (
-      feedback_note !==
-      undefined
-    ) {
-      patch.feedback_note =
-        feedback_note
-    }
-
-    if (
-      letta !==
-      undefined
-    ) {
-      patch.letta =
-        letta
-    }
-
-    const table =
-      realCanale === 'SMS'
-        ? 'sms_clienti'
-        : 'lucy_mail_archive'
-
-    const {
-      data,
-      error,
-    } =
-      await adminSupabase
-        .from(table)
-        .update(patch)
-        .eq(
-          'id',
-          realId
-        )
-        .select()
-        .single()
-
-    if (error) {
-      return NextResponse.json(
-        {
-          error:
-            error.message,
-        },
-        {
-          status: 500,
-        }
-      )
-    }
-
-    return NextResponse.json({
-      ok: true,
-      canale:
-        realCanale,
-      data,
-    })
-  } catch (error) {
-    console.error(
-      '[Lucy Archive PATCH]',
-      error
     )
 
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : 'Errore aggiornamento Lucy',
-      },
-      {
-        status: 500,
+    load()
+  }
+
+  /*
+   * =======================================================
+   * APERTURA COMUNICAZIONE
+   * =======================================================
+   */
+
+  async function apriComunicazione(
+    item: Comunicazione
+  ) {
+    setComunicazioneAperta(item)
+
+    try {
+      await fetch(
+        '/api/lucy-mail/archive',
+        {
+          method: 'PATCH',
+
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
+
+          body: JSON.stringify({
+            id: item.id,
+            source_id:
+              item.source_id,
+            canale:
+              item.canale,
+            letta: true,
+          }),
+        }
+      )
+    } catch (error) {
+      console.error(
+        '[Lucy lettura]',
+        error
+      )
+    }
+  }
+
+  /*
+   * =======================================================
+   * CAMBIO VISTA
+   * =======================================================
+   */
+
+  function cambiaVista(
+    nuovaVista: Vista
+  ) {
+    setVista(nuovaVista)
+
+    /*
+     * Manteniamo periodo e canale.
+     * Reset solo dei filtri specifici.
+     */
+    setF({
+      q: '',
+      cliente: '',
+      bookmaker: '',
+      giudizio: '',
+      categoria: '',
+      priorita: '',
+    })
+  }
+
+  /*
+   * =======================================================
+   * CLASSI
+   * =======================================================
+   */
+
+  function tabClass(
+    key: Vista
+  ) {
+    const active =
+      vista === key
+
+    return `
+      border
+      border-sky-200
+      rounded-xl
+      px-4
+      py-3
+      text-left
+      transition
+      ${
+        active
+          ? 'bg-slate-900 text-white shadow-md border-slate-900'
+          : 'bg-white text-slate-900 hover:bg-sky-50'
       }
+    `
+  }
+
+  function priorityClass(
+    priority: string | null
+  ) {
+    if (priority === 'alta') {
+      return 'text-red-600 font-bold'
+    }
+
+    if (priority === 'media') {
+      return 'text-orange-600 font-semibold'
+    }
+
+    return 'text-gray-500'
+  }
+
+  /*
+   * =======================================================
+   * DATA
+   * =======================================================
+   */
+
+  function formatDate(
+    value: string | null
+  ) {
+    if (!value) {
+      return '-'
+    }
+
+    const date =
+      new Date(value)
+
+    if (
+      Number.isNaN(
+        date.getTime()
+      )
+    ) {
+      return value
+    }
+
+    return date.toLocaleString(
+      'it-IT'
     )
   }
+
+  /*
+   * =======================================================
+   * RENDER
+   * =======================================================
+   */
+
+  return (
+    <div
+      className="
+        min-h-screen
+        bg-sky-50
+        text-slate-900
+      "
+    >
+      <main
+        className="
+          p-6
+          max-w-[1800px]
+          mx-auto
+        "
+      >
+        {/* HEADER */}
+
+        <div
+          className="
+            flex
+            flex-wrap
+            items-center
+            justify-between
+            gap-4
+            mb-6
+          "
+        >
+          <div
+            className="
+              flex
+              items-center
+              gap-4
+            "
+          >
+            <img
+              src="/Lucy.png"
+              alt="Lucy"
+              className="
+                w-20
+                h-20
+                object-cover
+                rounded-2xl
+                shadow-lg
+                border
+                border-cyan-300
+              "
+            />
+
+            <div>
+              <h1
+                className="
+                  text-3xl
+                  font-bold
+                "
+              >
+                Lucy
+              </h1>
+
+              <p
+                className="
+                  text-slate-600
+                  mt-1
+                "
+              >
+                Opportunità e
+                comunicazioni dai tuoi
+                account
+              </p>
+
+              <div
+                className="
+                  text-xs
+                  font-semibold
+                  text-cyan-700
+                  mt-1
+                "
+              >
+                ● AI OPERATIVA
+              </div>
+            </div>
+          </div>
+
+          <div
+            className="
+              flex
+              items-center
+              gap-2
+            "
+          >
+            <button
+              onClick={() =>
+                router.push(
+                  '/profit-tracker'
+                )
+              }
+              className="
+                border
+                border-sky-300
+                rounded-lg
+                px-4
+                py-2
+                bg-sky-600
+                hover:bg-sky-700
+                text-white
+                font-semibold
+                shadow-sm
+              "
+            >
+              🏠 Dashboard
+            </button>
+
+            <button
+              onClick={load}
+              className="
+                border
+                border-sky-200
+                rounded-lg
+                px-4
+                py-2
+                bg-white
+                hover:bg-sky-50
+                text-slate-900
+                font-semibold
+              "
+            >
+              🔄 Aggiorna
+            </button>
+          </div>
+        </div>
+
+        {/* CONTATORI */}
+
+        <div
+          className="
+            grid
+            grid-cols-2
+            md:grid-cols-3
+            xl:grid-cols-6
+            gap-3
+            mb-6
+          "
+        >
+          <button
+            className={
+              tabClass(
+                'opportunita'
+              )
+            }
+            onClick={() =>
+              cambiaVista(
+                'opportunita'
+              )
+            }
+          >
+            <div className="text-xl font-bold">
+              🔥 {counters.opportunita}
+            </div>
+            <div>Opportunità</div>
+          </button>
+
+          <button
+            className={
+              tabClass(
+                'da_valutare'
+              )
+            }
+            onClick={() =>
+              cambiaVista(
+                'da_valutare'
+              )
+            }
+          >
+            <div className="text-xl font-bold">
+              ⚠️ {counters.da_valutare}
+            </div>
+            <div>Da valutare</div>
+          </button>
+
+          <button
+            className={
+              tabClass(
+                'problemi'
+              )
+            }
+            onClick={() =>
+              cambiaVista(
+                'problemi'
+              )
+            }
+          >
+            <div className="text-xl font-bold">
+              🚨 {counters.problemi}
+            </div>
+            <div>Problemi</div>
+          </button>
+
+          <button
+            className={
+              tabClass('ignora')
+            }
+            onClick={() =>
+              cambiaVista('ignora')
+            }
+          >
+            <div className="text-xl font-bold">
+              ⚪ {counters.ignora}
+            </div>
+            <div>Ignora</div>
+          </button>
+
+          <button
+            className={
+              tabClass(
+                'da_analizzare'
+              )
+            }
+            onClick={() =>
+              cambiaVista(
+                'da_analizzare'
+              )
+            }
+          >
+            <div className="text-xl font-bold">
+              ⏳ {counters.da_analizzare}
+            </div>
+            <div>Da analizzare</div>
+          </button>
+
+          <button
+            className={
+              tabClass('tutte')
+            }
+            onClick={() =>
+              cambiaVista('tutte')
+            }
+          >
+            <div className="text-xl font-bold">
+              📚 {counters.tutte}
+            </div>
+            <div>Tutte</div>
+          </button>
+        </div>
+
+        {/* RIEPILOGO */}
+
+        <div
+          className="
+            mb-3
+            flex
+            flex-wrap
+            items-center
+            gap-3
+            font-semibold
+            text-slate-700
+          "
+        >
+          <span>
+            {count}{' '}
+            {count === 1
+              ? 'comunicazione'
+              : 'comunicazioni'}
+          </span>
+
+          <span
+            className="
+              text-xs
+              bg-white
+              border
+              border-sky-200
+              rounded-full
+              px-3
+              py-1
+            "
+          >
+            {canale === 'EMAIL'
+              ? '📧 Email'
+              : canale === 'SMS'
+                ? '📱 SMS'
+                : '📨 Email + SMS'}
+          </span>
+        </div>
+
+        {/* FILTRI */}
+
+        <div
+          className="
+            grid
+            md:grid-cols-2
+            xl:grid-cols-4
+            2xl:grid-cols-8
+            gap-2
+            mb-5
+          "
+        >
+          {/* CERCA */}
+
+          <input
+            className="
+              border
+              border-sky-200
+              rounded-lg
+              px-3
+              py-2
+              bg-white
+              text-black
+              w-full
+            "
+            placeholder="Cerca testo..."
+            value={f.q}
+            onChange={e =>
+              setF({
+                ...f,
+                q: e.target.value,
+              })
+            }
+          />
+
+          {/* CLIENTE */}
+
+          <select
+            className="
+              border
+              border-sky-200
+              rounded-lg
+              px-3
+              py-2
+              bg-white
+              text-black
+            "
+            value={f.cliente}
+            onChange={e =>
+              setF({
+                ...f,
+                cliente:
+                  e.target.value,
+              })
+            }
+          >
+            <option value="">
+              Tutti i clienti
+            </option>
+
+            {clienti.map(cliente => (
+              <option
+                key={cliente}
+                value={cliente}
+              >
+                {cliente}
+              </option>
+            ))}
+          </select>
+
+          {/* BOOKMAKER */}
+
+          <input
+            className="
+              border
+              border-sky-200
+              rounded-lg
+              px-3
+              py-2
+              bg-white
+              text-black
+              w-full
+            "
+            placeholder="Bookmaker"
+            value={f.bookmaker}
+            onChange={e =>
+              setF({
+                ...f,
+                bookmaker:
+                  e.target.value,
+              })
+            }
+          />
+
+          {/* PERIODO */}
+
+          <select
+            className="
+              border
+              border-sky-200
+              rounded-lg
+              px-3
+              py-2
+              bg-white
+              text-black
+              font-semibold
+            "
+            value={periodo}
+            onChange={e =>
+              setPeriodo(
+                e.target.value
+              )
+            }
+          >
+            <option value="15g">
+              Ultimi 15 giorni
+            </option>
+
+            <option value="1m">
+              Ultimo mese
+            </option>
+
+            <option value="3m">
+              Ultimi 3 mesi
+            </option>
+
+            <option value="tutto">
+              Tutto l'archivio
+            </option>
+          </select>
+
+          {/* CANALE */}
+
+          <select
+            className="
+              border
+              border-sky-200
+              rounded-lg
+              px-3
+              py-2
+              bg-white
+              text-black
+              font-semibold
+            "
+            value={canale}
+            onChange={e =>
+              setCanale(
+                e.target.value
+              )
+            }
+          >
+            <option value="TUTTI">
+              📨 Email + SMS
+            </option>
+
+            <option value="EMAIL">
+              📧 Solo Email
+            </option>
+
+            <option value="SMS">
+              📱 Solo SMS
+            </option>
+          </select>
+
+          {/* GIUDIZIO */}
+
+          <select
+            className="
+              border
+              border-sky-200
+              rounded-lg
+              px-3
+              py-2
+              bg-white
+              text-black
+            "
+            value={f.giudizio}
+            onChange={e =>
+              setF({
+                ...f,
+                giudizio:
+                  e.target.value,
+              })
+            }
+          >
+            <option value="">
+              Tutti i giudizi
+            </option>
+            <option>UTILE</option>
+            <option>DA_VALUTARE</option>
+            <option>IGNORA</option>
+            <option>DA_ANALIZZARE</option>
+          </select>
+
+          {/* CATEGORIA */}
+
+          <select
+            className="
+              border
+              border-sky-200
+              rounded-lg
+              px-3
+              py-2
+              bg-white
+              text-black
+            "
+            value={f.categoria}
+            onChange={e =>
+              setF({
+                ...f,
+                categoria:
+                  e.target.value,
+              })
+            }
+          >
+            <option value="">
+              Tutte le categorie
+            </option>
+
+            <option>BONUS</option>
+            <option>FREEBET</option>
+            <option>CASHBACK</option>
+            <option>PROMO_DEPOSITO</option>
+            <option>PROMO_CASINO</option>
+            <option>PROMO_SLOT</option>
+            <option>PROMO_PERSONALIZZATA</option>
+            <option>RIMBORSO</option>
+            <option>KYC</option>
+            <option>LIMITAZIONE</option>
+            <option>SOSPENSIONE</option>
+            <option>PRELIEVO</option>
+            <option>DEPOSITO</option>
+            <option>SICUREZZA</option>
+            <option>SCADENZA</option>
+            <option>NEWSLETTER</option>
+            <option>PUBBLICITA</option>
+            <option>ALTRO</option>
+          </select>
+
+          {/* PRIORITÀ */}
+
+          <select
+            className="
+              border
+              border-sky-200
+              rounded-lg
+              px-3
+              py-2
+              bg-white
+              text-black
+            "
+            value={f.priorita}
+            onChange={e =>
+              setF({
+                ...f,
+                priorita:
+                  e.target.value,
+              })
+            }
+          >
+            <option value="">
+              Tutte le priorità
+            </option>
+            <option>alta</option>
+            <option>media</option>
+            <option>bassa</option>
+          </select>
+        </div>
+
+        {/* TABELLA */}
+
+        <div
+          className="
+            overflow-x-auto
+            border
+            border-sky-200
+            rounded-xl
+            bg-white/90
+            shadow-sm
+          "
+        >
+          <table
+            className="
+              w-full
+              text-sm
+              text-black
+            "
+          >
+            <thead>
+              <tr
+                className="
+                  text-left
+                  border-b
+                  border-sky-200
+                  bg-sky-100
+                "
+              >
+                <th className="p-3">
+                  Canale
+                </th>
+
+                <th className="p-3">
+                  Data
+                </th>
+
+                <th className="p-3">
+                  Cliente
+                </th>
+
+                <th className="p-3">
+                  Book
+                </th>
+
+                <th className="p-3">
+                  Comunicazione
+                </th>
+
+                <th className="p-3">
+                  Lucy
+                </th>
+
+                <th className="p-3">
+                  Valore
+                </th>
+
+                <th className="p-3">
+                  Dettagli
+                </th>
+
+                <th className="p-3">
+                  Feedback
+                </th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {loading && (
+                <tr>
+                  <td
+                    className="p-5"
+                    colSpan={9}
+                  >
+                    Lucy sta caricando…
+                  </td>
+                </tr>
+              )}
+
+              {!loading &&
+                rows.map(item => (
+                  <tr
+                    key={item.id}
+                    className="
+                      border-b
+                      border-sky-100
+                      align-top
+                      hover:bg-sky-50
+                    "
+                  >
+                    {/* CANALE */}
+
+                    <td
+                      className="
+                        p-3
+                        whitespace-nowrap
+                      "
+                    >
+                      <span
+                        className={`
+                          inline-flex
+                          items-center
+                          rounded-full
+                          px-2
+                          py-1
+                          text-xs
+                          font-bold
+                          ${
+                            item.canale ===
+                            'SMS'
+                              ? 'bg-violet-100 text-violet-800'
+                              : 'bg-blue-100 text-blue-800'
+                          }
+                        `}
+                      >
+                        {item.canale ===
+                        'SMS'
+                          ? '📱 SMS'
+                          : '📧 EMAIL'}
+                      </span>
+                    </td>
+
+                    {/* DATA */}
+
+                    <td
+                      className="
+                        p-3
+                        whitespace-nowrap
+                      "
+                    >
+                      {formatDate(
+                        item.data_mail
+                      )}
+                    </td>
+
+                    {/* CLIENTE */}
+
+                    <td
+                      className="
+                        p-3
+                        font-medium
+                      "
+                    >
+                      {item.cliente_nome ||
+                        '-'}
+                    </td>
+
+                    {/* BOOK */}
+
+                    <td
+                      className="
+                        p-3
+                        whitespace-nowrap
+                      "
+                    >
+                      {item.bookmaker ||
+                        item.mittente ||
+                        '-'}
+                    </td>
+
+                    {/* COMUNICAZIONE */}
+
+                    <td
+                      className="
+                        p-3
+                        min-w-[260px]
+                      "
+                    >
+                      <button
+                        onClick={() =>
+                          apriComunicazione(
+                            item
+                          )
+                        }
+                        className="
+                          text-left
+                          font-semibold
+                          text-blue-700
+                          hover:text-blue-900
+                          hover:underline
+                        "
+                      >
+                        {item.canale ===
+                          'SMS'
+                          ? item.testo_completo
+                              ?.slice(
+                                0,
+                                90
+                              ) ||
+                            'SMS'
+                          : item.oggetto ||
+                            '(senza oggetto)'}
+                      </button>
+
+                      <div className="mt-2">
+                        <button
+                          onClick={() =>
+                            apriComunicazione(
+                              item
+                            )
+                          }
+                          className="
+                            text-xs
+                            bg-sky-100
+                            hover:bg-sky-200
+                            text-sky-800
+                            px-2
+                            py-1
+                            rounded-md
+                            font-semibold
+                          "
+                        >
+                          {item.canale ===
+                          'SMS'
+                            ? '📱 Apri SMS'
+                            : '📩 Apri email'}
+                        </button>
+                      </div>
+                    </td>
+
+                    {/* LUCY */}
+
+                    <td
+                      className="
+                        p-3
+                        min-w-[150px]
+                      "
+                    >
+                      <div className="font-bold">
+                        {item.giudizio}
+                      </div>
+
+                      <div>
+                        {item.categoria}
+                      </div>
+
+                      <div
+                        className={
+                          priorityClass(
+                            item.priorita
+                          )
+                        }
+                      >
+                        {item.priorita}
+                      </div>
+                    </td>
+
+                    {/* VALORE */}
+
+                    <td
+                      className="
+                        p-3
+                        min-w-[150px]
+                      "
+                    >
+                      {item.bonus_importo !=
+                        null && (
+                        <div
+                          className="
+                            font-bold
+                            text-green-700
+                          "
+                        >
+                          Bonus €
+                          {
+                            item.bonus_importo
+                          }
+                        </div>
+                      )}
+
+                      {item.deposito_richiesto !=
+                        null && (
+                        <div>
+                          Deposito €
+                          {
+                            item.deposito_richiesto
+                          }
+                        </div>
+                      )}
+
+                      {item.rollover && (
+                        <div>
+                          Rollover:{' '}
+                          {item.rollover}
+                        </div>
+                      )}
+
+                      {item.scadenza && (
+                        <div
+                          className="
+                            mt-1
+                            font-semibold
+                          "
+                        >
+                          ⏰{' '}
+                          {formatDate(
+                            item.scadenza
+                          )}
+                        </div>
+                      )}
+
+                      {item.bonus_importo ==
+                        null &&
+                        item.deposito_richiesto ==
+                          null &&
+                        !item.rollover &&
+                        !item.scadenza &&
+                        '-'}
+                    </td>
+
+                    {/* DETTAGLI */}
+
+                    <td
+                      className="
+                        p-3
+                        min-w-[320px]
+                      "
+                    >
+                      <div>
+                        {item.motivazione_ai ||
+                          'In attesa di analisi'}
+                      </div>
+
+                      {item.condizioni && (
+                        <div
+                          className="
+                            mt-2
+                            text-gray-600
+                          "
+                        >
+                          {item.condizioni}
+                        </div>
+                      )}
+
+                      {item.richiede_azione && (
+                        <div
+                          className="
+                            mt-2
+                            font-bold
+                            text-red-600
+                          "
+                        >
+                          ⚡ Richiede azione
+                        </div>
+                      )}
+                    </td>
+
+                    {/* FEEDBACK */}
+
+                    <td
+                      className="
+                        p-3
+                        whitespace-nowrap
+                      "
+                    >
+                      <button
+                        onClick={() =>
+                          feedback(
+                            item,
+                            'UTILE'
+                          )
+                        }
+                        className="
+                          mr-3
+                          text-lg
+                        "
+                        title="Lucy ha classificato bene"
+                      >
+                        👍
+                      </button>
+
+                      <button
+                        onClick={() =>
+                          feedback(
+                            item,
+                            'INUTILE'
+                          )
+                        }
+                        className="text-lg"
+                        title="Lucy ha sbagliato"
+                      >
+                        👎
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+
+              {!loading &&
+                rows.length === 0 && (
+                  <tr>
+                    <td
+                      className="p-6"
+                      colSpan={9}
+                    >
+                      Nessuna
+                      comunicazione in
+                      questa sezione.
+                    </td>
+                  </tr>
+                )}
+            </tbody>
+          </table>
+        </div>
+      </main>
+
+      {/* ===============================================
+          MODAL EMAIL / SMS
+          =============================================== */}
+
+      {comunicazioneAperta && (
+        <div
+          className="
+            fixed
+            inset-0
+            z-50
+            bg-black/60
+            flex
+            items-center
+            justify-center
+            p-4
+          "
+          onClick={() =>
+            setComunicazioneAperta(
+              null
+            )
+          }
+        >
+          <div
+            className="
+              bg-white
+              text-slate-900
+              rounded-2xl
+              shadow-2xl
+              w-full
+              max-w-5xl
+              max-h-[90vh]
+              overflow-hidden
+              flex
+              flex-col
+            "
+            onClick={e =>
+              e.stopPropagation()
+            }
+          >
+            {/* HEADER MODAL */}
+
+            <div
+              className="
+                bg-sky-100
+                border-b
+                border-sky-200
+                p-5
+                flex
+                justify-between
+                items-start
+                gap-4
+              "
+            >
+              <div>
+                <div
+                  className="
+                    text-sm
+                    text-sky-700
+                    font-bold
+                    mb-1
+                  "
+                >
+                  {comunicazioneAperta.canale ===
+                  'SMS'
+                    ? '📱 SMS'
+                    : '📧 EMAIL'}
+                </div>
+
+                <h2
+                  className="
+                    text-xl
+                    font-bold
+                  "
+                >
+                  {comunicazioneAperta.canale ===
+                  'SMS'
+                    ? comunicazioneAperta.bookmaker ||
+                      comunicazioneAperta.mittente ||
+                      'SMS'
+                    : comunicazioneAperta.oggetto ||
+                      '(senza oggetto)'}
+                </h2>
+              </div>
+
+              <button
+                onClick={() =>
+                  setComunicazioneAperta(
+                    null
+                  )
+                }
+                className="
+                  bg-slate-900
+                  hover:bg-black
+                  text-white
+                  rounded-lg
+                  px-4
+                  py-2
+                  font-bold
+                  whitespace-nowrap
+                "
+              >
+                ✕ Chiudi
+              </button>
+            </div>
+
+            {/* CONTENUTO */}
+
+            <div
+              className="
+                overflow-y-auto
+                p-6
+              "
+            >
+              {/* DATI */}
+
+              <div
+                className="
+                  grid
+                  md:grid-cols-2
+                  gap-3
+                  bg-slate-50
+                  border
+                  rounded-xl
+                  p-4
+                  mb-5
+                  text-sm
+                "
+              >
+                <div>
+                  <strong>
+                    Canale:
+                  </strong>{' '}
+                  {comunicazioneAperta.canale ===
+                  'SMS'
+                    ? '📱 SMS'
+                    : '📧 Email'}
+                </div>
+
+                <div>
+                  <strong>
+                    Cliente:
+                  </strong>{' '}
+                  {comunicazioneAperta.cliente_nome ||
+                    '-'}
+                </div>
+
+                <div>
+                  <strong>
+                    Book:
+                  </strong>{' '}
+                  {comunicazioneAperta.bookmaker ||
+                    '-'}
+                </div>
+
+                <div>
+                  <strong>
+                    Mittente:
+                  </strong>{' '}
+                  {comunicazioneAperta.mittente ||
+                    '-'}
+                </div>
+
+                {comunicazioneAperta.canale ===
+                  'EMAIL' && (
+                  <div>
+                    <strong>A:</strong>{' '}
+                    {comunicazioneAperta.destinatario_originale ||
+                      '-'}
+                  </div>
+                )}
+
+                <div>
+                  <strong>
+                    Data:
+                  </strong>{' '}
+                  {formatDate(
+                    comunicazioneAperta.data_mail
+                  )}
+                </div>
+
+                <div>
+                  <strong>
+                    Priorità:
+                  </strong>{' '}
+                  <span
+                    className={
+                      priorityClass(
+                        comunicazioneAperta.priorita
+                      )
+                    }
+                  >
+                    {comunicazioneAperta.priorita ||
+                      '-'}
+                  </span>
+                </div>
+              </div>
+
+              {/* ANALISI LUCY */}
+
+              <div
+                className="
+                  bg-blue-50
+                  border
+                  border-blue-200
+                  rounded-xl
+                  p-4
+                  mb-5
+                "
+              >
+                <div
+                  className="
+                    flex
+                    items-center
+                    gap-3
+                    mb-3
+                  "
+                >
+                  <img
+                    src="/Lucy.png"
+                    alt="Lucy"
+                    className="
+                      w-11
+                      h-11
+                      object-cover
+                      rounded-lg
+                      border
+                      border-cyan-300
+                    "
+                  />
+
+                  <div
+                    className="
+                      font-bold
+                      text-blue-900
+                    "
+                  >
+                    Analisi Lucy
+                  </div>
+                </div>
+
+                <div className="mb-2">
+                  <strong>
+                    {comunicazioneAperta.giudizio ||
+                      'DA_ANALIZZARE'}
+                  </strong>
+
+                  {' · '}
+
+                  {comunicazioneAperta.categoria ||
+                    '-'}
+                </div>
+
+                {comunicazioneAperta.motivazione_ai && (
+                  <div className="mb-3">
+                    {
+                      comunicazioneAperta.motivazione_ai
+                    }
+                  </div>
+                )}
+
+                <div
+                  className="
+                    flex
+                    flex-wrap
+                    gap-4
+                    text-sm
+                  "
+                >
+                  {comunicazioneAperta.bonus_importo !=
+                    null && (
+                    <div
+                      className="
+                        font-bold
+                        text-green-700
+                      "
+                    >
+                      💰 Bonus €
+                      {
+                        comunicazioneAperta.bonus_importo
+                      }
+                    </div>
+                  )}
+
+                  {comunicazioneAperta.deposito_richiesto !=
+                    null && (
+                    <div>
+                      💳 Deposito €
+                      {
+                        comunicazioneAperta.deposito_richiesto
+                      }
+                    </div>
+                  )}
+
+                  {comunicazioneAperta.rollover && (
+                    <div>
+                      🔁 Rollover:{' '}
+                      {
+                        comunicazioneAperta.rollover
+                      }
+                    </div>
+                  )}
+
+                  {comunicazioneAperta.scadenza && (
+                    <div
+                      className="
+                        font-semibold
+                        text-red-700
+                      "
+                    >
+                      ⏰ Scadenza:{' '}
+                      {formatDate(
+                        comunicazioneAperta.scadenza
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {comunicazioneAperta.condizioni && (
+                  <div
+                    className="
+                      mt-3
+                      pt-3
+                      border-t
+                      border-blue-200
+                    "
+                  >
+                    <strong>
+                      Condizioni:
+                    </strong>{' '}
+                    {
+                      comunicazioneAperta.condizioni
+                    }
+                  </div>
+                )}
+
+                {comunicazioneAperta.richiede_azione && (
+                  <div
+                    className="
+                      mt-3
+                      font-bold
+                      text-red-600
+                    "
+                  >
+                    ⚡ Questa
+                    comunicazione
+                    richiede un'azione.
+                  </div>
+                )}
+              </div>
+
+              {/* TESTO ORIGINALE */}
+
+              <div>
+                <div
+                  className="
+                    font-bold
+                    text-lg
+                    mb-3
+                  "
+                >
+                  {comunicazioneAperta.canale ===
+                  'SMS'
+                    ? '📱 Testo SMS'
+                    : '✉️ Testo originale'}
+                </div>
+
+                <div
+                  className="
+                    border
+                    border-slate-200
+                    bg-white
+                    rounded-xl
+                    p-5
+                    whitespace-pre-wrap
+                    break-words
+                    leading-relaxed
+                    text-sm
+                  "
+                >
+                  {comunicazioneAperta.testo_completo ||
+                    'Testo non disponibile.'}
+                </div>
+              </div>
+            </div>
+
+            {/* FOOTER */}
+
+            <div
+              className="
+                border-t
+                bg-slate-50
+                p-4
+                flex
+                justify-between
+                items-center
+                gap-3
+              "
+            >
+              <div
+                className="
+                  text-sm
+                  text-slate-500
+                "
+              >
+                {comunicazioneAperta.canale ===
+                'SMS'
+                  ? 'SMS archiviato da Lucy'
+                  : 'Email archiviata da Lucy'}
+              </div>
+
+              <button
+                onClick={() =>
+                  setComunicazioneAperta(
+                    null
+                  )
+                }
+                className="
+                  bg-sky-600
+                  hover:bg-sky-700
+                  text-white
+                  rounded-lg
+                  px-5
+                  py-2
+                  font-bold
+                "
+              >
+                Chiudi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
