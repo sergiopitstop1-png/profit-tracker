@@ -358,7 +358,7 @@ export default function ArchivioLucyPage() {
           MATRIX HERO
           ================================================== */}
 
-      <header
+            <header
         className="
           relative
           h-[230px]
@@ -368,12 +368,137 @@ export default function ArchivioLucyPage() {
           bg-black
         "
       >
-        {/* CONTENUTO HEADER */}
+        {/* MATRIX RAIN - SOLO HEADER */}
 
-<div
-  className="
-    relative
-    z-10
+        <div
+          className="
+            absolute
+            inset-0
+            overflow-hidden
+            pointer-events-none
+            select-none
+          "
+          aria-hidden="true"
+        >
+          {/* BAGLIORE VERDE DI FONDO */}
+
+          <div
+            className="
+              absolute
+              inset-0
+              bg-[radial-gradient(circle_at_center,rgba(22,163,74,0.22),transparent_72%)]
+            "
+          />
+
+          {/* MATRIX - LIVELLO PRINCIPALE */}
+
+          <div
+            className="
+              absolute
+              inset-0
+              grid
+              grid-cols-[repeat(72,minmax(0,1fr))]
+              gap-[1px]
+              opacity-80
+              overflow-hidden
+            "
+          >
+            {matrixColumns.map((digits, index) => (
+              <div
+                key={index}
+                className="
+                  matrix-column
+                  w-full
+                  text-center
+                  font-mono
+                  text-[10px]
+                  font-bold
+                  leading-[12px]
+                  text-green-300
+                  whitespace-pre
+                "
+                style={{
+                  animationDuration: `${5.2 + (index % 9) * 0.55}s`,
+                  animationDelay: `-${(index % 13) * 0.47}s`,
+                }}
+              >
+                {digits
+                  .repeat(7)
+                  .split('')
+                  .join('\n')}
+              </div>
+            ))}
+          </div>
+
+          {/* MATRIX - SECONDO LIVELLO */}
+
+          <div
+            className="
+              absolute
+              inset-0
+              grid
+              grid-cols-[repeat(54,minmax(0,1fr))]
+              gap-[2px]
+              opacity-35
+              overflow-hidden
+              translate-x-2
+            "
+          >
+            {matrixColumns
+              .slice(0, 54)
+              .map((digits, index) => (
+                <div
+                  key={`matrix-back-${index}`}
+                  className="
+                    matrix-column
+                    w-full
+                    text-center
+                    font-mono
+                    text-[9px]
+                    leading-[11px]
+                    text-green-500
+                    whitespace-pre
+                  "
+                  style={{
+                    animationDuration: `${8 + (index % 7) * 0.7}s`,
+                    animationDelay: `-${(index % 11) * 0.65}s`,
+                  }}
+                >
+                  {digits
+                    .repeat(8)
+                    .split('')
+                    .join('\n')}
+                </div>
+              ))}
+          </div>
+
+          {/* OSCURAMENTO PER LASCIARE LE SCRITTE LEGGIBILI */}
+
+          <div
+            className="
+              absolute
+              inset-0
+              bg-gradient-to-r
+              from-black/72
+              via-black/22
+              to-black/48
+            "
+          />
+
+          {/* DISSOLVENZA IN BASSO */}
+
+          <div
+            className="
+              absolute
+              inset-x-0
+              bottom-0
+              h-16
+              bg-gradient-to-b
+              from-transparent
+              to-[#020604]
+            "
+          />
+        </div>
 
         {/* CONTENUTO HEADER */}
 
@@ -547,7 +672,6 @@ export default function ArchivioLucyPage() {
           </div>
         </div>
       </header>
-
       {/* ==================================================
           CONTENUTO OPERATIVO
           ================================================== */}
