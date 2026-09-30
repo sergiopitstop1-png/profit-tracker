@@ -17,6 +17,47 @@ const PROBLEM_CATEGORIES = [
   'SCADENZA',
 ]
 
+type Canale = 'EMAIL' | 'SMS'
+
+type UnifiedRow = {
+  id: string
+  source_id: string | number
+  canale: Canale
+
+  data_mail: string | null
+  cliente_nome: string | null
+  bookmaker: string | null
+  mittente: string | null
+  destinatario_originale: string | null
+
+  oggetto: string | null
+  testo_completo: string | null
+
+  categoria: string | null
+  giudizio: string | null
+  priorita: string | null
+  confidenza: number | null
+
+  tipo_offerta: string | null
+  bonus_importo: number | null
+  deposito_richiesto: number | null
+  rollover: string | null
+  scadenza: string | null
+  condizioni: string | null
+  motivazione_ai: string | null
+  richiede_azione: boolean | null
+
+  letta: boolean | null
+  feedback_utente: string | null
+  feedback_note: string | null
+}
+
+/*
+ * =========================================================
+ * AUTORIZZAZIONE
+ * =========================================================
+ */
+
 async function authorize(req: NextRequest) {
   const response = NextResponse.next()
 
@@ -28,6 +69,7 @@ async function authorize(req: NextRequest) {
         get(name) {
           return req.cookies.get(name)?.value
         },
+
         set(name, value, options) {
           response.cookies.set({
             name,
@@ -35,6 +77,7 @@ async function authorize(req: NextRequest) {
             ...options,
           })
         },
+
         remove(name, options) {
           response.cookies.set({
             name,
@@ -50,13 +93,16 @@ async function authorize(req: NextRequest) {
     data: { session },
   } = await supabase.auth.getSession()
 
-  if (!session) return false
+  if (!session) {
+    return false
+  }
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('role')
-    .eq('id', session.user.id)
-    .single()
+  const { data: profile } =
+    await supabase
+      .from('user_profiles')
+      .select('role')
+      .eq('id', session.user.id)
+      .single()
 
   return (
     profile?.role === 'vip' ||
@@ -64,101 +110,540 @@ async function authorize(req: NextRequest) {
   )
 }
 
+/*
+ * =========================================================
+ * UTILITÀ
+ * =========================================================
+ */
+
 function safeSearch(value: string) {
   return value
     .replace(/[,%()]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+    .toLowerCase()
+}
+
+function normalize(value: unknown) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+}
+
+function getPeriodoStart(periodo: string | null) {
+  if (!periodo || periodo === 'tutto') {
+    return null
+  }
+
+  const now = new Date()
+  const d = new Date(now)
+
+  if (periodo === '15g') {
+    d.setDate(d.getDate() - 15)
+    return d
+  }
+
+  if (periodo === '1m') {
+    d.setMonth(d.getMonth() - 1)
+    return d
+  }
+
+  if (periodo === '3m') {
+    d.setMonth(d.getMonth() - 3)
+    return d
+  }
+
+  return null
+}
+
+function toTime(value: string | null) {
+  if (!value) {
+    return 0
+  }
+
+  const t = new Date(value).getTime()
+
+  return Number.isNaN(t)
+    ? 0
+    : t
 }
 
 /*
- * Conta le mail di una singola query.
+ * =========================================================
+ * NORMALIZZAZIONE EMAIL
+ * =========================================================
  */
-async function countWhere(
-  field?: string,
-  value?: string
+
+function normalizeEmail(row: any): UnifiedRow {
+  return {
+    id: `EMAIL:${row.id}`,
+    source_id: row.id,
+    canale: 'EMAIL',
+
+    data_mail:
+      row.data_mail ?? null,
+
+    cliente_nome:
+      row.cliente_nome ?? null,
+
+    bookmaker:
+      row.bookmaker ?? null,
+
+    mittente:
+      row.mittente ?? null,
+
+    destinatario_originale:
+      row.destinatario_originale ?? null,
+
+    oggetto:
+      row.oggetto ?? null,
+
+    testo_completo:
+      row.testo_completo ?? null,
+
+    categoria:
+      row.categoria ?? null,
+
+    giudizio:
+      row.giudizio ?? null,
+
+    priorita:
+      row.priorita ?? null,
+
+    confidenza:
+      row.confidenza ?? null,
+
+    tipo_offerta:
+      row.tipo_offerta ?? null,
+
+    bonus_importo:
+      row.bonus_importo ?? null,
+
+    deposito_richiesto:
+      row.deposito_richiesto ?? null,
+
+    rollover:
+      row.rollover ?? null,
+
+    scadenza:
+      row.scadenza ?? null,
+
+    condizioni:
+      row.condizioni ?? null,
+
+    motivazione_ai:
+      row.motivazione_ai ?? null,
+
+    richiede_azione:
+      row.richiede_azione ?? false,
+
+    letta:
+      row.letta ?? false,
+
+    feedback_utente:
+      row.feedback_utente ?? null,
+
+    feedback_note:
+      row.feedback_note ?? null,
+  }
+}
+
+/*
+ * =========================================================
+ * NORMALIZZAZIONE SMS
+ * =========================================================
+ */
+
+function normalizeSms(row: any): UnifiedRow {
+  return {
+    id: `SMS:${row.id}`,
+    source_id: row.id,
+    canale: 'SMS',
+
+    data_mail:
+      row.data_ricezione ?? null,
+
+    cliente_nome:
+      row.cliente ??
+      row.telefono ??
+      null,
+
+    bookmaker:
+      row.bookmaker ?? null,
+
+    mittente:
+      row.mittente ?? null,
+
+    destinatario_originale:
+      row.telefono ?? null,
+
+    oggetto:
+      row.tipo === 'OTP'
+        ? 'SMS OTP'
+        : 'SMS',
+
+    testo_completo:
+      row.testo ?? null,
+
+    categoria:
+      row.categoria ?? null,
+
+    giudizio:
+      row.giudizio ?? null,
+
+    priorita:
+      row.priorita ?? null,
+
+    confidenza:
+      row.confidenza ?? null,
+
+    tipo_offerta:
+      row.tipo_offerta ?? null,
+
+    bonus_importo:
+      row.bonus_importo ?? null,
+
+    deposito_richiesto:
+      row.deposito_richiesto ?? null,
+
+    rollover:
+      row.rollover ?? null,
+
+    scadenza:
+      row.scadenza ?? null,
+
+    condizioni:
+      row.condizioni ?? null,
+
+    motivazione_ai:
+      row.motivazione_ai ?? null,
+
+    richiede_azione:
+      row.richiede_azione ?? false,
+
+    letta:
+      row.letta ?? false,
+
+    feedback_utente:
+      row.feedback_utente ?? null,
+
+    feedback_note:
+      row.feedback_note ?? null,
+  }
+}
+
+/*
+ * =========================================================
+ * FILTRI COMUNI
+ * =========================================================
+ */
+
+function matchesVista(
+  row: UnifiedRow,
+  vista: string | null
 ) {
-  let q = adminSupabase
-    .from('lucy_mail_archive')
-    .select('id', {
-      count: 'exact',
-      head: true,
-    })
-
-  if (field && value) {
-    q = q.eq(field, value)
+  if (
+    !vista ||
+    vista === 'tutte'
+  ) {
+    return true
   }
 
-  const { count, error } = await q
-
-  if (error) {
-    throw new Error(error.message)
+  if (vista === 'opportunita') {
+    return row.giudizio === 'UTILE'
   }
 
-  return count || 0
-}
+  if (vista === 'da_valutare') {
+    return row.giudizio === 'DA_VALUTARE'
+  }
 
-/*
- * Tutti i contatori della dashboard Lucy.
- */
-async function getCounters() {
-  const [
-    tutte,
-    opportunita,
-    da_valutare,
-    ignora,
-    da_analizzare,
-    problemiResult,
-  ] = await Promise.all([
-    countWhere(),
+  if (vista === 'ignora') {
+    return row.giudizio === 'IGNORA'
+  }
 
-    countWhere(
-      'giudizio',
-      'UTILE'
-    ),
-
-    countWhere(
-      'giudizio',
-      'DA_VALUTARE'
-    ),
-
-    countWhere(
-      'giudizio',
-      'IGNORA'
-    ),
-
-    countWhere(
-      'giudizio',
-      'DA_ANALIZZARE'
-    ),
-
-    adminSupabase
-      .from('lucy_mail_archive')
-      .select('id', {
-        count: 'exact',
-        head: true,
-      })
-      .in(
-        'categoria',
-        PROBLEM_CATEGORIES
-      ),
-  ])
-
-  if (problemiResult.error) {
-    throw new Error(
-      problemiResult.error.message
+  if (vista === 'da_analizzare') {
+    return (
+      row.giudizio === 'DA_ANALIZZARE'
     )
   }
 
-  return {
-    tutte,
-    opportunita,
-    da_valutare,
-    problemi:
-      problemiResult.count || 0,
-    ignora,
-    da_analizzare,
+  if (vista === 'problemi') {
+    return PROBLEM_CATEGORIES.includes(
+      row.categoria || ''
+    )
   }
+
+  return true
+}
+
+function matchesFilters(
+  row: UnifiedRow,
+  params: {
+    cliente: string | null
+    bookmaker: string | null
+    giudizio: string | null
+    categoria: string | null
+    priorita: string | null
+    search: string | null
+    canale: string | null
+    periodoStart: Date | null
+  }
+) {
+  const {
+    cliente,
+    bookmaker,
+    giudizio,
+    categoria,
+    priorita,
+    search,
+    canale,
+    periodoStart,
+  } = params
+
+  if (
+    canale &&
+    canale !== 'TUTTI' &&
+    row.canale !== canale
+  ) {
+    return false
+  }
+
+  if (
+    cliente &&
+    normalize(row.cliente_nome) !==
+      normalize(cliente)
+  ) {
+    return false
+  }
+
+  if (
+    bookmaker &&
+    !normalize(row.bookmaker).includes(
+      normalize(bookmaker)
+    )
+  ) {
+    return false
+  }
+
+  if (
+    giudizio &&
+    row.giudizio !== giudizio
+  ) {
+    return false
+  }
+
+  if (
+    categoria &&
+    row.categoria !== categoria
+  ) {
+    return false
+  }
+
+  if (
+    priorita &&
+    row.priorita !== priorita
+  ) {
+    return false
+  }
+
+  if (periodoStart) {
+    const rowTime =
+      toTime(row.data_mail)
+
+    if (
+      !rowTime ||
+      rowTime <
+        periodoStart.getTime()
+    ) {
+      return false
+    }
+  }
+
+  if (search) {
+    const s =
+      safeSearch(search)
+
+    if (s) {
+      const haystack =
+        [
+          row.cliente_nome,
+          row.bookmaker,
+          row.mittente,
+          row.oggetto,
+          row.testo_completo,
+          row.motivazione_ai,
+          row.condizioni,
+        ]
+          .map(normalize)
+          .join(' ')
+
+      if (!haystack.includes(s)) {
+        return false
+      }
+    }
+  }
+
+  return true
+}
+
+/*
+ * =========================================================
+ * CONTATORI
+ * =========================================================
+ */
+
+function getCounters(
+  rows: UnifiedRow[]
+) {
+  return {
+    tutte:
+      rows.length,
+
+    opportunita:
+      rows.filter(
+        row =>
+          row.giudizio ===
+          'UTILE'
+      ).length,
+
+    da_valutare:
+      rows.filter(
+        row =>
+          row.giudizio ===
+          'DA_VALUTARE'
+      ).length,
+
+    problemi:
+      rows.filter(
+        row =>
+          PROBLEM_CATEGORIES.includes(
+            row.categoria || ''
+          )
+      ).length,
+
+    ignora:
+      rows.filter(
+        row =>
+          row.giudizio ===
+          'IGNORA'
+      ).length,
+
+    da_analizzare:
+      rows.filter(
+        row =>
+          row.giudizio ===
+          'DA_ANALIZZARE'
+      ).length,
+  }
+}
+
+/*
+ * =========================================================
+ * CLIENTI PER MENU A TENDINA
+ * =========================================================
+ */
+
+function getClienti(
+  rows: UnifiedRow[]
+) {
+  return Array.from(
+    new Set(
+      rows
+        .map(
+          row =>
+            row.cliente_nome
+              ?.trim()
+        )
+        .filter(
+          (
+            value
+          ): value is string =>
+            Boolean(value)
+        )
+    )
+  ).sort(
+    (a, b) =>
+      a.localeCompare(
+        b,
+        'it',
+        {
+          sensitivity:
+            'base',
+        }
+      )
+  )
+}
+
+/*
+ * =========================================================
+ * CARICAMENTO DATI
+ * =========================================================
+ */
+
+async function loadAll() {
+  /*
+   * Per ora prendiamo l'intero archivio.
+   *
+   * La pagina applicherà di default "1 mese".
+   * In seguito, se l'archivio diventa enorme,
+   * possiamo spostare l'unione in una VIEW SQL.
+   */
+
+  const [
+    emailResult,
+    smsResult,
+  ] = await Promise.all([
+    adminSupabase
+      .from('lucy_mail_archive')
+      .select('*')
+      .order(
+        'data_mail',
+        {
+          ascending: false,
+        }
+      )
+      .limit(5000),
+
+    adminSupabase
+      .from('sms_clienti')
+      .select('*')
+      .order(
+        'data_ricezione',
+        {
+          ascending: false,
+        }
+      )
+      .limit(5000),
+  ])
+
+  if (emailResult.error) {
+    throw new Error(
+      emailResult.error.message
+    )
+  }
+
+  if (smsResult.error) {
+    throw new Error(
+      smsResult.error.message
+    )
+  }
+
+  const emails =
+    (emailResult.data || [])
+      .map(normalizeEmail)
+
+  const sms =
+    (smsResult.data || [])
+      .map(normalizeSms)
+
+  return [
+    ...emails,
+    ...sms,
+  ].sort(
+    (a, b) =>
+      toTime(b.data_mail) -
+      toTime(a.data_mail)
+  )
 }
 
 /*
@@ -172,8 +657,13 @@ export async function GET(
 ) {
   if (!(await authorize(req))) {
     return NextResponse.json(
-      { error: 'Non autorizzato' },
-      { status: 401 }
+      {
+        error:
+          'Non autorizzato',
+      },
+      {
+        status: 401,
+      }
     )
   }
 
@@ -181,32 +671,27 @@ export async function GET(
     const sp =
       req.nextUrl.searchParams
 
-    const page = Math.max(
-      1,
-      Number(
-        sp.get('page') || 1
-      )
-    )
-
-    const pageSize = Math.min(
-      100,
+    const page =
       Math.max(
-        10,
+        1,
         Number(
-          sp.get('page_size') ||
-            50
+          sp.get('page') ||
+            1
         )
       )
-    )
 
-    const from =
-      (page - 1) *
-      pageSize
-
-    const to =
-      from +
-      pageSize -
-      1
+    const pageSize =
+      Math.min(
+        100,
+        Math.max(
+          10,
+          Number(
+            sp.get(
+              'page_size'
+            ) || 50
+          )
+        )
+      )
 
     const vista =
       sp.get('vista')
@@ -229,183 +714,130 @@ export async function GET(
     const search =
       sp.get('q')
 
-    const dal =
-      sp.get('dal')
-
-    const al =
-      sp.get('al')
-
-    let q = adminSupabase
-      .from('lucy_mail_archive')
-      .select('*', {
-        count: 'exact',
-      })
+    const canale =
+      sp.get('canale')
 
     /*
-     * =========================
-     * VISTE RAPIDE
-     * =========================
+     * Default:
+     * ultimo mese.
      */
+    const periodo =
+      sp.get('periodo') ||
+      '1m'
 
-    if (
-      vista ===
-      'opportunita'
-    ) {
-      q = q.eq(
-        'giudizio',
-        'UTILE'
+    const periodoStart =
+      getPeriodoStart(
+        periodo
       )
-    }
 
-    if (
-      vista ===
-      'da_valutare'
-    ) {
-      q = q.eq(
-        'giudizio',
-        'DA_VALUTARE'
-      )
-    }
-
-    if (
-      vista ===
-      'problemi'
-    ) {
-      q = q.in(
-        'categoria',
-        PROBLEM_CATEGORIES
-      )
-    }
-
-    if (
-      vista ===
-      'ignora'
-    ) {
-      q = q.eq(
-        'giudizio',
-        'IGNORA'
-      )
-    }
-
-    if (
-      vista ===
-      'da_analizzare'
-    ) {
-      q = q.eq(
-        'giudizio',
-        'DA_ANALIZZARE'
-      )
-    }
+    const allRows =
+      await loadAll()
 
     /*
-     * =========================
-     * FILTRI MANUALI
-     * =========================
+     * I contatori rispettano:
+     * - periodo
+     * - canale
+     *
+     * ma NON la vista selezionata.
+     *
+     * Così i sei pulsanti continuano
+     * a mostrare il quadro generale
+     * del periodo scelto.
      */
 
-    if (cliente) {
-      q = q.ilike(
-        'cliente_nome',
-        `%${safeSearch(
-          cliente
-        )}%`
+    const rowsForCounters =
+      allRows.filter(
+        row =>
+          matchesFilters(
+            row,
+            {
+              cliente: null,
+              bookmaker: null,
+              giudizio: null,
+              categoria: null,
+              priorita: null,
+              search: null,
+              canale,
+              periodoStart,
+            }
+          )
       )
-    }
 
-    if (bookmaker) {
-      q = q.ilike(
-        'bookmaker',
-        `%${safeSearch(
-          bookmaker
-        )}%`
+    const counters =
+      getCounters(
+        rowsForCounters
       )
-    }
-
-    if (giudizio) {
-      q = q.eq(
-        'giudizio',
-        giudizio
-      )
-    }
-
-    if (categoria) {
-      q = q.eq(
-        'categoria',
-        categoria
-      )
-    }
-
-    if (priorita) {
-      q = q.eq(
-        'priorita',
-        priorita
-      )
-    }
-
-    if (dal) {
-      q = q.gte(
-        'data_mail',
-        dal
-      )
-    }
-
-    if (al) {
-      q = q.lte(
-        'data_mail',
-        al
-      )
-    }
-
-    if (search) {
-      const s =
-        safeSearch(search)
-
-      if (s) {
-        q = q.or(
-          `oggetto.ilike.%${s}%,mittente.ilike.%${s}%,testo_completo.ilike.%${s}%`
-        )
-      }
-    }
 
     /*
-     * Eseguiamo insieme:
-     * - mail della vista
-     * - contatori globali
+     * Lista clienti.
+     *
+     * La ricaviamo dall'intero archivio,
+     * così il menu non cambia quando
+     * si passa da una vista all'altra.
      */
 
-    const [
-      mailResult,
-      counters,
-    ] = await Promise.all([
-      q
-        .order(
-          'data_mail',
-          {
-            ascending: false,
-          }
-        )
-        .range(
-          from,
-          to
-        ),
+    const clienti =
+      getClienti(allRows)
 
-      getCounters(),
-    ])
+    /*
+     * Filtri effettivi.
+     */
 
-    if (mailResult.error) {
-      throw new Error(
-        mailResult.error.message
+    let filtered =
+      allRows.filter(
+        row =>
+          matchesVista(
+            row,
+            vista
+          ) &&
+          matchesFilters(
+            row,
+            {
+              cliente,
+              bookmaker,
+              giudizio,
+              categoria,
+              priorita,
+              search,
+              canale,
+              periodoStart,
+            }
+          )
       )
-    }
+
+    const count =
+      filtered.length
+
+    /*
+     * Paginazione dopo l'unione
+     * EMAIL + SMS.
+     */
+
+    const from =
+      (page - 1) *
+      pageSize
+
+    const to =
+      from +
+      pageSize
+
+    filtered =
+      filtered.slice(
+        from,
+        to
+      )
 
     return NextResponse.json({
       data:
-        mailResult.data || [],
+        filtered,
 
-      count:
-        mailResult.count || 0,
+      count,
 
       counters,
+
+      clienti,
+
+      periodo,
 
       page,
 
@@ -442,86 +874,191 @@ export async function PATCH(
 ) {
   if (!(await authorize(req))) {
     return NextResponse.json(
-      { error: 'Non autorizzato' },
-      { status: 401 }
+      {
+        error:
+          'Non autorizzato',
+      },
+      {
+        status: 401,
+      }
     )
   }
 
-  const body =
-    await req.json()
+  try {
+    const body =
+      await req.json()
 
-  const {
-    id,
-    feedback_utente,
-    feedback_note,
-    letta,
-  } = body
+    const {
+      id,
+      source_id,
+      canale,
+      feedback_utente,
+      feedback_note,
+      letta,
+    } = body
 
-  if (!id) {
-    return NextResponse.json(
-      { error: 'id mancante' },
-      { status: 400 }
-    )
-  }
+    /*
+     * Accettiamo sia il nuovo formato:
+     *
+     * EMAIL:123
+     * SMS:abc
+     *
+     * sia source_id + canale.
+     */
 
-  const patch:
-    Record<
-      string,
-      unknown
-    > = {
-      updated_at:
-        new Date()
-          .toISOString(),
+    let realId =
+      source_id
+
+    let realCanale:
+      Canale | null =
+      canale === 'SMS'
+        ? 'SMS'
+        : canale === 'EMAIL'
+          ? 'EMAIL'
+          : null
+
+    if (
+      !realId &&
+      typeof id === 'string' &&
+      id.includes(':')
+    ) {
+      const [
+        prefix,
+        ...rest
+      ] = id.split(':')
+
+      realCanale =
+        prefix === 'SMS'
+          ? 'SMS'
+          : 'EMAIL'
+
+      realId =
+        rest.join(':')
     }
 
-  if (
-    feedback_utente !==
-    undefined
-  ) {
-    patch.feedback_utente =
-      feedback_utente
-  }
+    /*
+     * Compatibilità con le vecchie
+     * chiamate della pagina:
+     * un ID numerico senza canale
+     * viene considerato EMAIL.
+     */
 
-  if (
-    feedback_note !==
-    undefined
-  ) {
-    patch.feedback_note =
-      feedback_note
-  }
+    if (
+      !realId &&
+      id !== undefined &&
+      id !== null
+    ) {
+      realId = id
 
-  if (
-    letta !== undefined
-  ) {
-    patch.letta =
-      letta
-  }
+      if (!realCanale) {
+        realCanale =
+          'EMAIL'
+      }
+    }
 
-  const {
-    data,
-    error,
-  } = await adminSupabase
-    .from(
-      'lucy_mail_archive'
+    if (
+      realId === undefined ||
+      realId === null ||
+      !realCanale
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'id o canale mancante',
+        },
+        {
+          status: 400,
+        }
+      )
+    }
+
+    const patch:
+      Record<
+        string,
+        unknown
+      > = {
+        updated_at:
+          new Date()
+            .toISOString(),
+      }
+
+    if (
+      feedback_utente !==
+      undefined
+    ) {
+      patch.feedback_utente =
+        feedback_utente
+    }
+
+    if (
+      feedback_note !==
+      undefined
+    ) {
+      patch.feedback_note =
+        feedback_note
+    }
+
+    if (
+      letta !==
+      undefined
+    ) {
+      patch.letta =
+        letta
+    }
+
+    const table =
+      realCanale === 'SMS'
+        ? 'sms_clienti'
+        : 'lucy_mail_archive'
+
+    const {
+      data,
+      error,
+    } =
+      await adminSupabase
+        .from(table)
+        .update(patch)
+        .eq(
+          'id',
+          realId
+        )
+        .select()
+        .single()
+
+    if (error) {
+      return NextResponse.json(
+        {
+          error:
+            error.message,
+        },
+        {
+          status: 500,
+        }
+      )
+    }
+
+    return NextResponse.json({
+      ok: true,
+      canale:
+        realCanale,
+      data,
+    })
+  } catch (error) {
+    console.error(
+      '[Lucy Archive PATCH]',
+      error
     )
-    .update(patch)
-    .eq('id', id)
-    .select()
-    .single()
 
-  if (error) {
     return NextResponse.json(
       {
         error:
-          error.message,
+          error instanceof Error
+            ? error.message
+            : 'Errore aggiornamento Lucy',
       },
       {
         status: 500,
       }
     )
   }
-
-  return NextResponse.json(
-    data
-  )
 }
