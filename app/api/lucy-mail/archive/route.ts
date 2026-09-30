@@ -7,10 +7,16 @@ const adminSupabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-/*
- * Verifica che la richiesta provenga
- * da un utente realmente loggato.
- */
+const PROBLEM_CATEGORIES = [
+  'KYC',
+  'LIMITAZIONE',
+  'SOSPENSIONE',
+  'PRELIEVO',
+  'DEPOSITO',
+  'SICUREZZA',
+  'SCADENZA',
+]
+
 async function authorize(req: NextRequest) {
   const response = NextResponse.next()
 
@@ -44,14 +50,8 @@ async function authorize(req: NextRequest) {
     data: { session },
   } = await supabase.auth.getSession()
 
-  if (!session) {
-    return false
-  }
+  if (!session) return false
 
-  /*
-   * Lucy contiene dati riservati:
-   * consentiamo solo VIP o ADMIN.
-   */
   const { data: profile } = await supabase
     .from('user_profiles')
     .select('role')
@@ -64,10 +64,6 @@ async function authorize(req: NextRequest) {
   )
 }
 
-/*
- * Rende sicuro il testo utilizzato
- * nei filtri PostgREST.
- */
 function safeSearch(value: string) {
   return value
     .replace(/[,%()]/g, ' ')
@@ -76,126 +72,104 @@ function safeSearch(value: string) {
 }
 
 /*
- * =========================================================
- * LETTURA ARCHIVIO
- * =========================================================
+ * Conta le mail di una singola query.
  */
-
-export async function GET(req: NextRequest) {
-  if (!(await authorize(req))) {
-    return NextResponse.json(
-      { error: 'Non autorizzato' },
-      { status: 401 }
-    )
-  }
-
-  const sp = req.nextUrl.searchParams
-
-  const page = Math.max(
-    1,
-    Number(sp.get('page') || 1)
-  )
-
-  const pageSize = Math.min(
-    100,
-    Math.max(
-      10,
-      Number(sp.get('page_size') || 50)
-    )
-  )
-
-  const from = (page - 1) * pageSize
-  const to = from + pageSize - 1
-
+async function countWhere(
+  field?: string,
+  value?: string
+) {
   let q = adminSupabase
     .from('lucy_mail_archive')
-    .select('*', { count: 'exact' })
-
-  const cliente = sp.get('cliente')
-  const bookmaker = sp.get('bookmaker')
-  const giudizio = sp.get('giudizio')
-  const categoria = sp.get('categoria')
-  const priorita = sp.get('priorita')
-  const search = sp.get('q')
-  const dal = sp.get('dal')
-  const al = sp.get('al')
-
-  if (cliente) {
-    q = q.ilike(
-      'cliente_nome',
-      `%${safeSearch(cliente)}%`
-    )
-  }
-
-  if (bookmaker) {
-    q = q.ilike(
-      'bookmaker',
-      `%${safeSearch(bookmaker)}%`
-    )
-  }
-
-  if (giudizio) {
-    q = q.eq('giudizio', giudizio)
-  }
-
-  if (categoria) {
-    q = q.eq('categoria', categoria)
-  }
-
-  if (priorita) {
-    q = q.eq('priorita', priorita)
-  }
-
-  if (dal) {
-    q = q.gte('data_mail', dal)
-  }
-
-  if (al) {
-    q = q.lte('data_mail', al)
-  }
-
-  if (search) {
-    const s = safeSearch(search)
-
-    if (s) {
-      q = q.or(
-        `oggetto.ilike.%${s}%,mittente.ilike.%${s}%,testo_completo.ilike.%${s}%`
-      )
-    }
-  }
-
-  const {
-    data,
-    error,
-    count,
-  } = await q
-    .order('data_mail', {
-      ascending: false,
+    .select('id', {
+      count: 'exact',
+      head: true,
     })
-    .range(from, to)
+
+  if (field && value) {
+    q = q.eq(field, value)
+  }
+
+  const { count, error } = await q
 
   if (error) {
-    return NextResponse.json(
-      { error: error.message },
-      { status: 500 }
+    throw new Error(error.message)
+  }
+
+  return count || 0
+}
+
+/*
+ * Tutti i contatori della dashboard Lucy.
+ */
+async function getCounters() {
+  const [
+    tutte,
+    opportunita,
+    da_valutare,
+    ignora,
+    da_analizzare,
+    problemiResult,
+  ] = await Promise.all([
+    countWhere(),
+
+    countWhere(
+      'giudizio',
+      'UTILE'
+    ),
+
+    countWhere(
+      'giudizio',
+      'DA_VALUTARE'
+    ),
+
+    countWhere(
+      'giudizio',
+      'IGNORA'
+    ),
+
+    countWhere(
+      'giudizio',
+      'DA_ANALIZZARE'
+    ),
+
+    adminSupabase
+      .from('lucy_mail_archive')
+      .select('id', {
+        count: 'exact',
+        head: true,
+      })
+      .in(
+        'categoria',
+        PROBLEM_CATEGORIES
+      ),
+  ])
+
+  if (problemiResult.error) {
+    throw new Error(
+      problemiResult.error.message
     )
   }
 
-  return NextResponse.json({
-    data,
-    count,
-    page,
-    pageSize,
-  })
+  return {
+    tutte,
+    opportunita,
+    da_valutare,
+    problemi:
+      problemiResult.count || 0,
+    ignora,
+    da_analizzare,
+  }
 }
 
 /*
  * =========================================================
- * FEEDBACK / LETTURA EMAIL
+ * GET
  * =========================================================
  */
 
-export async function PATCH(req: NextRequest) {
+export async function GET(
+  req: NextRequest
+) {
   if (!(await authorize(req))) {
     return NextResponse.json(
       { error: 'Non autorizzato' },
@@ -203,7 +177,278 @@ export async function PATCH(req: NextRequest) {
     )
   }
 
-  const body = await req.json()
+  try {
+    const sp =
+      req.nextUrl.searchParams
+
+    const page = Math.max(
+      1,
+      Number(
+        sp.get('page') || 1
+      )
+    )
+
+    const pageSize = Math.min(
+      100,
+      Math.max(
+        10,
+        Number(
+          sp.get('page_size') ||
+            50
+        )
+      )
+    )
+
+    const from =
+      (page - 1) *
+      pageSize
+
+    const to =
+      from +
+      pageSize -
+      1
+
+    const vista =
+      sp.get('vista')
+
+    const cliente =
+      sp.get('cliente')
+
+    const bookmaker =
+      sp.get('bookmaker')
+
+    const giudizio =
+      sp.get('giudizio')
+
+    const categoria =
+      sp.get('categoria')
+
+    const priorita =
+      sp.get('priorita')
+
+    const search =
+      sp.get('q')
+
+    const dal =
+      sp.get('dal')
+
+    const al =
+      sp.get('al')
+
+    let q = adminSupabase
+      .from('lucy_mail_archive')
+      .select('*', {
+        count: 'exact',
+      })
+
+    /*
+     * =========================
+     * VISTE RAPIDE
+     * =========================
+     */
+
+    if (
+      vista ===
+      'opportunita'
+    ) {
+      q = q.eq(
+        'giudizio',
+        'UTILE'
+      )
+    }
+
+    if (
+      vista ===
+      'da_valutare'
+    ) {
+      q = q.eq(
+        'giudizio',
+        'DA_VALUTARE'
+      )
+    }
+
+    if (
+      vista ===
+      'problemi'
+    ) {
+      q = q.in(
+        'categoria',
+        PROBLEM_CATEGORIES
+      )
+    }
+
+    if (
+      vista ===
+      'ignora'
+    ) {
+      q = q.eq(
+        'giudizio',
+        'IGNORA'
+      )
+    }
+
+    if (
+      vista ===
+      'da_analizzare'
+    ) {
+      q = q.eq(
+        'giudizio',
+        'DA_ANALIZZARE'
+      )
+    }
+
+    /*
+     * =========================
+     * FILTRI MANUALI
+     * =========================
+     */
+
+    if (cliente) {
+      q = q.ilike(
+        'cliente_nome',
+        `%${safeSearch(
+          cliente
+        )}%`
+      )
+    }
+
+    if (bookmaker) {
+      q = q.ilike(
+        'bookmaker',
+        `%${safeSearch(
+          bookmaker
+        )}%`
+      )
+    }
+
+    if (giudizio) {
+      q = q.eq(
+        'giudizio',
+        giudizio
+      )
+    }
+
+    if (categoria) {
+      q = q.eq(
+        'categoria',
+        categoria
+      )
+    }
+
+    if (priorita) {
+      q = q.eq(
+        'priorita',
+        priorita
+      )
+    }
+
+    if (dal) {
+      q = q.gte(
+        'data_mail',
+        dal
+      )
+    }
+
+    if (al) {
+      q = q.lte(
+        'data_mail',
+        al
+      )
+    }
+
+    if (search) {
+      const s =
+        safeSearch(search)
+
+      if (s) {
+        q = q.or(
+          `oggetto.ilike.%${s}%,mittente.ilike.%${s}%,testo_completo.ilike.%${s}%`
+        )
+      }
+    }
+
+    /*
+     * Eseguiamo insieme:
+     * - mail della vista
+     * - contatori globali
+     */
+
+    const [
+      mailResult,
+      counters,
+    ] = await Promise.all([
+      q
+        .order(
+          'data_mail',
+          {
+            ascending: false,
+          }
+        )
+        .range(
+          from,
+          to
+        ),
+
+      getCounters(),
+    ])
+
+    if (mailResult.error) {
+      throw new Error(
+        mailResult.error.message
+      )
+    }
+
+    return NextResponse.json({
+      data:
+        mailResult.data || [],
+
+      count:
+        mailResult.count || 0,
+
+      counters,
+
+      page,
+
+      pageSize,
+    })
+  } catch (error) {
+    console.error(
+      '[Lucy Archive]',
+      error
+    )
+
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Errore archivio Lucy',
+      },
+      {
+        status: 500,
+      }
+    )
+  }
+}
+
+/*
+ * =========================================================
+ * PATCH
+ * =========================================================
+ */
+
+export async function PATCH(
+  req: NextRequest
+) {
+  if (!(await authorize(req))) {
+    return NextResponse.json(
+      { error: 'Non autorizzato' },
+      { status: 401 }
+    )
+  }
+
+  const body =
+    await req.json()
 
   const {
     id,
@@ -219,37 +464,46 @@ export async function PATCH(req: NextRequest) {
     )
   }
 
-  const patch: Record<
-    string,
-    unknown
-  > = {
-    updated_at:
-      new Date().toISOString(),
-  }
+  const patch:
+    Record<
+      string,
+      unknown
+    > = {
+      updated_at:
+        new Date()
+          .toISOString(),
+    }
 
   if (
-    feedback_utente !== undefined
+    feedback_utente !==
+    undefined
   ) {
     patch.feedback_utente =
       feedback_utente
   }
 
   if (
-    feedback_note !== undefined
+    feedback_note !==
+    undefined
   ) {
     patch.feedback_note =
       feedback_note
   }
 
-  if (letta !== undefined) {
-    patch.letta = letta
+  if (
+    letta !== undefined
+  ) {
+    patch.letta =
+      letta
   }
 
   const {
     data,
     error,
   } = await adminSupabase
-    .from('lucy_mail_archive')
+    .from(
+      'lucy_mail_archive'
+    )
     .update(patch)
     .eq('id', id)
     .select()
@@ -257,10 +511,17 @@ export async function PATCH(req: NextRequest) {
 
   if (error) {
     return NextResponse.json(
-      { error: error.message },
-      { status: 500 }
+      {
+        error:
+          error.message,
+      },
+      {
+        status: 500,
+      }
     )
   }
 
-  return NextResponse.json(data)
+  return NextResponse.json(
+    data
+  )
 }
