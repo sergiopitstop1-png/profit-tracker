@@ -249,13 +249,17 @@ IGNORA:
 
 PRIORITÀ
 
-alta:
-opportunità concreta, scadenza vicina,
-bonus importante, problema serio sul conto,
-azione urgente.
+alta (usala con parsimonia):
+- promo personale o riservata a questo conto con valore
+  concreto e certo;
+- valore certo con scadenza entro 72 ore;
+- problema serio sul conto (sospensione, limitazione,
+  KYC con scadenza, prelievo bloccato).
 
 media:
 utile ma non urgente oppure da verificare.
+Tornei, montepremi, Drop & Wins e promo generiche
+inviate a tutti i giocatori: al massimo media.
 
 bassa:
 informazione secondaria o contenuto da ignorare.
@@ -276,17 +280,35 @@ Non inventare il bookmaker.
 VALORI
 
 bonus_importo:
-solo importo monetario del bonus se chiaramente indicato.
+SOLO l'importo che QUESTO conto riceve con certezza
+se rispetta le condizioni.
+Esempio: "deposita 100€, ricevi 50€" -> 50.
+Usa null se:
+- è un montepremi o premi in palio condivisi tra i giocatori
+  (tornei, Drop & Wins, estrazioni, classifiche);
+- è solo un massimale ("fino a 500€", "100% fino a 1.000€"):
+  scrivi il massimale nelle condizioni;
+- ci sono più bonus diversi: NON sommarli mai,
+  descrivili nelle condizioni;
+- l'importo non è chiaro.
 
 deposito_richiesto:
-solo importo richiesto per ottenere la promo se chiaramente indicato.
+solo la ricarica/deposito richiesto per ottenere la promo.
+La puntata minima o la giocata minima NON è un deposito:
+va nelle condizioni.
 
 rollover:
 scrivi le condizioni di wagering/rollover se presenti.
 
 scadenza:
-riporta la scadenza indicata nella mail.
-Se non esiste usa null.
+scrivila SEMPRE nel formato "AAAA-MM-GG HH:mm", ora italiana,
+calcolandola dalla data di ricezione della mail indicata sotto.
+Esempi (mail del 30/09/2026):
+"entro il 4 ottobre" -> "2026-10-04 23:59";
+"domani alle 21" -> "2026-10-01 21:00";
+"entro domenica" -> "2026-10-04 23:59".
+Se l'ora non è indicata usa 23:59.
+Se la scadenza non esiste o non è determinabile usa null.
 
 condizioni:
 riassunto MOLTO breve delle condizioni importanti.
@@ -301,6 +323,9 @@ true solo se Sergio deve effettivamente fare qualcosa.
 ------------------------------------
 
 EMAIL
+
+Data di ricezione:
+${mail.data_mail ? new Date(mail.data_mail).toLocaleString('it-IT', { timeZone: 'Europe/Rome', weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'sconosciuta'}
 
 Cliente:
 ${mail.cliente_nome || 'non identificato'}
@@ -489,50 +514,108 @@ async function analyzeMail(mail: any) {
   )
 }
 
-function normalizeScadenza(
-  value: unknown
-): string | null {
-  if (
-    value === null ||
-    value === undefined
-  ) {
-    return null
-  }
+/*
+ * =========================================================
+ * SCADENZE (30/09/2026)
+ * Il vecchio Date.parse leggeva "04/10" all'americana
+ * (10 aprile) e a volte con anno 2001.
+ * Ora: giorno/mese all'italiana, anno e riferimenti relativi
+ * (oggi, domani, domenica, entro il 5) calcolati dalla data
+ * della mail, ora italiana (senza ora = 23:59).
+ * Se la data non è sicura restituisce null: il testo
+ * originale finisce nelle condizioni, non si perde.
+ * =========================================================
+ */
+const MESI: Record<string, number> = { gennaio: 1, gen: 1, febbraio: 2, feb: 2, marzo: 3, mar: 3, aprile: 4, apr: 4, maggio: 5, mag: 5, giugno: 6, giu: 6, luglio: 7, lug: 7, agosto: 8, ago: 8, settembre: 9, sett: 9, set: 9, ottobre: 10, ott: 10, novembre: 11, nov: 11, dicembre: 12, dic: 12 }
+const GIORNI: Record<string, number> = { domenica: 0, lunedi: 1, martedi: 2, mercoledi: 3, giovedi: 4, venerdi: 5, sabato: 6 }
 
-  const raw =
-    String(value).trim()
-
-  if (!raw) {
-    return null
-  }
-
-  /*
-   * Accettiamo soltanto date che
-   * JavaScript riesce realmente
-   * a interpretare.
-   *
-   * Esempi come:
-   * 04/10
-   * domani
-   * domenica
-   * entro il 5
-   *
-   * NON vengono mandati al campo
-   * timestamp di Supabase.
-   */
-  const parsed =
-    Date.parse(raw)
-
-  if (
-    Number.isNaN(parsed)
-  ) {
-    return null
-  }
-
-  return new Date(
-    parsed
-  ).toISOString()
+function romeParts(ts: number) {
+  const f = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+  const p: Record<string, string> = {}
+  for (const x of f.formatToParts(new Date(ts))) p[x.type] = x.value
+  return { y: Number(p.year), m: Number(p.month), d: Number(p.day), h: Number(p.hour), mi: Number(p.minute) }
 }
+
+// ora italiana -> timestamp (gestisce ora legale/solare)
+function romeToTs(y: number, m: number, d: number, h: number, mi: number) {
+  const voluto = Date.UTC(y, m - 1, d, h, mi)
+  let ts = voluto
+  for (let i = 0; i < 2; i++) {
+    const p = romeParts(ts)
+    ts += voluto - Date.UTC(p.y, p.m - 1, p.d, p.h, p.mi)
+  }
+  return ts
+}
+
+function giornoValido(y: number, m: number, d: number) {
+  if (m < 1 || m > 12 || d < 1 || d > 31) return false
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDate() === d
+}
+
+function normalizeScadenza(
+  value: unknown,
+  dataMail?: string | null
+): string | null {
+  if (value === null || value === undefined) return null
+  let s = String(value).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  if (!s) return null
+
+  const refTs = dataMail && !Number.isNaN(new Date(dataMail).getTime()) ? new Date(dataMail).getTime() : Date.now()
+  const ref = romeParts(refTs)
+  const oggiTs = Date.UTC(ref.y, ref.m - 1, ref.d)
+
+  // ora: "ore 21", "alle 12.00", "23:59" (senza ora = 23:59)
+  let h = 23
+  let mi = 59
+  const ora = s.match(/\b(?:ore|alle)\s*(\d{1,2})(?:[:.](\d{2}))?\b/) || s.match(/\b(\d{1,2}):(\d{2})\b/)
+  if (ora) {
+    h = Number(ora[1])
+    mi = Number(ora[2] || 0)
+    s = s.replace(ora[0], ' ')
+  }
+  if (h > 23 || mi > 59) return null
+
+  let y: number | null = null
+  let m = 0
+  let d = 0
+  let r: RegExpMatchArray | null
+
+  if ((r = s.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})/))) {
+    y = +r[1]; m = +r[2]; d = +r[3]
+  } else if ((r = s.match(/\b(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?\b/))) {
+    d = +r[1]; m = +r[2]
+    if (r[3]) y = r[3].length === 2 ? 2000 + +r[3] : +r[3]
+  } else if ((r = s.match(/\b(\d{1,2})\s+(?:di\s+)?([a-z]+)(?:\s+(\d{4}))?/)) && MESI[r[2]]) {
+    d = +r[1]; m = MESI[r[2]]
+    if (r[3]) y = +r[3]
+  } else if (/\b(dopodomani|domani|oggi|stasera|mezzanotte)\b/.test(s)) {
+    const piu = /\bdopodomani\b/.test(s) ? 2 : /\bdomani\b/.test(s) ? 1 : 0
+    const t = new Date(oggiTs + piu * 86400000)
+    y = t.getUTCFullYear(); m = t.getUTCMonth() + 1; d = t.getUTCDate()
+  } else if ((r = s.match(/\b(domenica|lunedi|martedi|mercoledi|giovedi|venerdi|sabato)\b/))) {
+    const diff = (GIORNI[r[1]] - new Date(oggiTs).getUTCDay() + 7) % 7
+    const t = new Date(oggiTs + diff * 86400000)
+    y = t.getUTCFullYear(); m = t.getUTCMonth() + 1; d = t.getUTCDate()
+  } else if ((r = s.match(/\b(?:entro\s+il|fino\s+al|il)\s+(\d{1,2})\b/))) {
+    d = +r[1]; m = ref.m; y = ref.y
+    if (d < ref.d) { m++; if (m > 12) { m = 1; y++ } }
+  } else {
+    return null
+  }
+
+  let annoDedotto = false
+  if (y === null) { y = ref.y; annoDedotto = true }
+  if (!giornoValido(y, m, d)) return null
+
+  let ts = romeToTs(y, m, d, h, mi)
+  // es. mail del 28/12 con scadenza "03/01" -> anno successivo
+  if (annoDedotto && ts < refTs - 60 * 86400000 && giornoValido(y + 1, m, d)) ts = romeToTs(y + 1, m, d, h, mi)
+  // fuori scala (es. 2001): meglio nessuna data che una data sbagliata
+  if (ts < refTs - 2 * 86400000 || ts > refTs + 400 * 86400000) return null
+
+  return new Date(ts).toISOString()
+}
+
 async function runAnalysis() {
   /*
    * Prendiamo fino a 5 mail.
@@ -607,6 +690,15 @@ async function runAnalysis() {
         new Date()
           .toISOString()
 
+      // scadenza calcolata dalla data della mail; se non è sicura
+      // il testo originale resta nelle condizioni
+      const scadenza =
+        normalizeScadenza(result.scadenza, mail.data_mail)
+      const condizioni =
+        result.scadenza && !scadenza
+          ? [result.condizioni, `Scadenza indicata: ${result.scadenza}`].filter(Boolean).join(' · ')
+          : result.condizioni
+
 
       const {
         error: updateError,
@@ -643,13 +735,9 @@ async function runAnalysis() {
             rollover:
               result.rollover,
 
-            scadenza:
-  normalizeScadenza(
-    result.scadenza
-  ),
+            scadenza,
 
-            condizioni:
-              result.condizioni,
+            condizioni,
 
             motivazione_ai:
               result.motivazione_ai,
