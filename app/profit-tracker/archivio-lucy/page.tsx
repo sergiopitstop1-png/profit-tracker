@@ -2071,16 +2071,11 @@ export default function ArchivioLucyPage() {
         </div>
       )}
 
-      {/* ==================================================
-          CSS MATRIX
-          ================================================== */}
-
-      <style jsx global>{`
+            <style>{`
         @keyframes lucyMatrixRain {
           0% {
             transform: translateY(-75%);
           }
-
           100% {
             transform: translateY(20%);
           }
@@ -2090,16 +2085,14 @@ export default function ArchivioLucyPage() {
           animation-name: lucyMatrixRain;
           animation-timing-function: linear;
           animation-iteration-count: infinite;
-          text-shadow:
-            0 0 5px rgba(34, 197, 94, 0.85),
-            0 0 10px rgba(34, 197, 94, 0.35);
+          text-shadow: 0 0 5px rgba(34, 197, 94, 0.85);
         }
 
         .matrix-input {
           width: 100%;
           border: 1px solid rgba(22, 101, 52, 0.85);
           border-radius: 0.5rem;
-          background: #020604;
+          background-color: #020604;
           color: #d1fae5;
           padding: 0.6rem 0.75rem;
           outline: none;
@@ -2107,9 +2100,6 @@ export default function ArchivioLucyPage() {
 
         .matrix-input:focus {
           border-color: #22c55e;
-          box-shadow:
-            0 0 0 1px rgba(34, 197, 94, 0.35),
-            0 0 14px rgba(34, 197, 94, 0.12);
         }
 
         .matrix-input::placeholder {
@@ -2117,10 +2107,7 @@ export default function ArchivioLucyPage() {
         }
 
         .matrix-input option {
-          background: #020604;
+          background-color: #020604;
           color: #d1fae5;
         }
       `}</style>
-    </div>
-  )
-}
