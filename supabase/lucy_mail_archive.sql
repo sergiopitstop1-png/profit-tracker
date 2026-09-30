@@ -43,3 +43,16 @@ alter table public.lucy_mail_archive enable row level security;
 
 comment on table public.lucy_mail_archive is
 'Archivio completo Lucy: tutte le email vengono salvate prima della classificazione AI; nessuna email viene eliminata in base al giudizio AI.';
+
+-- Connessione Gmail centrale Lucy (token usati solo dal backend service-role)
+create table if not exists public.lucy_gmail_connection (
+  id smallint primary key default 1 check (id = 1),
+  email text not null,
+  access_token text,
+  refresh_token text,
+  token_expiry timestamptz,
+  connected_at timestamptz,
+  last_sync_at timestamptz,
+  updated_at timestamptz not null default now()
+);
+alter table public.lucy_gmail_connection enable row level security;
