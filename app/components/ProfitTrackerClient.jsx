@@ -7345,6 +7345,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           setMessage(`🟢 ${ids.length} conti messi in profilazione`)
         }}
         onApri={(nomeBook, conti) => apriSuTelefoni(nomeBook, sitoBook(conti[0]), conti.map(b => b.intestatario))}
+        sitoBook={sitoBook}
         onMessage={setMessage}
         onError={setErrorMessage}
       />
