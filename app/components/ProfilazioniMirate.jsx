@@ -24,7 +24,7 @@ export function prossimaMirata(g, fatte, giorniPausa) {
   return { ultima, prossima: addGiorni(ultima, n + (giorniPausa ? giorniPausa(ultima, oggiISO()) : 0)) }
 }
 
-export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setGruppi, fatte, setFatte, giorniPausa, onProfilazione, onProfilazioneTutti, onApri, onMessage, onError }) {
+export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setGruppi, fatte, setFatte, giorniPausa, onProfilazione, onProfilazioneTutti, onApri, sitoBook, onMessage, onError }) {
   const [aperto, setAperto] = useState(true)
   const [edit, setEdit] = useState(null)          // { id?, nome, ogni_giorni, conti: [book_id], cerca }
   const [storico, setStorico] = useState(null)    // id gruppo con lo storico aperto
@@ -48,6 +48,45 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
     setEdit(null)
     onMessage(`🎯 ${data.nome}: ${data.conti.length} conti, ogni ${data.ogni_giorni} giorni`)
   }
+  // ─── 30/09/2026 — APRI I BOOK SUI TELEFONI (agente telefoni: tabella comandi_telefoni, script book_lavorati.py) ───
+  // un comando per book, con i clienti di quel book; una sola conferma per tutto il gruppo
+  const urlDi = b => sitoBook ? sitoBook(b)
+    : `https://www.${String(b.nome || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9-]/g, '')}.it/`
+  async function apriSuTelefoni(conti, titolo) {
+    const perBook = new Map()
+    for (const b of conti) {
+      if (!b?.intestatario) continue
+      if (!perBook.has(b.nome)) perBook.set(b.nome, { nome: b.nome, url: urlDi(b), intestatari: [] })
+      const r = perBook.get(b.nome)
+      if (!r.intestatari.includes(b.intestatario)) r.intestatari.push(b.intestatario)
+    }
+    const lista = [...perBook.values()]
+    if (!lista.length) { onError('Nessun conto con intestatario da aprire'); return }
+    const testo = lista.map(r => `${r.nome} → ${r.intestatari.join(', ')}`).join('\n')
+    if (!window.confirm(`📱 Apro ${titolo} sui telefoni:\n\n${testo}\n\n(il login lo fai tu)`)) return
+    const { data, error } = await supabase.from('comandi_telefoni')
+      .insert(lista.map(r => ({ azione: 'apri', url: r.url, intestatari: r.intestatari }))).select('id')
+    if (error) { onError('Comandi non inviati: ' + error.message); return }
+    const tot = lista.reduce((n, r) => n + r.intestatari.length, 0)
+    onMessage(`📱 Inviati ${lista.length} comandi per ${tot} telefoni: aspetto la risposta…`)
+    attendiEsiti((data || []).map(r => r.id), tot)
+  }
+  // controlla l'esito ogni 5 secondi per un minuto: nessun telefono saltato senza saperlo
+  async function attendiEsiti(ids, tot) {
+    if (!ids.length) return
+    for (let giro = 0; giro < 12; giro++) {
+      await new Promise(r => setTimeout(r, 5000))
+      const { data } = await supabase.from('comandi_telefoni').select('id,stato,esito').in('id', ids)
+      if (!data || data.some(c => c.stato !== 'fatto')) continue
+      const esiti = data.flatMap(c => Object.entries(c.esito || {}))
+      const ko = esiti.filter(([, e]) => e !== 'aperto')
+      if (!ko.length) onMessage(`✅ Aperto su tutti i ${esiti.length} telefoni`)
+      else onError(`📱 Aperti ${esiti.length - ko.length} su ${esiti.length}. Non aperti:\n${ko.map(([n, e]) => `${n}: ${e}`).join('\n')}`)
+      return
+    }
+    onError(`📱 Nessuna risposta dallo script sul PC dopo un minuto: controlla che book_lavorati sia avviato (${tot} telefoni in attesa)`)
+  }
+
   async function elimina(g) {
     if (!window.confirm(`Elimino il gruppo "${g.nome}"?\nLo storico delle operazioni fatte resta salvato. I suoi conti tornano alla profilazione casinò normale.`)) return
     const { error } = await supabase.from('profilazioni_mirate').delete().eq('id', g.id)
@@ -145,6 +184,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
                   <span style={{ fontSize: 12, color: '#cbd5e1' }}>{conti.length} conti · ogni {g.ogni_giorni} gg · ultima {ultima ? dataIt(ultima) : 'mai'}</span>
                   <span style={{ fontSize: 12, fontWeight: 800, color: prossima <= oggi ? '#f87171' : '#94a3b8' }}>{stato}</span>
                   <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {libri.length > 1 && <button style={{ ...btn('#0ea5e9'), fontWeight: 900 }} title="Apre tutti i book del gruppo sui telefoni giusti" onClick={() => apriSuTelefoni(conti, `tutti i book di "${g.nome}"`)}>📱 Apri tutti ({conti.length})</button>}
                     {onApri && libri.map(nb => <button key={nb} style={btn('#38bdf8')} title={`Apri ${nb} sui telefoni di questi conti`} onClick={() => onApri(nb, conti.filter(b => b.nome === nb))}>📱 {nb}</button>)}
                     <button style={btn('#22c55e')} onClick={() => fatta(g)}>✅ Fatta</button>
                     <button style={btn('#94a3b8')} onClick={() => setStorico(storico === g.id ? null : g.id)}>📜</button>
@@ -152,7 +192,9 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
                     <button style={btn('#f87171')} onClick={() => elimina(g)}>🗑</button>
                   </span>
                 </div>
-                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>{conti.map(b => `${b.nome} · ${b.intestatario || '—'}`).join('  ·  ')}</div>
+                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: '2px 10px' }}>
+                  {conti.map(b => <span key={b.id} onClick={() => apriSuTelefoni([b], `${b.nome} di ${b.intestatario || '—'}`)} title="Clic: apri solo questo book sul suo telefono" style={{ cursor: 'pointer', textDecoration: 'underline dotted', textUnderlineOffset: 3 }}>📱 {b.nome} · {b.intestatario || '—'}</span>)}
+                </div>
                 {nonProf.length > 0 && (
                   <div style={{ fontSize: 11, color: '#fbbf24', marginTop: 4, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                     ⚠️ non in profilazione: {onProfilazioneTutti && nonProf.length > 1 && <button style={{ ...btn('#22c55e'), padding: '2px 8px', fontSize: 11, fontWeight: 900 }} onClick={() => { if (window.confirm(`Metto in profilazione tutti i ${nonProf.length} conti?`)) onProfilazioneTutti(nonProf.map(b => b.id)) }}>🟢 Tutti ({nonProf.length})</button>}{nonProf.map(b => <button key={b.id} style={{ ...btn('#22c55e'), padding: '2px 6px', fontSize: 11 }} onClick={() => onProfilazione(b.id)}>🟢 {b.nome} · {b.intestatario}</button>)}
