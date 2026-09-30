@@ -2111,3 +2111,6 @@ export default function ArchivioLucyPage() {
           color: #d1fae5;
         }
       `}</style>
+    </div>
+  )
+}
