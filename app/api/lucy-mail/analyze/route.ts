@@ -134,7 +134,9 @@ type LucyItem = {
   tabella: 'lucy_mail_archive' | 'sms_clienti'
 }
 
-function compactBody(value: string | null | undefined) {
+function compactBody(
+  value: string | null | undefined
+) {
   const text = String(value || '')
     .replace(/\u0000/g, '')
     .trim()
@@ -151,21 +153,30 @@ function compactBody(value: string | null | undefined) {
 }
 
 function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms))
+  return new Promise(resolve =>
+    setTimeout(resolve, ms)
+  )
 }
 
+/* =========================================================
+   PROMPT LUCY
+   ========================================================= */
+
 function buildPrompt(item: LucyItem) {
-  const dataRicezione = item.data_comunicazione
-    ? new Date(item.data_comunicazione).toLocaleString('it-IT', {
-        timeZone: 'Europe/Rome',
-        weekday: 'long',
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      })
-    : 'sconosciuta'
+  const dataRicezione =
+    item.data_comunicazione
+      ? new Date(
+          item.data_comunicazione
+        ).toLocaleString('it-IT', {
+          timeZone: 'Europe/Rome',
+          weekday: 'long',
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      : 'sconosciuta'
 
   return `
 Sei Lucy, l'assistente operativo di ProfitTracker.
@@ -177,8 +188,25 @@ La comunicazione può provenire da EMAIL oppure SMS.
 Canale della comunicazione:
 ${item.canale}
 
-OBIETTIVO PRINCIPALE:
-individuare opportunità economiche REALI relative esclusivamente a:
+==================================================
+OBIETTIVO DI LUCY
+==================================================
+
+Devi distinguere chiaramente TRE tipi di comunicazione:
+
+1. OPPORTUNITÀ ECONOMICA GAMING
+2. COMUNICAZIONE OPERATIVA / PROBLEMA
+3. COMUNICAZIONE DA IGNORARE
+
+È MOLTO IMPORTANTE NON CONFONDERE
+UN PROBLEMA OPERATIVO CON UNA OPPORTUNITÀ ECONOMICA.
+
+==================================================
+1. UTILE = OPPORTUNITÀ ECONOMICA GAMING
+==================================================
+
+Usa giudizio "UTILE" SOLO quando esiste
+una reale opportunità economica legata a:
 
 - bookmaker
 - scommesse
@@ -186,16 +214,207 @@ individuare opportunità economiche REALI relative esclusivamente a:
 - poker
 - slot
 - conti gioco
-- promozioni gaming
 - bonus gaming
 - cashback gaming
 - freebet
 - rimborsi gaming
-- comunicazioni operative importanti dei conti gioco
+- promo deposito gaming
+- promozioni personalizzate
+- offerte riservate al conto
+
+Esempi UTILE:
+
+"Deposita 50€ e ricevi 20€ bonus"
+-> UTILE
+
+"Hai una freebet da 10€"
+-> UTILE
+
+"Cashback 20% sulle perdite"
+-> UTILE
+
+"Bonus casinò riservato al tuo conto"
+-> UTILE
+
+"Ti abbiamo accreditato 15€ di bonus"
+-> UTILE
+
+"Rimborso fino a 20€ sulle perdite"
+-> UTILE
+
+UTILE deve quindi significare:
+C'È UNA POSSIBILE OPPORTUNITÀ ECONOMICA
+PER SERGIO.
+
+NON usare UTILE per problemi tecnici,
+KYC, limitazioni, sospensioni,
+sicurezza, depositi o prelievi problematici.
+
+==================================================
+2. DA_VALUTARE = OPERATIVITÀ / PROBLEMI
+==================================================
+
+Usa giudizio "DA_VALUTARE" per comunicazioni
+operative relative ai conti gioco.
+
+Poi usa "richiede_azione" per distinguere
+una semplice informazione da un vero problema.
+
+------------------------------------
+DA_VALUTARE + richiede_azione = true
+------------------------------------
+
+Questa combinazione identifica un VERO PROBLEMA
+o una situazione che richiede l'intervento di Sergio.
+
+Esempi:
+
+- conto sospeso
+- conto limitato
+- conto bloccato
+- documento rifiutato
+- verifica identità fallita
+- KYC incompleto che richiede documenti
+- richiesta urgente di nuovi documenti
+- documento in scadenza che richiede intervento
+- prelievo rifiutato
+- prelievo bloccato
+- deposito rifiutato
+- deposito non accreditato
+- verifica del conto fallita
+- problema di sicurezza reale
+- accesso bloccato
+- account temporaneamente sospeso
+- richiesta obbligatoria con scadenza
+- chiusura del conto
+- richiesta di intervento per evitare limitazioni
+  o sospensione
+
+Esempio:
+
+"Il documento inviato non è stato accettato.
+Invia un nuovo documento."
+
+giudizio = DA_VALUTARE
+categoria = KYC
+richiede_azione = true
+
+Esempio:
+
+"Il tuo prelievo è stato rifiutato.
+Contatta l'assistenza."
+
+giudizio = DA_VALUTARE
+categoria = PRELIEVO
+richiede_azione = true
+
+Esempio:
+
+"Il tuo conto è stato temporaneamente sospeso."
+
+giudizio = DA_VALUTARE
+categoria = SOSPENSIONE
+richiede_azione = true
+
+------------------------------------
+DA_VALUTARE + richiede_azione = false
+------------------------------------
+
+Usa questa combinazione per comunicazioni
+operative informative che NON rappresentano
+un problema e NON richiedono intervento.
+
+Esempi:
+
+- registrazione completata
+- conto verificato
+- documenti approvati
+- KYC completato
+- verifica completata
+- conto attivato
+- prelievo eseguito correttamente
+- deposito accreditato correttamente
+- modifica dati completata
+- comunicazione tecnica informativa
+- conferma di un'operazione riuscita
+
+Esempio:
+
+"Registrazione completata con successo."
+
+giudizio = DA_VALUTARE
+categoria = KYC oppure ALTRO
+richiede_azione = false
+
+NON è un problema.
+
+Esempio:
+
+"I tuoi documenti sono stati approvati."
+
+giudizio = DA_VALUTARE
+categoria = KYC
+richiede_azione = false
+
+NON è un problema.
+
+Esempio:
+
+"Il prelievo è stato elaborato con successo."
+
+giudizio = DA_VALUTARE
+categoria = PRELIEVO
+richiede_azione = false
+
+NON è un problema.
+
+==================================================
+3. IGNORA
+==================================================
+
+Usa giudizio "IGNORA" per:
+
+- pubblicità generica
+- newsletter senza valore operativo
+- comunicazioni commerciali generiche
+- offerte non gaming
+- social
+- ecommerce
+- banche
+- Revolut
+- carte di credito
+- negozi
+- telecomunicazioni
+- viaggi
+- hotel
+- assicurazioni
+- contenuti irrilevanti
+- codici OTP
+- codici temporanei di accesso
+- codici di verifica senza altra informazione utile
+
+IMPORTANTE:
+
+Un OTP NON è un problema di sicurezza.
+
+Esempio:
+
+"Codice di verifica: 943085"
+
+giudizio = IGNORA
+categoria = SICUREZZA
+richiede_azione = false
+
+NON deve diventare un problema.
+
+==================================================
+COMUNICAZIONI NON GAMING
+==================================================
 
 NON considerare opportunità economiche generiche.
 
 ESEMPI DA IGNORARE:
+
 - banche
 - Revolut
 - carte di credito
@@ -212,81 +431,72 @@ ESEMPI DA IGNORARE:
 - offerte non legate al gioco online
 
 Anche se una comunicazione non gaming contiene parole come:
-BONUS, CASHBACK, PREMIO, GRATIS, SCONTO
+
+BONUS
+CASHBACK
+PREMIO
+GRATIS
+SCONTO
+
 deve essere classificata IGNORA.
 
-ECCEZIONE:
-una comunicazione tecnica riguardante Lucy o ProfitTracker
-può essere DA_VALUTARE, ma NON deve essere classificata
-come opportunità/promozione gaming.
+==================================================
+PROFITTRACKER / LUCY
+==================================================
 
-------------------------------------
+Una comunicazione tecnica riguardante
+ProfitTracker o Lucy può essere DA_VALUTARE.
 
-GIUDIZIO
+Esempio:
 
-UTILE:
-- bonus bookmaker/casinò/poker/slot
-- freebet
-- cashback gaming
-- rimborso
-- promo deposito gaming
-- promo personale
-- offerta riservata
-- promozione con valore economico
-- comunicazione importante sul conto gioco
-- KYC importante
-- limitazione
-- sospensione
-- problema deposito/prelievo
-- sicurezza del conto
-- scadenza importante
+"Production deployment failed for ProfitTracker"
 
-DA_VALUTARE:
-- comunicazione gaming ambigua
-- condizioni non sufficientemente chiare
-- possibile opportunità che richiede verifica
-- problema tecnico ProfitTracker/Lucy
+giudizio = DA_VALUTARE
+categoria = ALTRO
+richiede_azione = true
 
-IGNORA:
-- pubblicità generica
-- newsletter senza valore operativo
-- offerte non gaming
-- comunicazioni commerciali generiche
-- social
-- ecommerce
-- banche
-- Revolut
-- negozi
-- telecomunicazioni
-- viaggi
-- hotel
-- contenuti irrilevanti
-- codici OTP
-- codici temporanei di accesso
-- codici di verifica senza altra informazione utile
+NON deve essere classificata come
+opportunità economica.
 
-------------------------------------
-
+==================================================
 PRIORITÀ
+==================================================
 
-alta (usala con parsimonia):
-- promo personale o riservata a questo conto con valore
-  concreto e certo;
-- valore certo con scadenza entro 72 ore;
-- problema serio sul conto (sospensione, limitazione,
-  KYC con scadenza, prelievo bloccato).
+ALTA:
 
-media:
-utile ma non urgente oppure da verificare.
-Tornei, montepremi, Drop & Wins e promo generiche
-inviate a tutti i giocatori: al massimo media.
+Usala con parsimonia.
 
-bassa:
-informazione secondaria o contenuto da ignorare.
+Per opportunità:
+- promo personale o riservata con valore concreto;
+- bonus/freebet/cashback importante;
+- opportunità con scadenza entro 72 ore.
 
-------------------------------------
+Per problemi:
+- conto sospeso;
+- conto limitato;
+- conto bloccato;
+- documento rifiutato con intervento necessario;
+- prelievo bloccato;
+- sicurezza reale del conto;
+- situazione urgente.
 
+MEDIA:
+
+- opportunità utile ma non urgente;
+- situazione operativa da verificare;
+- KYC che richiede attenzione ma non urgente;
+- comunicazione importante non immediata.
+
+BASSA:
+
+- informazione operativa senza intervento;
+- comunicazione secondaria;
+- contenuto da ignorare;
+- OTP.
+
+==================================================
 BOOKMAKER
+==================================================
 
 Se riconosci il bookmaker o casinò,
 scrivine il nome in "bookmaker".
@@ -295,42 +505,135 @@ Se non è riconoscibile usa null.
 
 Non inventare il bookmaker.
 
-------------------------------------
+==================================================
+CATEGORIA
+==================================================
 
-VALORI
+Usa la categoria più precisa possibile.
+
+Categorie economiche:
+
+BONUS
+FREEBET
+CASHBACK
+PROMO_DEPOSITO
+PROMO_CASINO
+PROMO_SLOT
+PROMO_PERSONALIZZATA
+RIMBORSO
+
+Categorie operative:
+
+KYC
+LIMITAZIONE
+SOSPENSIONE
+PRELIEVO
+DEPOSITO
+SICUREZZA
+SCADENZA
+
+Altre:
+
+NEWSLETTER
+PUBBLICITA
+ALTRO
+
+IMPORTANTE:
+
+La categoria da sola NON determina
+se esiste un problema.
+
+Per esempio:
+
+KYC + richiede_azione false
+= informazione operativa
+
+KYC + richiede_azione true
+= problema operativo
+
+SICUREZZA + IGNORA + richiede_azione false
+= normale OTP
+
+SOSPENSIONE + DA_VALUTARE + richiede_azione true
+= problema reale
+
+==================================================
+VALORI ECONOMICI
+==================================================
 
 bonus_importo:
-SOLO l'importo che QUESTO conto riceve con certezza
-se rispetta le condizioni.
+
+SOLO l'importo che QUESTO conto riceve
+con certezza se rispetta le condizioni.
 
 Esempio:
-"deposita 100€, ricevi 50€" -> 50.
+
+"deposita 100€, ricevi 50€"
+-> bonus_importo = 50
 
 Usa null se:
-- è un montepremi o premi in palio condivisi tra i giocatori
-  (tornei, Drop & Wins, estrazioni, classifiche);
-- è solo un massimale ("fino a 500€", "100% fino a 1.000€"):
-  scrivi il massimale nelle condizioni;
-- ci sono più bonus diversi:
-  NON sommarli mai,
-  descrivili nelle condizioni;
+
+- è un montepremi condiviso;
+- sono premi in palio;
+- è un torneo;
+- è Drop & Wins;
+- è un'estrazione;
+- è una classifica;
+- è solo un massimale;
+- ci sono più bonus diversi;
 - l'importo non è chiaro.
 
+Esempio:
+
+"100% fino a 500€"
+
+NON scrivere bonus_importo = 500.
+
+Metti bonus_importo = null
+e descrivi il massimale nelle condizioni.
+
+NON sommare mai bonus diversi.
+
+==================================================
+DEPOSITO RICHIESTO
+==================================================
+
 deposito_richiesto:
-solo la ricarica/deposito richiesto per ottenere la promo.
 
-La puntata minima o la giocata minima NON è un deposito:
-va nelle condizioni.
+scrivi SOLO la ricarica/deposito necessario
+per ottenere la promozione.
 
-rollover:
-scrivi le condizioni di wagering/rollover se presenti.
+La puntata minima NON è un deposito.
 
-scadenza:
-scrivila SEMPRE nel formato "AAAA-MM-GG HH:mm",
-ora italiana,
-calcolandola dalla data di ricezione della comunicazione.
+La giocata minima NON è un deposito.
 
-Esempi, comunicazione del 30/09/2026:
+Queste informazioni vanno nelle condizioni.
+
+==================================================
+ROLLOVER
+==================================================
+
+Scrivi le condizioni di wagering/rollover
+se presenti.
+
+Se non esistono o non sono indicate usa null.
+
+==================================================
+SCADENZA
+==================================================
+
+Scrivila SEMPRE nel formato:
+
+AAAA-MM-GG HH:mm
+
+Usa l'ora italiana.
+
+Calcolala partendo dalla data di ricezione
+della comunicazione.
+
+Esempi:
+
+comunicazione ricevuta il 30/09/2026
 
 "entro il 4 ottobre"
 -> "2026-10-04 23:59"
@@ -346,20 +649,96 @@ Se l'ora non è indicata usa 23:59.
 Se la scadenza non esiste
 o non è determinabile usa null.
 
-condizioni:
-riassunto MOLTO breve delle condizioni importanti.
+==================================================
+CONDIZIONI
+==================================================
 
-motivazione_ai:
-spiega in italiano, in modo sintetico,
-perché la comunicazione è utile,
-da valutare o da ignorare.
+Scrivi un riassunto MOLTO breve
+delle condizioni importanti.
 
-richiede_azione:
-true solo se Sergio deve effettivamente fare qualcosa.
+Non copiare tutto il messaggio.
 
-------------------------------------
+==================================================
+MOTIVAZIONE AI
+==================================================
 
+Spiega in italiano e in modo sintetico
+perché la comunicazione è:
+
+- opportunità economica;
+- comunicazione operativa;
+- problema operativo;
+- oppure da ignorare.
+
+Se è un problema,
+spiega chiaramente quale intervento
+è richiesto.
+
+==================================================
+RICHIEDE AZIONE
+==================================================
+
+richiede_azione = true SOLO se Sergio
+deve realmente fare qualcosa.
+
+Esempi TRUE:
+
+- depositare per ottenere un bonus;
+- utilizzare una freebet prima della scadenza;
+- completare una promo;
+- inviare documenti;
+- contattare assistenza;
+- risolvere un prelievo bloccato;
+- intervenire su un conto sospeso;
+- completare una verifica obbligatoria.
+
+Esempi FALSE:
+
+- registrazione completata;
+- KYC completato;
+- documenti approvati;
+- deposito riuscito;
+- prelievo riuscito;
+- OTP;
+- newsletter;
+- informazione senza intervento.
+
+==================================================
+REGOLA FONDAMENTALE
+==================================================
+
+Prima di rispondere chiediti:
+
+"Questa comunicazione offre a Sergio
+una concreta opportunità economica gaming?"
+
+Se SÌ:
+giudizio = UTILE.
+
+Se NO, chiediti:
+
+"È una comunicazione operativa importante?"
+
+Se SÌ:
+giudizio = DA_VALUTARE.
+
+Poi chiediti:
+
+"Sergio deve intervenire?"
+
+Se SÌ:
+richiede_azione = true.
+
+Se NO:
+richiede_azione = false.
+
+Se non è né opportunità economica
+né comunicazione operativa importante:
+giudizio = IGNORA.
+
+==================================================
 COMUNICAZIONE
+==================================================
 
 Canale:
 ${item.canale}
@@ -379,17 +758,27 @@ ${item.oggetto || '(nessun oggetto)'}
 Testo:
 ${compactBody(item.testo_completo)}
 
-------------------------------------
+==================================================
 
-Rispondi esclusivamente secondo lo schema JSON richiesto.
+Rispondi esclusivamente secondo
+lo schema JSON richiesto.
 `
 }
 
-async function analyzeItem(item: LucyItem) {
-  const apiKey = process.env.GROQ_API_KEY
+/* =========================================================
+   CHIAMATA GROQ
+   ========================================================= */
+
+async function analyzeItem(
+  item: LucyItem
+) {
+  const apiKey =
+    process.env.GROQ_API_KEY
 
   if (!apiKey) {
-    throw new Error('GROQ_API_KEY mancante')
+    throw new Error(
+      'GROQ_API_KEY mancante'
+    )
   }
 
   const body = {
@@ -415,68 +804,103 @@ async function analyzeItem(item: LucyItem) {
     },
   }
 
-  let lastError: Error | null = null
+  let lastError: Error | null =
+    null
 
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  for (
+    let attempt = 1;
+    attempt <= 2;
+    attempt++
+  ) {
     try {
-      const response = await fetch(
-        'https://api.groq.com/openai/v1/chat/completions',
-        {
-          method: 'POST',
+      const response =
+        await fetch(
+          'https://api.groq.com/openai/v1/chat/completions',
+          {
+            method: 'POST',
 
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
+            headers: {
+              Authorization:
+                `Bearer ${apiKey}`,
 
-          body: JSON.stringify(body),
-        }
-      )
+              'Content-Type':
+                'application/json',
+            },
 
-      if (response.status === 429) {
-        const retryHeader = response.headers.get('retry-after')
+            body:
+              JSON.stringify(body),
+          }
+        )
 
-        let waitSeconds = Number(retryHeader)
+      if (
+        response.status === 429
+      ) {
+        const retryHeader =
+          response.headers.get(
+            'retry-after'
+          )
 
-        if (!Number.isFinite(waitSeconds) || waitSeconds <= 0) {
+        let waitSeconds =
+          Number(retryHeader)
+
+        if (
+          !Number.isFinite(
+            waitSeconds
+          ) ||
+          waitSeconds <= 0
+        ) {
           waitSeconds = 12
         }
 
-        waitSeconds = Math.min(waitSeconds, 25)
+        waitSeconds =
+          Math.min(
+            waitSeconds,
+            25
+          )
 
         if (attempt < 2) {
           console.warn(
             `[Lucy AI] Groq 429, attendo ${waitSeconds}s`
           )
 
-          await sleep(waitSeconds * 1000)
+          await sleep(
+            waitSeconds * 1000
+          )
+
           continue
         }
       }
 
       if (!response.ok) {
-        const errorText = await response.text()
+        const errorText =
+          await response.text()
 
         throw new Error(
           `Groq ${response.status}: ${errorText.slice(0, 500)}`
         )
       }
 
-      const json = await response.json()
+      const json =
+        await response.json()
 
-      const content = json?.choices?.[0]?.message?.content
+      const content =
+        json?.choices?.[0]
+          ?.message?.content
 
       if (!content) {
-        throw new Error('Groq non ha restituito contenuto')
+        throw new Error(
+          'Groq non ha restituito contenuto'
+        )
       }
 
       return JSON.parse(content)
-
     } catch (error: any) {
       lastError =
         error instanceof Error
           ? error
-          : new Error(String(error))
+          : new Error(
+              String(error)
+            )
 
       if (attempt < 2) {
         await sleep(1500)
@@ -484,16 +908,20 @@ async function analyzeItem(item: LucyItem) {
     }
   }
 
-  throw lastError || new Error('Errore AI sconosciuto')
+  throw (
+    lastError ||
+    new Error(
+      'Errore AI sconosciuto'
+    )
+  )
 }
 
-/*
- * =========================================================
- * SCADENZE ITALIANE
- * =========================================================
- */
+/* =========================================================
+   SCADENZE ITALIANE
+   ========================================================= */
 
-const MESI: Record<string, number> = {
+const MESI:
+  Record<string, number> = {
   gennaio: 1,
   gen: 1,
   febbraio: 2,
@@ -521,7 +949,8 @@ const MESI: Record<string, number> = {
   dic: 12,
 }
 
-const GIORNI: Record<string, number> = {
+const GIORNI:
+  Record<string, number> = {
   domenica: 0,
   lunedi: 1,
   martedi: 2,
@@ -532,19 +961,31 @@ const GIORNI: Record<string, number> = {
 }
 
 function romeParts(ts: number) {
-  const f = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/Rome',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  })
+  const f =
+    new Intl.DateTimeFormat(
+      'en-GB',
+      {
+        timeZone:
+          'Europe/Rome',
 
-  const p: Record<string, string> = {}
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+      }
+    )
 
-  for (const x of f.formatToParts(new Date(ts))) {
+  const p:
+    Record<string, string> =
+    {}
+
+  for (
+    const x of f.formatToParts(
+      new Date(ts)
+    )
+  ) {
     p[x.type] = x.value
   }
 
@@ -564,12 +1005,24 @@ function romeToTs(
   h: number,
   mi: number
 ) {
-  const voluto = Date.UTC(y, m - 1, d, h, mi)
+  const voluto =
+    Date.UTC(
+      y,
+      m - 1,
+      d,
+      h,
+      mi
+    )
 
   let ts = voluto
 
-  for (let i = 0; i < 2; i++) {
-    const p = romeParts(ts)
+  for (
+    let i = 0;
+    i < 2;
+    i++
+  ) {
+    const p =
+      romeParts(ts)
 
     ts +=
       voluto -
@@ -601,14 +1054,19 @@ function giornoValido(
 
   return (
     new Date(
-      Date.UTC(y, m - 1, d)
+      Date.UTC(
+        y,
+        m - 1,
+        d
+      )
     ).getUTCDate() === d
   )
 }
 
 function normalizeScadenza(
   value: unknown,
-  dataComunicazione?: string | null
+  dataComunicazione?:
+    string | null
 ): string | null {
   if (
     value === null ||
@@ -617,11 +1075,15 @@ function normalizeScadenza(
     return null
   }
 
-  let s = String(value)
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+  let s =
+    String(value)
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(
+        /[\u0300-\u036f]/g,
+        ''
+      )
 
   if (!s) {
     return null
@@ -630,18 +1092,24 @@ function normalizeScadenza(
   const refTs =
     dataComunicazione &&
     !Number.isNaN(
-      new Date(dataComunicazione).getTime()
+      new Date(
+        dataComunicazione
+      ).getTime()
     )
-      ? new Date(dataComunicazione).getTime()
+      ? new Date(
+          dataComunicazione
+        ).getTime()
       : Date.now()
 
-  const ref = romeParts(refTs)
+  const ref =
+    romeParts(refTs)
 
-  const oggiTs = Date.UTC(
-    ref.y,
-    ref.m - 1,
-    ref.d
-  )
+  const oggiTs =
+    Date.UTC(
+      ref.y,
+      ref.m - 1,
+      ref.d
+    )
 
   let h = 23
   let mi = 59
@@ -656,20 +1124,33 @@ function normalizeScadenza(
 
   if (ora) {
     h = Number(ora[1])
-    mi = Number(ora[2] || 0)
+    mi =
+      Number(
+        ora[2] || 0
+      )
 
-    s = s.replace(ora[0], ' ')
+    s =
+      s.replace(
+        ora[0],
+        ' '
+      )
   }
 
-  if (h > 23 || mi > 59) {
+  if (
+    h > 23 ||
+    mi > 59
+  ) {
     return null
   }
 
-  let y: number | null = null
+  let y:
+    number | null = null
+
   let m = 0
   let d = 0
 
-  let r: RegExpMatchArray | null
+  let r:
+    RegExpMatchArray | null
 
   if (
     (r = s.match(
@@ -679,7 +1160,6 @@ function normalizeScadenza(
     y = +r[1]
     m = +r[2]
     d = +r[3]
-
   } else if (
     (r = s.match(
       /\b(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?\b/
@@ -694,7 +1174,6 @@ function normalizeScadenza(
           ? 2000 + +r[3]
           : +r[3]
     }
-
   } else if (
     (r = s.match(
       /\b(\d{1,2})\s+(?:di\s+)?([a-z]+)(?:\s+(\d{4}))?/
@@ -707,25 +1186,36 @@ function normalizeScadenza(
     if (r[3]) {
       y = +r[3]
     }
-
   } else if (
-    /\b(dopodomani|domani|oggi|stasera|mezzanotte)\b/.test(s)
+    /\b(dopodomani|domani|oggi|stasera|mezzanotte)\b/.test(
+      s
+    )
   ) {
     const piu =
-      /\bdopodomani\b/.test(s)
+      /\bdopodomani\b/.test(
+        s
+      )
         ? 2
-        : /\bdomani\b/.test(s)
+        : /\bdomani\b/.test(
+              s
+            )
           ? 1
           : 0
 
-    const t = new Date(
-      oggiTs + piu * 86400000
-    )
+    const t =
+      new Date(
+        oggiTs +
+          piu * 86400000
+      )
 
-    y = t.getUTCFullYear()
-    m = t.getUTCMonth() + 1
-    d = t.getUTCDate()
+    y =
+      t.getUTCFullYear()
 
+    m =
+      t.getUTCMonth() + 1
+
+    d =
+      t.getUTCDate()
   } else if (
     (r = s.match(
       /\b(domenica|lunedi|martedi|mercoledi|giovedi|venerdi|sabato)\b/
@@ -734,18 +1224,26 @@ function normalizeScadenza(
     const diff =
       (
         GIORNI[r[1]] -
-        new Date(oggiTs).getUTCDay() +
+        new Date(
+          oggiTs
+        ).getUTCDay() +
         7
       ) % 7
 
-    const t = new Date(
-      oggiTs + diff * 86400000
-    )
+    const t =
+      new Date(
+        oggiTs +
+          diff * 86400000
+      )
 
-    y = t.getUTCFullYear()
-    m = t.getUTCMonth() + 1
-    d = t.getUTCDate()
+    y =
+      t.getUTCFullYear()
 
+    m =
+      t.getUTCMonth() + 1
+
+    d =
+      t.getUTCDate()
   } else if (
     (r = s.match(
       /\b(?:entro\s+il|fino\s+al|il)\s+(\d{1,2})\b/
@@ -763,64 +1261,88 @@ function normalizeScadenza(
         y++
       }
     }
-
   } else {
     return null
   }
 
-  let annoDedotto = false
+  let annoDedotto =
+    false
 
   if (y === null) {
     y = ref.y
     annoDedotto = true
   }
 
-  if (!giornoValido(y, m, d)) {
+  if (
+    !giornoValido(
+      y,
+      m,
+      d
+    )
+  ) {
     return null
   }
 
-  let ts = romeToTs(
-    y,
-    m,
-    d,
-    h,
-    mi
-  )
-
-  if (
-    annoDedotto &&
-    ts < refTs - 60 * 86400000 &&
-    giornoValido(y + 1, m, d)
-  ) {
-    ts = romeToTs(
-      y + 1,
+  let ts =
+    romeToTs(
+      y,
       m,
       d,
       h,
       mi
     )
+
+  if (
+    annoDedotto &&
+    ts <
+      refTs -
+        60 * 86400000 &&
+    giornoValido(
+      y + 1,
+      m,
+      d
+    )
+  ) {
+    ts =
+      romeToTs(
+        y + 1,
+        m,
+        d,
+        h,
+        mi
+      )
   }
 
   if (
-    ts < refTs - 2 * 86400000 ||
-    ts > refTs + 400 * 86400000
+    ts <
+      refTs -
+        2 * 86400000 ||
+    ts >
+      refTs +
+        400 * 86400000
   ) {
     return null
   }
 
-  return new Date(ts).toISOString()
+  return new Date(
+    ts
+  ).toISOString()
 }
 
-/*
- * =========================================================
- * RECUPERO EMAIL
- * =========================================================
- */
+/* =========================================================
+   RECUPERO EMAIL
+   ========================================================= */
 
-async function getEmails(): Promise<LucyItem[]> {
-  const { data, error } =
+async function getEmails():
+  Promise<LucyItem[]> {
+  const {
+    data,
+    error,
+  } =
     await supabase
-      .from('lucy_mail_archive')
+      .from(
+        'lucy_mail_archive'
+      )
       .select('*')
       .eq(
         'giudizio',
@@ -828,36 +1350,60 @@ async function getEmails(): Promise<LucyItem[]> {
       )
       .order(
         'data_mail',
-        { ascending: false }
+        {
+          ascending: false,
+        }
       )
-      .limit(EMAIL_BATCH_SIZE)
+      .limit(
+        EMAIL_BATCH_SIZE
+      )
 
   if (error) {
     throw error
   }
 
-  return (data || []).map(mail => ({
+  return (
+    data || []
+  ).map(mail => ({
     id: mail.id,
-    canale: 'EMAIL' as const,
-    cliente_nome: mail.cliente_nome,
-    mittente: mail.mittente,
-    oggetto: mail.oggetto,
-    testo_completo: mail.testo_completo,
-    data_comunicazione: mail.data_mail,
-    tabella: 'lucy_mail_archive' as const,
+
+    canale:
+      'EMAIL' as const,
+
+    cliente_nome:
+      mail.cliente_nome,
+
+    mittente:
+      mail.mittente,
+
+    oggetto:
+      mail.oggetto,
+
+    testo_completo:
+      mail.testo_completo,
+
+    data_comunicazione:
+      mail.data_mail,
+
+    tabella:
+      'lucy_mail_archive' as const,
   }))
 }
 
-/*
- * =========================================================
- * RECUPERO SMS
- * =========================================================
- */
+/* =========================================================
+   RECUPERO SMS
+   ========================================================= */
 
-async function getSms(): Promise<LucyItem[]> {
-  const { data, error } =
+async function getSms():
+  Promise<LucyItem[]> {
+  const {
+    data,
+    error,
+  } =
     await supabase
-      .from('sms_clienti')
+      .from(
+        'sms_clienti'
+      )
       .select('*')
       .eq(
         'giudizio',
@@ -869,41 +1415,59 @@ async function getSms(): Promise<LucyItem[]> {
       )
       .order(
         'data_ricezione',
-        { ascending: false }
+        {
+          ascending: false,
+        }
       )
-      .limit(SMS_BATCH_SIZE)
+      .limit(
+        SMS_BATCH_SIZE
+      )
 
   if (error) {
     throw error
   }
 
-  return (data || []).map(sms => ({
+  return (
+    data || []
+  ).map(sms => ({
     id: sms.id,
-    canale: 'SMS' as const,
+
+    canale:
+      'SMS' as const,
+
     cliente_nome:
       sms.cliente ||
       sms.telefono ||
       null,
-    mittente: sms.mittente,
-    oggetto: 'SMS',
-    testo_completo: sms.testo,
-    data_comunicazione: sms.data_ricezione,
-    tabella: 'sms_clienti' as const,
+
+    mittente:
+      sms.mittente,
+
+    oggetto:
+      'SMS',
+
+    testo_completo:
+      sms.testo,
+
+    data_comunicazione:
+      sms.data_ricezione,
+
+    tabella:
+      'sms_clienti' as const,
   }))
 }
 
-/*
- * =========================================================
- * SALVATAGGIO
- * =========================================================
- */
+/* =========================================================
+   SALVATAGGIO
+   ========================================================= */
 
 async function saveResult(
   item: LucyItem,
   result: any
 ) {
   const now =
-    new Date().toISOString()
+    new Date()
+      .toISOString()
 
   const scadenza =
     normalizeScadenza(
@@ -924,7 +1488,9 @@ async function saveResult(
 
   const { error } =
     await supabase
-      .from(item.tabella)
+      .from(
+        item.tabella
+      )
       .update({
         giudizio:
           result.giudizio,
@@ -969,23 +1535,28 @@ async function saveResult(
         updated_at:
           now,
       })
-      .eq('id', item.id)
+      .eq(
+        'id',
+        item.id
+      )
 
   if (error) {
     throw error
   }
 }
 
-/*
- * =========================================================
- * ANALISI EMAIL + SMS
- * =========================================================
- */
+/* =========================================================
+   ANALISI EMAIL + SMS
+   ========================================================= */
 
 async function runAnalysis() {
-  const startedAt = Date.now()
+  const startedAt =
+    Date.now()
 
-  const [emails, sms] =
+  const [
+    emails,
+    sms,
+  ] =
     await Promise.all([
       getEmails(),
       getSms(),
@@ -998,32 +1569,48 @@ async function runAnalysis() {
    * EMAIL
    * SMS
    */
-  const items: LucyItem[] = []
+  const items:
+    LucyItem[] = []
 
-  const max = Math.max(
-    emails.length,
-    sms.length
-  )
+  const max =
+    Math.max(
+      emails.length,
+      sms.length
+    )
 
-  for (let i = 0; i < max; i++) {
+  for (
+    let i = 0;
+    i < max;
+    i++
+  ) {
     if (emails[i]) {
-      items.push(emails[i])
+      items.push(
+        emails[i]
+      )
     }
 
     if (sms[i]) {
-      items.push(sms[i])
+      items.push(
+        sms[i]
+      )
     }
   }
 
-  if (items.length === 0) {
+  if (
+    items.length === 0
+  ) {
     return {
       ok: true,
+
       email_trovate: 0,
       sms_trovati: 0,
+
       email_analizzate: 0,
       sms_analizzati: 0,
+
       analizzate: 0,
       errori: 0,
+
       risultati: [],
     }
   }
@@ -1034,14 +1621,19 @@ async function runAnalysis() {
   let emailAnalizzate = 0
   let smsAnalizzati = 0
 
-  const risultati: any[] = []
+  const risultati:
+    any[] = []
 
-  for (const item of items) {
+  for (
+    const item of items
+  ) {
     /*
-     * Fermiamoci prima del timeout Vercel.
+     * Fermiamoci prima
+     * del timeout Vercel.
      */
     if (
-      Date.now() - startedAt >
+      Date.now() -
+        startedAt >
       MAX_WORK_TIME_MS
     ) {
       console.log(
@@ -1053,7 +1645,9 @@ async function runAnalysis() {
 
     try {
       const result =
-        await analyzeItem(item)
+        await analyzeItem(
+          item
+        )
 
       await saveResult(
         item,
@@ -1062,7 +1656,10 @@ async function runAnalysis() {
 
       analizzate++
 
-      if (item.canale === 'EMAIL') {
+      if (
+        item.canale ===
+        'EMAIL'
+      ) {
         emailAnalizzate++
       } else {
         smsAnalizzati++
@@ -1070,19 +1667,26 @@ async function runAnalysis() {
 
       risultati.push({
         id: item.id,
-        canale: item.canale,
-        giudizio: result.giudizio,
-        categoria: result.categoria,
-        bookmaker: result.bookmaker,
+        canale:
+          item.canale,
+        giudizio:
+          result.giudizio,
+        categoria:
+          result.categoria,
+        bookmaker:
+          result.bookmaker,
+        richiede_azione:
+          result.richiede_azione,
       })
 
       console.log(
-        `[Lucy AI] OK ${item.canale} ${item.id} ${result.giudizio} ${result.categoria} ${result.bookmaker || '-'}`
+        `[Lucy AI] OK ${item.canale} ${item.id} ${result.giudizio} ${result.categoria} azione=${result.richiede_azione} ${result.bookmaker || '-'}`
       )
 
       await sleep(700)
-
-    } catch (error: any) {
+    } catch (
+      error: any
+    ) {
       errori++
 
       console.error(
@@ -1091,12 +1695,15 @@ async function runAnalysis() {
       )
 
       /*
-       * Il messaggio rimane DA_ANALIZZARE
-       * e verrà riprovato.
+       * Il messaggio rimane
+       * DA_ANALIZZARE e verrà
+       * riprovato.
        */
       risultati.push({
         id: item.id,
-        canale: item.canale,
+        canale:
+          item.canale,
+
         errore:
           error?.message ||
           String(error),
@@ -1132,18 +1739,17 @@ async function runAnalysis() {
   }
 }
 
-/*
- * =========================================================
- * GET - VERCEL CRON
- * =========================================================
- */
+/* =========================================================
+   GET - VERCEL CRON
+   ========================================================= */
 
 export async function GET(
   req: NextRequest
 ) {
   try {
     const cronSecret =
-      process.env.CRON_SECRET
+      process.env
+        .CRON_SECRET
 
     if (cronSecret) {
       const auth =
@@ -1155,13 +1761,16 @@ export async function GET(
         auth !==
         `Bearer ${cronSecret}`
       ) {
-        return NextResponse.json(
-          {
-            error: 'Unauthorized',
-          },
-          {
-            status: 401,
-          }
+        return (
+          NextResponse.json(
+            {
+              error:
+                'Unauthorized',
+            },
+            {
+              status: 401,
+            }
+          )
         )
       }
     }
@@ -1169,27 +1778,32 @@ export async function GET(
     const result =
       await runAnalysis()
 
-    return NextResponse.json(
-      result
+    return (
+      NextResponse.json(
+        result
+      )
     )
-
-  } catch (error: any) {
+  } catch (
+    error: any
+  ) {
     console.error(
       '[Lucy AI] errore generale',
       error
     )
 
-    return NextResponse.json(
-      {
-        ok: false,
+    return (
+      NextResponse.json(
+        {
+          ok: false,
 
-        error:
-          error?.message ||
-          String(error),
-      },
-      {
-        status: 500,
-      }
+          error:
+            error?.message ||
+            String(error),
+        },
+        {
+          status: 500,
+        }
+      )
     )
   }
 }
