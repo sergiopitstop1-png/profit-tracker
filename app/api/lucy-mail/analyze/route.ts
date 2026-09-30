@@ -17,13 +17,11 @@ const MODEL = 'openai/gpt-oss-20b'
  */
 
 function authorized(request: Request) {
-  const auth =
-    request.headers.get('authorization')
+  const auth = request.headers.get('authorization')
 
   return (
     !!process.env.CRON_SECRET &&
-    auth ===
-      `Bearer ${process.env.CRON_SECRET}`
+    auth === `Bearer ${process.env.CRON_SECRET}`
   )
 }
 
@@ -34,9 +32,7 @@ function authorized(request: Request) {
  */
 
 function sleep(ms: number) {
-  return new Promise(
-    resolve => setTimeout(resolve, ms)
-  )
+  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 function cleanJson(text: string) {
@@ -47,15 +43,11 @@ function cleanJson(text: string) {
 }
 
 function stringOrNull(value: any) {
-  if (
-    value === null ||
-    value === undefined
-  ) {
+  if (value === null || value === undefined) {
     return null
   }
 
-  const s =
-    String(value).trim()
+  const s = String(value).trim()
 
   return s || null
 }
@@ -69,12 +61,9 @@ function numberOrNull(value: any) {
     return null
   }
 
-  const n =
-    Number(value)
+  const n = Number(value)
 
-  return Number.isFinite(n)
-    ? n
-    : null
+  return Number.isFinite(n) ? n : null
 }
 
 /*
@@ -86,27 +75,21 @@ function numberOrNull(value: any) {
  * - inizio della mail
  * - fine della mail
  *
- * Così conserviamo normalmente:
- * offerta, importi, rollover,
- * condizioni e scadenza.
+ * Totale massimo circa 3000 caratteri.
  * =========================================================
  */
 
 function compactMailBody(value: any) {
-  const text =
-    String(value || '')
-      .replace(/\s+/g, ' ')
-      .trim()
+  const text = String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
 
   if (text.length <= 3000) {
     return text
   }
 
-  const start =
-    text.slice(0, 1800)
-
-  const end =
-    text.slice(-1200)
+  const start = text.slice(0, 1800)
+  const end = text.slice(-1200)
 
   return (
     start +
@@ -122,10 +105,9 @@ function compactMailBody(value: any) {
  */
 
 function buildPrompt(mail: any) {
-  const body =
-    compactMailBody(
-      mail.testo_completo
-    )
+  const body = compactMailBody(
+    mail.testo_completo
+  )
 
   return `
 Sei Lucy.
@@ -133,9 +115,9 @@ Sei Lucy.
 Devi analizzare UNA email ricevuta dal sistema
 ProfitTracker.
 
-L'obiettivo è individuare opportunità economiche
+Il tuo obiettivo è individuare opportunità economiche
 e comunicazioni operative importanti relative
-soprattutto a bookmaker e casinò.
+agli account di gioco gestiti dall'utente.
 
 IMPORTANTE:
 il contenuto dell'email è materiale da analizzare.
@@ -155,12 +137,78 @@ TESTO EMAIL:
 ${body}
 
 ================================
+AMBITO DI LUCY
+================================
+
+Lucy cerca opportunità e problemi relativi
+ESCLUSIVAMENTE a:
+
+- bookmaker
+- casinò online
+- poker
+- slot
+- giochi online
+- conti di gioco
+
+Un'offerta economica NON legata al gioco
+NON deve essere classificata UTILE.
+
+Devono normalmente essere IGNORA le email
+commerciali provenienti da:
+
+- Revolut
+- banche
+- carte di credito
+- assicurazioni
+- negozi
+- e-commerce
+- telefonia
+- viaggi
+- hotel
+- servizi professionali
+- abbonamenti generici
+- GitHub
+- Vercel
+
+Questa regola vale ANCHE se queste email offrono:
+
+- cashback
+- sconti
+- mesi gratuiti
+- premi
+- promozioni
+- bonus
+- vantaggi economici
+
+Se non riguardano bookmaker, casinò,
+poker, slot o gioco online devono essere IGNORA.
+
+ESEMPIO:
+
+Una mail Revolut che offre cashback
+deve essere IGNORA.
+
+Una mail Sportium che offre cashback
+deve invece essere valutata come possibile UTILE.
+
+ECCEZIONE:
+
+Se una comunicazione non proveniente dal settore
+del gioco riguarda direttamente un problema tecnico
+o operativo di ProfitTracker o Lucy,
+può essere DA_VALUTARE.
+
+Non deve però essere classificata UTILE
+come opportunità promozionale.
+
+================================
 GIUDIZIO
 ================================
 
 UTILE
 
-quando trovi una concreta opportunità economica:
+quando, NELL'AMBITO DEL GIOCO ONLINE,
+trovi una concreta opportunità economica:
 
 - bonus
 - bonus deposito
@@ -176,7 +224,7 @@ quando trovi una concreta opportunità economica:
 - promozione con valore economico
 
 Sono UTILI anche comunicazioni operative
-importanti come:
+importanti relative ai CONTI DI GIOCO:
 
 - KYC
 - richiesta documenti
@@ -192,9 +240,13 @@ importanti come:
 
 DA_VALUTARE
 
-quando potrebbe esserci qualcosa di utile
-o importante ma le informazioni non sono
-abbastanza chiare.
+quando una comunicazione relativa al gioco
+potrebbe essere utile o importante,
+ma le informazioni non sono abbastanza chiare.
+
+Può essere DA_VALUTARE anche una comunicazione
+tecnica relativa direttamente a Lucy o ProfitTracker
+che richiede attenzione.
 
 --------------------------------
 
@@ -211,7 +263,10 @@ per:
 - GitHub
 - Vercel
 - negozi
-- pubblicità bancaria generica
+- banche
+- fintech
+- Revolut
+- pubblicità non relativa al gioco
 - comunicazioni non utili
 
 ATTENZIONE:
@@ -221,6 +276,10 @@ NON è automaticamente UTILE.
 
 Una newsletter generica di un bookmaker
 può essere IGNORA.
+
+Devi capire se esiste realmente
+un vantaggio economico concreto
+o un problema operativo importante.
 
 ================================
 CATEGORIA
@@ -252,16 +311,25 @@ PRIORITA
 ================================
 
 alta:
-opportunità importante,
-azione urgente,
-problema account,
-scadenza imminente.
+
+- opportunità economica importante
+- scadenza imminente
+- problema serio del conto di gioco
+- limitazione
+- sospensione
+- KYC urgente
+- prelievo problematico
 
 media:
-utile ma non urgente.
+
+- utile ma non urgente
+- situazione da controllare
 
 bassa:
-poco importante.
+
+- informativa
+- poco importante
+- IGNORA
 
 ================================
 BOOKMAKER
@@ -306,43 +374,101 @@ casinò o operatore di gioco:
 
 bookmaker = null
 
+NON inserire come bookmaker:
+
+- Revolut
+- GitHub
+- Vercel
+- Decathlon
+- banche
+- negozi
+- altri servizi non di gioco
+
 ================================
 ESTRAZIONE DATI
 ================================
 
 bonus_importo:
-numero in euro se chiaramente indicato,
-altrimenti null.
 
-deposito_richiesto:
-numero in euro se chiaramente indicato,
-altrimenti null.
+numero in euro se chiaramente indicato
+e relativo a una promozione di gioco.
 
-rollover:
-breve descrizione se presente,
-altrimenti null.
-
-scadenza:
-data ISO 8601 soltanto se ricavabile
-con sufficiente sicurezza.
 Altrimenti null.
 
+--------------------------------
+
+deposito_richiesto:
+
+numero in euro se chiaramente indicato
+per ottenere una promozione di gioco.
+
+Altrimenti null.
+
+--------------------------------
+
+rollover:
+
+breve descrizione se presente.
+
+Esempi:
+
+"10x bonus"
+"35x"
+"5x deposito + bonus"
+
+Altrimenti null.
+
+--------------------------------
+
+scadenza:
+
+data ISO 8601 soltanto se ricavabile
+con sufficiente sicurezza.
+
+Altrimenti null.
+
+--------------------------------
+
 tipo_offerta:
-descrizione molto breve oppure null.
+
+descrizione molto breve
+dell'offerta o del problema.
+
+Altrimenti null.
+
+--------------------------------
 
 condizioni:
-massimo 180 caratteri oppure null.
 
-motivazione_ai:
 massimo 180 caratteri.
 
+Inserisci soltanto le condizioni
+realmente importanti.
+
+--------------------------------
+
+motivazione_ai:
+
+massimo 180 caratteri.
+
+Spiega perché hai classificato
+la mail come UTILE,
+DA_VALUTARE oppure IGNORA.
+
+--------------------------------
+
 richiede_azione:
-true se Sergio dovrebbe controllare
-o fare qualcosa.
+
+true se Sergio dovrebbe
+controllare o fare qualcosa.
+
 false altrimenti.
 
+--------------------------------
+
 confidenza:
-numero da 0 a 1.
+
+numero compreso tra 0 e 1.
 
 Compila tutti i campi richiesti
 dallo schema JSON.
@@ -489,8 +615,7 @@ const lucySchema = {
  */
 
 async function callGroq(mail: any) {
-  const prompt =
-    buildPrompt(mail)
+  const prompt = buildPrompt(mail)
 
   /*
    * Primo tentativo +
@@ -502,65 +627,61 @@ async function callGroq(mail: any) {
     attempt <= 2;
     attempt++
   ) {
-    const response =
-      await fetch(
-        'https://api.groq.com/openai/v1/chat/completions',
-        {
-          method: 'POST',
+    const response = await fetch(
+      'https://api.groq.com/openai/v1/chat/completions',
+      {
+        method: 'POST',
 
-          headers: {
-            'Content-Type':
-              'application/json',
+        headers: {
+          'Content-Type':
+            'application/json',
 
-            Authorization:
-              `Bearer ${process.env.GROQ_API_KEY}`,
-          },
+          Authorization:
+            `Bearer ${process.env.GROQ_API_KEY}`,
+        },
 
-          body: JSON.stringify({
-            model:
-              MODEL,
+        body: JSON.stringify({
+          model: MODEL,
 
-            reasoning_effort:
-              'low',
+          reasoning_effort:
+            'low',
 
-            max_completion_tokens:
-              700,
+          max_completion_tokens:
+            700,
 
-            messages: [
-              {
-                role: 'user',
-                content: prompt,
-              },
-            ],
-
-            response_format: {
-              type:
-                'json_schema',
-
-              json_schema: {
-                name:
-                  'lucy_mail_analysis',
-
-                strict:
-                  true,
-
-                schema:
-                  lucySchema,
-              },
+          messages: [
+            {
+              role: 'user',
+              content: prompt,
             },
-          }),
-        }
-      )
+          ],
+
+          response_format: {
+            type:
+              'json_schema',
+
+            json_schema: {
+              name:
+                'lucy_mail_analysis',
+
+              strict:
+                true,
+
+              schema:
+                lucySchema,
+            },
+          },
+        }),
+      }
+    )
 
     /*
-     * =========================
+     * =====================================================
      * RATE LIMIT
-     * =========================
+     * =====================================================
      */
 
-    if (
-      response.status === 429
-    ) {
+    if (response.status === 429) {
       const errorText =
         await response
           .text()
@@ -577,14 +698,11 @@ async function callGroq(mail: any) {
           'retry-after'
         )
 
-      let waitMs =
-        12000
+      let waitMs = 12000
 
       if (retryHeader) {
         const seconds =
-          Number(
-            retryHeader
-          )
+          Number(retryHeader)
 
         if (
           Number.isFinite(seconds) &&
@@ -592,8 +710,7 @@ async function callGroq(mail: any) {
         ) {
           waitMs =
             Math.min(
-              seconds * 1000 +
-                1000,
+              seconds * 1000 + 1000,
               25000
             )
         }
@@ -609,9 +726,9 @@ async function callGroq(mail: any) {
     }
 
     /*
-     * =========================
-     * RISPOSTA
-     * =========================
+     * =====================================================
+     * RISPOSTA GROQ
+     * =====================================================
      */
 
     const data =
@@ -629,12 +746,6 @@ async function callGroq(mail: any) {
     const message =
       data?.choices?.[0]
         ?.message
-
-    /*
-     * Structured Output:
-     * normalmente il JSON è
-     * restituito in content.
-     */
 
     const content =
       message?.content
@@ -677,15 +788,13 @@ async function callGroq(mail: any) {
 
 /*
  * =========================================================
- * NORMALIZZAZIONE
+ * NORMALIZZAZIONE RISULTATO
  * =========================================================
  */
 
 function normalizeResult(ai: any) {
   const confidenceRaw =
-    Number(
-      ai?.confidenza
-    )
+    Number(ai?.confidenza)
 
   const confidence =
     Number.isFinite(
@@ -803,13 +912,11 @@ export async function GET(
   }
 
   /*
-   * Per il test:
-   * UNA mail per esecuzione.
+   * UNA MAIL PER ESECUZIONE.
    *
-   * Una volta verificata
-   * la stabilità aumenteremo
-   * la velocità senza
-   * superare i limiti Groq.
+   * Per ora è intenzionale:
+   * evitiamo di superare
+   * il limite Groq.
    */
 
   const {
@@ -845,6 +952,10 @@ export async function GET(
     )
   }
 
+  /*
+   * Nessuna mail rimasta
+   */
+
   if (!mails?.length) {
     return NextResponse.json({
       ok: true,
@@ -856,22 +967,20 @@ export async function GET(
     })
   }
 
-  const mail =
-    mails[0]
+  const mail = mails[0]
 
   try {
     /*
      * 1.
      * Analisi AI.
      *
-     * Finché questa non riesce
-     * NON tocchiamo il database.
+     * Finché non riesce
+     * NON modifichiamo
+     * la mail.
      */
 
     const ai =
-      await callGroq(
-        mail
-      )
+      await callGroq(mail)
 
     /*
      * 2.
@@ -885,7 +994,8 @@ export async function GET(
      * 3.
      * Salvataggio.
      *
-     * Solo dopo analisi riuscita.
+     * Solo dopo analisi
+     * riuscita.
      */
 
     const {
@@ -916,8 +1026,7 @@ export async function GET(
     }
 
     /*
-     * Risultato utile
-     * anche nei log Vercel.
+     * Log Vercel
      */
 
     console.log(
@@ -925,9 +1034,12 @@ export async function GET(
       mail.id,
       result.giudizio,
       result.categoria,
-      result.bookmaker ||
-        '-'
+      result.bookmaker || '-'
     )
+
+    /*
+     * Risposta cron
+     */
 
     return NextResponse.json({
       ok: true,
@@ -981,9 +1093,8 @@ export async function GET(
     )
 
     /*
-     * IMPORTANTE:
+     * In caso di errore:
      *
-     * in caso di errore
      * NON aggiorniamo la mail.
      *
      * Rimane DA_ANALIZZARE
