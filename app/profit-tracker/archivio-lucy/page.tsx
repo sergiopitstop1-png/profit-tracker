@@ -15,7 +15,9 @@ type Mail = {
   cliente_nome: string | null
   bookmaker: string | null
   mittente: string | null
+  destinatario_originale: string | null
   oggetto: string | null
+  testo_completo: string | null
   categoria: string | null
   giudizio: string | null
   priorita: string | null
@@ -77,6 +79,9 @@ export default function ArchivioLucyPage() {
   const [loading, setLoading] =
     useState(false)
 
+  const [mailAperta, setMailAperta] =
+    useState<Mail | null>(null)
+
   const [vista, setVista] =
     useState<Vista>(
       'opportunita'
@@ -126,12 +131,10 @@ export default function ArchivioLucyPage() {
             ([key, value]) => {
 
               if (value) {
-
                 p.set(
                   key,
                   value
                 )
-
               }
 
             }
@@ -218,6 +221,54 @@ export default function ArchivioLucyPage() {
     )
 
     load()
+
+  }
+
+
+  /*
+   * =======================================================
+   * APERTURA MAIL
+   * =======================================================
+   */
+
+  async function apriMail(
+    mail: Mail
+  ) {
+
+    setMailAperta(mail)
+
+    /*
+     * Segniamo la mail come letta.
+     */
+
+    try {
+
+      await fetch(
+        '/api/lucy-mail/archive',
+        {
+          method: 'PATCH',
+
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
+
+          body:
+            JSON.stringify({
+              id: mail.id,
+              letta: true,
+            }),
+        }
+      )
+
+    } catch (error) {
+
+      console.error(
+        '[Lucy lettura]',
+        error
+      )
+
+    }
 
   }
 
@@ -339,21 +390,17 @@ export default function ArchivioLucyPage() {
     if (
       priority === 'alta'
     ) {
-
       return (
         'text-red-600 font-bold'
       )
-
     }
 
     if (
       priority === 'media'
     ) {
-
       return (
         'text-orange-600 font-semibold'
       )
-
     }
 
     return (
@@ -404,12 +451,6 @@ export default function ArchivioLucyPage() {
 
   return (
 
-    /*
-     * Sfondo generale Lucy.
-     * Occupa almeno tutta
-     * l'altezza dello schermo.
-     */
-
     <div
       className="
         min-h-screen
@@ -426,9 +467,7 @@ export default function ArchivioLucyPage() {
         "
       >
 
-        {/* ================================================
-            HEADER
-            ================================================ */}
+        {/* HEADER */}
 
         <div
           className="
@@ -473,8 +512,6 @@ export default function ArchivioLucyPage() {
             "
           >
 
-            {/* TORNA AL PROFIT */}
-
             <button
 
               onClick={() =>
@@ -500,8 +537,6 @@ export default function ArchivioLucyPage() {
             </button>
 
 
-            {/* AGGIORNA */}
-
             <button
 
               onClick={load}
@@ -526,9 +561,7 @@ export default function ArchivioLucyPage() {
         </div>
 
 
-        {/* ================================================
-            DASHBOARD LUCY
-            ================================================ */}
+        {/* CONTATORI */}
 
         <div
           className="
@@ -542,27 +575,13 @@ export default function ArchivioLucyPage() {
         >
 
           <button
-            className={
-              tabClass(
-                'opportunita'
-              )
-            }
+            className={tabClass('opportunita')}
             onClick={() =>
-              cambiaVista(
-                'opportunita'
-              )
+              cambiaVista('opportunita')
             }
           >
-            <div
-              className="
-                text-xl
-                font-bold
-              "
-            >
-              🔥 {
-                counters
-                  .opportunita
-              }
+            <div className="text-xl font-bold">
+              🔥 {counters.opportunita}
             </div>
 
             <div>
@@ -572,27 +591,13 @@ export default function ArchivioLucyPage() {
 
 
           <button
-            className={
-              tabClass(
-                'da_valutare'
-              )
-            }
+            className={tabClass('da_valutare')}
             onClick={() =>
-              cambiaVista(
-                'da_valutare'
-              )
+              cambiaVista('da_valutare')
             }
           >
-            <div
-              className="
-                text-xl
-                font-bold
-              "
-            >
-              ⚠️ {
-                counters
-                  .da_valutare
-              }
+            <div className="text-xl font-bold">
+              ⚠️ {counters.da_valutare}
             </div>
 
             <div>
@@ -602,27 +607,13 @@ export default function ArchivioLucyPage() {
 
 
           <button
-            className={
-              tabClass(
-                'problemi'
-              )
-            }
+            className={tabClass('problemi')}
             onClick={() =>
-              cambiaVista(
-                'problemi'
-              )
+              cambiaVista('problemi')
             }
           >
-            <div
-              className="
-                text-xl
-                font-bold
-              "
-            >
-              🚨 {
-                counters
-                  .problemi
-              }
+            <div className="text-xl font-bold">
+              🚨 {counters.problemi}
             </div>
 
             <div>
@@ -632,27 +623,13 @@ export default function ArchivioLucyPage() {
 
 
           <button
-            className={
-              tabClass(
-                'ignora'
-              )
-            }
+            className={tabClass('ignora')}
             onClick={() =>
-              cambiaVista(
-                'ignora'
-              )
+              cambiaVista('ignora')
             }
           >
-            <div
-              className="
-                text-xl
-                font-bold
-              "
-            >
-              ⚪ {
-                counters
-                  .ignora
-              }
+            <div className="text-xl font-bold">
+              ⚪ {counters.ignora}
             </div>
 
             <div>
@@ -662,27 +639,13 @@ export default function ArchivioLucyPage() {
 
 
           <button
-            className={
-              tabClass(
-                'da_analizzare'
-              )
-            }
+            className={tabClass('da_analizzare')}
             onClick={() =>
-              cambiaVista(
-                'da_analizzare'
-              )
+              cambiaVista('da_analizzare')
             }
           >
-            <div
-              className="
-                text-xl
-                font-bold
-              "
-            >
-              ⏳ {
-                counters
-                  .da_analizzare
-              }
+            <div className="text-xl font-bold">
+              ⏳ {counters.da_analizzare}
             </div>
 
             <div>
@@ -692,27 +655,13 @@ export default function ArchivioLucyPage() {
 
 
           <button
-            className={
-              tabClass(
-                'tutte'
-              )
-            }
+            className={tabClass('tutte')}
             onClick={() =>
-              cambiaVista(
-                'tutte'
-              )
+              cambiaVista('tutte')
             }
           >
-            <div
-              className="
-                text-xl
-                font-bold
-              "
-            >
-              📚 {
-                counters
-                  .tutte
-              }
+            <div className="text-xl font-bold">
+              📚 {counters.tutte}
             </div>
 
             <div>
@@ -722,8 +671,6 @@ export default function ArchivioLucyPage() {
 
         </div>
 
-
-        {/* RISULTATI */}
 
         <div
           className="
@@ -736,9 +683,7 @@ export default function ArchivioLucyPage() {
         </div>
 
 
-        {/* ================================================
-            FILTRI
-            ================================================ */}
+        {/* FILTRI */}
 
         <div
           className="
@@ -776,16 +721,13 @@ export default function ArchivioLucyPage() {
               bg-white
               text-black
             "
-            value={
-              f.giudizio
-            }
-            onChange={
-              e =>
-                setF({
-                  ...f,
-                  giudizio:
-                    e.target.value,
-                })
+            value={f.giudizio}
+            onChange={e =>
+              setF({
+                ...f,
+                giudizio:
+                  e.target.value,
+              })
             }
           >
 
@@ -793,21 +735,10 @@ export default function ArchivioLucyPage() {
               Tutti i giudizi
             </option>
 
-            <option>
-              UTILE
-            </option>
-
-            <option>
-              DA_VALUTARE
-            </option>
-
-            <option>
-              IGNORA
-            </option>
-
-            <option>
-              DA_ANALIZZARE
-            </option>
+            <option>UTILE</option>
+            <option>DA_VALUTARE</option>
+            <option>IGNORA</option>
+            <option>DA_ANALIZZARE</option>
 
           </select>
 
@@ -822,16 +753,13 @@ export default function ArchivioLucyPage() {
               bg-white
               text-black
             "
-            value={
-              f.categoria
-            }
-            onChange={
-              e =>
-                setF({
-                  ...f,
-                  categoria:
-                    e.target.value,
-                })
+            value={f.categoria}
+            onChange={e =>
+              setF({
+                ...f,
+                categoria:
+                  e.target.value,
+              })
             }
           >
 
@@ -839,24 +767,24 @@ export default function ArchivioLucyPage() {
               Tutte le categorie
             </option>
 
-            <option> BONUS </option>
-            <option> FREEBET </option>
-            <option> CASHBACK </option>
-            <option> PROMO_DEPOSITO </option>
-            <option> PROMO_CASINO </option>
-            <option> PROMO_SLOT </option>
-            <option> PROMO_PERSONALIZZATA </option>
-            <option> RIMBORSO </option>
-            <option> KYC </option>
-            <option> LIMITAZIONE </option>
-            <option> SOSPENSIONE </option>
-            <option> PRELIEVO </option>
-            <option> DEPOSITO </option>
-            <option> SICUREZZA </option>
-            <option> SCADENZA </option>
-            <option> NEWSLETTER </option>
-            <option> PUBBLICITA </option>
-            <option> ALTRO </option>
+            <option>BONUS</option>
+            <option>FREEBET</option>
+            <option>CASHBACK</option>
+            <option>PROMO_DEPOSITO</option>
+            <option>PROMO_CASINO</option>
+            <option>PROMO_SLOT</option>
+            <option>PROMO_PERSONALIZZATA</option>
+            <option>RIMBORSO</option>
+            <option>KYC</option>
+            <option>LIMITAZIONE</option>
+            <option>SOSPENSIONE</option>
+            <option>PRELIEVO</option>
+            <option>DEPOSITO</option>
+            <option>SICUREZZA</option>
+            <option>SCADENZA</option>
+            <option>NEWSLETTER</option>
+            <option>PUBBLICITA</option>
+            <option>ALTRO</option>
 
           </select>
 
@@ -871,16 +799,13 @@ export default function ArchivioLucyPage() {
               bg-white
               text-black
             "
-            value={
-              f.priorita
-            }
-            onChange={
-              e =>
-                setF({
-                  ...f,
-                  priorita:
-                    e.target.value,
-                })
+            value={f.priorita}
+            onChange={e =>
+              setF({
+                ...f,
+                priorita:
+                  e.target.value,
+              })
             }
           >
 
@@ -897,9 +822,7 @@ export default function ArchivioLucyPage() {
         </div>
 
 
-        {/* ================================================
-            TABELLA
-            ================================================ */}
+        {/* TABELLA */}
 
         <div
           className="
@@ -991,9 +914,7 @@ export default function ArchivioLucyPage() {
                   mail => (
 
                     <tr
-                      key={
-                        mail.id
-                      }
+                      key={mail.id}
                       className="
                         border-b
                         border-sky-100
@@ -1023,8 +944,7 @@ export default function ArchivioLucyPage() {
                         "
                       >
                         {
-                          mail
-                            .cliente_nome ||
+                          mail.cliente_nome ||
                           '-'
                         }
                       </td>
@@ -1044,16 +964,56 @@ export default function ArchivioLucyPage() {
                       </td>
 
 
+                      {/* OGGETTO CLICCABILE */}
+
                       <td
                         className="
                           p-3
-                          min-w-[240px]
+                          min-w-[260px]
                         "
                       >
-                        {
-                          mail.oggetto ||
-                          '(senza oggetto)'
-                        }
+
+                        <button
+                          onClick={() =>
+                            apriMail(mail)
+                          }
+                          className="
+                            text-left
+                            font-semibold
+                            text-blue-700
+                            hover:text-blue-900
+                            hover:underline
+                          "
+                          title="Apri la mail"
+                        >
+                          {
+                            mail.oggetto ||
+                            '(senza oggetto)'
+                          }
+                        </button>
+
+                        <div className="mt-2">
+
+                          <button
+                            onClick={() =>
+                              apriMail(mail)
+                            }
+                            className="
+                              text-xs
+                              bg-sky-100
+                              hover:bg-sky-200
+                              text-sky-800
+                              px-2
+                              py-1
+                              rounded-md
+                              font-semibold
+                            "
+                          >
+                            📩 Apri mail
+                          </button>
+
+                        </div>
+
                       </td>
 
 
@@ -1064,20 +1024,12 @@ export default function ArchivioLucyPage() {
                         "
                       >
 
-                        <div
-                          className="
-                            font-bold
-                          "
-                        >
-                          {
-                            mail.giudizio
-                          }
+                        <div className="font-bold">
+                          {mail.giudizio}
                         </div>
 
                         <div>
-                          {
-                            mail.categoria
-                          }
+                          {mail.categoria}
                         </div>
 
                         <div
@@ -1087,9 +1039,7 @@ export default function ArchivioLucyPage() {
                             )
                           }
                         >
-                          {
-                            mail.priorita
-                          }
+                          {mail.priorita}
                         </div>
 
                       </td>
@@ -1103,8 +1053,7 @@ export default function ArchivioLucyPage() {
                       >
 
                         {
-                          mail.bonus_importo !=
-                            null && (
+                          mail.bonus_importo != null && (
 
                             <div
                               className="
@@ -1112,11 +1061,7 @@ export default function ArchivioLucyPage() {
                                 text-green-700
                               "
                             >
-                              Bonus €
-                              {
-                                mail
-                                  .bonus_importo
-                              }
+                              Bonus €{mail.bonus_importo}
                             </div>
 
                           )
@@ -1124,15 +1069,10 @@ export default function ArchivioLucyPage() {
 
 
                         {
-                          mail.deposito_richiesto !=
-                            null && (
+                          mail.deposito_richiesto != null && (
 
                             <div>
-                              Deposito €
-                              {
-                                mail
-                                  .deposito_richiesto
-                              }
+                              Deposito €{mail.deposito_richiesto}
                             </div>
 
                           )
@@ -1143,10 +1083,7 @@ export default function ArchivioLucyPage() {
                           mail.rollover && (
 
                             <div>
-                              Rollover:{' '}
-                              {
-                                mail.rollover
-                              }
+                              Rollover: {mail.rollover}
                             </div>
 
                           )
@@ -1162,12 +1099,7 @@ export default function ArchivioLucyPage() {
                                 font-semibold
                               "
                             >
-                              ⏰{' '}
-                              {
-                                formatDate(
-                                  mail.scadenza
-                                )
-                              }
+                              ⏰ {formatDate(mail.scadenza)}
                             </div>
 
                           )
@@ -1175,10 +1107,8 @@ export default function ArchivioLucyPage() {
 
 
                         {
-                          mail.bonus_importo ==
-                            null &&
-                          mail.deposito_richiesto ==
-                            null &&
+                          mail.bonus_importo == null &&
+                          mail.deposito_richiesto == null &&
                           !mail.rollover &&
                           !mail.scadenza &&
                           '-'
@@ -1196,8 +1126,7 @@ export default function ArchivioLucyPage() {
 
                         <div>
                           {
-                            mail
-                              .motivazione_ai ||
+                            mail.motivazione_ai ||
                             'In attesa di analisi'
                           }
                         </div>
@@ -1212,10 +1141,7 @@ export default function ArchivioLucyPage() {
                                 text-gray-600
                               "
                             >
-                              {
-                                mail
-                                  .condizioni
-                              }
+                              {mail.condizioni}
                             </div>
 
                           )
@@ -1312,6 +1238,461 @@ export default function ArchivioLucyPage() {
         </div>
 
       </main>
+
+
+      {/* ===================================================
+          MODAL LETTURA MAIL
+          =================================================== */}
+
+      {mailAperta && (
+
+        <div
+          className="
+            fixed
+            inset-0
+            z-50
+            bg-black/60
+            flex
+            items-center
+            justify-center
+            p-4
+          "
+          onClick={() =>
+            setMailAperta(null)
+          }
+        >
+
+          <div
+            className="
+              bg-white
+              text-slate-900
+              rounded-2xl
+              shadow-2xl
+              w-full
+              max-w-5xl
+              max-h-[90vh]
+              overflow-hidden
+              flex
+              flex-col
+            "
+            onClick={e =>
+              e.stopPropagation()
+            }
+          >
+
+            {/* HEADER MODAL */}
+
+            <div
+              className="
+                bg-sky-100
+                border-b
+                border-sky-200
+                p-5
+                flex
+                justify-between
+                items-start
+                gap-4
+              "
+            >
+
+              <div>
+
+                <div
+                  className="
+                    text-sm
+                    text-sky-700
+                    font-bold
+                    mb-1
+                  "
+                >
+                  📩 MAIL
+                </div>
+
+                <h2
+                  className="
+                    text-xl
+                    font-bold
+                  "
+                >
+                  {
+                    mailAperta.oggetto ||
+                    '(senza oggetto)'
+                  }
+                </h2>
+
+              </div>
+
+
+              <button
+                onClick={() =>
+                  setMailAperta(null)
+                }
+                className="
+                  bg-slate-900
+                  hover:bg-black
+                  text-white
+                  rounded-lg
+                  px-4
+                  py-2
+                  font-bold
+                  whitespace-nowrap
+                "
+              >
+                ✕ Chiudi
+              </button>
+
+            </div>
+
+
+            {/* CONTENUTO SCORREVOLE */}
+
+            <div
+              className="
+                overflow-y-auto
+                p-6
+              "
+            >
+
+              {/* DATI MAIL */}
+
+              <div
+                className="
+                  grid
+                  md:grid-cols-2
+                  gap-3
+                  bg-slate-50
+                  border
+                  rounded-xl
+                  p-4
+                  mb-5
+                  text-sm
+                "
+              >
+
+                <div>
+                  <strong>Cliente:</strong>{' '}
+                  {
+                    mailAperta.cliente_nome ||
+                    '-'
+                  }
+                </div>
+
+                <div>
+                  <strong>Book:</strong>{' '}
+                  {
+                    mailAperta.bookmaker ||
+                    '-'
+                  }
+                </div>
+
+                <div>
+                  <strong>Da:</strong>{' '}
+                  {
+                    mailAperta.mittente ||
+                    '-'
+                  }
+                </div>
+
+                <div>
+                  <strong>A:</strong>{' '}
+                  {
+                    mailAperta.destinatario_originale ||
+                    '-'
+                  }
+                </div>
+
+                <div>
+                  <strong>Data:</strong>{' '}
+                  {
+                    formatDate(
+                      mailAperta.data_mail
+                    )
+                  }
+                </div>
+
+                <div>
+                  <strong>Priorità:</strong>{' '}
+
+                  <span
+                    className={
+                      priorityClass(
+                        mailAperta.priorita
+                      )
+                    }
+                  >
+                    {
+                      mailAperta.priorita ||
+                      '-'
+                    }
+                  </span>
+
+                </div>
+
+              </div>
+
+
+              {/* ANALISI LUCY */}
+
+              <div
+                className="
+                  bg-blue-50
+                  border
+                  border-blue-200
+                  rounded-xl
+                  p-4
+                  mb-5
+                "
+              >
+
+                <div
+                  className="
+                    font-bold
+                    text-blue-900
+                    mb-2
+                  "
+                >
+                  🧠 Analisi Lucy
+                </div>
+
+                <div className="mb-2">
+                  <strong>
+                    {
+                      mailAperta.giudizio ||
+                      'DA_ANALIZZARE'
+                    }
+                  </strong>
+
+                  {' · '}
+
+                  {
+                    mailAperta.categoria ||
+                    '-'
+                  }
+                </div>
+
+
+                {
+                  mailAperta.motivazione_ai && (
+
+                    <div className="mb-3">
+                      {
+                        mailAperta.motivazione_ai
+                      }
+                    </div>
+
+                  )
+                }
+
+
+                <div
+                  className="
+                    flex
+                    flex-wrap
+                    gap-4
+                    text-sm
+                  "
+                >
+
+                  {
+                    mailAperta.bonus_importo != null && (
+
+                      <div
+                        className="
+                          font-bold
+                          text-green-700
+                        "
+                      >
+                        💰 Bonus €
+                        {
+                          mailAperta.bonus_importo
+                        }
+                      </div>
+
+                    )
+                  }
+
+
+                  {
+                    mailAperta.deposito_richiesto != null && (
+
+                      <div>
+                        💳 Deposito €
+                        {
+                          mailAperta.deposito_richiesto
+                        }
+                      </div>
+
+                    )
+                  }
+
+
+                  {
+                    mailAperta.rollover && (
+
+                      <div>
+                        🔁 Rollover:{' '}
+                        {
+                          mailAperta.rollover
+                        }
+                      </div>
+
+                    )
+                  }
+
+
+                  {
+                    mailAperta.scadenza && (
+
+                      <div
+                        className="
+                          font-semibold
+                          text-red-700
+                        "
+                      >
+                        ⏰ Scadenza:{' '}
+                        {
+                          formatDate(
+                            mailAperta.scadenza
+                          )
+                        }
+                      </div>
+
+                    )
+                  }
+
+                </div>
+
+
+                {
+                  mailAperta.condizioni && (
+
+                    <div
+                      className="
+                        mt-3
+                        pt-3
+                        border-t
+                        border-blue-200
+                      "
+                    >
+                      <strong>
+                        Condizioni:
+                      </strong>{' '}
+
+                      {
+                        mailAperta.condizioni
+                      }
+                    </div>
+
+                  )
+                }
+
+
+                {
+                  mailAperta.richiede_azione && (
+
+                    <div
+                      className="
+                        mt-3
+                        font-bold
+                        text-red-600
+                      "
+                    >
+                      ⚡ Questa comunicazione
+                      richiede un'azione.
+                    </div>
+
+                  )
+                }
+
+              </div>
+
+
+              {/* TESTO ORIGINALE */}
+
+              <div>
+
+                <div
+                  className="
+                    font-bold
+                    text-lg
+                    mb-3
+                  "
+                >
+                  ✉️ Testo originale
+                </div>
+
+                <div
+                  className="
+                    border
+                    border-slate-200
+                    bg-white
+                    rounded-xl
+                    p-5
+                    whitespace-pre-wrap
+                    break-words
+                    leading-relaxed
+                    text-sm
+                  "
+                >
+                  {
+                    mailAperta.testo_completo ||
+                    'Testo della mail non disponibile.'
+                  }
+                </div>
+
+              </div>
+
+            </div>
+
+
+            {/* FOOTER MODAL */}
+
+            <div
+              className="
+                border-t
+                bg-slate-50
+                p-4
+                flex
+                justify-between
+                items-center
+                gap-3
+              "
+            >
+
+              <div
+                className="
+                  text-sm
+                  text-slate-500
+                "
+              >
+                Mail archiviata da Lucy
+              </div>
+
+
+              <button
+                onClick={() =>
+                  setMailAperta(null)
+                }
+                className="
+                  bg-sky-600
+                  hover:bg-sky-700
+                  text-white
+                  rounded-lg
+                  px-5
+                  py-2
+                  font-bold
+                "
+              >
+                Chiudi
+              </button>
+
+            </div>
+
+          </div>
+
+        </div>
+
+      )}
 
     </div>
 
