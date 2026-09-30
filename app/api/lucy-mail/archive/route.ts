@@ -13,16 +13,6 @@ const adminSupabase = createClient(
   }
 )
 
-const PROBLEM_CATEGORIES = [
-  'KYC',
-  'LIMITAZIONE',
-  'SOSPENSIONE',
-  'PRELIEVO',
-  'DEPOSITO',
-  'SICUREZZA',
-  'SCADENZA',
-]
-
 type Canale = 'EMAIL' | 'SMS'
 
 type UnifiedRow = {
@@ -57,6 +47,31 @@ type UnifiedRow = {
   feedback_utente: string | null
   feedback_note: string | null
 }
+
+/* =========================================================
+   CATEGORIE
+   ========================================================= */
+
+const OPPORTUNITY_CATEGORIES = [
+  'BONUS',
+  'FREEBET',
+  'CASHBACK',
+  'PROMO_DEPOSITO',
+  'PROMO_CASINO',
+  'PROMO_SLOT',
+  'PROMO_PERSONALIZZATA',
+  'RIMBORSO',
+]
+
+const PROBLEM_CATEGORIES = [
+  'KYC',
+  'LIMITAZIONE',
+  'SOSPENSIONE',
+  'PRELIEVO',
+  'DEPOSITO',
+  'SICUREZZA',
+  'SCADENZA',
+]
 
 /* =========================================================
    AUTORIZZAZIONE
@@ -302,6 +317,92 @@ function normalizeSms(row: any): UnifiedRow {
 }
 
 /* =========================================================
+   CLASSIFICAZIONE DELLA VISTA
+
+   IMPORTANTE:
+   ogni comunicazione appartiene a UNA SOLA vista.
+   ========================================================= */
+
+type LucyBucket =
+  | 'opportunita'
+  | 'problemi'
+  | 'da_valutare'
+  | 'ignora'
+  | 'da_analizzare'
+
+function getBucket(row: UnifiedRow): LucyBucket {
+  /*
+   * Non ancora analizzata.
+   */
+  if (
+    !row.giudizio ||
+    row.giudizio === 'DA_ANALIZZARE'
+  ) {
+    return 'da_analizzare'
+  }
+
+  /*
+   * IGNORA ha precedenza sui problemi.
+   *
+   * Esempio:
+   * OTP classificato SICUREZZA + IGNORA
+   * NON deve diventare un problema.
+   */
+  if (row.giudizio === 'IGNORA') {
+    return 'ignora'
+  }
+
+  /*
+   * Problema operativo reale.
+   *
+   * Non basta appartenere a KYC / PRELIEVO /
+   * SICUREZZA ecc.
+   *
+   * Lucy deve aver indicato che Sergio deve
+   * effettivamente intervenire.
+   */
+  if (
+    row.giudizio === 'DA_VALUTARE' &&
+    row.richiede_azione === true &&
+    PROBLEM_CATEGORIES.includes(
+      row.categoria || ''
+    )
+  ) {
+    return 'problemi'
+  }
+
+  /*
+   * Opportunità economica.
+   *
+   * UTILE viene mostrato come opportunità.
+   * Per i dati storici manteniamo compatibilità
+   * con le analisi già salvate.
+   */
+  if (row.giudizio === 'UTILE') {
+    return 'opportunita'
+  }
+
+  /*
+   * Tutto il resto che Lucy considera
+   * DA_VALUTARE rimane da valutare.
+   *
+   * Esempi:
+   * - KYC completato
+   * - registrazione completata
+   * - comunicazione tecnica
+   * - informazione operativa non urgente
+   */
+  if (row.giudizio === 'DA_VALUTARE') {
+    return 'da_valutare'
+  }
+
+  /*
+   * Fallback prudente.
+   */
+  return 'da_valutare'
+}
+
+/* =========================================================
    VISTE
    ========================================================= */
 
@@ -313,29 +414,7 @@ function matchesVista(
     return true
   }
 
-  if (vista === 'opportunita') {
-    return row.giudizio === 'UTILE'
-  }
-
-  if (vista === 'da_valutare') {
-    return row.giudizio === 'DA_VALUTARE'
-  }
-
-  if (vista === 'ignora') {
-    return row.giudizio === 'IGNORA'
-  }
-
-  if (vista === 'da_analizzare') {
-    return row.giudizio === 'DA_ANALIZZARE'
-  }
-
-  if (vista === 'problemi') {
-    return PROBLEM_CATEGORIES.includes(
-      row.categoria || ''
-    )
-  }
-
-  return true
+  return getBucket(row) === vista
 }
 
 /* =========================================================
@@ -457,48 +536,41 @@ function matchesFilters(
 
 /* =========================================================
    CONTATORI
+
+   Le categorie sono MUTUAMENTE ESCLUSIVE.
+   La loro somma deve quindi essere uguale a "tutte".
    ========================================================= */
 
 function getCounters(
   rows: UnifiedRow[]
 ) {
-  return {
+  const counters = {
     tutte: rows.length,
-
-    opportunita:
-      rows.filter(
-        row =>
-          row.giudizio === 'UTILE'
-      ).length,
-
-    da_valutare:
-      rows.filter(
-        row =>
-          row.giudizio ===
-          'DA_VALUTARE'
-      ).length,
-
-    problemi:
-      rows.filter(
-        row =>
-          PROBLEM_CATEGORIES.includes(
-            row.categoria || ''
-          )
-      ).length,
-
-    ignora:
-      rows.filter(
-        row =>
-          row.giudizio === 'IGNORA'
-      ).length,
-
-    da_analizzare:
-      rows.filter(
-        row =>
-          row.giudizio ===
-          'DA_ANALIZZARE'
-      ).length,
+    opportunita: 0,
+    da_valutare: 0,
+    problemi: 0,
+    ignora: 0,
+    da_analizzare: 0,
   }
+
+  for (const row of rows) {
+    const bucket =
+      getBucket(row)
+
+    if (bucket === 'opportunita') {
+      counters.opportunita++
+    } else if (bucket === 'problemi') {
+      counters.problemi++
+    } else if (bucket === 'da_valutare') {
+      counters.da_valutare++
+    } else if (bucket === 'ignora') {
+      counters.ignora++
+    } else if (bucket === 'da_analizzare') {
+      counters.da_analizzare++
+    }
+  }
+
+  return counters
 }
 
 /* =========================================================
@@ -662,7 +734,7 @@ export async function GET(
       sp.get('canale')
 
     /*
-     * Default: ultimo mese
+     * Default: ultimo mese.
      */
     const periodo =
       sp.get('periodo') ||
@@ -675,8 +747,11 @@ export async function GET(
       await loadAll()
 
     /*
-     * Contatori:
-     * rispettano periodo e canale.
+     * CONTATORI
+     *
+     * Rispettano periodo e canale.
+     * Non rispettano la vista selezionata,
+     * così le schede rimangono sempre navigabili.
      */
     const rowsForCounters =
       allRows.filter(row =>
@@ -707,7 +782,7 @@ export async function GET(
       getClienti(allRows)
 
     /*
-     * Filtri della tabella.
+     * FILTRI TABELLA
      */
     const filtered =
       allRows.filter(row =>
