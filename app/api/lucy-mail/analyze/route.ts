@@ -8,12 +8,6 @@ const MODEL = 'openai/gpt-oss-20b'
 
 const EMAIL_BATCH_SIZE = 5
 const SMS_BATCH_SIZE = 5
-
-/*
- * Non vogliamo arrivare al timeout Vercel.
- * Dopo circa 50 secondi Lucy smette di iniziare
- * nuove analisi e lascia il resto al giro successivo.
- */
 const MAX_WORK_TIME_MS = 50_000
 
 const supabase = createClient(
@@ -33,11 +27,7 @@ const lucySchema = {
   properties: {
     giudizio: {
       type: 'string',
-      enum: [
-        'UTILE',
-        'DA_VALUTARE',
-        'IGNORA',
-      ],
+      enum: ['UTILE', 'DA_VALUTARE', 'IGNORA'],
     },
 
     categoria: {
@@ -66,11 +56,7 @@ const lucySchema = {
 
     priorita: {
       type: 'string',
-      enum: [
-        'alta',
-        'media',
-        'bassa',
-      ],
+      enum: ['alta', 'media', 'bassa'],
     },
 
     confidenza: {
@@ -135,48 +121,23 @@ const lucySchema = {
   additionalProperties: false,
 }
 
-
-/*
- * =========================================================
- * TIPI INTERNI
- * =========================================================
- */
-
 type Canale = 'EMAIL' | 'SMS'
 
 type LucyItem = {
   id: number | string
   canale: Canale
-
   cliente_nome: string | null
   mittente: string | null
   oggetto: string | null
   testo_completo: string | null
   data_comunicazione: string | null
-
-  /*
-   * Tabella nella quale deve essere
-   * salvato il risultato.
-   */
-  tabella:
-    | 'lucy_mail_archive'
-    | 'sms_clienti'
+  tabella: 'lucy_mail_archive' | 'sms_clienti'
 }
 
-
-/*
- * =========================================================
- * TESTO
- * =========================================================
- */
-
-function compactBody(
-  value: string | null | undefined
-) {
-  const text =
-    String(value || '')
-      .replace(/\u0000/g, '')
-      .trim()
+function compactBody(value: string | null | undefined) {
+  const text = String(value || '')
+    .replace(/\u0000/g, '')
+    .trim()
 
   if (text.length <= 3000) {
     return text
@@ -189,53 +150,22 @@ function compactBody(
   )
 }
 
-
 function sleep(ms: number) {
-  return new Promise(resolve =>
-    setTimeout(resolve, ms)
-  )
+  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-
-/*
- * =========================================================
- * PROMPT UNICO EMAIL + SMS
- * =========================================================
- */
-
-function buildPrompt(
-  item: LucyItem
-) {
-  const dataRicezione =
-    item.data_comunicazione
-      ? new Date(
-          item.data_comunicazione
-        ).toLocaleString(
-          'it-IT',
-          {
-            timeZone:
-              'Europe/Rome',
-
-            weekday:
-              'long',
-
-            day:
-              '2-digit',
-
-            month:
-              '2-digit',
-
-            year:
-              'numeric',
-
-            hour:
-              '2-digit',
-
-            minute:
-              '2-digit',
-          }
-        )
-      : 'sconosciuta'
+function buildPrompt(item: LucyItem) {
+  const dataRicezione = item.data_comunicazione
+    ? new Date(item.data_comunicazione).toLocaleString('it-IT', {
+        timeZone: 'Europe/Rome',
+        weekday: 'long',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : 'sconosciuta'
 
   return `
 Sei Lucy, l'assistente operativo di ProfitTracker.
@@ -396,14 +326,11 @@ rollover:
 scrivi le condizioni di wagering/rollover se presenti.
 
 scadenza:
-scrivila SEMPRE nel formato
-"AAAA-MM-GG HH:mm",
+scrivila SEMPRE nel formato "AAAA-MM-GG HH:mm",
 ora italiana,
-calcolandola dalla data di ricezione
-della comunicazione indicata sotto.
+calcolandola dalla data di ricezione della comunicazione.
 
-Esempi:
-comunicazione del 30/09/2026
+Esempi, comunicazione del 30/09/2026:
 
 "entro il 4 ottobre"
 -> "2026-10-04 23:59"
@@ -420,18 +347,15 @@ Se la scadenza non esiste
 o non è determinabile usa null.
 
 condizioni:
-riassunto MOLTO breve
-delle condizioni importanti.
+riassunto MOLTO breve delle condizioni importanti.
 
 motivazione_ai:
-spiega in italiano,
-in modo sintetico,
+spiega in italiano, in modo sintetico,
 perché la comunicazione è utile,
 da valutare o da ignorare.
 
 richiede_azione:
-true solo se Sergio deve
-effettivamente fare qualcosa.
+true solo se Sergio deve effettivamente fare qualcosa.
 
 ------------------------------------
 
@@ -453,9 +377,7 @@ Oggetto:
 ${item.oggetto || '(nessun oggetto)'}
 
 Testo:
-${compactBody(
-  item.testo_completo
-)}
+${compactBody(item.testo_completo)}
 
 ------------------------------------
 
@@ -463,178 +385,98 @@ Rispondi esclusivamente secondo lo schema JSON richiesto.
 `
 }
 
-
-/*
- * =========================================================
- * GROQ
- * =========================================================
- */
-
-async function analyzeItem(
-  item: LucyItem
-) {
-  const apiKey =
-    process.env.GROQ_API_KEY
+async function analyzeItem(item: LucyItem) {
+  const apiKey = process.env.GROQ_API_KEY
 
   if (!apiKey) {
-    throw new Error(
-      'GROQ_API_KEY mancante'
-    )
+    throw new Error('GROQ_API_KEY mancante')
   }
-
 
   const body = {
     model: MODEL,
-
-    reasoning_effort:
-      'low',
-
-    max_completion_tokens:
-      700,
+    reasoning_effort: 'low',
+    max_completion_tokens: 700,
 
     messages: [
       {
         role: 'user',
-        content:
-          buildPrompt(item),
+        content: buildPrompt(item),
       },
     ],
 
     response_format: {
-      type:
-        'json_schema',
+      type: 'json_schema',
 
       json_schema: {
-        name:
-          'lucy_message_analysis',
-
-        strict:
-          true,
-
-        schema:
-          lucySchema,
+        name: 'lucy_message_analysis',
+        strict: true,
+        schema: lucySchema,
       },
     },
   }
 
+  let lastError: Error | null = null
 
-  let lastError:
-    Error | null = null
-
-
-  for (
-    let attempt = 1;
-    attempt <= 2;
-    attempt++
-  ) {
+  for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const response =
-        await fetch(
-          'https://api.groq.com/openai/v1/chat/completions',
-          {
-            method:
-              'POST',
+      const response = await fetch(
+        'https://api.groq.com/openai/v1/chat/completions',
+        {
+          method: 'POST',
 
-            headers: {
-              Authorization:
-                `Bearer ${apiKey}`,
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
 
-              'Content-Type':
-                'application/json',
-            },
+          body: JSON.stringify(body),
+        }
+      )
 
-            body:
-              JSON.stringify(
-                body
-              ),
-          }
-        )
+      if (response.status === 429) {
+        const retryHeader = response.headers.get('retry-after')
 
+        let waitSeconds = Number(retryHeader)
 
-      if (
-        response.status === 429
-      ) {
-        const retryHeader =
-          response.headers.get(
-            'retry-after'
-          )
-
-        let waitSeconds =
-          Number(
-            retryHeader
-          )
-
-        if (
-          !Number.isFinite(
-            waitSeconds
-          ) ||
-          waitSeconds <= 0
-        ) {
+        if (!Number.isFinite(waitSeconds) || waitSeconds <= 0) {
           waitSeconds = 12
         }
 
-
-        waitSeconds =
-          Math.min(
-            waitSeconds,
-            25
-          )
-
+        waitSeconds = Math.min(waitSeconds, 25)
 
         if (attempt < 2) {
           console.warn(
             `[Lucy AI] Groq 429, attendo ${waitSeconds}s`
           )
 
-          await sleep(
-            waitSeconds *
-              1000
-          )
-
+          await sleep(waitSeconds * 1000)
           continue
         }
       }
 
-
       if (!response.ok) {
-        const errorText =
-          await response.text()
+        const errorText = await response.text()
 
         throw new Error(
           `Groq ${response.status}: ${errorText.slice(0, 500)}`
         )
       }
 
+      const json = await response.json()
 
-      const json =
-        await response.json()
-
-
-      const content =
-        json?.choices?.[0]
-          ?.message
-          ?.content
-
+      const content = json?.choices?.[0]?.message?.content
 
       if (!content) {
-        throw new Error(
-          'Groq non ha restituito contenuto'
-        )
+        throw new Error('Groq non ha restituito contenuto')
       }
 
-
-      return JSON.parse(
-        content
-      )
+      return JSON.parse(content)
 
     } catch (error: any) {
       lastError =
         error instanceof Error
           ? error
-          : new Error(
-              String(error)
-            )
-
+          : new Error(String(error))
 
       if (attempt < 2) {
         await sleep(1500)
@@ -642,15 +484,8 @@ async function analyzeItem(
     }
   }
 
-
-  throw (
-    lastError ||
-    new Error(
-      'Errore AI sconosciuto'
-    )
-  )
+  throw lastError || new Error('Errore AI sconosciuto')
 }
-
 
 /*
  * =========================================================
@@ -658,113 +493,69 @@ async function analyzeItem(
  * =========================================================
  */
 
-const MESI:
-  Record<string, number> = {
-    gennaio: 1,
-    gen: 1,
-    febbraio: 2,
-    feb: 2,
-    marzo: 3,
-    mar: 3,
-    aprile: 4,
-    apr: 4,
-    maggio: 5,
-    mag: 5,
-    giugno: 6,
-    giu: 6,
-    luglio: 7,
-    lug: 7,
-    agosto: 8,
-    ago: 8,
-    settembre: 9,
-    sett: 9,
-    set: 9,
-    ottobre: 10,
-    ott: 10,
-    novembre: 11,
-    nov: 11,
-    dicembre: 12,
-    dic: 12,
-  }
-
-
-const GIORNI:
-  Record<string, number> = {
-    domenica: 0,
-    lunedi: 1,
-    martedi: 2,
-    mercoledi: 3,
-    giovedi: 4,
-    venerdi: 5,
-    sabato: 6,
-  }
-
-
-function romeParts(
-  ts: number
-) {
-  const f =
-    new Intl.DateTimeFormat(
-      'en-GB',
-      {
-        timeZone:
-          'Europe/Rome',
-
-        year:
-          'numeric',
-
-        month:
-          '2-digit',
-
-        day:
-          '2-digit',
-
-        hour:
-          '2-digit',
-
-        minute:
-          '2-digit',
-
-        hourCycle:
-          'h23',
-      }
-    )
-
-
-  const p:
-    Record<string, string> =
-    {}
-
-
-  for (
-    const x of
-    f.formatToParts(
-      new Date(ts)
-    )
-  ) {
-    p[x.type] =
-      x.value
-  }
-
-
-  return {
-    y:
-      Number(p.year),
-
-    m:
-      Number(p.month),
-
-    d:
-      Number(p.day),
-
-    h:
-      Number(p.hour),
-
-    mi:
-      Number(p.minute),
-  }
+const MESI: Record<string, number> = {
+  gennaio: 1,
+  gen: 1,
+  febbraio: 2,
+  feb: 2,
+  marzo: 3,
+  mar: 3,
+  aprile: 4,
+  apr: 4,
+  maggio: 5,
+  mag: 5,
+  giugno: 6,
+  giu: 6,
+  luglio: 7,
+  lug: 7,
+  agosto: 8,
+  ago: 8,
+  settembre: 9,
+  sett: 9,
+  set: 9,
+  ottobre: 10,
+  ott: 10,
+  novembre: 11,
+  nov: 11,
+  dicembre: 12,
+  dic: 12,
 }
 
+const GIORNI: Record<string, number> = {
+  domenica: 0,
+  lunedi: 1,
+  martedi: 2,
+  mercoledi: 3,
+  giovedi: 4,
+  venerdi: 5,
+  sabato: 6,
+}
+
+function romeParts(ts: number) {
+  const f = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Rome',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  })
+
+  const p: Record<string, string> = {}
+
+  for (const x of f.formatToParts(new Date(ts))) {
+    p[x.type] = x.value
+  }
+
+  return {
+    y: Number(p.year),
+    m: Number(p.month),
+    d: Number(p.day),
+    h: Number(p.hour),
+    mi: Number(p.minute),
+  }
+}
 
 function romeToTs(
   y: number,
@@ -773,26 +564,12 @@ function romeToTs(
   h: number,
   mi: number
 ) {
-  const voluto =
-    Date.UTC(
-      y,
-      m - 1,
-      d,
-      h,
-      mi
-    )
+  const voluto = Date.UTC(y, m - 1, d, h, mi)
 
-  let ts =
-    voluto
+  let ts = voluto
 
-
-  for (
-    let i = 0;
-    i < 2;
-    i++
-  ) {
-    const p =
-      romeParts(ts)
+  for (let i = 0; i < 2; i++) {
+    const p = romeParts(ts)
 
     ts +=
       voluto -
@@ -805,10 +582,8 @@ function romeToTs(
       )
   }
 
-
   return ts
 }
-
 
 function giornoValido(
   y: number,
@@ -824,25 +599,17 @@ function giornoValido(
     return false
   }
 
-
   return (
     new Date(
-      Date.UTC(
-        y,
-        m - 1,
-        d
-      )
+      Date.UTC(y, m - 1, d)
     ).getUTCDate() === d
   )
 }
 
-
 function normalizeScadenza(
   value: unknown,
-  dataComunicazione?:
-    string | null
+  dataComunicazione?: string | null
 ): string | null {
-
   if (
     value === null ||
     value === undefined
@@ -850,51 +617,34 @@ function normalizeScadenza(
     return null
   }
 
-
-  let s =
-    String(value)
-      .trim()
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(
-        /[\u0300-\u036f]/g,
-        ''
-      )
-
+  let s = String(value)
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
 
   if (!s) {
     return null
   }
 
-
   const refTs =
     dataComunicazione &&
     !Number.isNaN(
-      new Date(
-        dataComunicazione
-      ).getTime()
+      new Date(dataComunicazione).getTime()
     )
-      ? new Date(
-          dataComunicazione
-        ).getTime()
+      ? new Date(dataComunicazione).getTime()
       : Date.now()
 
+  const ref = romeParts(refTs)
 
-  const ref =
-    romeParts(refTs)
-
-
-  const oggiTs =
-    Date.UTC(
-      ref.y,
-      ref.m - 1,
-      ref.d
-    )
-
+  const oggiTs = Date.UTC(
+    ref.y,
+    ref.m - 1,
+    ref.d
+  )
 
   let h = 23
   let mi = 59
-
 
   const ora =
     s.match(
@@ -904,65 +654,36 @@ function normalizeScadenza(
       /\b(\d{1,2}):(\d{2})\b/
     )
 
-
   if (ora) {
-    h =
-      Number(
-        ora[1]
-      )
+    h = Number(ora[1])
+    mi = Number(ora[2] || 0)
 
-    mi =
-      Number(
-        ora[2] || 0
-      )
-
-    s =
-      s.replace(
-        ora[0],
-        ' '
-      )
+    s = s.replace(ora[0], ' ')
   }
 
-
-  if (
-    h > 23 ||
-    mi > 59
-  ) {
+  if (h > 23 || mi > 59) {
     return null
   }
 
-
-  let y:
-    number | null =
-    null
-
+  let y: number | null = null
   let m = 0
   let d = 0
 
-  let r:
-    RegExpMatchArray |
-    null
-
+  let r: RegExpMatchArray | null
 
   if (
-    (
-      r =
-        s.match(
-          /\b(\d{4})-(\d{1,2})-(\d{1,2})/
-        )
-    )
+    (r = s.match(
+      /\b(\d{4})-(\d{1,2})-(\d{1,2})/
+    ))
   ) {
     y = +r[1]
     m = +r[2]
     d = +r[3]
 
   } else if (
-    (
-      r =
-        s.match(
-          /\b(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?\b/
-        )
-    )
+    (r = s.match(
+      /\b(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?\b/
+    ))
   ) {
     d = +r[1]
     m = +r[2]
@@ -975,12 +696,9 @@ function normalizeScadenza(
     }
 
   } else if (
-    (
-      r =
-        s.match(
-          /\b(\d{1,2})\s+(?:di\s+)?([a-z]+)(?:\s+(\d{4}))?/
-        )
-    ) &&
+    (r = s.match(
+      /\b(\d{1,2})\s+(?:di\s+)?([a-z]+)(?:\s+(\d{4}))?/
+    )) &&
     MESI[r[2]]
   ) {
     d = +r[1]
@@ -991,85 +709,51 @@ function normalizeScadenza(
     }
 
   } else if (
-    /\b(dopodomani|domani|oggi|stasera|mezzanotte)\b/
-      .test(s)
+    /\b(dopodomani|domani|oggi|stasera|mezzanotte)\b/.test(s)
   ) {
     const piu =
-      /\bdopodomani\b/
-        .test(s)
+      /\bdopodomani\b/.test(s)
         ? 2
-        : /\bdomani\b/
-            .test(s)
+        : /\bdomani\b/.test(s)
           ? 1
           : 0
 
+    const t = new Date(
+      oggiTs + piu * 86400000
+    )
 
-    const t =
-      new Date(
-        oggiTs +
-        piu *
-          86400000
-      )
-
-
-    y =
-      t.getUTCFullYear()
-
-    m =
-      t.getUTCMonth() +
-      1
-
-    d =
-      t.getUTCDate()
+    y = t.getUTCFullYear()
+    m = t.getUTCMonth() + 1
+    d = t.getUTCDate()
 
   } else if (
-    (
-      r =
-        s.match(
-          /\b(domenica|lunedi|martedi|mercoledi|giovedi|venerdi|sabato)\b/
-        )
-    )
+    (r = s.match(
+      /\b(domenica|lunedi|martedi|mercoledi|giovedi|venerdi|sabato)\b/
+    ))
   ) {
     const diff =
       (
         GIORNI[r[1]] -
-        new Date(
-          oggiTs
-        ).getUTCDay() +
+        new Date(oggiTs).getUTCDay() +
         7
       ) % 7
 
+    const t = new Date(
+      oggiTs + diff * 86400000
+    )
 
-    const t =
-      new Date(
-        oggiTs +
-        diff *
-          86400000
-      )
-
-
-    y =
-      t.getUTCFullYear()
-
-    m =
-      t.getUTCMonth() +
-      1
-
-    d =
-      t.getUTCDate()
+    y = t.getUTCFullYear()
+    m = t.getUTCMonth() + 1
+    d = t.getUTCDate()
 
   } else if (
-    (
-      r =
-        s.match(
-          /\b(?:entro\s+il|fino\s+al|il)\s+(\d{1,2})\b/
-        )
-    )
+    (r = s.match(
+      /\b(?:entro\s+il|fino\s+al|il)\s+(\d{1,2})\b/
+    ))
   ) {
     d = +r[1]
     m = ref.m
     y = ref.y
-
 
     if (d < ref.d) {
       m++
@@ -1084,80 +768,48 @@ function normalizeScadenza(
     return null
   }
 
-
-  let annoDedotto =
-    false
-
+  let annoDedotto = false
 
   if (y === null) {
     y = ref.y
     annoDedotto = true
   }
 
-
-  if (
-    !giornoValido(
-      y,
-      m,
-      d
-    )
-  ) {
+  if (!giornoValido(y, m, d)) {
     return null
   }
 
+  let ts = romeToTs(
+    y,
+    m,
+    d,
+    h,
+    mi
+  )
 
-  let ts =
-    romeToTs(
-      y,
+  if (
+    annoDedotto &&
+    ts < refTs - 60 * 86400000 &&
+    giornoValido(y + 1, m, d)
+  ) {
+    ts = romeToTs(
+      y + 1,
       m,
       d,
       h,
       mi
     )
-
-
-  if (
-    annoDedotto &&
-    ts <
-      refTs -
-      60 *
-        86400000 &&
-    giornoValido(
-      y + 1,
-      m,
-      d
-    )
-  ) {
-    ts =
-      romeToTs(
-        y + 1,
-        m,
-        d,
-        h,
-        mi
-      )
   }
 
-
   if (
-    ts <
-      refTs -
-      2 *
-        86400000 ||
-    ts >
-      refTs +
-      400 *
-        86400000
+    ts < refTs - 2 * 86400000 ||
+    ts > refTs + 400 * 86400000
   ) {
     return null
   }
 
-
-  return new Date(
-    ts
-  ).toISOString()
+  return new Date(ts).toISOString()
 }
-
 
 /*
  * =========================================================
@@ -1165,17 +817,10 @@ function normalizeScadenza(
  * =========================================================
  */
 
-async function getEmails():
-  Promise<LucyItem[]> {
-
-  const {
-    data,
-    error,
-  } =
+async function getEmails(): Promise<LucyItem[]> {
+  const { data, error } =
     await supabase
-      .from(
-        'lucy_mail_archive'
-      )
+      .from('lucy_mail_archive')
       .select('*')
       .eq(
         'giudizio',
@@ -1183,51 +828,25 @@ async function getEmails():
       )
       .order(
         'data_mail',
-        {
-          ascending:
-            false,
-        }
+        { ascending: false }
       )
-      .limit(
-        EMAIL_BATCH_SIZE
-      )
-
+      .limit(EMAIL_BATCH_SIZE)
 
   if (error) {
     throw error
   }
 
-
-  return (
-    data || []
-  ).map(mail => ({
-    id:
-      mail.id,
-
-    canale:
-      'EMAIL' as const,
-
-    cliente_nome:
-      mail.cliente_nome,
-
-    mittente:
-      mail.mittente,
-
-    oggetto:
-      mail.oggetto,
-
-    testo_completo:
-      mail.testo_completo,
-
-    data_comunicazione:
-      mail.data_mail,
-
-    tabella:
-      'lucy_mail_archive'
-        as const,
+  return (data || []).map(mail => ({
+    id: mail.id,
+    canale: 'EMAIL' as const,
+    cliente_nome: mail.cliente_nome,
+    mittente: mail.mittente,
+    oggetto: mail.oggetto,
+    testo_completo: mail.testo_completo,
+    data_comunicazione: mail.data_mail,
+    tabella: 'lucy_mail_archive' as const,
   }))
 }
-
 
 /*
  * =========================================================
@@ -1235,85 +854,47 @@ async function getEmails():
  * =========================================================
  */
 
-async function getSms():
-  Promise<LucyItem[]> {
-
-  const {
-    data,
-    error,
-  } =
+async function getSms(): Promise<LucyItem[]> {
+  const { data, error } =
     await supabase
-      .from(
-        'sms_clienti'
-      )
+      .from('sms_clienti')
       .select('*')
       .eq(
         'giudizio',
         'DA_ANALIZZARE'
       )
-      /*
-       * Doppia protezione.
-       * Gli OTP dovrebbero essere
-       * già IGNORA grazie allo SQL,
-       * ma non li prendiamo comunque.
-       */
       .neq(
         'tipo',
         'OTP'
       )
       .order(
         'data_ricezione',
-        {
-          ascending:
-            false,
-        }
+        { ascending: false }
       )
-      .limit(
-        SMS_BATCH_SIZE
-      )
-
+      .limit(SMS_BATCH_SIZE)
 
   if (error) {
     throw error
   }
 
-
-  return (
-    data || []
-  ).map(sms => ({
-    id:
-      sms.id,
-
-    canale:
-      'SMS' as const,
-
+  return (data || []).map(sms => ({
+    id: sms.id,
+    canale: 'SMS' as const,
     cliente_nome:
       sms.cliente ||
       sms.telefono ||
       null,
-
-    mittente:
-      sms.mittente,
-
-    oggetto:
-      'SMS',
-
-    testo_completo:
-      sms.testo,
-
-    data_comunicazione:
-      sms.data_ricezione,
-
-    tabella:
-      'sms_clienti'
-        as const,
+    mittente: sms.mittente,
+    oggetto: 'SMS',
+    testo_completo: sms.testo,
+    data_comunicazione: sms.data_ricezione,
+    tabella: 'sms_clienti' as const,
   }))
 }
 
-
 /*
  * =========================================================
- * SALVATAGGIO RISULTATO
+ * SALVATAGGIO
  * =========================================================
  */
 
@@ -1322,9 +903,7 @@ async function saveResult(
   result: any
 ) {
   const now =
-    new Date()
-      .toISOString()
-
+    new Date().toISOString()
 
   const scadenza =
     normalizeScadenza(
@@ -1332,27 +911,20 @@ async function saveResult(
       item.data_comunicazione
     )
 
-
   const condizioni =
     result.scadenza &&
     !scadenza
       ? [
           result.condizioni,
-
           `Scadenza indicata: ${result.scadenza}`,
         ]
           .filter(Boolean)
           .join(' · ')
       : result.condizioni
 
-
-  const {
-    error,
-  } =
+  const { error } =
     await supabase
-      .from(
-        item.tabella
-      )
+      .from(item.tabella)
       .update({
         giudizio:
           result.giudizio,
@@ -1397,17 +969,12 @@ async function saveResult(
         updated_at:
           now,
       })
-      .eq(
-        'id',
-        item.id
-      )
-
+      .eq('id', item.id)
 
   if (error) {
     throw error
   }
 }
-
 
 /*
  * =========================================================
@@ -1416,81 +983,50 @@ async function saveResult(
  */
 
 async function runAnalysis() {
+  const startedAt = Date.now()
 
-  const startedAt =
-    Date.now()
-
-
-  /*
-   * Recuperiamo contemporaneamente
-   * fino a:
-   *
-   * 5 email
-   * 5 SMS
-   */
-  const [
-    emails,
-    sms,
-  ] =
+  const [emails, sms] =
     await Promise.all([
       getEmails(),
       getSms(),
     ])
 
-
   /*
-   * Alterniamo EMAIL e SMS.
-   *
-   * In questo modo, se il tempo
-   * disponibile finisce, una
-   * sorgente non blocca l'altra.
+   * Alterniamo:
+   * EMAIL
+   * SMS
+   * EMAIL
+   * SMS
    */
-  const items:
-    LucyItem[] = []
+  const items: LucyItem[] = []
 
+  const max = Math.max(
+    emails.length,
+    sms.length
+  )
 
-  const max =
-    Math.max(
-      emails.length,
-      sms.length
-    )
-
-
-  for (
-    let i = 0;
-    i < max;
-    i++
-  ) {
+  for (let i = 0; i < max; i++) {
     if (emails[i]) {
-      items.push(
-        emails[i]
-      )
+      items.push(emails[i])
     }
 
     if (sms[i]) {
-      items.push(
-        sms[i]
-      )
+      items.push(sms[i])
     }
   }
 
-
-  if (
-    items.length === 0
-  ) {
+  if (items.length === 0) {
     return {
       ok: true,
-
       email_trovate: 0,
       sms_trovati: 0,
-
+      email_analizzate: 0,
+      sms_analizzati: 0,
       analizzate: 0,
       errori: 0,
-
       risultati: [],
     }
   }
-
 
   let analizzate = 0
   let errori = 0
@@ -1498,21 +1034,14 @@ async function runAnalysis() {
   let emailAnalizzate = 0
   let smsAnalizzati = 0
 
-  const risultati:
-    any[] = []
+  const risultati: any[] = []
 
-
-  for (
-    const item of items
-  ) {
-
+  for (const item of items) {
     /*
-     * Lasciamo margine prima
-     * del timeout Vercel.
+     * Fermiamoci prima del timeout Vercel.
      */
     if (
-      Date.now() -
-        startedAt >
+      Date.now() - startedAt >
       MAX_WORK_TIME_MS
     ) {
       console.log(
@@ -1522,86 +1051,58 @@ async function runAnalysis() {
       break
     }
 
-
     try {
       const result =
-        await analyzeItem(
-          item
-        )
-
+        await analyzeItem(item)
 
       await saveResult(
         item,
         result
       )
 
-
       analizzate++
 
-
-      if (
-        item.canale ===
-        'EMAIL'
-      ) {
+      if (item.canale === 'EMAIL') {
         emailAnalizzate++
       } else {
         smsAnalizzati++
       }
 
-
       risultati.push({
-        id:
-          item.id,
-
-        canale:
-          item.canale,
-
-        giudizio:
-          result.giudizio,
-
-        categoria:
-          result.categoria,
-
-        bookmaker:
-          result.bookmaker,
+        id: item.id,
+        canale: item.canale,
+        giudizio: result.giudizio,
+        categoria: result.categoria,
+        bookmaker: result.bookmaker,
       })
-
 
       console.log(
         `[Lucy AI] OK ${item.canale} ${item.id} ${result.giudizio} ${result.categoria} ${result.bookmaker || '-'}`
       )
-
 
       await sleep(700)
 
     } catch (error: any) {
       errori++
 
-
       console.error(
         `[Lucy AI] ERRORE ${item.canale} ${item.id}`,
         error
       )
 
-
       /*
-       * Non modifichiamo il giudizio.
-       * Rimane DA_ANALIZZARE.
+       * Il messaggio rimane DA_ANALIZZARE
+       * e verrà riprovato.
        */
       risultati.push({
-        id:
-          item.id,
-
-        canale:
-          item.canale,
-
+        id: item.id,
+        canale: item.canale,
         errore:
           error?.message ||
           String(error),
       })
     }
   }
-
 
   return {
     ok: true,
@@ -1631,7 +1132,6 @@ async function runAnalysis() {
   }
 }
 
-
 /*
  * =========================================================
  * GET - VERCEL CRON
@@ -1645,13 +1145,11 @@ export async function GET(
     const cronSecret =
       process.env.CRON_SECRET
 
-
     if (cronSecret) {
       const auth =
         req.headers.get(
           'authorization'
         )
-
 
       if (
         auth !==
@@ -1659,8 +1157,7 @@ export async function GET(
       ) {
         return NextResponse.json(
           {
-            error:
-              'Unauthorized',
+            error: 'Unauthorized',
           },
           {
             status: 401,
@@ -1669,22 +1166,18 @@ export async function GET(
       }
     }
 
-
     const result =
       await runAnalysis()
-
 
     return NextResponse.json(
       result
     )
 
   } catch (error: any) {
-
     console.error(
       '[Lucy AI] errore generale',
       error
     )
-
 
     return NextResponse.json(
       {
