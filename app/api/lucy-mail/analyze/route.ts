@@ -242,9 +242,7 @@ Formato ESATTO:
 
         max_tokens: 1000,
 
-        response_format: {
-          type: 'json_object',
-        },
+        
 
         messages: [
           {
