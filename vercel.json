@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/lucy-mail/sync",
-      "schedule": "0 */3 * * *"
+      "schedule": "*/20 * * * *"
     },
     {
       "path": "/api/lucy-mail/analyze",
