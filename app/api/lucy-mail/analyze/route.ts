@@ -329,7 +329,7 @@ export async function GET(
         ascending: false,
       }
     )
-    .limit(20)
+    .limit(3)
 
   if (error) {
     return NextResponse.json(
