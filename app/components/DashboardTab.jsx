@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 import TradingViewChart from './TradingViewChart'
 import MarketOverviewWidget from './MarketOverviewWidget'
+import LucyDashboardCard from './LucyDashboardCard'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import {
   tabContent, primaryButtonBlue, heroGrid, heroCard, heroLabel, heroValue, heroSub,
@@ -41,26 +42,32 @@ const StatCard = ({ label, value, sub, accent = '#38bdf8' }) => (
   </div>
 )
 
-// Widget indici che occupa tutta l'altezza disponibile nella colonna (fino al fondo del grafico).
-// Il widget TradingView legge l'altezza solo quando viene creato: se lo spazio cambia di parecchio
-// (es. ridimensionando la finestra) viene ricreato con la nuova altezza.
 function MarketOverviewFill({ minHeight = 360 }) {
   const boxRef = useRef(null)
   const [h, setH] = useState(minHeight)
+
   useEffect(() => {
     const el = boxRef.current
     if (!el || typeof ResizeObserver === 'undefined') return
+
     const ro = new ResizeObserver(([entry]) => {
       const nuova = Math.max(minHeight, Math.floor(entry.contentRect.height))
       setH(prev => (Math.abs(prev - nuova) > 8 ? nuova : prev))
     })
+
     ro.observe(el)
     return () => ro.disconnect()
   }, [minHeight])
+
   return (
     <div ref={boxRef} style={{
-      position: 'relative', flex: 1, minHeight,
-      border: '1px solid #1e293b', borderRadius: 12, overflow: 'hidden', background: '#020617'
+      position: 'relative',
+      flex: 1,
+      minHeight,
+      border: '1px solid #1e293b',
+      borderRadius: 12,
+      overflow: 'hidden',
+      background: '#020617'
     }}>
       <div style={{ position: 'absolute', inset: 0 }}>
         <MarketOverviewWidget key={h} height={h} />
@@ -103,19 +110,25 @@ export default function DashboardTab({
   formatCurrency,
   saveWeeklySnapshot,
   royaltyAvvisi = [],
-  promemoriaNuoviBook = null,     // { giorni } quando è ora di valutare nuovi book in profilazione (ogni 60 giorni)
+  promemoriaNuoviBook = null,
   onPromemoriaNuoviBookFatto,
   onPagaRoyaltyMensile,
 }) {
   const [dashChartSymbol, setDashChartSymbol] = useState('XAUUSD')
+
   return (
     <div style={tabContent}>
+
+      {/* =====================================================
+          LUCY
+          ===================================================== */}
+      <LucyDashboardCard />
+
       {(() => {
         const oggi = new Date()
         const annoCorrente = oggi.getFullYear()
         const meseCorrente = oggi.getMonth() + 1
 
-        // Scadenze da Memo
         const scadenzeMemo = memoFutureNotes
           .filter(row => {
             if (!row.data_reale) return false
@@ -127,7 +140,6 @@ export default function DashboardTab({
             return { descrizione: row.descrizione, diff, tipo: 'memo' }
           })
 
-        // Scadenze da Contabilità mese corrente (previsto + giorno compilato)
         const scadenzeContabilita = stimeCassa
           .filter(row => {
             if (row.stato !== 'previsto') return false
@@ -144,39 +156,87 @@ export default function DashboardTab({
           })
           .filter(r => r.diff <= 7)
 
-        // Scadenze SIM (2 giorni prima) — fix: se il giorno è già passato nel mese corrente, considera il mese prossimo
         const scadenzeSim = clienti
           .filter(c => c.sim_giorno_scadenza)
           .map(c => {
             const oggiNorm = new Date(oggi)
             oggiNorm.setHours(0, 0, 0, 0)
-            let dataScad = new Date(oggiNorm.getFullYear(), oggiNorm.getMonth(), c.sim_giorno_scadenza)
-            // Se la scadenza nel mese corrente è già passata, sposta al mese prossimo
+
+            let dataScad = new Date(
+              oggiNorm.getFullYear(),
+              oggiNorm.getMonth(),
+              c.sim_giorno_scadenza
+            )
+
             if (dataScad < oggiNorm) {
-              dataScad = new Date(oggiNorm.getFullYear(), oggiNorm.getMonth() + 1, c.sim_giorno_scadenza)
+              dataScad = new Date(
+                oggiNorm.getFullYear(),
+                oggiNorm.getMonth() + 1,
+                c.sim_giorno_scadenza
+              )
             }
-            const diff = Math.round((dataScad - oggiNorm) / (1000 * 60 * 60 * 24))
-            // La chiave mese per il rinnovo è quella del mese in cui cade la scadenza calcolata
-            const meseScadKey = `${dataScad.getFullYear()}-${String(dataScad.getMonth() + 1).padStart(2, '0')}`
-            const rinnovato = c.sim_rinnovato && c.sim_rinnovato_mese === meseScadKey
-            return { descrizione: `SIM ${c.nome} (${c.sim_operatore || ''})`, diff, tipo: 'sim', rinnovato }
+
+            const diff = Math.round(
+              (dataScad - oggiNorm) /
+              (1000 * 60 * 60 * 24)
+            )
+
+            const meseScadKey =
+              `${dataScad.getFullYear()}-${String(dataScad.getMonth() + 1).padStart(2, '0')}`
+
+            const rinnovato =
+              c.sim_rinnovato &&
+              c.sim_rinnovato_mese === meseScadKey
+
+            return {
+              descrizione: `SIM ${c.nome} (${c.sim_operatore || ''})`,
+              diff,
+              tipo: 'sim',
+              rinnovato
+            }
           })
           .filter(r => r.diff <= 2 && !r.rinnovato)
 
-        const tutte = [...scadenzeMemo, ...scadenzeContabilita, ...scadenzeSim]
-          .sort((a, b) => a.diff - b.diff)
+        const tutte = [
+          ...scadenzeMemo,
+          ...scadenzeContabilita,
+          ...scadenzeSim
+        ].sort((a, b) => a.diff - b.diff)
 
-        // Royalty: mensili 2 giorni prima del giorno di pagamento, annuali (20/12 e 30/6) e benvenuti 10 giorni prima,
-        // finché non vengono segnate pagate
         const royaltyMensili = royaltyAvvisi || []
 
-        if (tutte.length === 0 && royaltyMensili.length === 0 && !promemoriaNuoviBook) return null
+        if (
+          tutte.length === 0 &&
+          royaltyMensili.length === 0 &&
+          !promemoriaNuoviBook
+        ) return null
 
         const righe = tutte.map(item => {
-          const tag = item.tipo === 'contabilita' ? '[CTB] ' : item.tipo === 'sim' ? '[SIM] ' : ''
-          if (item.diff < 0) return { testo: `⛔ ${tag}${item.descrizione.toUpperCase()} — SCADUTO, PROVVEDERE`, scaduta: true }
-          if (item.diff === 0) return { testo: `🔴 ${tag}${item.descrizione.toUpperCase()} — SCADE OGGI`, scaduta: false }
-          return { testo: `⚠️ ${tag}${item.descrizione.toUpperCase()} — mancano ${item.diff} giorni`, scaduta: false }
+          const tag =
+            item.tipo === 'contabilita'
+              ? '[CTB] '
+              : item.tipo === 'sim'
+              ? '[SIM] '
+              : ''
+
+          if (item.diff < 0) {
+            return {
+              testo: `⛔ ${tag}${item.descrizione.toUpperCase()} — SCADUTO, PROVVEDERE`,
+              scaduta: true
+            }
+          }
+
+          if (item.diff === 0) {
+            return {
+              testo: `🔴 ${tag}${item.descrizione.toUpperCase()} — SCADE OGGI`,
+              scaduta: false
+            }
+          }
+
+          return {
+            testo: `⚠️ ${tag}${item.descrizione.toUpperCase()} — mancano ${item.diff} giorni`,
+            scaduta: false
+          }
         })
 
         return (
@@ -191,51 +251,142 @@ export default function DashboardTab({
             fontSize: 14,
             lineHeight: 2
           }}>
-            <div style={{ color: '#fca5a5', marginBottom: 4 }}>🔔 AVVISI SCADENZE</div>
+
+            <div style={{
+              color: '#fca5a5',
+              marginBottom: 4
+            }}>
+              🔔 AVVISI SCADENZE
+            </div>
+
             {righe.map((r, i) => (
-              <div key={i} style={{ color: r.scaduta ? '#ff4444' : '#fca5a5' }}>{r.testo}</div>
+              <div
+                key={i}
+                style={{
+                  color: r.scaduta
+                    ? '#ff4444'
+                    : '#fca5a5'
+                }}
+              >
+                {r.testo}
+              </div>
             ))}
+
             {promemoriaNuoviBook && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', color: '#38bdf8' }}>
-                <span>🧭 [PROFILAZIONE] Sono passati {promemoriaNuoviBook.giorni} giorni: vuoi inserire altri book in profilazione? (le schede Profiliamo ci sono)</span>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                flexWrap: 'wrap',
+                color: '#38bdf8'
+              }}>
+                <span>
+                  🧭 [PROFILAZIONE] Sono passati {promemoriaNuoviBook.giorni} giorni:
+                  vuoi inserire altri book in profilazione? (le schede Profiliamo ci sono)
+                </span>
+
                 {onPromemoriaNuoviBookFatto && (
-                  <button onClick={onPromemoriaNuoviBookFatto}
-                    style={{ padding: '2px 10px', borderRadius: 8, border: '1px solid rgba(56,189,248,0.6)', background: 'rgba(56,189,248,0.15)', color: '#38bdf8', fontWeight: 800, fontSize: 12, cursor: 'pointer', lineHeight: 1.6 }}>
+                  <button
+                    onClick={onPromemoriaNuoviBookFatto}
+                    style={{
+                      padding: '2px 10px',
+                      borderRadius: 8,
+                      border: '1px solid rgba(56,189,248,0.6)',
+                      background: 'rgba(56,189,248,0.15)',
+                      color: '#38bdf8',
+                      fontWeight: 800,
+                      fontSize: 12,
+                      cursor: 'pointer',
+                      lineHeight: 1.6
+                    }}
+                  >
                     ✓ Visto · ricordamelo tra 60 giorni
                   </button>
                 )}
               </div>
             )}
+
             {royaltyMensili.map(m => (
-              <div key={'roy-' + m.cliente_id + '-' + m.periodo} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', color: m.inRitardo ? '#ff4444' : m.giorniRitardo < 0 ? '#fca5a5' : '#fbbf24' }}>
+              <div
+                key={'roy-' + m.cliente_id + '-' + m.periodo}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  flexWrap: 'wrap',
+                  color:
+                    m.inRitardo
+                      ? '#ff4444'
+                      : m.giorniRitardo < 0
+                      ? '#fca5a5'
+                      : '#fbbf24'
+                }}
+              >
                 <span>
-                  {m.inRitardo ? '⛔' : m.giorniRitardo < 0 ? '⚠️' : '💶'} [ROYALTY] {(m.nome || '').toUpperCase()} — {formatCurrency(m.importo)} ({m.etichetta || m.periodo})
-                  {m.inRitardo ? ` — IN RITARDO DI ${m.giorniRitardo} GIORNI`
-                    : m.giorniRitardo < 0 ? ` — mancano ${-m.giorniRitardo} giorn${m.giorniRitardo === -1 ? 'o' : 'i'}`
-                    : m.giorniRitardo === 0 ? ' — DA PAGARE OGGI' : ` — da pagare da ${m.giorniRitardo} giorn${m.giorniRitardo === 1 ? 'o' : 'i'}`}
+                  {m.inRitardo
+                    ? '⛔'
+                    : m.giorniRitardo < 0
+                    ? '⚠️'
+                    : '💶'}{' '}
+                  [ROYALTY] {(m.nome || '').toUpperCase()} — {formatCurrency(m.importo)} ({m.etichetta || m.periodo})
+                  {m.inRitardo
+                    ? ` — IN RITARDO DI ${m.giorniRitardo} GIORNI`
+                    : m.giorniRitardo < 0
+                    ? ` — mancano ${-m.giorniRitardo} giorn${m.giorniRitardo === -1 ? 'o' : 'i'}`
+                    : m.giorniRitardo === 0
+                    ? ' — DA PAGARE OGGI'
+                    : ` — da pagare da ${m.giorniRitardo} giorn${m.giorniRitardo === 1 ? 'o' : 'i'}`}
                 </span>
+
                 {onPagaRoyaltyMensile && (
                   <button
                     onClick={() => onPagaRoyaltyMensile(m)}
-                    style={{ padding: '2px 10px', borderRadius: 8, border: '1px solid rgba(34,197,94,0.6)', background: 'rgba(34,197,94,0.15)', color: '#22c55e', fontWeight: 800, fontSize: 12, cursor: 'pointer', lineHeight: 1.6 }}
-                  >✅ Pagato</button>
+                    style={{
+                      padding: '2px 10px',
+                      borderRadius: 8,
+                      border: '1px solid rgba(34,197,94,0.6)',
+                      background: 'rgba(34,197,94,0.15)',
+                      color: '#22c55e',
+                      fontWeight: 800,
+                      fontSize: 12,
+                      cursor: 'pointer',
+                      lineHeight: 1.6
+                    }}
+                  >
+                    ✅ Pagato
+                  </button>
                 )}
               </div>
             ))}
           </div>
         )
       })()}
+
       <div style={{ marginBottom: '15px' }}>
-        <button style={primaryButtonBlue} onClick={saveWeeklySnapshot}>
+        <button
+          style={primaryButtonBlue}
+          onClick={saveWeeklySnapshot}
+        >
           Salva Periodo
         </button>
       </div>
 
       <div style={heroGrid}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 16
+        }}>
+
           <div style={heroCard}>
-            <div style={heroLabel}>Panoramica mese</div>
-            <div style={heroValue}>{formatCurrency(guadagnoCorrente)}</div>
+            <div style={heroLabel}>
+              Panoramica mese
+            </div>
+
+            <div style={heroValue}>
+              {formatCurrency(guadagnoCorrente)}
+            </div>
+
             <div style={{
               ...heroSub,
               fontSize: 26,
@@ -247,37 +398,104 @@ export default function DashboardTab({
               <span style={{ fontSize: 30 }}>💰</span>
               <span>PROFITTO</span>
             </div>
+
             <div style={heroMiniRow}>
               <div style={heroMiniBox}>
-                <div style={heroMiniLabel}>Cassa di partenza</div>
-                <div style={heroMiniValue}>{formatCurrency(basePeriodo)}</div>
+                <div style={heroMiniLabel}>
+                  Cassa di partenza
+                </div>
+                <div style={heroMiniValue}>
+                  {formatCurrency(basePeriodo)}
+                </div>
               </div>
+
               <div style={heroMiniBox}>
-                <div style={heroMiniLabel}>Spese</div>
-                <div style={heroMiniValue}>{formatCurrency(totaleUsciteEsterne)}</div>
+                <div style={heroMiniLabel}>
+                  Spese
+                </div>
+                <div style={heroMiniValue}>
+                  {formatCurrency(totaleUsciteEsterne)}
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Card Riepilogo Anno */}
           <div style={{
-            background: 'linear-gradient(135deg, rgba(56,189,248,0.07), rgba(34,197,94,0.06), rgba(15,23,42,0.96))',
-            border: '1px solid rgba(56,189,248,0.18)',
+            background:
+              'linear-gradient(135deg, rgba(56,189,248,0.07), rgba(34,197,94,0.06), rgba(15,23,42,0.96))',
+            border:
+              '1px solid rgba(56,189,248,0.18)',
             borderRadius: 22,
             padding: '20px 24px',
             display: 'grid',
             gridTemplateColumns: '1fr 1fr',
             gap: 16
           }}>
+
             <div>
-              <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1, color: '#7dd3fc', marginBottom: 8 }}>Guadagno Anno {new Date().getFullYear()}</div>
-              <div style={{ fontSize: 28, fontWeight: 900, color: '#f8fafc', lineHeight: 1 }}>{formatCurrency(guadagnoAnnuo)}</div>
-              <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>Somma profitti periodi chiusi</div>
+              <div style={{
+                fontSize: 11,
+                fontWeight: 800,
+                textTransform: 'uppercase',
+                letterSpacing: 1,
+                color: '#7dd3fc',
+                marginBottom: 8
+              }}>
+                Guadagno Anno {new Date().getFullYear()}
+              </div>
+
+              <div style={{
+                fontSize: 28,
+                fontWeight: 900,
+                color: '#f8fafc',
+                lineHeight: 1
+              }}>
+                {formatCurrency(guadagnoAnnuo)}
+              </div>
+
+              <div style={{
+                fontSize: 12,
+                color: '#94a3b8',
+                marginTop: 6
+              }}>
+                Somma profitti periodi chiusi
+              </div>
             </div>
+
             <div>
-              <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1, color: cashFlowAnnuo >= 0 ? '#4ade80' : '#f87171', marginBottom: 8 }}>Cash Flow Anno {new Date().getFullYear()}</div>
-              <div style={{ fontSize: 28, fontWeight: 900, color: cashFlowAnnuo >= 0 ? '#4ade80' : '#f87171', lineHeight: 1 }}>{formatCurrency(cashFlowAnnuo)}</div>
-              <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>Variazione netta cassa</div>
+              <div style={{
+                fontSize: 11,
+                fontWeight: 800,
+                textTransform: 'uppercase',
+                letterSpacing: 1,
+                color:
+                  cashFlowAnnuo >= 0
+                    ? '#4ade80'
+                    : '#f87171',
+                marginBottom: 8
+              }}>
+                Cash Flow Anno {new Date().getFullYear()}
+              </div>
+
+              <div style={{
+                fontSize: 28,
+                fontWeight: 900,
+                color:
+                  cashFlowAnnuo >= 0
+                    ? '#4ade80'
+                    : '#f87171',
+                lineHeight: 1
+              }}>
+                {formatCurrency(cashFlowAnnuo)}
+              </div>
+
+              <div style={{
+                fontSize: 12,
+                color: '#94a3b8',
+                marginTop: 6
+              }}>
+                Variazione netta cassa
+              </div>
             </div>
           </div>
 
@@ -296,10 +514,8 @@ export default function DashboardTab({
               gridTemplateColumns: 'repeat(3, 1fr)',
               gap: 12
             }}>
-
               {[
                 { name: 'A.d.P.', url: 'https://accademiadelprofitto.com/matcher/#/matcher' },
-
                 { name: 'Bet365', url: 'https://bet365.it/#/HO/' },
                 { name: 'Sisal', url: 'https://www.sisal.it' },
                 { name: 'Eurobet', url: 'https://www.eurobet.it/it/' },
@@ -314,11 +530,12 @@ export default function DashboardTab({
                 { name: 'Tradingview', url: 'https://it.tradingview.com/chart/QfJdmqCy/?symbol=OANDA%3AXAUUSD' },
                 { name: 'Broker Ultima', url: 'https://myaccount.ultimamarkets.com/login' },
                 { name: 'Dutching', url: 'https://www.giochinazionali.com/scommesse-online/scommesse-sicure-calcolatore/' }
-
               ].map((item, i) => (
                 <div
                   key={i}
-                  onClick={() => window.open(item.url, '_blank')}
+                  onClick={() =>
+                    window.open(item.url, '_blank')
+                  }
                   style={{
                     background: '#020617',
                     border: '1px solid #1e293b',
@@ -331,50 +548,89 @@ export default function DashboardTab({
                     color: '#e2e8f0'
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.border = '1px solid #38bdf8'
-                    e.currentTarget.style.transform = 'translateY(-2px)'
+                    e.currentTarget.style.border =
+                      '1px solid #38bdf8'
+                    e.currentTarget.style.transform =
+                      'translateY(-2px)'
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.border = '1px solid #1e293b'
-                    e.currentTarget.style.transform = 'translateY(0px)'
+                    e.currentTarget.style.border =
+                      '1px solid #1e293b'
+                    e.currentTarget.style.transform =
+                      'translateY(0px)'
                   }}
                 >
                   {item.name}
                 </div>
               ))}
-
             </div>
           </div>
 
           <div style={{ marginTop: 20 }}>
             <div style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              marginBottom: 10, flexWrap: 'wrap', gap: 8
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: 10,
+              flexWrap: 'wrap',
+              gap: 8
             }}>
-              <div style={{ fontSize: 14, color: '#94a3b8', letterSpacing: '1px' }}>GRAFICO MERCATI</div>
+              <div style={{
+                fontSize: 14,
+                color: '#94a3b8',
+                letterSpacing: '1px'
+              }}>
+                GRAFICO MERCATI
+              </div>
+
               <select
                 value={dashChartSymbol}
-                onChange={(e) => setDashChartSymbol(e.target.value)}
+                onChange={(e) =>
+                  setDashChartSymbol(e.target.value)
+                }
                 style={{
-                  background: '#020617', border: '1px solid #1e293b', borderRadius: 8,
-                  color: '#e2e8f0', fontSize: 12, padding: '6px 8px'
+                  background: '#020617',
+                  border: '1px solid #1e293b',
+                  borderRadius: 8,
+                  color: '#e2e8f0',
+                  fontSize: 12,
+                  padding: '6px 8px'
                 }}
               >
                 {DASH_CHART_ASSETS.map(a => (
-                  <option key={a.symbol} value={a.symbol}>{a.label}</option>
+                  <option
+                    key={a.symbol}
+                    value={a.symbol}
+                  >
+                    {a.label}
+                  </option>
                 ))}
               </select>
             </div>
+
             <div style={{
-              border: '1px solid #1e293b', borderRadius: 12, overflow: 'hidden', background: '#020617'
+              border: '1px solid #1e293b',
+              borderRadius: 12,
+              overflow: 'hidden',
+              background: '#020617'
             }}>
-              <TradingViewChart symbol={dashChartSymbol} height={560} showEma={false} />
+              <TradingViewChart
+                symbol={dashChartSymbol}
+                height={560}
+                showEma={false}
+              />
             </div>
           </div>
         </div>
 
-        {/* colonna destra: si allunga fino al fondo del grafico, l'ultimo box (indici) prende lo spazio che resta */}
-        <div style={{ ...heroSideGrid, display: 'flex', flexDirection: 'column', gap: 16, alignSelf: 'stretch' }}>
+        <div style={{
+          ...heroSideGrid,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 16,
+          alignSelf: 'stretch'
+        }}>
+
           <StatCard
             label='Cassa disponibile'
             value={formatCurrency(cassaDisponibile)}
@@ -389,30 +645,61 @@ export default function DashboardTab({
             accent='#f59e0b'
           />
 
-          <div style={{
-            ...panel,
-            ...(accantonamentiAvvisiCount > 0 ? { border: '1px solid rgba(239,68,68,0.4)' } : {}),
-            cursor: 'pointer'
-          }} onClick={goToAccantonamenti}>
+          <div
+            style={{
+              ...panel,
+              ...(accantonamentiAvvisiCount > 0
+                ? {
+                    border:
+                      '1px solid rgba(239,68,68,0.4)'
+                  }
+                : {}),
+              cursor: 'pointer'
+            }}
+            onClick={goToAccantonamenti}
+          >
             <div style={panelHeader}>
               <div>
-                <h2 style={panelTitle}>Accantonamenti</h2>
-                <p style={panelSubtitle}>Royalty, risparmi Samu e Massi, club, stipendi, Michela — clicca per il dettaglio</p>
+                <h2 style={panelTitle}>
+                  Accantonamenti
+                </h2>
+
+                <p style={panelSubtitle}>
+                  Royalty, risparmi Samu e Massi, club,
+                  stipendi, Michela — clicca per il dettaglio
+                </p>
               </div>
+
               {accantonamentiAvvisiCount > 0 && (
                 <div style={{
-                  fontSize: 11, fontWeight: 800, color: '#fca5a5', background: 'rgba(239,68,68,0.15)',
-                  border: '1px solid rgba(239,68,68,0.4)', borderRadius: 999, padding: '3px 9px'
+                  fontSize: 11,
+                  fontWeight: 800,
+                  color: '#fca5a5',
+                  background:
+                    'rgba(239,68,68,0.15)',
+                  border:
+                    '1px solid rgba(239,68,68,0.4)',
+                  borderRadius: 999,
+                  padding: '3px 9px'
                 }}>
                   {accantonamentiAvvisiCount} da pagare
                 </div>
               )}
             </div>
 
-            <div style={{ fontSize: 26, fontWeight: 800, color: '#f8fafc' }}>
+            <div style={{
+              fontSize: 26,
+              fontWeight: 800,
+              color: '#f8fafc'
+            }}>
               {formatCurrency(accantonamentiTotale)}
             </div>
-            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>
+
+            <div style={{
+              fontSize: 12,
+              color: '#94a3b8',
+              marginTop: 6
+            }}>
               totale accantonato/da accantonare questo mese
             </div>
           </div>
@@ -438,32 +725,58 @@ export default function DashboardTab({
             accent='#a855f7'
           />
 
-          <div style={{ ...panel, flex: 1, display: 'flex', flexDirection: 'column' }}>
+          <div style={{
+            ...panel,
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column'
+          }}>
             <div style={panelHeader}>
               <div>
-                <h2 style={panelTitle}>Indici di borsa</h2>
-                <p style={panelSubtitle}>Aggiornamento in tempo reale</p>
+                <h2 style={panelTitle}>
+                  Indici di borsa
+                </h2>
+
+                <p style={panelSubtitle}>
+                  Aggiornamento in tempo reale
+                </p>
               </div>
             </div>
+
             <MarketOverviewFill minHeight={360} />
           </div>
         </div>
       </div>
 
       <div style={dashboardGrid}>
+
         <div style={panel}>
           <div style={panelHeader}>
             <div>
-              <h2 style={panelTitle}>Andamento Profitti - Cassa </h2>
-              <p style={panelSubtitle}>Profitto nel tempo</p>
+              <h2 style={panelTitle}>
+                Andamento Profitti - Cassa
+              </h2>
+
+              <p style={panelSubtitle}>
+                Profitto nel tempo
+              </p>
             </div>
           </div>
 
-          <div style={{ width: '100%', height: 260, marginTop: '10px' }}>
+          <div style={{
+            width: '100%',
+            height: 260,
+            marginTop: '10px'
+          }}>
             <ResponsiveContainer>
               <LineChart data={weeklyChartData}>
-                <XAxis dataKey="name" stroke="#94a3b8" />
+                <XAxis
+                  dataKey="name"
+                  stroke="#94a3b8"
+                />
+
                 <YAxis stroke="#94a3b8" />
+
                 <Tooltip
                   contentStyle={{
                     backgroundColor: '#020617',
@@ -472,6 +785,7 @@ export default function DashboardTab({
                     color: '#e2e8f0'
                   }}
                 />
+
                 <Line
                   type="monotone"
                   dataKey="profit"
@@ -479,6 +793,7 @@ export default function DashboardTab({
                   strokeWidth={3}
                   dot={{ r: 4 }}
                 />
+
                 <Line
                   type="monotone"
                   dataKey="totalCash"
@@ -490,25 +805,133 @@ export default function DashboardTab({
             </ResponsiveContainer>
           </div>
         </div>
+
         <div style={panel}>
-          <div style={panelHeader}><div><h2 style={panelTitle}>Top books</h2><p style={panelSubtitle}>I book più carichi adesso</p></div></div>
-          <div style={stackList}>{topBooks.map((book, index) => <div key={book.id} style={rankRow}><div style={rankBadge}>{index + 1}</div><div style={rankMain}><div style={miniRowTitle}>{book.nome}</div><div style={miniRowSub}>{book.intestatario || '-'}</div></div><div style={rankValue}>{formatCurrency(book.saldo)}</div></div>)}</div>
+          <div style={panelHeader}>
+            <div>
+              <h2 style={panelTitle}>
+                Top books
+              </h2>
+              <p style={panelSubtitle}>
+                I book più carichi adesso
+              </p>
+            </div>
+          </div>
+
+          <div style={stackList}>
+            {topBooks.map((book, index) => (
+              <div key={book.id} style={rankRow}>
+                <div style={rankBadge}>
+                  {index + 1}
+                </div>
+
+                <div style={rankMain}>
+                  <div style={miniRowTitle}>
+                    {book.nome}
+                  </div>
+                  <div style={miniRowSub}>
+                    {book.intestatario || '-'}
+                  </div>
+                </div>
+
+                <div style={rankValue}>
+                  {formatCurrency(book.saldo)}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
         <div style={panel}>
-          <div style={panelHeader}><div><h2 style={panelTitle}>Top wallets</h2><p style={panelSubtitle}>I wallet più carichi adesso</p></div></div>
-          <div style={stackList}>{topWallets.map((wallet, index) => <div key={wallet.id} style={rankRow}><div style={rankBadge}>{index + 1}</div><div style={rankMain}><div style={miniRowTitle}>{wallet.nome}</div><div style={miniRowSub}>{wallet.intestatario || '-'}</div></div><div style={rankValue}>{formatCurrency(wallet.saldo)}</div></div>)}</div>
+          <div style={panelHeader}>
+            <div>
+              <h2 style={panelTitle}>
+                Top wallets
+              </h2>
+
+              <p style={panelSubtitle}>
+                I wallet più carichi adesso
+              </p>
+            </div>
+          </div>
+
+          <div style={stackList}>
+            {topWallets.map((wallet, index) => (
+              <div key={wallet.id} style={rankRow}>
+                <div style={rankBadge}>
+                  {index + 1}
+                </div>
+
+                <div style={rankMain}>
+                  <div style={miniRowTitle}>
+                    {wallet.nome}
+                  </div>
+
+                  <div style={miniRowSub}>
+                    {wallet.intestatario || '-'}
+                  </div>
+                </div>
+
+                <div style={rankValue}>
+                  {formatCurrency(wallet.saldo)}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
       <div style={panel}>
-        <div style={panelHeader}><div><h2 style={panelTitle}>Ultime transazioni</h2><p style={panelSubtitle}>La dashboard adesso ha un po' più di anima</p></div></div>
+        <div style={panelHeader}>
+          <div>
+            <h2 style={panelTitle}>
+              Ultime transazioni
+            </h2>
+
+            <p style={panelSubtitle}>
+              La dashboard adesso ha un po' più di anima
+            </p>
+          </div>
+        </div>
+
         <div style={tableWrap}>
-          <table style={table}><thead><tr><th style={th}>Data</th><th style={th}>Tipo</th><th style={th}>Importo</th><th style={th}>Riferimento</th></tr></thead><tbody>
-            {ultimeTransazioni.map((tx) => <tr key={tx.id} style={tr}><td style={td}>{formatDate(tx.data)}</td><td style={td}><span style={badge(tx.tipo)}>{tx.tipo || '-'}</span></td><td style={td}>{formatCurrency(tx.importo)}</td><td style={td}>{tx.riferimento || '-'}</td></tr>)}
-          </tbody></table>
+          <table style={table}>
+            <thead>
+              <tr>
+                <th style={th}>Data</th>
+                <th style={th}>Tipo</th>
+                <th style={th}>Importo</th>
+                <th style={th}>Riferimento</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {ultimeTransazioni.map((tx) => (
+                <tr key={tx.id} style={tr}>
+                  <td style={td}>
+                    {formatDate(tx.data)}
+                  </td>
+
+                  <td style={td}>
+                    <span style={badge(tx.tipo)}>
+                      {tx.tipo || '-'}
+                    </span>
+                  </td>
+
+                  <td style={td}>
+                    {formatCurrency(tx.importo)}
+                  </td>
+
+                  <td style={td}>
+                    {tx.riferimento || '-'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
+
     </div>
   )
 }
