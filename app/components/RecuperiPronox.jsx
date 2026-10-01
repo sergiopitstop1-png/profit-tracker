@@ -82,8 +82,9 @@ export function usoConti(bets, oggi = new Date()) {
 const pianoDaDb = (p) => p ? { capitale: Number(p.capitale), N: Number(p.n_eventi), K: Number(p.k_vincite), quotaRif: Number(p.quota_rif), eventi_extra: Number(p.eventi_extra || 0) } : null
 
 // ─── componente ─────────────────────────────────────────────────────
-export default function RecuperiPronoxPanel({ books, recuperi, getRecuperoProtocollo, sitoBook, apriSuTelefoni, onMessage, onError }) {
-  const [aperto, setAperto] = useState(true)
+export default function RecuperiPronoxPanel({ books, recuperi, getRecuperoProtocollo, sitoBook, apriSuTelefoni, onMessage, onError, incorporato = false, onDaFare }) {
+  const [apertoProprio, setAperto] = useState(true)
+  const aperto = incorporato || apertoProprio // dentro una sezione a scomparsa: niente intestazione propria
   const [piano, setPiano] = useState(null)
   const [bets, setBets] = useState([])
   const [righe, setRighe] = useState([])
@@ -196,6 +197,7 @@ export default function RecuperiPronoxPanel({ books, recuperi, getRecuperoProtoc
 
   // ─── viste ──────────────────────────────────────────────────────────
   const daFare = bets.filter(b => b.stato === 'da_fare' && !iniziata(b.event_start))
+  useEffect(() => { if (onDaFare) onDaFare(daFare.length) }, [daFare.length])
   const scadute = bets.filter(b => b.stato === 'da_fare' && iniziata(b.event_start))
   const perPartita = (lista) => { const m = new Map(); for (const b of lista) { if (!m.has(b.event_id)) m.set(b.event_id, []); m.get(b.event_id).push(b) } return [...m.values()] }
   const conclusi = eventi.filter(e => e.esito !== 'attesa').slice(-20).reverse()
@@ -205,10 +207,10 @@ export default function RecuperiPronoxPanel({ books, recuperi, getRecuperoProtoc
 
   return (
     <div style={{ background: 'rgba(16,185,129,0.07)', border: '1px solid rgba(16,185,129,0.35)', borderRadius: 16, padding: '14px 16px', marginBottom: 16 }}>
-      <div onClick={() => setAperto(!aperto)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
+      {!incorporato && (<div onClick={() => setAperto(!aperto)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
         <div style={{ fontWeight: 900, color: '#6ee7b7' }}>🎯 Recuperi con PronoX · Masaniello pilota {stato ? `· ${euro(stato.capitale)} · ${stato.vinte}V ${stato.perse}P` : ''} {daFare.length ? <span style={{ color: '#fbbf24' }}>· {daFare.length} bet da fare</span> : null}</div>
         <div style={{ color: '#94a3b8' }}>{aperto ? '▲' : '▼'}</div>
-      </div>
+      </div>)}
       {aperto && (carico ? <div style={{ color: '#94a3b8', marginTop: 8 }}>Carico piano, fotografie ed esiti…</div> : !stato ? <div style={{ color: '#fca5a5', marginTop: 8 }}>Piano non trovato: lancia recupero_pronox.sql in Supabase.</div> : (
         <div style={{ marginTop: 10 }}>
           {/* stato del piano */}
