@@ -15,24 +15,35 @@ type Comunicazione = {
   id: string
   source_id: string | number
   canale: Canale
+
   data_mail: string | null
   cliente_nome: string | null
   bookmaker: string | null
   mittente: string | null
   destinatario_originale: string | null
+
   oggetto: string | null
   testo_completo: string | null
+
   categoria: string | null
   giudizio: string | null
   priorita: string | null
-  motivazione_ai: string | null
+  confidenza: number | null
+
+  tipo_offerta: string | null
   bonus_importo: number | null
   deposito_richiesto: number | null
   rollover: string | null
   scadenza: string | null
   condizioni: string | null
+  motivazione_ai: string | null
   richiede_azione: boolean | null
+
+  letta: boolean | null
+  archiviata: boolean
+
   feedback_utente: string | null
+  feedback_note: string | null
 }
 
 type Counters = {
@@ -42,6 +53,7 @@ type Counters = {
   problemi: number
   ignora: number
   da_analizzare: number
+  archiviate: number
 }
 
 type Vista =
@@ -51,6 +63,7 @@ type Vista =
   | 'ignora'
   | 'da_analizzare'
   | 'tutte'
+  | 'archiviate'
 
 const emptyCounters: Counters = {
   tutte: 0,
@@ -59,22 +72,26 @@ const emptyCounters: Counters = {
   problemi: 0,
   ignora: 0,
   da_analizzare: 0,
+  archiviate: 0,
 }
 
-const matrixColumns = Array.from({ length: 72 }, (_, index) => {
-  const patterns = [
-    '010110101001011010010110100101',
-    '101001101011010010110100101101',
-    '001101001011010110100101101001',
-    '110100101101001011010010110100',
-    '011010010110100101101001011010',
-    '100101101001011010010110100101',
-    '010011010110010110100101101001',
-    '101100101101001011010010110100',
-  ]
+const matrixColumns = Array.from(
+  { length: 72 },
+  (_, index) => {
+    const patterns = [
+      '010110101001011010010110100101',
+      '101001101011010010110100101101',
+      '001101001011010110100101101001',
+      '110100101101001011010010110100',
+      '011010010110100101101001011010',
+      '100101101001011010010110100101',
+      '010011010110010110100101101001',
+      '101100101101001011010010110100',
+    ]
 
-  return patterns[index % patterns.length]
-})
+    return patterns[index % patterns.length]
+  }
+)
 
 export default function ArchivioLucyPage() {
   const router = useRouter()
@@ -94,10 +111,15 @@ export default function ArchivioLucyPage() {
   const [loading, setLoading] =
     useState(false)
 
+  const [savingId, setSavingId] =
+    useState<string | null>(null)
+
   const [
     comunicazioneAperta,
     setComunicazioneAperta,
-  ] = useState<Comunicazione | null>(null)
+  ] = useState<Comunicazione | null>(
+    null
+  )
 
   const [vista, setVista] =
     useState<Vista>('opportunita')
@@ -108,15 +130,18 @@ export default function ArchivioLucyPage() {
   const [canale, setCanale] =
     useState('TUTTI')
 
-  const [f, setF] =
-    useState({
-      q: '',
-      cliente: '',
-      bookmaker: '',
-      giudizio: '',
-      categoria: '',
-      priorita: '',
-    })
+  const [f, setF] = useState({
+    q: '',
+    cliente: '',
+    bookmaker: '',
+    giudizio: '',
+    categoria: '',
+    priorita: '',
+  })
+
+  /* =======================================================
+     CARICAMENTO
+     ======================================================= */
 
   const load = useCallback(
     async () => {
@@ -166,10 +191,12 @@ export default function ArchivioLucyPage() {
 
         setRows(j.data || [])
         setCount(j.count || 0)
+
         setCounters(
           j.counters ||
             emptyCounters
         )
+
         setClienti(
           j.clienti || []
         )
@@ -194,32 +221,122 @@ export default function ArchivioLucyPage() {
     load()
   }, [load])
 
+  /* =======================================================
+     FEEDBACK
+     ======================================================= */
+
   async function feedback(
     item: Comunicazione,
     value: string
   ) {
-    await fetch(
-      '/api/lucy-mail/archive',
-      {
-        method: 'PATCH',
-        headers: {
-          'Content-Type':
-            'application/json',
-        },
-        body: JSON.stringify({
-          id: item.id,
-          source_id:
-            item.source_id,
-          canale:
-            item.canale,
-          feedback_utente:
-            value,
-        }),
-      }
-    )
+    try {
+      await fetch(
+        '/api/lucy-mail/archive',
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
+          body: JSON.stringify({
+            id: item.id,
+            source_id:
+              item.source_id,
+            canale:
+              item.canale,
+            feedback_utente:
+              value,
+          }),
+        }
+      )
 
-    load()
+      await load()
+    } catch (error) {
+      console.error(
+        '[Lucy feedback]',
+        error
+      )
+    }
   }
+
+  /* =======================================================
+     ARCHIVIA / RIPRISTINA
+     ======================================================= */
+
+  async function cambiaArchivio(
+    item: Comunicazione,
+    nuovoStato: boolean
+  ) {
+    if (savingId === item.id) {
+      return
+    }
+
+    setSavingId(item.id)
+
+    try {
+      const r = await fetch(
+        '/api/lucy-mail/archive',
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
+          body: JSON.stringify({
+            id: item.id,
+            source_id:
+              item.source_id,
+            canale:
+              item.canale,
+            archiviata:
+              nuovoStato,
+          }),
+        }
+      )
+
+      const j = await r.json()
+
+      if (!r.ok) {
+        console.error(
+          '[Lucy archivio]',
+          j
+        )
+        return
+      }
+
+      /*
+       * Se la comunicazione è aperta
+       * nel popup lo chiudiamo.
+       */
+      if (
+        comunicazioneAperta?.id ===
+        item.id
+      ) {
+        setComunicazioneAperta(
+          null
+        )
+      }
+
+      /*
+       * Ricarichiamo:
+       * - riga
+       * - contatori
+       * - vista Archiviate
+       */
+      await load()
+    } catch (error) {
+      console.error(
+        '[Lucy archivio]',
+        error
+      )
+    } finally {
+      setSavingId(null)
+    }
+  }
+
+  /* =======================================================
+     APERTURA COMUNICAZIONE
+     ======================================================= */
 
   async function apriComunicazione(
     item: Comunicazione
@@ -258,6 +375,10 @@ export default function ArchivioLucyPage() {
   ) {
     setVista(nuovaVista)
   }
+
+  /* =======================================================
+     FORMATTAZIONE
+     ======================================================= */
 
   function formatDate(
     value: string | null
@@ -346,6 +467,10 @@ export default function ArchivioLucyPage() {
       return 'Ultimo mese'
     }, [periodo])
 
+  /* =======================================================
+     RENDER
+     ======================================================= */
+
   return (
     <div
       className="
@@ -358,7 +483,7 @@ export default function ArchivioLucyPage() {
           MATRIX HERO
           ================================================== */}
 
-            <header
+      <header
         className="
           relative
           h-[230px]
@@ -368,8 +493,6 @@ export default function ArchivioLucyPage() {
           bg-black
         "
       >
-        {/* MATRIX RAIN - SOLO HEADER */}
-
         <div
           className="
             absolute
@@ -380,8 +503,6 @@ export default function ArchivioLucyPage() {
           "
           aria-hidden="true"
         >
-          {/* BAGLIORE VERDE DI FONDO */}
-
           <div
             className="
               absolute
@@ -390,7 +511,7 @@ export default function ArchivioLucyPage() {
             "
           />
 
-          {/* MATRIX - LIVELLO PRINCIPALE */}
+          {/* MATRIX PRINCIPALE */}
 
           <div
             className="
@@ -403,34 +524,45 @@ export default function ArchivioLucyPage() {
               overflow-hidden
             "
           >
-            {matrixColumns.map((digits, index) => (
-              <div
-                key={index}
-                className="
-                  matrix-column
-                  w-full
-                  text-center
-                  font-mono
-                  text-[10px]
-                  font-bold
-                  leading-[12px]
-                  text-green-300
-                  whitespace-pre
-                "
-                style={{
-                  animationDuration: `${5.2 + (index % 9) * 0.55}s`,
-                  animationDelay: `-${(index % 13) * 0.47}s`,
-                }}
-              >
-                {digits
-                  .repeat(7)
-                  .split('')
-                  .join('\n')}
-              </div>
-            ))}
+            {matrixColumns.map(
+              (digits, index) => (
+                <div
+                  key={index}
+                  className="
+                    matrix-column
+                    w-full
+                    text-center
+                    font-mono
+                    text-[10px]
+                    font-bold
+                    leading-[12px]
+                    text-green-300
+                    whitespace-pre
+                  "
+                  style={{
+                    animationDuration:
+                      `${
+                        5.2 +
+                        (index % 9) *
+                          0.55
+                      }s`,
+                    animationDelay:
+                      `-${
+                        (index % 13) *
+                        0.47
+                      }s`,
+                  }}
+                >
+                  {digits
+                    .repeat(7)
+                    .split('')
+                    .join('\n')}
+                </div>
+              )
+            )}
           </div>
 
-          {/* MATRIX - SECONDO LIVELLO */}
+          {/* MATRIX SECONDO LIVELLO */}
 
           <div
             className="
@@ -446,33 +578,50 @@ export default function ArchivioLucyPage() {
           >
             {matrixColumns
               .slice(0, 54)
-              .map((digits, index) => (
-                <div
-                  key={`matrix-back-${index}`}
-                  className="
-                    matrix-column
-                    w-full
-                    text-center
-                    font-mono
-                    text-[9px]
-                    leading-[11px]
-                    text-green-500
-                    whitespace-pre
-                  "
-                  style={{
-                    animationDuration: `${8 + (index % 7) * 0.7}s`,
-                    animationDelay: `-${(index % 11) * 0.65}s`,
-                  }}
-                >
-                  {digits
-                    .repeat(8)
-                    .split('')
-                    .join('\n')}
-                </div>
-              ))}
+              .map(
+                (
+                  digits,
+                  index
+                ) => (
+                  <div
+                    key={
+                      'matrix-back-' +
+                      index
+                    }
+                    className="
+                      matrix-column
+                      w-full
+                      text-center
+                      font-mono
+                      text-[9px]
+                      leading-[11px]
+                      text-green-500
+                      whitespace-pre
+                    "
+                    style={{
+                      animationDuration:
+                        `${
+                          8 +
+                          (index %
+                            7) *
+                            0.7
+                        }s`,
+                      animationDelay:
+                        `-${
+                          (index %
+                            11) *
+                          0.65
+                        }s`,
+                    }}
+                  >
+                    {digits
+                      .repeat(8)
+                      .split('')
+                      .join('\n')}
+                  </div>
+                )
+              )}
           </div>
-
-          {/* OSCURAMENTO PER LASCIARE LE SCRITTE LEGGIBILI */}
 
           <div
             className="
@@ -484,8 +633,6 @@ export default function ArchivioLucyPage() {
               to-black/48
             "
           />
-
-          {/* DISSOLVENZA IN BASSO */}
 
           <div
             className="
@@ -500,7 +647,7 @@ export default function ArchivioLucyPage() {
           />
         </div>
 
-        {/* CONTENUTO HEADER */}
+        {/* HEADER CONTENT */}
 
         <div
           className="
@@ -672,8 +819,9 @@ export default function ArchivioLucyPage() {
           </div>
         </div>
       </header>
+
       {/* ==================================================
-          CONTENUTO OPERATIVO
+          CONTENUTO
           ================================================== */}
 
       <main
@@ -684,7 +832,7 @@ export default function ArchivioLucyPage() {
           py-6
         "
       >
-        {/* MOBILE BUTTONS */}
+        {/* MOBILE */}
 
         <div
           className="
@@ -731,14 +879,16 @@ export default function ArchivioLucyPage() {
           </button>
         </div>
 
-        {/* CONTATORI */}
+        {/* ==================================================
+            CONTATORI
+            ================================================== */}
 
         <div
           className="
             grid
             grid-cols-2
-            md:grid-cols-3
-            xl:grid-cols-6
+            md:grid-cols-4
+            xl:grid-cols-7
             gap-3
             mb-6
           "
@@ -896,9 +1046,38 @@ export default function ArchivioLucyPage() {
               📚 Tutte
             </div>
           </button>
+
+          <button
+            className={
+              tabClass(
+                'archiviate'
+              )
+            }
+            onClick={() =>
+              cambiaVista(
+                'archiviate'
+              )
+            }
+          >
+            <div
+              className="
+                text-2xl
+                font-black
+                text-violet-300
+              "
+            >
+              {counters.archiviate}
+            </div>
+
+            <div className="mt-1 font-semibold">
+              📦 Archiviate
+            </div>
+          </button>
         </div>
 
-        {/* FILTRI */}
+        {/* ==================================================
+            FILTRI
+            ================================================== */}
 
         <section
           className="
@@ -987,6 +1166,23 @@ export default function ArchivioLucyPage() {
                     ? '📱 SMS'
                     : '📨 Email + SMS'}
               </span>
+
+              {vista ===
+                'archiviate' && (
+                <span
+                  className="
+                    rounded-full
+                    border
+                    border-violet-700
+                    bg-violet-950/30
+                    px-3
+                    py-1
+                    text-violet-300
+                  "
+                >
+                  📦 Archiviate
+                </span>
+              )}
             </div>
           </div>
 
@@ -1000,9 +1196,7 @@ export default function ArchivioLucyPage() {
             "
           >
             <input
-              className="
-                matrix-input
-              "
+              className="matrix-input"
               placeholder="🔎 Cerca..."
               value={f.q}
               onChange={e =>
@@ -1012,8 +1206,6 @@ export default function ArchivioLucyPage() {
                 })
               }
             />
-
-            {/* CLIENTE */}
 
             <select
               className="matrix-input"
@@ -1055,8 +1247,6 @@ export default function ArchivioLucyPage() {
               }
             />
 
-            {/* PERIODO */}
-
             <select
               className="matrix-input"
               value={periodo}
@@ -1082,8 +1272,6 @@ export default function ArchivioLucyPage() {
                 📅 Tutto l'archivio
               </option>
             </select>
-
-            {/* CANALE */}
 
             <select
               className="matrix-input"
@@ -1122,10 +1310,21 @@ export default function ArchivioLucyPage() {
                 Tutti i giudizi
               </option>
 
-              <option>UTILE</option>
-              <option>DA_VALUTARE</option>
-              <option>IGNORA</option>
-              <option>DA_ANALIZZARE</option>
+              <option value="UTILE">
+                UTILE
+              </option>
+
+              <option value="DA_VALUTARE">
+                DA_VALUTARE
+              </option>
+
+              <option value="IGNORA">
+                IGNORA
+              </option>
+
+              <option value="DA_ANALIZZARE">
+                DA_ANALIZZARE
+              </option>
             </select>
 
             <select
@@ -1178,14 +1377,24 @@ export default function ArchivioLucyPage() {
                 Tutte le priorità
               </option>
 
-              <option>alta</option>
-              <option>media</option>
-              <option>bassa</option>
+              <option value="alta">
+                alta
+              </option>
+
+              <option value="media">
+                media
+              </option>
+
+              <option value="bassa">
+                bassa
+              </option>
             </select>
           </div>
         </section>
 
-        {/* TABELLA */}
+        {/* ==================================================
+            TABELLA
+            ================================================== */}
 
         <div
           className="
@@ -1250,7 +1459,7 @@ export default function ArchivioLucyPage() {
                 </th>
 
                 <th className="p-3">
-                  Feedback
+                  Azioni
                 </th>
               </tr>
             </thead>
@@ -1268,7 +1477,7 @@ export default function ArchivioLucyPage() {
                     colSpan={9}
                   >
                     &gt; Lucy sta
-                    analizzando i dati...
+                    caricando i dati...
                   </td>
                 </tr>
               )}
@@ -1286,6 +1495,8 @@ export default function ArchivioLucyPage() {
                       hover:bg-green-950/20
                     "
                   >
+                    {/* CANALE */}
+
                     <td
                       className="
                         p-3
@@ -1324,6 +1535,8 @@ export default function ArchivioLucyPage() {
                       </span>
                     </td>
 
+                    {/* DATA */}
+
                     <td
                       className="
                         p-3
@@ -1336,6 +1549,8 @@ export default function ArchivioLucyPage() {
                       )}
                     </td>
 
+                    {/* CLIENTE */}
+
                     <td
                       className="
                         p-3
@@ -1346,6 +1561,8 @@ export default function ArchivioLucyPage() {
                       {item.cliente_nome ||
                         '-'}
                     </td>
+
+                    {/* BOOK */}
 
                     <td
                       className="
@@ -1358,6 +1575,8 @@ export default function ArchivioLucyPage() {
                         item.mittente ||
                         '-'}
                     </td>
+
+                    {/* COMUNICAZIONE */}
 
                     <td
                       className="
@@ -1419,6 +1638,8 @@ export default function ArchivioLucyPage() {
                       </div>
                     </td>
 
+                    {/* LUCY */}
+
                     <td
                       className="
                         p-3
@@ -1459,6 +1680,8 @@ export default function ArchivioLucyPage() {
                           '-'}
                       </div>
                     </td>
+
+                    {/* VALORE */}
 
                     <td
                       className="
@@ -1527,6 +1750,8 @@ export default function ArchivioLucyPage() {
                         '-'}
                     </td>
 
+                    {/* ANALISI */}
+
                     <td
                       className="
                         p-3
@@ -1564,46 +1789,135 @@ export default function ArchivioLucyPage() {
                       )}
                     </td>
 
+                    {/* AZIONI */}
+
                     <td
                       className="
                         p-3
-                        whitespace-nowrap
+                        min-w-[180px]
                       "
                     >
-                      <button
-                        onClick={() =>
-                          feedback(
-                            item,
-                            'UTILE'
-                          )
-                        }
+                      <div
                         className="
-                          mr-3
-                          text-lg
-                          opacity-80
-                          hover:opacity-100
+                          flex
+                          flex-wrap
+                          items-center
+                          gap-2
                         "
-                        title="Classificazione corretta"
                       >
-                        👍
-                      </button>
+                        <button
+                          onClick={() =>
+                            feedback(
+                              item,
+                              'UTILE'
+                            )
+                          }
+                          className="
+                            rounded-md
+                            border
+                            border-green-900
+                            bg-black
+                            px-2
+                            py-1
+                            text-lg
+                            opacity-80
+                            hover:border-green-500
+                            hover:opacity-100
+                          "
+                          title="Classificazione corretta"
+                        >
+                          👍
+                        </button>
 
-                      <button
-                        onClick={() =>
-                          feedback(
-                            item,
-                            'INUTILE'
-                          )
-                        }
-                        className="
-                          text-lg
-                          opacity-80
-                          hover:opacity-100
-                        "
-                        title="Classificazione errata"
-                      >
-                        👎
-                      </button>
+                        <button
+                          onClick={() =>
+                            feedback(
+                              item,
+                              'INUTILE'
+                            )
+                          }
+                          className="
+                            rounded-md
+                            border
+                            border-green-900
+                            bg-black
+                            px-2
+                            py-1
+                            text-lg
+                            opacity-80
+                            hover:border-green-500
+                            hover:opacity-100
+                          "
+                          title="Classificazione errata"
+                        >
+                          👎
+                        </button>
+
+                        {vista ===
+                        'archiviate' ? (
+                          <button
+                            disabled={
+                              savingId ===
+                              item.id
+                            }
+                            onClick={() =>
+                              cambiaArchivio(
+                                item,
+                                false
+                              )
+                            }
+                            className="
+                              rounded-md
+                              border
+                              border-violet-500/50
+                              bg-violet-500/10
+                              px-3
+                              py-1.5
+                              text-xs
+                              font-bold
+                              text-violet-300
+                              hover:bg-violet-500/20
+                              disabled:opacity-40
+                            "
+                          >
+                            {savingId ===
+                            item.id
+                              ? '...'
+                              : '↩ Ripristina'}
+                          </button>
+                        ) : (
+                          <button
+                            disabled={
+                              savingId ===
+                              item.id
+                            }
+                            onClick={() =>
+                              cambiaArchivio(
+                                item,
+                                true
+                              )
+                            }
+                            className="
+                              rounded-md
+                              border
+                              border-green-500/50
+                              bg-green-500/10
+                              px-3
+                              py-1.5
+                              text-xs
+                              font-bold
+                              text-green-300
+                              hover:bg-green-500/20
+                              disabled:opacity-40
+                            "
+                          >
+                            {savingId ===
+                            item.id
+                              ? '...'
+                              : '✓ Archivia'}
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1620,8 +1934,10 @@ export default function ArchivioLucyPage() {
                       "
                       colSpan={9}
                     >
-                      &gt; Nessuna
-                      comunicazione trovata.
+                      {vista ===
+                      'archiviate'
+                        ? '> Nessuna comunicazione archiviata.'
+                        : '> Nessuna comunicazione trovata.'}
                     </td>
                   </tr>
                 )}
@@ -1858,6 +2174,7 @@ export default function ArchivioLucyPage() {
                     flex
                     items-center
                     gap-3
+                    flex-wrap
                   "
                 >
                   <div
@@ -1883,11 +2200,27 @@ export default function ArchivioLucyPage() {
                       text-green-300
                     "
                   >
-                    {
-                      comunicazioneAperta.giudizio ||
-                      'DA_ANALIZZARE'
-                    }
+                    {comunicazioneAperta.giudizio ||
+                      'DA_ANALIZZARE'}
                   </span>
+
+                  {comunicazioneAperta.archiviata && (
+                    <span
+                      className="
+                        rounded-full
+                        border
+                        border-violet-600
+                        bg-violet-950/40
+                        px-2
+                        py-1
+                        text-xs
+                        font-bold
+                        text-violet-300
+                      "
+                    >
+                      📦 ARCHIVIATA
+                    </span>
+                  )}
                 </div>
 
                 <div
@@ -2019,7 +2352,7 @@ export default function ArchivioLucyPage() {
                 )}
               </div>
 
-              {/* TESTO */}
+              {/* TESTO ORIGINALE */}
 
               <div>
                 <div
@@ -2063,6 +2396,7 @@ export default function ArchivioLucyPage() {
             <div
               className="
                 flex
+                flex-wrap
                 items-center
                 justify-between
                 gap-3
@@ -2082,34 +2416,109 @@ export default function ArchivioLucyPage() {
                 LUCY // ARCHIVE SYSTEM
               </div>
 
-              <button
-                onClick={() =>
-                  setComunicazioneAperta(
-                    null
-                  )
-                }
+              <div
                 className="
-                  rounded-lg
-                  bg-green-500
-                  px-5
-                  py-2
-                  font-bold
-                  text-black
-                  hover:bg-green-400
+                  flex
+                  flex-wrap
+                  gap-2
                 "
               >
-                Chiudi
-              </button>
+                {comunicazioneAperta.archiviata ? (
+                  <button
+                    disabled={
+                      savingId ===
+                      comunicazioneAperta.id
+                    }
+                    onClick={() =>
+                      cambiaArchivio(
+                        comunicazioneAperta,
+                        false
+                      )
+                    }
+                    className="
+                      rounded-lg
+                      border
+                      border-violet-500
+                      bg-violet-500/10
+                      px-5
+                      py-2
+                      font-bold
+                      text-violet-300
+                      hover:bg-violet-500/20
+                      disabled:opacity-40
+                    "
+                  >
+                    {savingId ===
+                    comunicazioneAperta.id
+                      ? '...'
+                      : '↩ Ripristina'}
+                  </button>
+                ) : (
+                  <button
+                    disabled={
+                      savingId ===
+                      comunicazioneAperta.id
+                    }
+                    onClick={() =>
+                      cambiaArchivio(
+                        comunicazioneAperta,
+                        true
+                      )
+                    }
+                    className="
+                      rounded-lg
+                      border
+                      border-green-500
+                      bg-green-500/10
+                      px-5
+                      py-2
+                      font-bold
+                      text-green-300
+                      hover:bg-green-500/20
+                      disabled:opacity-40
+                    "
+                  >
+                    {savingId ===
+                    comunicazioneAperta.id
+                      ? '...'
+                      : '✓ Archivia'}
+                  </button>
+                )}
+
+                <button
+                  onClick={() =>
+                    setComunicazioneAperta(
+                      null
+                    )
+                  }
+                  className="
+                    rounded-lg
+                    bg-green-500
+                    px-5
+                    py-2
+                    font-bold
+                    text-black
+                    hover:bg-green-400
+                  "
+                >
+                  Chiudi
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-            <style>{`
+      {/* ==================================================
+          STYLE
+          ================================================== */}
+
+      <style>{`
         @keyframes lucyMatrixRain {
           0% {
             transform: translateY(-75%);
           }
+
           100% {
             transform: translateY(20%);
           }
