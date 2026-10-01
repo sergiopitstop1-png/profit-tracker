@@ -3226,15 +3226,27 @@ function bloccoIncrocioLucy(p, pi, numero) {
       {(p.pronox||p.pronoxManuale) && (
         <div style={{padding:'3px 10px',fontSize:10,background:'#f0fdfa',color:'#0f766e',borderBottom:'1px solid #ccfbf1'}}>
           🧠 PronoX: <b>{p.pronox?.preferito||p.pronoxManuale}</b>
-          {p.pronox ? <> · fiducia {(p.pronox.prob*100).toFixed(1)}% (modello {(p.pronox.probModello*100).toFixed(1)}% · mercato {(p.pronox.probMercato*100).toFixed(1)}%) · copertura sull'esito opposto al {Math.round(p.pronox.protezione*100)}%</> : ' (solo indicazione: senza quote non si calcola la fiducia)'}
+          {p.pronox ? <> · fiducia {(p.pronox.prob*100).toFixed(1)}% (modello {(p.pronox.probModello*100).toFixed(1)}% · mercato {(p.pronox.probMercato*100).toFixed(1)}%) · copertura {p.coperturaMancante?.length ? 'prevista' : ''} sull'esito opposto al {Math.round(p.pronox.protezione*100)}%</> : ' (solo indicazione: senza quote non si calcola la fiducia)'}
         </div>
       )}
+      {p.coperturaMancante?.length>0 && (()=>{
+        // valore atteso delle bet base secondo PronoX (fiducia sull'esito giocato × quota − 1)
+        const base=(p.assegnazioni||[]).find(a=>a.esito===p.pronox?.preferito)
+        const ev=p.pronox&&base ? p.pronox.prob*Number(base.quota)-1 : null
+        const qMin=p.pronox ? (1.03/p.pronox.prob) : null
+        return (
+          <div style={{padding:'6px 10px',fontSize:11,background:'#fee2e2',color:'#991b1b',borderBottom:'1px solid #fca5a5',fontWeight:700}}>
+            ⚠️ COPERTURA MANCANTE: {p.coperturaMancante.map(m=>`${m.importo.toFixed(2)} € su ${m.esito}`).join(' · ')} — nessun conto di mantenimento né di recupero libero.
+            {ev!=null && <> Valore atteso delle bet base secondo PronoX: <b>{ev>=0?'+':''}{(ev*100).toFixed(1)}%</b> (quota minima {qMin.toFixed(2)}).</>}
+            {' '}{ev!=null&&ev>=0.03 ? 'Puoi giocarle scoperte.' : 'Copri a mano o salta le bet base.'}
+          </div>)
+      })()}
       <table style={{width:'100%',borderCollapse:'collapse',fontSize:11,tableLayout:'fixed'}}>
         <colgroup><col style={{width:'31%'}}/><col style={{width:'14%'}}/><col style={{width:'21%'}}/><col style={{width:'11%'}}/><col style={{width:'10%'}}/><col style={{width:'13%'}}/></colgroup>
         <thead><tr>{['CONTO','RUOLO','ESITO','IMPORTO','QUOTA',''].map((h,i)=><th key={i} style={th}>{h}</th>)}</tr></thead>
         <tbody>
           {dettagli.map(({a,tipo,key,ok,pronta},ri)=>{
-            const r=ruoli[a.tipoRiga]||ruoli['MANTENIMENTO']
+            const r=a.daRecupero?{t:'Copertura · recupero',bg:'#ffe4e6',tx:'#9f1239'}:(ruoli[a.tipoRiga]||ruoli['MANTENIMENTO'])
             const c=col(a.esito)
             const dettaglio=[
               a.betNumero?`bet ${a.betNumero}/${a.betRichieste}`:null,
@@ -4141,6 +4153,16 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
       .sort((a,b) => (Number(idsMantOggi.has(b.id)) - Number(idsMantOggi.has(a.id))) || (giorniDaUsoMant(b) - giorniDaUsoMant(a)))
     const usoMant = new Set()
     const usatiMantOggiLucy = new Set() // un conto di mantenimento = una sola bet al giorno
+    // 02/10/2026 — se non c'è un conto di mantenimento libero, la copertura la fa un conto IN RECUPERO
+    // (solo limitati bonus: possono scommettere normalmente). Mai i conti che oggi hanno già bet base.
+    const idsBaseOggiLucy = new Set(sportItems.map(x => x.book.id))
+    const poolRecuperoCopertura = contiInRecupero(books, recuperiConti, getRecuperoProtocollo)
+      .filter(it => it.tipo !== 'sport' && it.proto?.disponibile)
+      .map(it => it.book)
+      .filter((b, i, arr) => arr.findIndex(x => x.id === b.id) === i)
+      .filter(b => !b.sport_bloccato && !lucyMaiSport(b) && b.profilo_livello !== 'dormiente' && !limitazioniDaNota(b.note).includes('sport')) // limitati anche sport: non reggono una copertura
+      .filter(b => !/bet365|betfair|admiral/i.test(String(b.nome || '')))
+      .filter(b => !idsBaseOggiLucy.has(b.id))
 
     const proposte=[]
     const eventiUsatiPerBook = new Map()
@@ -4243,6 +4265,7 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
       const targetRitorno = Math.max(...ritorniBase.map(r=>r.ritorno))
       const integrazioni=[]
       const extraProfilazione=[]
+      const coperturaMancante=[] // 02/10/2026: esiti che andavano coperti ma nessun conto era libero
       const contiProfilo = new Set(assegnazioni.map(a=>a.book.id))
 
       ritorniBase.forEach(r=>{
@@ -4269,17 +4292,20 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
             pianoMant = pianoStakeMantenimentoLucy(necessario)
           }
           for(const stakeMant of pianoMant){
-            const candidato=poolMantenimento.find(b=>{
+            const libero=b=>{
               const k=`${b.id}|${c.home}|${c.away}`
               const bk=`${bookNomeKeyLucy(b)}|${c.home}|${c.away}`
               const esitoGia=esitoPerBookmakerEvento.get(bk)
               return !contiProfilo.has(b.id) && !usoMant.has(k) && !usatiMantOggiLucy.has(b.id) && (!esitoGia || esitoGia===r.esito)
-            })
+            }
+            let candidato=poolMantenimento.find(libero)
+            const daRecupero=!candidato
+            if(!candidato) candidato=poolRecuperoCopertura.find(libero)
             if(!candidato) break
             integrazioni.push({
               book:candidato,esito:r.esito,quota:r.quota,stake:stakeMant,
               coperturaSuggeritaTotale:necessarioSuggerito,copertura100Totale:necessario100,
-              giaInAgenda:idsMantOggi.has(candidato.id)
+              giaInAgenda:idsMantOggi.has(candidato.id),daRecupero
             })
             usoMant.add(`${candidato.id}|${c.home}|${c.away}`)
             usatiMantOggiLucy.add(candidato.id)
@@ -4325,6 +4351,13 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
         }
       })
 
+      ritorniBase.forEach(r=>{
+        let necessario=Math.max(0,(targetRitorno-r.ritorno)/r.quota)
+        if(c.pronox?.preferito && r.esito!==c.pronox.preferito) necessario*=Number(c.pronox.protezione||1)
+        if(necessario < 2) return
+        const piazzato=[...integrazioni,...extraProfilazione].filter(a=>a.esito===r.esito).reduce((s,a)=>s+Number(a.stake||0),0)
+        if(piazzato < 2) coperturaMancante.push({esito:r.esito,quota:r.quota,importo:Math.round(necessario*100)/100})
+      })
       const giocato=assegnazioni.reduce((s,a)=>s+a.stake,0)+integrazioni.reduce((s,a)=>s+a.stake,0)+extraProfilazione.reduce((s,a)=>s+a.stake,0)
       const scenari=c.esiti.map(([esito])=>{
         const vp=assegnazioni.filter(a=>a.esito===esito).reduce((s,a)=>s+a.stake*a.quota,0)
@@ -4333,7 +4366,7 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
         return {esito,netto:vp+vm+vx-giocato}
       })
 
-      proposte.push({ ...c, orario:(c.giorno==='domani'?'dom ':'')+getOrarioPartitaLucy(c), assegnazioni, integrazioni, extraProfilazione, scenari })
+      proposte.push({ ...c, orario:(c.giorno==='domani'?'dom ':'')+getOrarioPartitaLucy(c), assegnazioni, integrazioni, extraProfilazione, scenari, coperturaMancante })
     }
 
     // Applica il budget massimo di COSTO della giornata.
@@ -7341,8 +7374,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
               <button style={btn('#2563eb')} onClick={() => setShowAgendaPopup(true)}>📋 Agenda di oggi · {agendaOggi.length}</button>
               <button style={btn('#d97706')} onClick={() => setSlotPopup('')}>🎰 Slot consigliate</button>
-              <button style={btn('#0ea5e9', !lucySportLoading)} disabled={lucySportLoading} onClick={() => generaLucySport(agendaOggi.concat(agendaRecuperoLucy()), false)}>{lucySportLoading ? '⏳ Lucy sta calcolando…' : '⚽ Prepara incroci'}</button>
-              <button style={btn('#0f766e', lucySportProposte.length > 0)} disabled={!lucySportProposte.length} onClick={() => setLucyTabellaAperta(true)}>📊 Tabella bet{lucySportProposte.length ? ` · ${cont.fatte}/${cont.tot} fatte` : ''}</button>
+              <button style={btn('#0ea5e9', !lucySportLoading)} disabled={lucySportLoading} onClick={() => generaLucySport(agendaOggi.concat(agendaRecuperoLucy()), false)}>{lucySportLoading ? '⏳ Lucy sta calcolando…' : '⚽ Prepara bet'}</button>
+              <button style={btn('#0f766e', lucySportProposte.length > 0 || pronoxDaFare > 0)} disabled={!lucySportProposte.length && !pronoxDaFare} onClick={() => setLucyTabellaAperta(true)}>📊 Tabella bet{lucySportProposte.length ? ` · ${cont.fatte}/${cont.tot} fatte` : ''}{pronoxDaFare ? ` · 🎯 ${pronoxDaFare}` : ''}</button>
               <button style={btn('#7c3aed', lucyLiveProposte.length > 0)} disabled={!lucyLiveProposte.length} onClick={() => setLucyLiveTabellaAperta(true)}>🎰 Tabella Live{lucyLiveProposte.length ? ` · ${lucyLiveProposte.length}` : ''}</button>
               <button style={btn('#16a34a', lucySportProposte.length > 0)} disabled={!lucySportProposte.length} onClick={confermaGiocateLucy}>✓ Conferma e archivia</button>
               <button style={btn('#9333ea')} onClick={() => setRegistroAperto(true)}>✍️ Registro manuale</button>
@@ -7437,9 +7470,9 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             {chip('avvisi', '⚠️', c.avvisi === 1 ? 'avviso' : 'avvisi', c.avvisi, '#fbbf24')}
             {chip('agenda', '📋', 'in agenda', c.agenda, '#60a5fa')}
             {chip('pronox', '🎯', 'bet recupero PronoX', c.pronox, '#34d399')}
-            <button onClick={() => setLucyTabellaAperta(true)} disabled={!c.incroci.tot}
-              style={{ background: c.incroci.tot ? 'rgba(14,165,233,.15)' : 'rgba(30,41,59,.6)', color: c.incroci.tot ? '#7dd3fc' : '#64748b', border: `1px solid ${c.incroci.tot ? '#0ea5e988' : '#334155'}`, borderRadius: 999, padding: '7px 13px', fontSize: 12, fontWeight: 900, cursor: c.incroci.tot ? 'pointer' : 'default' }}>
-              ⚽ incroci {c.incroci.fatte}/{c.incroci.tot}
+            <button onClick={() => setLucyTabellaAperta(true)} disabled={!c.incroci.tot && !c.pronox}
+              style={{ background: (c.incroci.tot || c.pronox) ? 'rgba(14,165,233,.15)' : 'rgba(30,41,59,.6)', color: (c.incroci.tot || c.pronox) ? '#7dd3fc' : '#64748b', border: `1px solid ${(c.incroci.tot || c.pronox) ? '#0ea5e988' : '#334155'}`, borderRadius: 999, padding: '7px 13px', fontSize: 12, fontWeight: 900, cursor: (c.incroci.tot || c.pronox) ? 'pointer' : 'default' }}>
+              ⚽ bet da piazzare: incroci {c.incroci.fatte}/{c.incroci.tot}{c.pronox ? ` · Masaniello ${c.pronox}` : ''}
             </button>
           </div>)
       })()}
@@ -7798,7 +7831,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 <div style={{position:'sticky',top:0,zIndex:2,background:'#e2e8f0',borderBottom:'1px solid #94a3b8',padding:'10px 12px'}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10}}>
                     <div>
-                      <div style={{fontSize:15,fontWeight:900}}>📋 Lucy Sport — Bet da piazzare</div>
+                      <div style={{fontSize:15,fontWeight:900}}>📋 Lucy — Tutte le bet da piazzare</div>
                       <div style={{fontSize:10,color:'#475569'}}>Un riquadro per incrocio: conti, cosa giocare, quanto e a che quota. Ogni esito ha il suo colore, il verde chiaro indica le bet già fatte.</div>
                     </div>
                     <button onClick={()=>setLucyTabellaAperta(false)}
@@ -7829,6 +7862,20 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               </>)
             })()}
 
+            {/* 02/10/2026 — MASANIELLO PILOTA nella stessa tabella: bet SCOPERTE (copertura 0) */}
+            <div style={{margin:'0 12px 12px',background:'#0f172a',borderRadius:10,padding:'10px 12px'}}>
+              <RecuperiPronoxPanel
+                modo="tabella"
+                books={books}
+                recuperi={recuperiConti}
+                getRecuperoProtocollo={getRecuperoProtocollo}
+                sitoBook={sitoBook}
+                apriSuTelefoni={apriSuTelefoni}
+                onMessage={setMessage}
+                onError={setErrorMessage}
+                onDaFare={setPronoxDaFare}
+              />
+            </div>
 
             <div style={{padding:'10px 12px',background:'#e2e8f0',borderTop:'2px solid #64748b',display:'flex',gap:18,flexWrap:'wrap',fontSize:11}}>
               <b>Puntato confermato oggi: {confermateOggiLucy().reduce((s,x)=>s+Number(x.stake||0),0).toFixed(2)} €</b>
