@@ -54,6 +54,26 @@ import {
 } from './styles'
 const BASE_CASSA_MESE = 57229.62
 
+// 01/10/2026 — SEZIONE A SCOMPARSA (tab Profilazione, vista Operativa).
+// Il contenuto resta montato anche da chiusa (display: none): i pannelli continuano a lavorare
+// (avvisi, coda recuperi…) anche quando non li guardi. Si ricorda aperta/chiusa.
+function Sezione({ id, titolo, badge, colore = '#38bdf8', aperta: apertaDefault = false, forzaApri, children }) {
+  const chiave = `profittracker_sezione_${id}`
+  const [aperta, setAperta] = useState(() => { try { const v = localStorage.getItem(chiave); return v == null ? apertaDefault : v === '1' } catch { return apertaDefault } })
+  useEffect(() => { if (forzaApri) setAperta(true) }, [forzaApri])
+  const cambia = () => setAperta(v => { const n = !v; try { localStorage.setItem(chiave, n ? '1' : '0') } catch {} return n })
+  return (
+    <div id={`sezione-${id}`} style={{ marginBottom: 12, scrollMarginTop: 12 }}>
+      <div onClick={cambia} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 12, border: `1px solid ${colore}55`, background: `${colore}12`, fontWeight: 800, color: '#e2e8f0', fontSize: 14 }}>
+        <span>{titolo}</span>
+        {badge ? <span style={{ fontSize: 11, fontWeight: 900, color: colore, background: `${colore}22`, border: `1px solid ${colore}66`, borderRadius: 999, padding: '2px 9px' }}>{badge}</span> : null}
+        <span style={{ marginLeft: 'auto', color: '#94a3b8', fontSize: 12 }}>{aperta ? '▲ chiudi' : '▼ apri'}</span>
+      </div>
+      <div style={{ display: aperta ? 'block' : 'none', marginTop: 8 }}>{children}</div>
+    </div>
+  )
+}
+
 export default function ProfitTrackerClient() {
   const formatMonthKey = (date = new Date()) => {
     const y = date.getFullYear()
@@ -159,6 +179,9 @@ const [clientiFiltro, setClientiFiltro] = useState({ testo: '', stato: 'tutti', 
 const [recuperiConti, setRecuperiConti] = useState([])
 // 27/09/2026 — avvisi persistenti (tabella avvisi_conti), vedi AvvisiConti.jsx. null = non ancora caricati.
 const [avvisiConti, setAvvisiConti] = useState(null)
+// 01/10/2026 — sezione della tab Profilazione da aprire (dai pulsanti "Oggi" o dal banner della Dashboard)
+const [sezioneDaAprire, setSezioneDaAprire] = useState(null)
+const [pronoxDaFare, setPronoxDaFare] = useState(0)
 // 27/09/2026 — pausa profilazione
 const [pauseProf, setPauseProfState] = useState([])
 const [pausaForm, setPausaForm] = useState(null)   // { modo, ripresa } quando il pannello è aperto
@@ -3237,6 +3260,42 @@ function bloccoIncrocioLucy(p, pi, numero) {
 function cambiaVistaProfilazione(v) {
   setLucyVista(v)
   try { localStorage.setItem('profittracker_vista_profilazione', v) } catch {}
+}
+
+// 01/10/2026 — VISTA OPERATIVA PULITA: sezioni a scomparsa + riga "Oggi" + chat nel banner della Dashboard
+function conSezione(props, node) {
+  if (lucyVista !== 'operativa') return node
+  return <Sezione {...props} forzaApri={sezioneDaAprire?.id === props.id ? sezioneDaAprire.t : null}>{node}</Sezione>
+}
+function apriSezioneProfilazione(id) {
+  if (lucyVista !== 'operativa') cambiaVistaProfilazione('operativa')
+  if (activeTab !== 'profilazione') handleTabChange('profilazione')
+  setSezioneDaAprire({ id, t: Date.now() })
+  setTimeout(() => { try { document.getElementById('sezione-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) } catch {} }, 350)
+}
+// avvisi aperti da fare oggi (o in ritardo). I recuperi SPORT li colloca Lucy negli incroci: non si contano qui.
+function avvisiDaFareOggi() {
+  const oggi = lucyOggi()
+  return (avvisiConti || []).filter(a => a.stato === 'aperto' && a.data_prevista && a.data_prevista <= oggi
+    && !(a.tipo === 'recupero' && a.meta?.azione === 'periodica' && recuperoSport(a.titolo)))
+}
+const eChat = (a) => a.tipo === 'assistenza' || (a.tipo === 'recupero' && a.meta?.azione === 'contatto')
+// chat da sentire: assistenza e contatti del recupero. Restano finché non annoti l'esito (pannello Avvisi)
+function chatDaSentireOggi() {
+  const oggi = lucyOggi()
+  return avvisiDaFareOggi().filter(eChat).map(a => {
+    const b = books.find(x => String(x.id) === String(a.book_id))
+    const ritardo = Math.max(0, Math.round((new Date(oggi + 'T00:00:00') - new Date(a.data_prevista + 'T00:00:00')) / 86400000))
+    return { id: a.id, titolo: a.titolo, chi: b ? `${b.nome} · ${b.intestatario || '—'}` : (a.meta?.intestatario || ''), ritardo }
+  }).sort((x, y) => y.ritardo - x.ritardo)
+}
+function contaOggiProfilazione(nAgenda = 0) {
+  const lista = avvisiDaFareOggi()
+  const chat = lista.filter(eChat).length
+  const avvisi = lista.length - chat
+  const incroci = lucySportProposte.reduce((s, p, pi) => { const { dettagli } = righeIncrocioLucy(p, pi); return { tot: s.tot + dettagli.length, fatte: s.fatte + dettagli.filter(d => d.ok).length } }, { tot: 0, fatte: 0 })
+  const tot = lista.length
+  return { chat, avvisi, agenda: nAgenda, pronox: pronoxDaFare, incroci, avvisiTesto: tot ? `${tot} da fare${chat ? ` · ${chat} chat` : ''}` : '' }
 }
 
 function keyBetLucy(p,a,tipo='profilazione') {
@@ -7012,6 +7071,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             royaltyAvvisi={royaltyAvvisi}
             onPagaRoyaltyMensile={pagaRoyaltyMensile}
             promemoriaNuoviBook={promemoriaNuoviBook}
+            chatDaSentire={chatDaSentireOggi()}
+            onApriChat={() => apriSezioneProfilazione('avvisi')}
             onPromemoriaNuoviBookFatto={promemoriaNuoviBookFatto}
           />
         )}
@@ -7327,148 +7388,183 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
       })()}
 
 
-      <ProfilazioniMiratePanel
-        books={books}
-        terminato={clienteTerminato}
-        gruppi={gruppiMirati}
-        setGruppi={setGruppiMirati}
-        fatte={fatteMirate}
-        setFatte={setFatteMirate}
-        giorniPausa={giorniPausaTotale}
-        onProfilazione={id => updateProfiloLivello(Number(id), 'attivo')}
-        onProfilazioneTutti={async ids => {
-          // in blocco: per i book con più profilazioni tengo quella già scelta, altrimenti la prima (niente finestra per ogni conto)
-          for (const id of ids) {
-            const b = books.find(x => String(x.id) === String(id)); if (!b) continue
-            const v = getVariantiProfilazione(b.nome)
-            await updateProfiloLivello(b.id, 'attivo', v ? (b.profilo_variante || v[0].key) : null)
-          }
-          setMessage(`🟢 ${ids.length} conti messi in profilazione`)
-        }}
-        onApri={(nomeBook, conti) => apriSuTelefoni(nomeBook, sitoBook(conti[0]), conti.map(b => b.intestatario))}
-        sitoBook={sitoBook}
-        onMessage={setMessage}
-        onError={setErrorMessage}
-      />
-      <AvvisiContiPanel
-        books={books}
-        setBooks={setBooks}
-        avvisi={avvisiConti}
-        setAvvisi={setAvvisiConti}
-        lucyColloca={b => !/^(sisal|snai|pokerstars)$/.test(String(b?.nome || '').toLowerCase().replace(/[^a-z0-9]/g, '')) && !lucyMaiSport(b)}
-        recuperi={recuperiConti}
-        setRecuperi={setRecuperiConti}
-        getRecuperoProtocollo={getRecuperoProtocollo}
-        onMessage={setMessage}
-        onError={setErrorMessage}
-      />
-      <RecuperoContiPanel
-        books={books}
-        recuperi={recuperiConti}
-        setRecuperi={setRecuperiConti}
-        setBooks={setBooks}
-        setAvvisi={setAvvisiConti}
-        avvisi={avvisiConti}
-        getClasseBook={getClasseBook}
-        getRecuperoProtocollo={getRecuperoProtocollo}
-        onMessage={setMessage}
-        onError={setErrorMessage}
-      />
-      {/* 01/10/2026 — Recuperi con PronoX: Masaniello pilota (RecuperiPronox.jsx) */}
-      <RecuperiPronoxPanel
-        books={books}
-        recuperi={recuperiConti}
-        getRecuperoProtocollo={getRecuperoProtocollo}
-        sitoBook={sitoBook}
-        apriSuTelefoni={apriSuTelefoni}
-        onMessage={setMessage}
-        onError={setErrorMessage}
-      />
-      <div style={{ display: 'grid', gridTemplateColumns: lucyVista === 'completa' ? '1fr 1fr' : '1fr', gap: 16, marginBottom: 16 }}>
+      {/* 01/10/2026 — OGGI: cosa c'è da fare, a colpo d'occhio. Un clic apre la sezione */}
+      {lucyVista === 'operativa' && (() => {
+        const c = contaOggiProfilazione(agendaOggi.length)
+        const chip = (id, icona, testo, n, colore) => (
+          <button key={id} onClick={() => apriSezioneProfilazione(id)}
+            style={{ background: n > 0 ? `${colore}22` : 'rgba(30,41,59,.6)', color: n > 0 ? colore : '#64748b', border: `1px solid ${n > 0 ? colore + '88' : '#334155'}`, borderRadius: 999, padding: '7px 13px', fontSize: 12, fontWeight: 900, cursor: 'pointer' }}>
+            {icona} {n} {testo}
+          </button>)
+        return (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', margin: '0 0 14px', padding: '10px 12px', borderRadius: 12, background: 'rgba(15,23,42,.6)', border: '1px solid rgba(51,65,85,.8)' }}>
+            <b style={{ color: '#e2e8f0', fontSize: 13, marginRight: 4 }}>📌 Oggi</b>
+            {chip('avvisi', '📞', c.chat === 1 ? 'chat da sentire' : 'chat da sentire', c.chat, '#f472b6')}
+            {chip('avvisi', '⚠️', c.avvisi === 1 ? 'avviso' : 'avvisi', c.avvisi, '#fbbf24')}
+            {chip('agenda', '📋', 'in agenda', c.agenda, '#60a5fa')}
+            {chip('pronox', '🎯', 'bet recupero PronoX', c.pronox, '#34d399')}
+            <button onClick={() => setLucyTabellaAperta(true)} disabled={!c.incroci.tot}
+              style={{ background: c.incroci.tot ? 'rgba(14,165,233,.15)' : 'rgba(30,41,59,.6)', color: c.incroci.tot ? '#7dd3fc' : '#64748b', border: `1px solid ${c.incroci.tot ? '#0ea5e988' : '#334155'}`, borderRadius: 999, padding: '7px 13px', fontSize: 12, fontWeight: 900, cursor: c.incroci.tot ? 'pointer' : 'default' }}>
+              ⚽ incroci {c.incroci.fatte}/{c.incroci.tot}
+            </button>
+          </div>)
+      })()}
+      {conSezione({ id: 'avvisi', titolo: '⚠️ Avvisi · chat · giocate a mano', badge: contaOggiProfilazione().avvisiTesto, colore: '#fbbf24', aperta: true }, (
+        <AvvisiContiPanel
+          books={books}
+          setBooks={setBooks}
+          avvisi={avvisiConti}
+          setAvvisi={setAvvisiConti}
+          lucyColloca={b => !/^(sisal|snai|pokerstars)$/.test(String(b?.nome || '').toLowerCase().replace(/[^a-z0-9]/g, '')) && !lucyMaiSport(b)}
+          recuperi={recuperiConti}
+          setRecuperi={setRecuperiConti}
+          getRecuperoProtocollo={getRecuperoProtocollo}
+          onMessage={setMessage}
+          onError={setErrorMessage}
+        />
+      ))}
+      {conSezione({ id: 'agenda', titolo: '📋 Agenda di oggi · mantenimento e profilazione', badge: agendaOggi.length ? `${agendaOggi.length} conti` : '', colore: '#60a5fa', aperta: true }, (
+        <div style={{ display: 'grid', gridTemplateColumns: lucyVista === 'completa' ? '1fr 1fr' : '1fr', gap: 16, marginBottom: 16 }}>
 
-        {/* AGENDA rimpicciolita */}
-        <div style={{ background: 'rgba(29,78,216,0.10)', border: '1px solid rgba(29,78,216,0.30)', borderRadius: 16, padding: '14px 16px' }}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: '#93c5fd', marginBottom: 10 }}>📋 {giornoLabel} — {agendaOggi.length} account da movimentare oggi <span style={{ fontSize: 11, fontWeight: 400, color: '#64748b' }}>({agendaOggi.filter(x => x.agenda.tipo === 'attivo').length} attivi · {agendaOggi.filter(x => x.agenda.tipo !== 'attivo' && x.agenda.tipo !== 'recupero').length} mantenimento{agendaOggi.some(x => x.agenda.tipo === 'recupero') ? ` · ${agendaOggi.filter(x => x.agenda.tipo === 'recupero').length} recupero` : ''})</span></div>
-          {lucyVista === 'completa' && (() => { const r = riepilogoMantenimento60Lucy(); return (
-            <div style={{ fontSize: 11, marginBottom: 8, padding: '6px 9px', borderRadius: 8, background: r.scaduti > 0 ? 'rgba(239,68,68,.10)' : 'rgba(34,197,94,.08)', border: r.scaduti > 0 ? '1px solid rgba(239,68,68,.35)' : '1px solid rgba(34,197,94,.30)', color: r.scaduti > 0 ? '#fca5a5' : '#86efac' }}>
-              🛡️ Rete {MANT_LIMITE_GG} giorni · {r.totale} conti in mantenimento: {r.ok} in regola · {r.daFare} da movimentare (≥{MANT_LIMITE_GG - MANT_ANTICIPO_GG} gg) · <b>{r.scaduti} scaduti (≥{MANT_LIMITE_GG} gg)</b> · {r.inAttesa} senza storico, prima scadenza da protocollo
-            </div>) })()}
-          {lucyVista === 'completa' && (() => { const r = riepilogoPostCicloLucy(); return (r.inCiclo + r.fineCiclo + r.daRiavviare) > 0 ? (
-            <div style={{ fontSize: 11, marginBottom: 8, padding: '6px 9px', borderRadius: 8, background: r.daRiavviare > 0 ? 'rgba(249,115,22,.10)' : 'rgba(168,85,247,.08)', border: r.daRiavviare > 0 ? '1px solid rgba(249,115,22,.35)' : '1px solid rgba(168,85,247,.30)', color: r.daRiavviare > 0 ? '#fdba74' : '#d8b4fe' }}>
-              🟣 Cicli di profilazione · {r.inCiclo} in corso · {r.fineCiclo} a fine ciclo (controlla le riservate) · <b>{r.daRiavviare} da riavviare</b>
-            </div>) : null })()}
-          {agendaOggi.length === 0 ? (
-            <div style={{ color: '#64748b', fontSize: 13 }}>Nessuna azione per oggi</div>
-          ) : (() => {
-            const gruppi = {}
-            agendaOggi.forEach(({ book, agenda }) => {
-              agenda.azioni.forEach(az => {
-                if (!gruppi[az]) gruppi[az] = []
-                gruppi[az].push({ book, badge: agenda.badge, mant: agenda.tipo === 'mantenimento', scaduto: !!agenda.scaduto, ritardo: !!agenda.ritardo, postCiclo: !!agenda.postCiclo })
+          {/* AGENDA rimpicciolita */}
+          <div style={{ background: 'rgba(29,78,216,0.10)', border: '1px solid rgba(29,78,216,0.30)', borderRadius: 16, padding: '14px 16px' }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#93c5fd', marginBottom: 10 }}>📋 {giornoLabel} — {agendaOggi.length} account da movimentare oggi <span style={{ fontSize: 11, fontWeight: 400, color: '#64748b' }}>({agendaOggi.filter(x => x.agenda.tipo === 'attivo').length} attivi · {agendaOggi.filter(x => x.agenda.tipo !== 'attivo' && x.agenda.tipo !== 'recupero').length} mantenimento{agendaOggi.some(x => x.agenda.tipo === 'recupero') ? ` · ${agendaOggi.filter(x => x.agenda.tipo === 'recupero').length} recupero` : ''})</span></div>
+            {lucyVista === 'completa' && (() => { const r = riepilogoMantenimento60Lucy(); return (
+              <div style={{ fontSize: 11, marginBottom: 8, padding: '6px 9px', borderRadius: 8, background: r.scaduti > 0 ? 'rgba(239,68,68,.10)' : 'rgba(34,197,94,.08)', border: r.scaduti > 0 ? '1px solid rgba(239,68,68,.35)' : '1px solid rgba(34,197,94,.30)', color: r.scaduti > 0 ? '#fca5a5' : '#86efac' }}>
+                🛡️ Rete {MANT_LIMITE_GG} giorni · {r.totale} conti in mantenimento: {r.ok} in regola · {r.daFare} da movimentare (≥{MANT_LIMITE_GG - MANT_ANTICIPO_GG} gg) · <b>{r.scaduti} scaduti (≥{MANT_LIMITE_GG} gg)</b> · {r.inAttesa} senza storico, prima scadenza da protocollo
+              </div>) })()}
+            {lucyVista === 'completa' && (() => { const r = riepilogoPostCicloLucy(); return (r.inCiclo + r.fineCiclo + r.daRiavviare) > 0 ? (
+              <div style={{ fontSize: 11, marginBottom: 8, padding: '6px 9px', borderRadius: 8, background: r.daRiavviare > 0 ? 'rgba(249,115,22,.10)' : 'rgba(168,85,247,.08)', border: r.daRiavviare > 0 ? '1px solid rgba(249,115,22,.35)' : '1px solid rgba(168,85,247,.30)', color: r.daRiavviare > 0 ? '#fdba74' : '#d8b4fe' }}>
+                🟣 Cicli di profilazione · {r.inCiclo} in corso · {r.fineCiclo} a fine ciclo (controlla le riservate) · <b>{r.daRiavviare} da riavviare</b>
+              </div>) : null })()}
+            {agendaOggi.length === 0 ? (
+              <div style={{ color: '#64748b', fontSize: 13 }}>Nessuna azione per oggi</div>
+            ) : (() => {
+              const gruppi = {}
+              agendaOggi.forEach(({ book, agenda }) => {
+                agenda.azioni.forEach(az => {
+                  if (!gruppi[az]) gruppi[az] = []
+                  gruppi[az].push({ book, badge: agenda.badge, mant: agenda.tipo === 'mantenimento', scaduto: !!agenda.scaduto, ritardo: !!agenda.ritardo, postCiclo: !!agenda.postCiclo })
+                })
               })
-            })
-            return (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                {Object.entries(gruppi).map(([azione, items]) => {
-                  const perBook = {}
-                  items.forEach(({ book, mant, scaduto, ritardo, postCiclo }) => {
-                    if (!perBook[book.nome]) perBook[book.nome] = []
-                    perBook[book.nome].push({ book, nome: book.intestatario, mant, scaduto, ritardo, postCiclo })
-                  })
-                  const isOpen = agendaAperto === azione
-                  return (
-                    <div key={azione} style={{ background: 'rgba(11,18,32,0.7)', borderRadius: 10, border: `1px solid ${isOpen ? 'rgba(56,189,248,0.4)' : 'rgba(51,65,85,0.6)'}`, overflow: 'hidden' }}>
-                      <div onClick={() => setAgendaAperto(agendaAperto === azione ? null : azione)}
-                        style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
-                        <span style={{ color: '#38bdf8', fontSize: 11, display: 'inline-block', transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
-                        <span style={{ fontWeight: 700, color: '#f8fafc', fontSize: 12 }}>{azione}{parlaDiSlot(azione) && <PulsanteSlot onClick={() => setSlotPopup(azione)} />}</span>
-                        <span style={{ marginLeft: 'auto', fontSize: 11, background: 'rgba(56,189,248,0.12)', color: '#38bdf8', padding: '2px 7px', borderRadius: 6, fontWeight: 700 }}>{items.length}</span>
-                      </div>
-                      {isOpen && (
-                        <div style={{ padding: '3px 12px 10px', borderTop: '1px solid rgba(51,65,85,0.4)', display: 'flex', flexDirection: 'column', gap: 2 }}>
-                          {Object.entries(perBook).map(([bookNome, intestatari]) => (
-                            <div key={bookNome} style={{ fontSize: 11, color: '#cbd5e1', padding: '2px 0' }}>
-                              <span style={{ color: '#38bdf8', fontWeight: 700 }}>{bookNome}</span>
-                              <span style={{ color: '#64748b' }}> — </span>
-                              <span style={{ color: '#94a3b8' }}>{intestatari.map((it, ix) => (
-                                <span key={ix}>{ix > 0 ? ', ' : ''}{it.nome}
-                                  {it.scaduto && <b style={{ color: '#f87171' }}> ⚠ SCADUTO</b>}
-                                  {it.ritardo && <b style={{ color: '#fb923c' }}> in ritardo</b>}
-                                  {it.postCiclo && <>
-                                    <button onClick={() => segnaRiservataRicevuta(it.book)} title="È arrivata una riservata: i 30 giorni ripartono da oggi"
-                                      style={{ marginLeft: 5, background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.5)', color: '#d8b4fe', borderRadius: 6, fontSize: 10, padding: '0 6px', cursor: 'pointer' }}>📩 riservata ricevuta</button>
-                                    <button onClick={() => riavviaCicloProfilo(it.book)} title="Riavvia da oggi il ciclo di profilazione di questo conto"
-                                      style={{ marginLeft: 4, background: 'rgba(249,115,22,0.15)', border: '1px solid rgba(249,115,22,0.5)', color: '#fdba74', borderRadius: 6, fontSize: 10, padding: '0 6px', cursor: 'pointer' }}>↻ riavvia ciclo</button>
-                                  </>}
-                                  {it.mant && <button onClick={() => segnaMovimentatoLucy(it.book)} title="Segna il conto come movimentato oggi (bet fatta fuori da Lucy)"
-                                    style={{ marginLeft: 5, background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.5)', color: '#86efac', borderRadius: 6, fontSize: 10, padding: '0 6px', cursor: 'pointer' }}>✓ fatto</button>}
-                                </span>))}</span>
-                            </div>
-                          ))}
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  {Object.entries(gruppi).map(([azione, items]) => {
+                    const perBook = {}
+                    items.forEach(({ book, mant, scaduto, ritardo, postCiclo }) => {
+                      if (!perBook[book.nome]) perBook[book.nome] = []
+                      perBook[book.nome].push({ book, nome: book.intestatario, mant, scaduto, ritardo, postCiclo })
+                    })
+                    const isOpen = agendaAperto === azione
+                    return (
+                      <div key={azione} style={{ background: 'rgba(11,18,32,0.7)', borderRadius: 10, border: `1px solid ${isOpen ? 'rgba(56,189,248,0.4)' : 'rgba(51,65,85,0.6)'}`, overflow: 'hidden' }}>
+                        <div onClick={() => setAgendaAperto(agendaAperto === azione ? null : azione)}
+                          style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
+                          <span style={{ color: '#38bdf8', fontSize: 11, display: 'inline-block', transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
+                          <span style={{ fontWeight: 700, color: '#f8fafc', fontSize: 12 }}>{azione}{parlaDiSlot(azione) && <PulsanteSlot onClick={() => setSlotPopup(azione)} />}</span>
+                          <span style={{ marginLeft: 'auto', fontSize: 11, background: 'rgba(56,189,248,0.12)', color: '#38bdf8', padding: '2px 7px', borderRadius: 6, fontWeight: 700 }}>{items.length}</span>
                         </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )
-          })()}
-        </div>
-
-        {/* MANTENIMENTO V2 */}
-        {(lucyVista === 'completa' || mostraLegendaMant) && (
-<div style={{ background: 'rgba(11,18,32,0.7)', border: '1px solid rgba(51,65,85,0.85)', borderRadius: 16, padding: '14px 16px' }}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: '#f8fafc', marginBottom: 10 }}>📖 Mantenimento unico</div>
-          <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.6 }}>
-            <div>🟡 <b>Una movimentazione almeno ogni 60 giorni</b> (si propone dal 45° giorno), puntata <b>variabile da 5 a 30€</b>.</div>
-            <div>⚽ Book Sport: 1 bet sportiva da 5 a 30€.</div>
-            <div>🎰 Solo Casinò: sessione Casinò/slot da 5 a 30€.</div>
-            <div style={{ marginTop: 6, color: '#94a3b8' }}>I Dormienti non entrano nell'agenda. La scelta dello stato resta sempre manuale.</div>
+                        {isOpen && (
+                          <div style={{ padding: '3px 12px 10px', borderTop: '1px solid rgba(51,65,85,0.4)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            {Object.entries(perBook).map(([bookNome, intestatari]) => (
+                              <div key={bookNome} style={{ fontSize: 11, color: '#cbd5e1', padding: '2px 0' }}>
+                                <span style={{ color: '#38bdf8', fontWeight: 700 }}>{bookNome}</span>
+                                <span style={{ color: '#64748b' }}> — </span>
+                                <span style={{ color: '#94a3b8' }}>{intestatari.map((it, ix) => (
+                                  <span key={ix}>{ix > 0 ? ', ' : ''}{it.nome}
+                                    {it.scaduto && <b style={{ color: '#f87171' }}> ⚠ SCADUTO</b>}
+                                    {it.ritardo && <b style={{ color: '#fb923c' }}> in ritardo</b>}
+                                    {it.postCiclo && <>
+                                      <button onClick={() => segnaRiservataRicevuta(it.book)} title="È arrivata una riservata: i 30 giorni ripartono da oggi"
+                                        style={{ marginLeft: 5, background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.5)', color: '#d8b4fe', borderRadius: 6, fontSize: 10, padding: '0 6px', cursor: 'pointer' }}>📩 riservata ricevuta</button>
+                                      <button onClick={() => riavviaCicloProfilo(it.book)} title="Riavvia da oggi il ciclo di profilazione di questo conto"
+                                        style={{ marginLeft: 4, background: 'rgba(249,115,22,0.15)', border: '1px solid rgba(249,115,22,0.5)', color: '#fdba74', borderRadius: 6, fontSize: 10, padding: '0 6px', cursor: 'pointer' }}>↻ riavvia ciclo</button>
+                                    </>}
+                                    {it.mant && <button onClick={() => segnaMovimentatoLucy(it.book)} title="Segna il conto come movimentato oggi (bet fatta fuori da Lucy)"
+                                      style={{ marginLeft: 5, background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.5)', color: '#86efac', borderRadius: 6, fontSize: 10, padding: '0 6px', cursor: 'pointer' }}>✓ fatto</button>}
+                                  </span>))}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
           </div>
-        </div>
-)}
 
-      </div>
+          {/* MANTENIMENTO V2 */}
+          {(lucyVista === 'completa' || mostraLegendaMant) && (
+  <div style={{ background: 'rgba(11,18,32,0.7)', border: '1px solid rgba(51,65,85,0.85)', borderRadius: 16, padding: '14px 16px' }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#f8fafc', marginBottom: 10 }}>📖 Mantenimento unico</div>
+            <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.6 }}>
+              <div>🟡 <b>Una movimentazione almeno ogni 60 giorni</b> (si propone dal 45° giorno), puntata <b>variabile da 5 a 30€</b>.</div>
+              <div>⚽ Book Sport: 1 bet sportiva da 5 a 30€.</div>
+              <div>🎰 Solo Casinò: sessione Casinò/slot da 5 a 30€.</div>
+              <div style={{ marginTop: 6, color: '#94a3b8' }}>I Dormienti non entrano nell'agenda. La scelta dello stato resta sempre manuale.</div>
+            </div>
+          </div>
+  )}
+
+        </div>
+      ))}
+      {conSezione({ id: 'pronox', titolo: '🎯 Recuperi con PronoX · Masaniello pilota', badge: pronoxDaFare ? `${pronoxDaFare} bet da fare` : '', colore: '#34d399', aperta: false }, (
+        <>
+        {/* 01/10/2026 — Recuperi con PronoX: Masaniello pilota (RecuperiPronox.jsx) */}
+        <RecuperiPronoxPanel
+          books={books}
+          recuperi={recuperiConti}
+          getRecuperoProtocollo={getRecuperoProtocollo}
+          sitoBook={sitoBook}
+          apriSuTelefoni={apriSuTelefoni}
+          onMessage={setMessage}
+          onError={setErrorMessage}
+        incorporato={lucyVista === 'operativa'}
+        onDaFare={setPronoxDaFare}
+        />
+        </>
+      ))}
+      {conSezione({ id: 'coda', titolo: '🔧 Coda dei recuperi', badge: '', colore: '#f87171', aperta: false }, (
+        <RecuperoContiPanel
+          books={books}
+          recuperi={recuperiConti}
+          setRecuperi={setRecuperiConti}
+          setBooks={setBooks}
+          setAvvisi={setAvvisiConti}
+          avvisi={avvisiConti}
+          getClasseBook={getClasseBook}
+          getRecuperoProtocollo={getRecuperoProtocollo}
+          onMessage={setMessage}
+          onError={setErrorMessage}
+        />
+      ))}
+      {conSezione({ id: 'mirate', titolo: '🎯 Profilazioni mirate', badge: '', colore: '#c084fc', aperta: false }, (
+        <ProfilazioniMiratePanel
+          books={books}
+          terminato={clienteTerminato}
+          gruppi={gruppiMirati}
+          setGruppi={setGruppiMirati}
+          fatte={fatteMirate}
+          setFatte={setFatteMirate}
+          giorniPausa={giorniPausaTotale}
+          onProfilazione={id => updateProfiloLivello(Number(id), 'attivo')}
+          onProfilazioneTutti={async ids => {
+            // in blocco: per i book con più profilazioni tengo quella già scelta, altrimenti la prima (niente finestra per ogni conto)
+            for (const id of ids) {
+              const b = books.find(x => String(x.id) === String(id)); if (!b) continue
+              const v = getVariantiProfilazione(b.nome)
+              await updateProfiloLivello(b.id, 'attivo', v ? (b.profilo_variante || v[0].key) : null)
+            }
+            setMessage(`🟢 ${ids.length} conti messi in profilazione`)
+          }}
+          onApri={(nomeBook, conti) => apriSuTelefoni(nomeBook, sitoBook(conti[0]), conti.map(b => b.intestatario))}
+          sitoBook={sitoBook}
+          onMessage={setMessage}
+          onError={setErrorMessage}
+        />
+      ))}
 
       {/* LUCY SPORT — proposta incroci dai dati PronoX */}
       {lucyVista === 'completa' && (
