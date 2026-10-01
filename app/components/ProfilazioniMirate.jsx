@@ -7,6 +7,7 @@
 // ════════════════════════════════════════════════════════════════════
 import React, { useState } from 'react'
 import { supabase } from '../profit-tracker/supabaseClient'
+import SessioneLivePanel from './SessioneLive' // 02/10/2026: numeri a conto nella profilazione mirata
 
 const oggiISO = () => new Date().toLocaleDateString('sv-SE')
 const addGiorni = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('sv-SE') }
@@ -28,6 +29,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
   const [aperto, setAperto] = useState(true)
   const [edit, setEdit] = useState(null)          // { id?, nome, ogni_giorni, conti: [book_id], cerca }
   const [storico, setStorico] = useState(null)    // id gruppo con lo storico aperto
+  const [numeri, setNumeri] = useState(null)      // 02/10/2026: id gruppo con la tabella numeri aperta
   const oggi = oggiISO()
   const bookDi = id => (books || []).find(b => String(b.id) === String(id))
 
@@ -186,6 +188,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
                   <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     {libri.length > 1 && <button style={{ ...btn('#0ea5e9'), fontWeight: 900 }} title="Apre tutti i book del gruppo sui telefoni giusti" onClick={() => apriSuTelefoni(conti, `tutti i book di "${g.nome}"`)}>📱 Apri tutti ({conti.length})</button>}
                     {onApri && libri.map(nb => <button key={nb} style={btn('#38bdf8')} title={`Apri ${nb} sui telefoni di questi conti`} onClick={() => onApri(nb, conti.filter(b => b.nome === nb))}>📱 {nb}</button>)}
+                    <button style={{ ...btn('#a78bfa'), fontWeight: 900 }} title="Quanti numeri gioca ogni conto: copertura della roulette, sestine per Lottomatica/GoldBet" onClick={() => setNumeri(numeri === g.id ? null : g.id)}>🎰 Numeri</button>
                     <button style={btn('#22c55e')} onClick={() => fatta(g)}>✅ Fatta</button>
                     <button style={btn('#94a3b8')} onClick={() => setStorico(storico === g.id ? null : g.id)}>📜</button>
                     <button style={btn('#facc15')} onClick={() => setEdit({ id: g.id, nome: g.nome, ogni_giorni: g.ogni_giorni, conti: (g.conti || []).map(String), cerca: '' })}>✏️</button>
@@ -195,6 +198,13 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
                 <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: '2px 10px' }}>
                   {conti.map(b => <span key={b.id} onClick={() => apriSuTelefoni([b], `${b.nome} di ${b.intestatario || '—'}`)} title="Clic: apri solo questo book sul suo telefono" style={{ cursor: 'pointer', textDecoration: 'underline dotted', textUnderlineOffset: 3 }}>📱 {b.nome} · {b.intestatario || '—'}</span>)}
                 </div>
+                {numeri === g.id && (
+                  <div style={{ marginTop: 8 }}>
+                    <SessioneLivePanel books={books} contiIniziali={conti} origine="mirata" gruppo={g.nome}
+                      apriContiSuTelefoni={apriSuTelefoni} onMessage={onMessage} onError={onError}
+                      onSalvata={() => { setNumeri(null); fatta(g) }} />
+                  </div>
+                )}
                 {nonProf.length > 0 && (
                   <div style={{ fontSize: 11, color: '#fbbf24', marginTop: 4, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                     ⚠️ non in profilazione: {onProfilazioneTutti && nonProf.length > 1 && <button style={{ ...btn('#22c55e'), padding: '2px 8px', fontSize: 11, fontWeight: 900 }} onClick={() => { if (window.confirm(`Metto in profilazione tutti i ${nonProf.length} conti?`)) onProfilazioneTutti(nonProf.map(b => b.id)) }}>🟢 Tutti ({nonProf.length})</button>}{nonProf.map(b => <button key={b.id} style={{ ...btn('#22c55e'), padding: '2px 6px', fontSize: 11 }} onClick={() => onProfilazione(b.id)}>🟢 {b.nome} · {b.intestatario}</button>)}
