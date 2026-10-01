@@ -20,6 +20,8 @@ const btn = (c) => ({ padding: '5px 10px', borderRadius: 8, border: `1px solid $
 export function prossimaMirata(g, fatte, giorniPausa) {
   const ultime = fatte.filter(f => f.gruppo_id === g.id).map(f => f.data).sort()
   const ultima = ultime[ultime.length - 1] || null
+  // 02/10/2026: data scelta a mano da Sergio (vale finché non registri una nuova "Fatta" dopo quella data)
+  if (g.prossima_manuale && (!ultima || g.prossima_manuale > ultima)) return { ultima, prossima: g.prossima_manuale, manuale: true }
   if (!ultima) return { ultima: null, prossima: oggiISO() }
   const n = Number(g.ogni_giorni || 7)
   return { ultima, prossima: addGiorni(ultima, n + (giorniPausa ? giorniPausa(ultima, oggiISO()) : 0)) }
@@ -95,13 +97,34 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
     if (error) { onError(error.message); return }
     setGruppi(prev => prev.filter(x => x.id !== g.id))
   }
+  // 02/10/2026 — 📅 la prossima la decide Sergio: gg/mm/aaaa (o gg/mm); vuoto = automatica (ogni N giorni)
+  function leggiData(t) {
+    const m = String(t || '').trim().match(/^(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?$/)
+    if (!m) return null
+    let y = m[3] ? Number(m[3]) : Number(oggi.slice(0, 4)); if (y < 100) y += 2000
+    const iso = `${y}-${String(m[2]).padStart(2, '0')}-${String(m[1]).padStart(2, '0')}`
+    const d = new Date(iso + 'T00:00:00')
+    if (Number.isNaN(d.getTime()) || d.getDate() !== Number(m[1])) return null
+    return iso < oggi && !m[3] ? `${y + 1}${iso.slice(4)}` : iso
+  }
+  async function scegliProssima(g, proposta) {
+    const t = window.prompt(`📅 "${g.nome}": quando fai la prossima?\nScrivi la data (gg/mm/aaaa oppure gg/mm).\nLascia vuoto per la cadenza automatica (ogni ${g.ogni_giorni} giorni).`, proposta ? dataIt(proposta) : '')
+    if (t === null) return
+    const iso = t.trim() ? leggiData(t) : null
+    if (t.trim() && !iso) { onError('Data non valida: usa gg/mm/aaaa'); return }
+    const { error } = await supabase.from('profilazioni_mirate').update({ prossima_manuale: iso }).eq('id', g.id)
+    if (error) { onError('Data non salvata: ' + error.message + ' (hai lanciato sessioni_live_baccarat.sql?)'); return }
+    setGruppi(prev => prev.map(x => x.id === g.id ? { ...x, prossima_manuale: iso } : x))
+    onMessage(iso ? `📅 ${g.nome}: prossima il ${dataIt(iso)}` : `📅 ${g.nome}: cadenza automatica ogni ${g.ogni_giorni} giorni`)
+  }
   async function fatta(g) {
     const nomi = g.conti.map(bookDi).filter(Boolean).map(b => `${b.nome} – ${b.intestatario || '—'}`)
-    if (!window.confirm(`✅ Operazione fatta su "${g.nome}" oggi?\n\n${nomi.join('\n')}\n\nLa prossima sarà tra ${g.ogni_giorni} giorni.`)) return
+    if (!window.confirm(`✅ Operazione fatta su "${g.nome}" oggi?\n\n${nomi.join('\n')}`)) return
     const { data, error } = await supabase.from('profilazioni_mirate_fatte').insert([{ gruppo_id: g.id, nome_gruppo: g.nome, data: oggi, conti: g.conti }]).select().single()
     if (error) { onError('Non registrata: ' + error.message); return }
     setFatte(prev => [...prev, data])
-    onMessage(`✅ ${g.nome} registrata · prossima il ${dataIt(addGiorni(oggi, g.ogni_giorni))}`)
+    onMessage(`✅ ${g.nome} registrata`)
+    await scegliProssima({ ...g, prossima_manuale: null }, addGiorni(oggi, g.ogni_giorni)) // decidi tu la prossima data
     // i conti del gruppo non ancora in profilazione: chiedo se metterli dentro (così entrano anche nel giro sport)
     const fuori = g.conti.map(bookDi).filter(b => b && b.profilo_livello !== 'attivo')
     if (fuori.length && onProfilazioneTutti && window.confirm(`${fuori.length} conti del gruppo non sono in profilazione:\n${fuori.map(b => `${b.nome} – ${b.intestatario || '—'}`).join('\n')}\n\nLi metto in profilazione?`)) await onProfilazioneTutti(fuori.map(b => b.id))
@@ -173,7 +196,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
       {aperto && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
           {righe.length === 0 && !edit && <div style={{ fontSize: 12, color: '#94a3b8' }}>Nessun gruppo. Crea "Profilazione 1" con i conti che hai taggato su Panda: da quel momento quei conti non ricevono più la profilazione casinò normale.</div>}
-          {righe.map(({ g, ultima, prossima }) => {
+          {righe.map(({ g, ultima, prossima, manuale }) => {
             const ritardo = prossima < oggi ? diffGiorni(prossima, oggi) : 0
             const stato = prossima <= oggi ? (ritardo ? `in ritardo di ${ritardo} gg` : 'da fare oggi') : `tra ${diffGiorni(oggi, prossima)} gg (${dataIt(prossima)})`
             const conti = (g.conti || []).map(bookDi).filter(Boolean)
@@ -183,13 +206,14 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
               <div key={g.id} style={{ background: 'rgba(11,18,32,0.75)', border: `1px solid ${prossima <= oggi ? 'rgba(248,113,113,0.5)' : 'rgba(51,65,85,0.7)'}`, borderRadius: 12, padding: '8px 12px' }}>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <b style={{ color: '#fde047', fontSize: 13 }}>🎯 {g.nome}</b>
-                  <span style={{ fontSize: 12, color: '#cbd5e1' }}>{conti.length} conti · ogni {g.ogni_giorni} gg · ultima {ultima ? dataIt(ultima) : 'mai'}</span>
+                  <span style={{ fontSize: 12, color: '#cbd5e1' }}>{conti.length} conti · {manuale ? `📅 data scelta da te (${dataIt(prossima)})` : `ogni ${g.ogni_giorni} gg`} · ultima {ultima ? dataIt(ultima) : 'mai'}</span>
                   <span style={{ fontSize: 12, fontWeight: 800, color: prossima <= oggi ? '#f87171' : '#94a3b8' }}>{stato}</span>
                   <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     {libri.length > 1 && <button style={{ ...btn('#0ea5e9'), fontWeight: 900 }} title="Apre tutti i book del gruppo sui telefoni giusti" onClick={() => apriSuTelefoni(conti, `tutti i book di "${g.nome}"`)}>📱 Apri tutti ({conti.length})</button>}
                     {onApri && libri.map(nb => <button key={nb} style={btn('#38bdf8')} title={`Apri ${nb} sui telefoni di questi conti`} onClick={() => onApri(nb, conti.filter(b => b.nome === nb))}>📱 {nb}</button>)}
                     <button style={{ ...btn('#a78bfa'), fontWeight: 900 }} title="Quanti numeri gioca ogni conto: copertura della roulette, sestine per Lottomatica/GoldBet" onClick={() => setNumeri(numeri === g.id ? null : g.id)}>🎰 Numeri</button>
                     <button style={btn('#22c55e')} onClick={() => fatta(g)}>✅ Fatta</button>
+                    <button style={btn('#94a3b8')} title="Scegli tu la data della prossima" onClick={() => scegliProssima(g, prossima)}>📅</button>
                     <button style={btn('#94a3b8')} onClick={() => setStorico(storico === g.id ? null : g.id)}>📜</button>
                     <button style={btn('#facc15')} onClick={() => setEdit({ id: g.id, nome: g.nome, ogni_giorni: g.ogni_giorni, conti: (g.conti || []).map(String), cerca: '' })}>✏️</button>
                     <button style={btn('#f87171')} onClick={() => elimina(g)}>🗑</button>
