@@ -8,7 +8,8 @@
 //  • Lottomatica/GoldBet giocano solo sestine vere
 //  • seed stabile: i numeri NON cambiano se tocchi altro (il difetto del RAND() dell'Excel)
 //  • 📱 per ogni conto e 📱 Apri tutti
-// Costo teorico: 1/37 del giocato (= la puntata di un numero) a ogni giro.
+// Costo teorico roulette: 1/37 del giocato a ogni giro.
+// 02/10/2026: € a numero per OGNI conto; BACCARAT (Banco/Giocatore, operazione spot o campionato).
 // Tabella: live_sessioni (vedi live_sessioni.sql).
 // ════════════════════════════════════════════════════════════════════
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
@@ -78,10 +79,12 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
   // contiIniziali: i conti di una profilazione mirata, già pronti (origine 'mirata', gruppo = nome del gruppo)
   const [sessioni, setSessioni] = useState([])
   const [cerca, setCerca] = useState('')
-  const [scelti, setScelti] = useState(() => (contiIniziali || []).map(b => ({ id: b.id, nome: b.nome, intestatario: b.intestatario, aMano: '' }))) // [{ id, nome, intestatario, aMano }]
+  const [scelti, setScelti] = useState(() => (contiIniziali || []).map(b => ({ id: b.id, nome: b.nome, intestatario: b.intestatario, aMano: '', euroNum: '', lato: null, importo: '' }))) // [{ id, nome, intestatario, aMano }]
   const [stake, setStake] = useState(10)
   const [giri, setGiri] = useState(3)
   const [mescolata, setMescolata] = useState(0)
+  const [gioco, setGioco] = useState('roulette')        // 'roulette' | 'baccarat'
+  const [operazione, setOperazione] = useState('spot')  // baccarat: 'spot' | 'campionato'
   const msg = onMessage || (() => {}), err = onError || ((e) => console.error(e))
 
   const carica = useCallback(async () => {
@@ -109,25 +112,50 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
 
   const numeroSessione = (sessioni.reduce((a, s) => Math.max(a, Number(s.numero) || 0), 0)) + 1
   const seedText = `${oggiIso()}|sessione${numeroSessione}|${mescolata}|${scelti.map(s => s.id).join(',')}`
-  const { righe, errore } = useMemo(() => scelti.length ? distribuisci(scelti, seedText) : { righe: [], errore: '' }, [scelti, seedText])
-  const aGiro = (r) => (r.numeri?.length || 0) * Number(stake || 0)
-  const totaleGiro = righe.reduce((a, r) => a + aGiro(r), 0)
+  const roulette = gioco === 'roulette'
 
-  const aggiungi = (b) => setScelti(v => [...v, { id: b.id, nome: b.nome, intestatario: b.intestatario, aMano: '' }])
+  // ── ROULETTE: numeri distribuiti, € a numero anche diverso per ogni conto
+  const { righe, errore: erroreR } = useMemo(() => roulette && scelti.length ? distribuisci(scelti, seedText) : { righe: [], errore: '' }, [roulette, scelti, seedText])
+  const euroNumero = (x) => Number(x?.euroNum || stake || 0)
+  const aGiro = (r) => (r.numeri?.length || 0) * euroNumero(r)
+  const totaleGiro = righe.reduce((a, r) => a + aGiro(r), 0)
+  const rientri = righe.flatMap(r => (r.numeri || []).map(() => 36 * euroNumero(r)))
+  const rientroMin = rientri.length ? Math.min(...rientri) : 0, rientroMax = rientri.length ? Math.max(...rientri) : 0
+
+  // ── BACCARAT: ogni conto su Banco o Giocatore (alternati se non scegli), importo a mano
+  const latoDi = (x, i) => x.lato || (i % 2 === 0 ? 'Banco' : 'Giocatore')
+  const importoDi = (x) => Number(x.importo || stake || 0)
+  const bac = scelti.map((x, i) => ({ ...x, tipo: latoDi(x, i), puntata: importoDi(x) }))
+  const B = bac.filter(x => x.tipo === 'Banco').reduce((a, x) => a + x.puntata, 0)
+  const P = bac.filter(x => x.tipo === 'Giocatore').reduce((a, x) => a + x.puntata, 0)
+  const vinceBanco = 0.95 * B - P, vinceGiocatore = P - B
+  const costoMano = -(0.4586 * vinceBanco + 0.4462 * vinceGiocatore) // pareggio: puntate restituite
+  const erroreB = scelti.length < 2 ? 'Servono almeno 2 conti' : (!B || !P) ? `Manca il lato ${!B ? 'Banco' : 'Giocatore'}: nessuna copertura` : ''
+
+  const errore = roulette ? erroreR : erroreB
+  const pronta = roulette ? (!errore && righe.length >= 2) : !errore
+
+  const aggiungi = (b) => setScelti(v => [...v, { id: b.id, nome: b.nome, intestatario: b.intestatario, aMano: '', euroNum: '', lato: null, importo: '' }])
   const togli = (id) => setScelti(v => v.filter(s => s.id !== id))
-  const setAMano = (id, val) => setScelti(v => v.map(s => s.id === id ? { ...s, aMano: val.replace(/[^0-9]/g, '') } : s))
+  const cambia = (id, campo, val) => setScelti(v => v.map(s => s.id === id ? { ...s, [campo]: val } : s))
+  const soloNum = (t) => t.replace(/[^0-9]/g, '')
+  const soloEuro = (t) => t.replace(/[^0-9.,]/g, '').replace(',', '.')
 
   async function conferma() {
-    if (errore || righe.length < 2) return
-    const fatti = window.prompt(`Sessione ${numeroSessione}: quanti giri avete giocato davvero?`, String(giri))
+    if (!pronta) return
+    const parola = roulette ? 'giri' : 'mani'
+    const fatti = window.prompt(`Sessione ${numeroSessione}: quante ${parola === 'giri' ? 'volte (giri)' : 'mani'} avete giocato davvero?`, String(giri))
     if (fatti === null) return
     const n = Math.max(0, parseInt(fatti, 10) || 0)
+    const partecipanti = roulette
+      ? righe.map(r => ({ id: r.id, nome: r.nome, intestatario: r.intestatario, tipo: r.tipo, numeri: r.numeri, stake: euroNumero(r) }))
+      : bac.map(x => ({ id: x.id, nome: x.nome, intestatario: x.intestatario, tipo: x.tipo, importo: x.puntata }))
     const { error } = await supabase.from('live_sessioni').insert([{
       giorno: oggiIso(), numero: numeroSessione, seed: seedText, stake: Number(stake), giri: Number(giri), giri_fatti: n, origine, gruppo,
-      partecipanti: righe.map(r => ({ id: r.id, nome: r.nome, intestatario: r.intestatario, tipo: r.tipo, numeri: r.numeri })),
+      gioco, operazione: roulette ? null : operazione, partecipanti,
     }])
-    if (error) return err(error.message)
-    msg(`🎰 Sessione ${numeroSessione} salvata: ${righe.length} conti, ${n} giri`)
+    if (error) return err(error.message + ' (hai lanciato sessioni_live_baccarat.sql?)')
+    msg(`🎰 Sessione ${numeroSessione} salvata: ${roulette ? 'roulette' : `baccarat ${operazione}`}, ${partecipanti.length} conti, ${n} ${parola}`)
     if (onSalvata) { onSalvata(); return }
     setScelti([]); setMescolata(0); carica()
   }
@@ -135,27 +163,39 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
   const box = { background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(148,163,184,0.25)', borderRadius: 12, padding: '10px 12px', marginBottom: 10 }
   const inp = { background: '#0b1220', color: '#f8fafc', border: '1px solid #334155', borderRadius: 8, padding: '5px 8px', fontSize: 12 }
   const btn = (bg, on = true) => ({ background: on ? bg : '#334155', color: 'white', border: 0, borderRadius: 8, padding: '5px 10px', fontWeight: 800, fontSize: 12, cursor: on ? 'pointer' : 'default' })
+  const scelta = (on) => ({ ...btn(on ? '#7c3aed' : '#1e293b'), border: `1px solid ${on ? '#a78bfa' : '#334155'}` })
   const th = { textAlign: 'left', padding: '5px 8px', color: '#94a3b8', fontSize: 11, borderBottom: '1px solid #334155' }
   const td = { padding: '5px 8px', fontSize: 12, color: '#e2e8f0', borderBottom: '1px solid rgba(51,65,85,.5)' }
+  const segno = (x) => `${x >= 0 ? '+' : ''}${euro(x)}`
 
   return (
     <div style={{ background: 'rgba(124,58,237,0.07)', border: '1px solid rgba(124,58,237,0.35)', borderRadius: 16, padding: '14px 16px' }}>
       {sessioni.length > 0 && (
         <div style={{ ...box, fontSize: 12, color: '#cbd5e1' }}>
-          <b>Oggi:</b> {sessioni.map(s => `sessione ${s.numero} · ${(s.partecipanti || []).length} conti · ${s.giri_fatti} giri`).join('  |  ')}
+          <b>Oggi:</b> {sessioni.map(s => `sessione ${s.numero} · ${s.gioco === 'baccarat' ? `baccarat ${s.operazione || ''}` : 'roulette'} · ${(s.partecipanti || []).length} conti · ${s.giri_fatti} ${s.gioco === 'baccarat' ? 'mani' : 'giri'}`).join('  |  ')}
         </div>
       )}
 
       <div style={box}>
-        <div style={{ fontWeight: 800, color: '#c4b5fd', marginBottom: 6 }}>Sessione {numeroSessione}{gruppo ? ` · ${gruppo}` : ''} · {contiIniziali ? 'aggiungi altri conti se servono' : 'scegli i conti'}</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+          <b style={{ color: '#c4b5fd' }}>Sessione {numeroSessione}{gruppo ? ` · ${gruppo}` : ''}</b>
+          <button onClick={() => setGioco('roulette')} style={scelta(roulette)}>🎡 Roulette</button>
+          <button onClick={() => setGioco('baccarat')} style={scelta(!roulette)}>🃏 Baccarat</button>
+          {!roulette && <>
+            <span style={{ color: '#94a3b8', fontSize: 12, marginLeft: 6 }}>operazione:</span>
+            <button onClick={() => setOperazione('spot')} style={scelta(operazione === 'spot')}>Spot</button>
+            <button onClick={() => setOperazione('campionato')} style={scelta(operazione === 'campionato')}>Campionato</button>
+          </>}
+        </div>
+        <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>{contiIniziali ? 'Aggiungi altri conti se servono:' : 'Scegli i conti:'}</div>
         <input style={{ ...inp, width: 260 }} placeholder="Cerca book o intestatario…" value={cerca} onChange={e => setCerca(e.target.value)} />
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
           {candidati.map(b => {
             const gia = giocatoOggi.get(String(b.id))
             return (
               <button key={b.id} onClick={() => aggiungi(b)} title={gia ? `Ha già giocato oggi nella sessione ${gia}` : 'Aggiungi alla sessione'}
-                style={{ ...inp, cursor: 'pointer', opacity: gia ? 0.55 : 1, borderColor: soloSestine(b) ? '#a78bfa' : '#334155' }}>
-                + {b.nome} · {b.intestatario || '—'}{soloSestine(b) ? ' (sestina)' : ''}{gia ? ` · già S${gia}` : ''}
+                style={{ ...inp, cursor: 'pointer', opacity: gia ? 0.55 : 1, borderColor: roulette && soloSestine(b) ? '#a78bfa' : '#334155' }}>
+                + {b.nome} · {b.intestatario || '—'}{roulette && soloSestine(b) ? ' (sestina)' : ''}{gia ? ` · già S${gia}` : ''}
               </button>)
           })}
         </div>
@@ -164,38 +204,70 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
       {scelti.length > 0 && (
         <div style={box}>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8, fontSize: 12, color: '#cbd5e1' }}>
-            <span>€ a numero <input style={{ ...inp, width: 60 }} value={stake} onChange={e => setStake(e.target.value.replace(/[^0-9.,]/g, '').replace(',', '.'))} /></span>
-            <span>giri <input style={{ ...inp, width: 50 }} value={giri} onChange={e => setGiri(e.target.value.replace(/[^0-9]/g, ''))} /></span>
-            <button onClick={() => setMescolata(m => m + 1)} style={btn('#6d28d9')}>🔀 Rimescola numeri</button>
+            <span>{roulette ? '€ a numero (per tutti)' : '€ a mano (per tutti)'} <input style={{ ...inp, width: 60 }} value={stake} onChange={e => setStake(soloEuro(e.target.value))} /></span>
+            <span>{roulette ? 'giri' : 'mani'} <input style={{ ...inp, width: 50 }} value={giri} onChange={e => setGiri(soloNum(e.target.value))} /></span>
+            {roulette && <button onClick={() => setMescolata(m => m + 1)} style={btn('#6d28d9')}>🔀 Rimescola numeri</button>}
             <button onClick={() => apriContiSuTelefoni(scelti.map(s => (books || []).find(b => String(b.id) === String(s.id)) || s), `la sessione live ${numeroSessione}`)} style={btn('#0ea5e9')}>📱 Apri tutti ({scelti.length})</button>
           </div>
           {errore && <div style={{ color: '#fca5a5', fontSize: 12, marginBottom: 6 }}>⚠️ {errore}</div>}
-          <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-            <thead><tr><th style={th}>Book</th><th style={th}>Intestatario</th><th style={th}>A mano</th><th style={th}>Tipo</th><th style={th}>Numeri</th><th style={th}>A giro</th><th style={th}>Totale</th><th style={th}></th></tr></thead>
-            <tbody>
-              {scelti.map(s => {
-                const r = righe.find(x => x.id === s.id) || {}
-                const gia = giocatoOggi.get(String(s.id))
-                return (
-                  <tr key={s.id}>
-                    <td style={{ ...td, fontWeight: 800 }}>{s.nome}</td>
-                    <td style={td}>{s.intestatario}{gia ? <span style={{ color: '#fbbf24', fontSize: 10 }}> · già sessione {gia}</span> : null}</td>
-                    <td style={td}>{soloSestine(s) ? <span style={{ color: '#94a3b8' }}>6 (sestina)</span> : <input style={{ ...inp, width: 46 }} placeholder="auto" value={s.aMano} onChange={e => setAMano(s.id, e.target.value)} />}</td>
-                    <td style={td}>{r.tipo || ''}</td>
-                    <td style={{ ...td, fontWeight: 800 }}>{(r.numeri || []).join(', ')}</td>
-                    <td style={td}>{r.numeri ? euro(aGiro(r)) : ''}</td>
-                    <td style={td}>{r.numeri ? euro(aGiro(r) * Number(giri || 0)) : ''}</td>
+
+          {roulette ? (
+            <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+              <thead><tr><th style={th}>Book</th><th style={th}>Intestatario</th><th style={th}>Quanti numeri</th><th style={th}>€ a numero</th><th style={th}>Tipo</th><th style={th}>Numeri</th><th style={th}>A giro</th><th style={th}>Totale</th><th style={th}></th></tr></thead>
+              <tbody>
+                {scelti.map(s => {
+                  const r = righe.find(x => x.id === s.id) || {}
+                  const gia = giocatoOggi.get(String(s.id))
+                  return (
+                    <tr key={s.id}>
+                      <td style={{ ...td, fontWeight: 800 }}>{s.nome}</td>
+                      <td style={td}>{s.intestatario}{gia ? <span style={{ color: '#fbbf24', fontSize: 10 }}> · già sessione {gia}</span> : null}</td>
+                      <td style={td}>{soloSestine(s) ? <span style={{ color: '#94a3b8' }}>6 (sestina)</span> : <input style={{ ...inp, width: 46 }} placeholder="auto" value={s.aMano} onChange={e => cambia(s.id, 'aMano', soloNum(e.target.value))} />}</td>
+                      <td style={td}><input style={{ ...inp, width: 52 }} placeholder={String(stake)} value={s.euroNum} onChange={e => cambia(s.id, 'euroNum', soloEuro(e.target.value))} /></td>
+                      <td style={td}>{r.tipo || ''}</td>
+                      <td style={{ ...td, fontWeight: 800 }}>{(r.numeri || []).join(', ')}</td>
+                      <td style={td}>{r.numeri ? euro(aGiro(r)) : ''}</td>
+                      <td style={td}>{r.numeri ? euro(aGiro(r) * Number(giri || 0)) : ''}</td>
+                      <td style={td}>
+                        <button onClick={() => apriContiSuTelefoni([(books || []).find(b => String(b.id) === String(s.id)) || s], `${s.nome} di ${s.intestatario}`)} style={btn('#0ea5e9')}>📱</button>
+                        <button onClick={() => togli(s.id)} style={{ ...btn('#64748b'), marginLeft: 4 }}>✕</button>
+                      </td>
+                    </tr>)
+                })}
+              </tbody>
+            </table>
+          ) : (
+            <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+              <thead><tr><th style={th}>Book</th><th style={th}>Intestatario</th><th style={th}>Lato</th><th style={th}>€ a mano</th><th style={th}>Totale</th><th style={th}></th></tr></thead>
+              <tbody>
+                {bac.map((x) => (
+                  <tr key={x.id}>
+                    <td style={{ ...td, fontWeight: 800 }}>{x.nome}</td>
+                    <td style={td}>{x.intestatario}</td>
                     <td style={td}>
-                      <button onClick={() => apriContiSuTelefoni([(books || []).find(b => String(b.id) === String(s.id)) || s], `${s.nome} di ${s.intestatario}`)} style={btn('#0ea5e9')}>📱</button>
-                      <button onClick={() => togli(s.id)} style={{ ...btn('#64748b'), marginLeft: 4 }}>✕</button>
+                      <button onClick={() => cambia(x.id, 'lato', 'Banco')} style={scelta(x.tipo === 'Banco')}>Banco</button>
+                      <button onClick={() => cambia(x.id, 'lato', 'Giocatore')} style={{ ...scelta(x.tipo === 'Giocatore'), marginLeft: 4 }}>Giocatore</button>
                     </td>
-                  </tr>)
-              })}
-            </tbody>
-          </table>
-          {!errore && righe.length >= 2 && (
+                    <td style={td}><input style={{ ...inp, width: 56 }} placeholder={String(stake)} value={x.importo} onChange={e => cambia(x.id, 'importo', soloEuro(e.target.value))} /></td>
+                    <td style={td}>{euro(x.puntata * Number(giri || 0))}</td>
+                    <td style={td}>
+                      <button onClick={() => apriContiSuTelefoni([(books || []).find(b => String(b.id) === String(x.id)) || x], `${x.nome} di ${x.intestatario}`)} style={btn('#0ea5e9')}>📱</button>
+                      <button onClick={() => togli(x.id)} style={{ ...btn('#64748b'), marginLeft: 4 }}>✕</button>
+                    </td>
+                  </tr>))}
+              </tbody>
+            </table>
+          )}
+
+          {pronta && (
             <div style={{ marginTop: 8, fontSize: 12, color: '#cbd5e1' }}>
-              ✅ Tutti i 37 numeri coperti · puntati {euro(totaleGiro)} a giro, rientro {euro(totaleGiro * 36 / 37)} qualunque numero esca · costo teorico <b>{euro(totaleGiro / 37)}</b> a giro, <b>{euro(totaleGiro / 37 * Number(giri || 0))}</b> su {giri} giri
+              {roulette ? (
+                rientroMin === rientroMax
+                  ? <>✅ Tutti i 37 numeri coperti · puntati {euro(totaleGiro)} a giro, rientro {euro(rientroMin)} qualunque numero esca · costo teorico <b>{euro(totaleGiro / 37)}</b> a giro, <b>{euro(totaleGiro / 37 * Number(giri || 0))}</b> su {giri} giri</>
+                  : <>✅ Tutti i 37 numeri coperti · puntati {euro(totaleGiro)} a giro · rientro da {euro(rientroMin)} a {euro(rientroMax)} a seconda del numero (risultato da {segno(rientroMin - totaleGiro)} a {segno(rientroMax - totaleGiro)}) · costo teorico medio <b>{euro(totaleGiro / 37)}</b> a giro, <b>{euro(totaleGiro / 37 * Number(giri || 0))}</b> su {giri} giri</>
+              ) : (
+                <>🃏 Baccarat {operazione} · Banco {euro(B)} · Giocatore {euro(P)} a mano · se vince il Banco {segno(vinceBanco)} · se vince il Giocatore {segno(vinceGiocatore)} · pareggio 0 (puntate restituite) · costo medio <b>{euro(costoMano)}</b> a mano, <b>{euro(costoMano * Number(giri || 0))}</b> su {giri} mani</>
+              )}
               <button onClick={conferma} style={{ ...btn('#059669'), marginLeft: 10 }}>✓ Sessione giocata</button>
             </div>
           )}
