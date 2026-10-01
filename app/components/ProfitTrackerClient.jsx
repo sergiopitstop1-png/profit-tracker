@@ -14,6 +14,7 @@ import SlotConsigliate, { PulsanteSlot, parlaDiSlot } from './SlotConsigliate'
 import RecuperoContiPanel, { contiInRecupero, azioniRecuperoOggi, limitazioniDaNota, daPromuovere, recuperoSport } from './RecuperoConti'
 import RecuperiPronoxPanel from './RecuperiPronox'
 import PagellaPronox from './PagellaPronox'
+import SessioneLivePanel from './SessioneLive'
 import AvvisiContiPanel from './AvvisiConti'
 import ProfilazioniMiratePanel from './ProfilazioniMirate'
 import { impostaPausaRecupero } from './RecuperoConti'
@@ -459,6 +460,37 @@ async function apriSuTelefoni(nomeBook, url, intestatari, azione = 'apri') {
     }
   }
   setErrorMessage(`📱 ${nomeBook}: nessuna risposta dal PC dei telefoni (lo script book_lavorati è acceso?)`)
+}
+// 01/10/2026 — 📱 APRI PIÙ CONTI INSIEME (gruppi live, sessioni live, incroci): una sola conferma,
+// un comando per ogni book (ogni comando apre quel book sui telefoni dei suoi intestatari).
+async function apriContiSuTelefoni(conti, titolo = 'il gruppo') {
+  const perBook = new Map()
+  for (const b of (conti || []).filter(Boolean)) {
+    const k = String(b.nome || '').trim()
+    if (!k || !b.intestatario) continue
+    if (!perBook.has(k)) perBook.set(k, { url: sitoBook(b), nomi: new Set() })
+    perBook.get(k).nomi.add(b.intestatario)
+  }
+  if (!perBook.size) return
+  const elenco = [...perBook.entries()].map(([k, v]) => `${k}: ${[...v.nomi].join(', ')}`).join('\n')
+  if (!window.confirm(`Apro ${titolo} sui telefoni?\n\n${elenco}`)) return
+  const righe = [...perBook.entries()].map(([, v]) => ({ azione: 'apri', url: v.url, intestatari: [...v.nomi] }))
+  const { data, error } = await supabase.from('comandi_telefoni').insert(righe).select('id')
+  if (error) { setErrorMessage('Comando non inviato: ' + error.message); return }
+  const ids = (data || []).map(r => r.id)
+  setMessage(`📱 Apertura inviata: ${perBook.size} book…`)
+  for (let i = 0; i < 40; i++) {
+    await new Promise(r => setTimeout(r, 3000))
+    const { data: c } = await supabase.from('comandi_telefoni').select('stato,esito').in('id', ids)
+    if ((c || []).length === ids.length && c.every(x => x.stato === 'fatto')) {
+      const es = c.flatMap(x => Object.entries(x.esito || {}))
+      const ko = es.filter(([, v]) => v !== 'aperto')
+      if (ko.length) setErrorMessage(`📱 Aperti ${es.length - ko.length} · non riusciti: ${ko.map(([n, v]) => `${n} (${v})`).join(', ')}`)
+      else setMessage(`📱 Tutto aperto: ${es.length} telefoni`)
+      return
+    }
+  }
+  setErrorMessage('📱 Nessuna risposta dal PC dei telefoni (lo script book_lavorati è acceso?)')
 }
 // 28/09/2026 — 🧹 Pulizia telefoni dal Profit Tracker (la esegue lo script sul PC, come pulizia_telefoni.bat)
 // intestatari: [] = tutti i telefoni collegati (muletti compresi), altrimenti solo i telefoni di questi clienti
@@ -3186,6 +3218,7 @@ function bloccoIncrocioLucy(p, pi, numero) {
         <span style={{background:'#fff',border:'1px solid #94a3b8',borderRadius:6,padding:'1px 7px',fontWeight:700,fontSize:11}}>{p.mercato||''}</span>
         {p.manuale && <span style={{background:'#fde68a',color:'#92400e',borderRadius:6,padding:'1px 7px',fontWeight:800,fontSize:10}}>🧮 SENZA QUOTE</span>}
         <span style={{marginLeft:'auto',display:'flex',gap:10,alignItems:'center',fontSize:11}}>
+          {dettagli.some(d=>!d.ok) && <button title="Apre tutti i book di questo incrocio (bet non ancora fatte) sui telefoni giusti" onClick={()=>apriContiSuTelefoni(dettagli.filter(d=>!d.ok).map(d=>d.a.book), `l'incrocio #${numero} (${p.home} – ${p.away})`)} style={{background:'#0ea5e9',color:'white',border:0,borderRadius:6,padding:'3px 8px',fontWeight:900,fontSize:10,cursor:'pointer'}}>📱 Apri tutti ({dettagli.filter(d=>!d.ok).length})</button>}
           <span style={{fontWeight:800,color:fatte===dettagli.length&&dettagli.length>0?'#166534':'#475569'}}>{fatte}/{dettagli.length} fatte</span>
           <span style={{fontWeight:900,color:costo==null?'#92400e':(costo>0.005?'#b91c1c':'#166534')}}>{costo==null?'quote da inserire':`costo max ${Number(costo).toFixed(2)} €`}</span>
         </span>
@@ -7527,6 +7560,16 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         />
         </>
       ))}
+      {/* 01/10/2026 — SESSIONI LIVE LIBERE (dal file Randomizzatori) */}
+      {conSezione({ id: 'live', titolo: '🎰 Sessioni live · copertura roulette a scelta', badge: '', colore: '#a78bfa', aperta: false }, (
+        <SessioneLivePanel
+          books={books}
+          contoUsabile={(b) => b.profilo_livello !== 'dormiente' && !lucyMaiProfilazione(b)}
+          apriContiSuTelefoni={apriContiSuTelefoni}
+          onMessage={setMessage}
+          onError={setErrorMessage}
+        />
+      ))}
       {conSezione({ id: 'coda', titolo: '🔧 Coda dei recuperi', badge: '', colore: '#f87171', aperta: false }, (
         <RecuperoContiPanel
           books={books}
@@ -7868,7 +7911,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             </div>
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
               <thead style={{background:'#ddd6fe'}}>
-                <tr>{['#','BOOK','INTESTATARIO','RUOLO','TIPO','NUMERI / SESTINA','A GIRO','× RIPETIZIONI','TOTALE'].map(h=><th key={h} style={{border:'1px solid #a78bfa',padding:7,textAlign:'left'}}>{h}</th>)}</tr>
+                <tr>{['#','BOOK','INTESTATARIO','RUOLO','TIPO','NUMERI / SESTINA','A GIRO','× RIPETIZIONI','TOTALE','📱'].map(h=><th key={h} style={{border:'1px solid #a78bfa',padding:7,textAlign:'left'}}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {lucyLiveProposte.flatMap((p,pi)=>(p.gruppo||[]).map((g,gi)=>(
@@ -7882,6 +7925,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                     <td style={{border:'1px solid #ddd6fe',padding:6,textAlign:'right'}}>{Number(g.budget||0).toFixed(2)} €{g.tipo==='Sestina'?'':` (${g.stakeNumeroIndicativo}€/numero)`}</td>
                     <td style={{border:'1px solid #ddd6fe',padding:6,textAlign:'center'}}>{g.ripetizioni||1}×</td>
                     <td style={{border:'1px solid #ddd6fe',padding:6,textAlign:'right',fontWeight:800}}>{Number(g.budgetTotale||g.budget||0).toFixed(2)} €</td>
+                    <td style={{border:'1px solid #ddd6fe',padding:6,textAlign:'center',whiteSpace:'nowrap'}}>
+                      {gi===0 && <button title="Apre tutti i book del gruppo sui telefoni giusti" onClick={()=>apriContiSuTelefoni((p.gruppo||[]).map(x=>x.book), `il gruppo live ${pi+1}`)} style={{background:'#0ea5e9',color:'white',border:0,borderRadius:6,padding:'3px 7px',fontWeight:900,fontSize:10,cursor:'pointer',marginRight:4}}>📱 gruppo</button>}
+                      <button title="Apri solo questo book" onClick={()=>apriContiSuTelefoni([g.book], `${g.book.nome} di ${g.book.intestatario}`)} style={{background:'#e0f2fe',color:'#0369a1',border:'1px solid #7dd3fc',borderRadius:6,padding:'3px 6px',fontSize:10,cursor:'pointer'}}>📱</button>
+                    </td>
                   </tr>
                 )))}
               </tbody>
