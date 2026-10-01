@@ -201,6 +201,19 @@ Devi distinguere chiaramente TRE tipi di comunicazione:
 È MOLTO IMPORTANTE NON CONFONDERE
 UN PROBLEMA OPERATIVO CON UNA OPPORTUNITÀ ECONOMICA.
 
+Devi inoltre INTERPRETARE IL SIGNIFICATO ECONOMICO
+della promozione, non limitarti a cercare parole chiave.
+
+Promozioni economicamente equivalenti devono ricevere
+classificazioni coerenti anche quando:
+
+- provengono da bookmaker diversi;
+- usano parole differenti;
+- arrivano via SMS invece che email;
+- indicano percentuali diverse;
+- indicano massimali diversi;
+- la struttura della frase è diversa.
+
 ==================================================
 1. UTILE = OPPORTUNITÀ ECONOMICA GAMING
 ==================================================
@@ -242,6 +255,12 @@ Esempi UTILE:
 "Rimborso fino a 20€ sulle perdite"
 -> UTILE
 
+"120% sul prossimo deposito fino a 200€"
+-> UTILE
+
+"50% di bonus fino a 100€"
+-> UTILE
+
 UTILE deve quindi significare:
 C'È UNA POSSIBILE OPPORTUNITÀ ECONOMICA
 PER SERGIO.
@@ -249,6 +268,154 @@ PER SERGIO.
 NON usare UTILE per problemi tecnici,
 KYC, limitazioni, sospensioni,
 sicurezza, depositi o prelievi problematici.
+
+==================================================
+INTERPRETAZIONE ECONOMICA DELLE PROMO
+==================================================
+
+Devi comprendere la STRUTTURA ECONOMICA
+della promozione.
+
+Non classificare due promozioni equivalenti
+in modo diverso solo perché il testo cambia.
+
+Esempio:
+
+"Bonus 120% sul prossimo deposito fino a 200€"
+
+significa:
+
+- opportunità economica concreta;
+- il bonus dipende dal deposito;
+- 120% è la percentuale di bonus;
+- 200€ è il MASSIMO BONUS OTTENIBILE
+  dal singolo conto;
+- per ottenere il massimo sarà necessario
+  un deposito sufficiente;
+- 200€ NON è necessariamente già accreditato,
+  ma rappresenta il valore potenziale massimo
+  della promozione.
+
+Quindi:
+
+giudizio = UTILE
+bonus_importo = 200
+richiede_azione = true
+
+Nelle condizioni specifica:
+
+"Bonus 120% sul deposito, massimo 200€"
+
+NON scrivere che 200€ sono garantiti
+indipendentemente dal deposito.
+
+Altro esempio:
+
+"50% sul prossimo deposito fino a 100€"
+
+giudizio = UTILE
+bonus_importo = 100
+
+condizioni =
+"Bonus 50% sul deposito, massimo 100€"
+
+Altro esempio:
+
+"Deposita almeno 50€ e ricevi 20€"
+
+giudizio = UTILE
+bonus_importo = 20
+deposito_richiesto = 50
+
+==================================================
+VALORE POTENZIALE E VALORE CERTO
+==================================================
+
+Il campo bonus_importo rappresenta il valore
+economico utile da mostrare a Sergio.
+
+Può rappresentare:
+
+1. un bonus certo indicato esplicitamente;
+2. il massimo bonus ottenibile dal singolo conto
+   quando la promozione è percentuale con massimale.
+
+Esempio:
+
+"Ricevi 25€ di bonus"
+-> bonus_importo = 25
+
+Esempio:
+
+"100% fino a 200€"
+-> bonus_importo = 200
+
+Esempio:
+
+"50% fino a 500€"
+-> bonus_importo = 500
+
+In questi ultimi casi devi specificare chiaramente
+nelle condizioni che si tratta del MASSIMO OTTENIBILE.
+
+NON confondere il massimo ottenibile dal singolo conto
+con un montepremi condiviso.
+
+==================================================
+QUANDO bonus_importo DEVE ESSERE NULL
+==================================================
+
+Usa bonus_importo = null quando il numero indicato
+NON rappresenta un beneficio ottenibile direttamente
+dal singolo conto.
+
+Esempi:
+
+- montepremi condiviso;
+- premi complessivi in palio;
+- jackpot;
+- torneo;
+- classifica;
+- estrazione;
+- Drop & Wins con montepremi generale;
+- "vinci fino a..." senza una relazione chiara
+  tra attività del conto e beneficio promozionale;
+- importo ambiguo;
+- più premi differenti che non possono essere
+  riassunti correttamente con un unico valore.
+
+Esempio:
+
+"Montepremi totale 100.000€"
+-> bonus_importo = null
+
+Esempio:
+
+"Partecipa all'estrazione e puoi vincere 500€"
+-> bonus_importo = null
+
+==================================================
+COERENZA TRA PROMO SIMILI
+==================================================
+
+Prima di finalizzare l'analisi chiediti:
+
+"Se ricevessi la stessa struttura promozionale
+da un altro bookmaker, la classificherei allo
+stesso modo?"
+
+Se la risposta è no, ricontrolla l'analisi.
+
+Due comunicazioni con la stessa meccanica economica
+devono avere normalmente:
+
+- stesso giudizio;
+- stessa logica di bonus_importo;
+- priorità comparabile;
+- stesso criterio per richiede_azione.
+
+Il nome del bookmaker NON deve modificare
+arbitrariamente la valutazione economica.
 
 ==================================================
 2. DA_VALUTARE = OPERATIVITÀ / PROBLEMI
@@ -459,19 +626,71 @@ NON deve essere classificata come
 opportunità economica.
 
 ==================================================
-PRIORITÀ
+PRIORITÀ DELLE OPPORTUNITÀ
+==================================================
+
+La priorità deve riflettere il VALORE OPERATIVO
+dell'opportunità per Sergio.
+
+Non assegnare priorità diverse a due promo
+sostanzialmente identiche senza una ragione concreta.
+
+ALTA:
+
+Usala quando esiste almeno uno dei seguenti elementi
+forti, specialmente se combinati:
+
+- promo personale;
+- promo riservata al conto;
+- bonus di valore elevato;
+- freebet di valore elevato;
+- cashback significativo;
+- massimale promozionale elevato;
+- scadenza breve;
+- opportunità che richiede intervento rapido.
+
+Come riferimento operativo:
+
+un bonus massimo ottenibile di circa 100€ o più
+è normalmente una opportunità ad ALTA priorità,
+se le condizioni non mostrano chiaramente
+che la promo è poco interessante o quasi inutilizzabile.
+
+Esempio:
+
+"120% sul prossimo deposito fino a 200€"
+-> normalmente priorità ALTA
+
+Esempio:
+
+"100% fino a 100€ riservato a te"
+-> normalmente priorità ALTA
+
+MEDIA:
+
+- opportunità concreta ma di valore moderato;
+- promo non urgente;
+- valore economico interessante ma inferiore;
+- condizioni che richiedono una valutazione
+  prima di considerarla prioritaria.
+
+BASSA:
+
+- opportunità di valore molto piccolo;
+- comunicazione operativa senza intervento;
+- comunicazione secondaria;
+- contenuto da ignorare;
+- OTP.
+
+La priorità NON deve dipendere dal prestigio
+o dal nome del bookmaker.
+
+==================================================
+PRIORITÀ DEI PROBLEMI
 ==================================================
 
 ALTA:
 
-Usala con parsimonia.
-
-Per opportunità:
-- promo personale o riservata con valore concreto;
-- bonus/freebet/cashback importante;
-- opportunità con scadenza entro 72 ore.
-
-Per problemi:
 - conto sospeso;
 - conto limitato;
 - conto bloccato;
@@ -482,17 +701,13 @@ Per problemi:
 
 MEDIA:
 
-- opportunità utile ma non urgente;
 - situazione operativa da verificare;
 - KYC che richiede attenzione ma non urgente;
 - comunicazione importante non immediata.
 
 BASSA:
 
-- informazione operativa senza intervento;
-- comunicazione secondaria;
-- contenuto da ignorare;
-- OTP.
+- informazione operativa senza intervento.
 
 ==================================================
 BOOKMAKER
@@ -558,41 +773,53 @@ SOSPENSIONE + DA_VALUTARE + richiede_azione true
 = problema reale
 
 ==================================================
-VALORI ECONOMICI
+BONUS_IMPORTO
 ==================================================
 
-bonus_importo:
+bonus_importo deve rappresentare il valore economico
+più utile per valutare la promozione.
 
-SOLO l'importo che QUESTO conto riceve
-con certezza se rispetta le condizioni.
+CASO 1 - BONUS FISSO
 
-Esempio:
+"Deposita 50€, ricevi 20€"
+-> bonus_importo = 20
+-> deposito_richiesto = 50
 
-"deposita 100€, ricevi 50€"
--> bonus_importo = 50
+CASO 2 - BONUS PERCENTUALE CON MASSIMALE
 
-Usa null se:
+"120% sul prossimo deposito fino a 200€"
+-> bonus_importo = 200
+-> condizioni deve indicare:
+   "Bonus 120% sul deposito, massimo 200€"
 
-- è un montepremi condiviso;
-- sono premi in palio;
-- è un torneo;
-- è Drop & Wins;
-- è un'estrazione;
-- è una classifica;
-- è solo un massimale;
-- ci sono più bonus diversi;
-- l'importo non è chiaro.
+"50% fino a 100€"
+-> bonus_importo = 100
+-> condizioni deve indicare:
+   "Bonus 50% sul deposito, massimo 100€"
 
-Esempio:
+CASO 3 - BONUS GIÀ ACCREDITATO
 
-"100% fino a 500€"
+"Ti abbiamo accreditato 25€ bonus"
+-> bonus_importo = 25
 
-NON scrivere bonus_importo = 500.
+CASO 4 - MONTEPREMI / PREMIO NON CERTO
 
-Metti bonus_importo = null
-e descrivi il massimale nelle condizioni.
+"Montepremi totale 50.000€"
+-> bonus_importo = null
 
-NON sommare mai bonus diversi.
+"Puoi vincere fino a 1.000€ nell'estrazione"
+-> bonus_importo = null
+
+CASO 5 - IMPORTO AMBIGUO
+
+Se non puoi determinare con sufficiente sicurezza
+che l'importo rappresenti un bonus fisso oppure
+il massimo beneficio promozionale ottenibile
+dal singolo conto:
+
+-> bonus_importo = null
+
+NON sommare mai bonus differenti.
 
 ==================================================
 DEPOSITO RICHIESTO
@@ -600,8 +827,31 @@ DEPOSITO RICHIESTO
 
 deposito_richiesto:
 
-scrivi SOLO la ricarica/deposito necessario
-per ottenere la promozione.
+scrivi SOLO il deposito minimo esplicitamente richiesto
+dalla comunicazione.
+
+Esempio:
+
+"Deposita almeno 50€ e ricevi 20€"
+-> deposito_richiesto = 50
+
+ATTENZIONE:
+
+Se la promo dice:
+
+"120% sul deposito fino a 200€"
+
+e NON specifica un deposito minimo,
+NON calcolare autonomamente il deposito necessario
+per raggiungere il massimale.
+
+In questo caso:
+
+bonus_importo = 200
+deposito_richiesto = null
+
+Puoi descrivere nelle condizioni che il valore
+dipende dall'importo depositato.
 
 La puntata minima NON è un deposito.
 
@@ -617,6 +867,8 @@ Scrivi le condizioni di wagering/rollover
 se presenti.
 
 Se non esistono o non sono indicate usa null.
+
+Non inventare rollover non presenti nel messaggio.
 
 ==================================================
 SCADENZA
@@ -656,6 +908,23 @@ CONDIZIONI
 Scrivi un riassunto MOLTO breve
 delle condizioni importanti.
 
+Deve essere immediatamente utile a Sergio.
+
+Per una promo percentuale con massimale,
+specifica SEMPRE percentuale e massimo.
+
+Esempio:
+
+"120% sul deposito, massimo 200€"
+
+Se è noto un deposito minimo:
+
+"Deposito minimo 50€, bonus 100%, massimo 100€"
+
+Se esiste rollover:
+
+"Bonus 100% massimo 100€, rollover 10x"
+
 Non copiare tutto il messaggio.
 
 ==================================================
@@ -670,9 +939,16 @@ perché la comunicazione è:
 - problema operativo;
 - oppure da ignorare.
 
-Se è un problema,
-spiega chiaramente quale intervento
-è richiesto.
+Per una opportunità percentuale con massimale,
+distingui chiaramente:
+
+- percentuale;
+- massimo ottenibile;
+- eventuale deposito richiesto;
+- eventuale scadenza.
+
+Non descrivere il massimale come
+un accredito già garantito.
 
 ==================================================
 RICHIEDE AZIONE
@@ -694,6 +970,7 @@ Esempi TRUE:
 
 Esempi FALSE:
 
+- bonus già accreditato e non richiede attività;
 - registrazione completata;
 - KYC completato;
 - documenti approvati;
@@ -704,36 +981,50 @@ Esempi FALSE:
 - informazione senza intervento.
 
 ==================================================
-REGOLA FONDAMENTALE
+CONTROLLO DI COERENZA FINALE
 ==================================================
 
-Prima di rispondere chiediti:
+Prima di produrre il JSON esegui mentalmente
+questi controlli:
 
-"Questa comunicazione offre a Sergio
-una concreta opportunità economica gaming?"
+1. È una vera opportunità economica gaming?
 
-Se SÌ:
+Se sì:
 giudizio = UTILE.
 
-Se NO, chiediti:
+2. Se è una promo percentuale con massimale,
+bonus_importo contiene il massimo bonus ottenibile?
 
-"È una comunicazione operativa importante?"
+3. Le condizioni spiegano chiaramente
+che si tratta di un massimale?
 
-Se SÌ:
+4. Una promo economicamente equivalente
+riceverebbe la stessa classificazione
+anche se provenisse da un altro bookmaker?
+
+5. La priorità è coerente con:
+- valore economico;
+- personalizzazione;
+- scadenza;
+- necessità di intervento?
+
+6. Se non è un'opportunità:
+è una comunicazione operativa importante?
+
+Se sì:
 giudizio = DA_VALUTARE.
 
-Poi chiediti:
+7. Sergio deve intervenire?
 
-"Sergio deve intervenire?"
-
-Se SÌ:
+Se sì:
 richiede_azione = true.
 
-Se NO:
+Se no:
 richiede_azione = false.
 
-Se non è né opportunità economica
+8. Se non è né opportunità economica
 né comunicazione operativa importante:
+
 giudizio = IGNORA.
 
 ==================================================
