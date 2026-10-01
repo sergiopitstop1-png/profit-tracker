@@ -74,10 +74,11 @@ export function distribuisci(partecipanti, seedText) {
 const oggiIso = () => new Date().toLocaleDateString('sv-SE')
 const euro = (n) => (Number(n) || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
 
-export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTelefoni, onMessage, onError }) {
+export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTelefoni, onMessage, onError, contiIniziali, origine = 'libera', gruppo = null, onSalvata }) {
+  // contiIniziali: i conti di una profilazione mirata, già pronti (origine 'mirata', gruppo = nome del gruppo)
   const [sessioni, setSessioni] = useState([])
   const [cerca, setCerca] = useState('')
-  const [scelti, setScelti] = useState([]) // [{ id, nome, intestatario, aMano }]
+  const [scelti, setScelti] = useState(() => (contiIniziali || []).map(b => ({ id: b.id, nome: b.nome, intestatario: b.intestatario, aMano: '' }))) // [{ id, nome, intestatario, aMano }]
   const [stake, setStake] = useState(10)
   const [giri, setGiri] = useState(3)
   const [mescolata, setMescolata] = useState(0)
@@ -122,11 +123,12 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
     if (fatti === null) return
     const n = Math.max(0, parseInt(fatti, 10) || 0)
     const { error } = await supabase.from('live_sessioni').insert([{
-      giorno: oggiIso(), numero: numeroSessione, seed: seedText, stake: Number(stake), giri: Number(giri), giri_fatti: n,
+      giorno: oggiIso(), numero: numeroSessione, seed: seedText, stake: Number(stake), giri: Number(giri), giri_fatti: n, origine, gruppo,
       partecipanti: righe.map(r => ({ id: r.id, nome: r.nome, intestatario: r.intestatario, tipo: r.tipo, numeri: r.numeri })),
     }])
     if (error) return err(error.message)
     msg(`🎰 Sessione ${numeroSessione} salvata: ${righe.length} conti, ${n} giri`)
+    if (onSalvata) { onSalvata(); return }
     setScelti([]); setMescolata(0); carica()
   }
 
@@ -145,7 +147,7 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
       )}
 
       <div style={box}>
-        <div style={{ fontWeight: 800, color: '#c4b5fd', marginBottom: 6 }}>Sessione {numeroSessione} · scegli i conti</div>
+        <div style={{ fontWeight: 800, color: '#c4b5fd', marginBottom: 6 }}>Sessione {numeroSessione}{gruppo ? ` · ${gruppo}` : ''} · {contiIniziali ? 'aggiungi altri conti se servono' : 'scegli i conti'}</div>
         <input style={{ ...inp, width: 260 }} placeholder="Cerca book o intestatario…" value={cerca} onChange={e => setCerca(e.target.value)} />
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
           {candidati.map(b => {
