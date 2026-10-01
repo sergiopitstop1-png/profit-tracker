@@ -15,6 +15,7 @@ import RecuperoContiPanel, { contiInRecupero, azioniRecuperoOggi, limitazioniDaN
 import RecuperiPronoxPanel from './RecuperiPronox'
 import PagellaPronox from './PagellaPronox'
 import SessioneLivePanel from './SessioneLive'
+import ArchivioLucy from './ArchivioLucy'
 import AvvisiContiPanel from './AvvisiConti'
 import ProfilazioniMiratePanel from './ProfilazioniMirate'
 import { impostaPausaRecupero } from './RecuperoConti'
@@ -184,6 +185,15 @@ const [avvisiConti, setAvvisiConti] = useState(null)
 // 01/10/2026 — sezione della tab Profilazione da aprire (dai pulsanti "Oggi" o dal banner della Dashboard)
 const [sezioneDaAprire, setSezioneDaAprire] = useState(null)
 const [pronoxDaFare, setPronoxDaFare] = useState(0)
+// 02/10/2026 — decisioni sulle bet degli incroci: SALTATA (non torna) o RIMANDATA (Lucy la ripropone)
+const [lucyDecisioni, setLucyDecisioni] = useState([])
+useEffect(() => {
+  ;(async () => {
+    const { data, error } = await supabase.from('lucy_decisioni').select('*')
+      .gte('data', aggiungiGiorniLucy(new Date().toLocaleDateString('sv-SE'), -400)).order('creato', { ascending: true })
+    if (!error) setLucyDecisioni(data || [])
+  })()
+}, [])
 // 27/09/2026 — pausa profilazione
 const [pauseProf, setPauseProfState] = useState([])
 const [pausaForm, setPausaForm] = useState(null)   // { modo, ripresa } quando il pannello è aperto
@@ -738,6 +748,7 @@ useEffect(() => {
         const fatte = lucyConfermate.filter(x => String(x?.bookId) === String(r.book_id) && x.data === r.data && x.tipo === 'profilazione' && !x.recupero).length
         if (fatte >= Number(r.bet_numero)) continue
         if (lucyConfermate.some(x => x?.recuperoKey === r.key)) continue
+        if (lucyDecisioni.some(d => d.decisione === 'saltata' && String(d.book_id) === String(r.book_id) && d.data === r.data)) continue // saltata da Sergio
         const chiave = `lucy|${r.key}`
         if ((avvisiConti || []).some(a => a.chiave === chiave)) continue
         nuove.push({ chiave, tipo: 'lucy', book_id: String(book.id), titolo: `Bet di profilazione non fatta dal ${String(r.data).split('-').reverse().join('/')} (bet ${r.bet_numero}${r.bet_richieste ? '/' + r.bet_richieste : ''}, ~${Math.round(Number(r.stake) || 0)}€)`, sottotitolo: r.azione ? String(r.azione).slice(0, 140) : null, data_prevista: new Date().toLocaleDateString('sv-SE'), stato: 'aperto', meta: { origine: 'lucy', key: r.key } })
@@ -3081,6 +3092,7 @@ function calcolaRecuperiLucy(righe, dataOggi) {
     const fatte=lucyConfermate.filter(x=>String(x?.bookId)===String(r.book_id) && x.data===r.data && x.tipo==='profilazione' && !x.recupero).length
     if(fatte>=Number(r.bet_numero)) return                        // già coperta dalle bet confermate quel giorno
     if(lucyConfermate.some(x=>x?.recuperoKey===r.key)) return     // già recuperata
+    if(lucyDecisioni.some(d=>d.decisione==='saltata'&&String(d.book_id)===String(r.book_id)&&d.data===r.data)) return // 02/10/2026: saltata da Sergio
     out.push({ key:r.key, dataOrigine:r.data, book, betNumero:Number(r.bet_numero), betRichieste:Number(r.bet_richieste)||null,
       stake:Number(r.stake)||0, budgetTotale:Number(r.budget_totale)||0, azione:r.azione||'' })
   })
@@ -3258,7 +3270,7 @@ function bloccoIncrocioLucy(p, pi, numero) {
             ].filter(Boolean).join(' · ')
             const ridotta=a.coperturaSuggeritaTotale!=null && a.copertura100Totale!=null && Math.abs(Number(a.coperturaSuggeritaTotale)-Number(a.copertura100Totale))>0.005
             return (
-              <tr key={`${pi}-${ri}-${a.book.id}`} style={{background:ok?'#f0fdf4':'#fff',borderBottom:'1px solid #f1f5f9'}}>
+              <tr key={`${pi}-${ri}-${a.book.id}`} style={{background:ok?'#f0fdf4':(!ok&&decisioneBetLucy(key))?'#f1f5f9':'#fff',borderBottom:'1px solid #f1f5f9',opacity:(!ok&&decisioneBetLucy(key))?0.7:1}}>
                 <td style={{padding:'5px 8px'}}>
                   <div style={{fontWeight:900}}>{a.book.nome}</div>
                   <div style={{color:'#475569'}}>{a.book.intestatario}</div>
@@ -3283,8 +3295,17 @@ function bloccoIncrocioLucy(p, pi, numero) {
                 <td style={{padding:'4px 8px',textAlign:'right'}}>
                   {ok
                     ? <button onClick={()=>annullaSingolaBetLucy(key)} style={{background:'#16a34a',color:'white',border:0,borderRadius:6,padding:'6px 9px',fontSize:10,fontWeight:900,cursor:'pointer'}}>✓ FATTA</button>
-                    : <button disabled={!pronta} title={pronta?'':'Inserisci le quote per calcolare lo stake'} onClick={()=>confermaSingolaBetLucy(p,a,tipo)}
-                        style={{background:pronta?'#2563eb':'#94a3b8',color:'white',border:0,borderRadius:6,padding:'6px 9px',fontSize:10,fontWeight:900,cursor:pronta?'pointer':'not-allowed'}}>CONFERMA</button>}
+                    : decisioneBetLucy(key)
+                    ? <span style={{whiteSpace:'nowrap'}}>
+                        <b style={{fontSize:10,color:decisioneBetLucy(key).decisione==='saltata'?'#b91c1c':'#b45309'}}>{decisioneBetLucy(key).decisione==='saltata'?'⏭ SALTATA':'🔁 RIMANDATA'}</b>
+                        <button title="Annulla la decisione" onClick={()=>annullaDecisioneLucy(decisioneBetLucy(key))} style={{marginLeft:4,background:'white',border:'1px solid #cbd5e1',borderRadius:6,padding:'3px 6px',fontSize:10,cursor:'pointer'}}>↩</button>
+                      </span>
+                    : <span style={{whiteSpace:'nowrap'}}>
+                        <button disabled={!pronta} title={pronta?'':'Inserisci le quote per calcolare lo stake'} onClick={()=>confermaSingolaBetLucy(p,a,tipo)}
+                          style={{background:pronta?'#2563eb':'#94a3b8',color:'white',border:0,borderRadius:6,padding:'6px 9px',fontSize:10,fontWeight:900,cursor:pronta?'pointer':'not-allowed'}}>CONFERMA</button>
+                        <button title="Rimanda: Lucy la ripropone nei prossimi giorni" onClick={()=>decidiBetLucy(p,a,tipo,'rimandata')} style={{marginLeft:4,background:'#fef3c7',color:'#92400e',border:'1px solid #fcd34d',borderRadius:6,padding:'5px 7px',fontSize:10,fontWeight:900,cursor:'pointer'}}>🔁</button>
+                        <button title="Salta: non viene riproposta" onClick={()=>decidiBetLucy(p,a,tipo,'saltata')} style={{marginLeft:3,background:'#fee2e2',color:'#991b1b',border:'1px solid #fca5a5',borderRadius:6,padding:'5px 7px',fontSize:10,fontWeight:900,cursor:'pointer'}}>⏭</button>
+                      </span>}
                 </td>
               </tr>
             )
@@ -3365,12 +3386,56 @@ function confermaSingolaBetLucy(p,a,tipo='profilazione') {
   if (tipo==='recupero') chiudiAvvisiRecuperoDaLucy(a.book.id)
 }
 
-async function chiudiAvvisiRecuperoDaLucy(bookId) {
+async function chiudiAvvisiRecuperoDaLucy(bookId, esitoAvviso = 'bet di recupero confermata in Lucy') {
   const oggiIso=new Date().toLocaleDateString('sv-SE')
   const ids=(avvisiConti||[]).filter(x=>x.stato==='aperto'&&String(x.book_id)===String(bookId)&&x.data_prevista<=oggiIso&&((x.tipo==='recupero'&&x.meta?.azione==='periodica'&&recuperoSport(x.titolo))||x.meta?.origine==='saldo_fermo')).map(x=>x.id)
   if(!ids.length) return
-  const { data, error } = await supabase.from('avvisi_conti').update({ stato:'fatto', fatto_il:oggiIso, esito:'bet di recupero confermata in Lucy' }).in('id',ids).select()
+  const { data, error } = await supabase.from('avvisi_conti').update({ stato:'fatto', fatto_il:oggiIso, esito:esitoAvviso }).in('id',ids).select()
   if(!error&&data) setAvvisiConti(prev=>(prev||[]).map(x=>data.find(d=>d.id===x.id)||x))
+}
+
+// 02/10/2026 — ⏭ SALTA / 🔁 RIMANDA una bet degli incroci (tutto resta nell'archivio)
+// RIMANDATA: non cambia nulla nel motore → Lucy la ripropone nei prossimi giorni (profilazione: bet attese;
+//            recupero: l'avviso del recupero resta aperto; mantenimento: il conto resta da muovere).
+// SALTATA:   profilazione → non viene più riproposta; recupero → l'azione di oggi si chiude come saltata;
+//            mantenimento → vale per oggi (il conto va comunque mosso entro 60 giorni).
+// In entrambi i casi il conto esce dalle bet di OGGI (anche se rifai Prepara bet).
+function decisioneBetLucy(key) { return lucyDecisioni.find(d => d.chiave === key && d.data === lucyOggi()) }
+async function decidiBetLucy(p, a, tipo, decisione) {
+  const verbo = decisione === 'saltata' ? 'SALTARE' : 'RIMANDARE'
+  const motivo = window.prompt(`${verbo} la bet di ${a.book.nome} · ${a.book.intestatario || '—'} (${Number(a.stake || 0).toFixed(2)} € su ${a.esito})?\n\nMotivo (facoltativo):`, '')
+  if (motivo === null) return
+  const riga = { data: lucyOggi(), decisione, chiave: keyBetLucy(p, a, tipo), tipo, book_id: String(a.book.id), book_nome: a.book.nome,
+    intestatario: a.book.intestatario || null, partita: `${p.home} - ${p.away}`, sport: sportLabelLucy(p), mercato: p.mercato,
+    esito: a.esito, stake: Number(a.stake || 0), quota: Number(a.quota || 0), motivo: motivo.trim() || null }
+  const { data, error } = await supabase.from('lucy_decisioni').insert([riga]).select().single()
+  if (error) { setErrorMessage('Decisione non salvata: ' + error.message + ' (hai lanciato archivio_lucy.sql?)'); return }
+  setLucyDecisioni(prev => [...prev, data])
+  if (decisione === 'saltata' && tipo === 'recupero') chiudiAvvisiRecuperoDaLucy(a.book.id, 'bet di recupero SALTATA in Lucy')
+  setMessage(decisione === 'saltata' ? `⏭ Saltata: ${a.book.nome} · ${a.book.intestatario || '—'}` : `🔁 Rimandata: ${a.book.nome} · ${a.book.intestatario || '—'} — Lucy la ripropone nei prossimi giorni`)
+}
+async function annullaDecisioneLucy(d) {
+  if (!window.confirm(`Annullo "${d.decisione}" per ${d.book_nome} · ${d.intestatario || '—'}?`)) return
+  const { error } = await supabase.from('lucy_decisioni').delete().eq('id', d.id)
+  if (error) { setErrorMessage(error.message); return }
+  setLucyDecisioni(prev => prev.filter(x => x.id !== d.id))
+}
+// 02/10/2026 — ✓ GIOCATA su un gruppo del Casino Live di Lucy: finisce in live_sessioni (origine 'lucy') e nell'archivio
+async function giocataLiveLucy(p, pi) {
+  const gr = p.gruppo || []
+  if (!gr.length) return
+  const giri = window.prompt(`Gruppo live ${pi + 1} (${gr.length} conti): quanti giri avete giocato davvero?`, String(gr[0]?.ripetizioni || LUCY_LIVE_RIPETIZIONI))
+  if (giri === null) return
+  const giorno = lucyOggi()
+  const { count } = await supabase.from('live_sessioni').select('id', { count: 'exact', head: true }).eq('giorno', giorno)
+  const stake = Number(gr.find(g => g.tipo !== 'Sestina')?.stakeNumeroIndicativo || LUCY_LIVE_EURO_NUMERO || 10)
+  const { error } = await supabase.from('live_sessioni').insert([{
+    giorno, numero: (count || 0) + 1, origine: 'lucy', gruppo: `Lucy live ${pi + 1}`, stake, giri: Number(gr[0]?.ripetizioni || 0),
+    giri_fatti: Math.max(0, parseInt(giri, 10) || 0),
+    partecipanti: gr.map(g => ({ id: g.book.id, nome: g.book.nome, intestatario: g.book.intestatario, tipo: g.tipo, numeri: g.numeri || [] })),
+  }])
+  if (error) { setErrorMessage('Sessione live non salvata: ' + error.message); return }
+  setMessage(`🎰 Gruppo live ${pi + 1} registrato nell'archivio`)
 }
 
 function annullaSingolaBetLucy(key) {
@@ -3722,7 +3787,10 @@ function riepilogoManualeLucy(p, pi, righe) {
 async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
   // 26/09/2026: le azioni di RECUPERO dei conti limitati (anche dormienti) entrano negli incroci con il ruolo
   // "Recupero conto" e una puntata piccola (15-25€), non come Profilazione. Per il resto i dormienti restano fuori.
+  // 02/10/2026: i conti con una bet SALTATA o RIMANDATA oggi non vengono riproposti oggi
+  const decisiOggiLucy = new Set(lucyDecisioni.filter(d => d.data === lucyOggi()).map(d => String(d.book_id)))
   const agendaItems = (agendaItemsTutti || []).filter(x => x?.agenda?.tipo === 'recupero' || x?.book?.profilo_livello !== 'dormiente')
+    .filter(x => !decisiOggiLucy.has(String(x?.book?.id)))
   const sportItems = []
   const sportRegex = /(sport|bet\b|scommess|superquote|doppia|exchange)/i
   const casinoOnlyRegex = /(slot|casin[oò]|blackjack|roulette|numeri)/i
@@ -4148,6 +4216,7 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
       .filter(b => b.profilo_livello !== 'dormiente')
       .filter(b => !lucyMaiSport(b))                   // V45: i solo-casinò non fanno mai sport, nemmeno come copertura
       .filter(b => !idsProfilazioneOggiLucy.has(b.id)) // mai PROF + MANT sullo stesso conto nello stesso giorno
+      .filter(b => !decisiOggiLucy.has(String(b.id)))
       .filter(b => giorniDaUsoMant(b) > 0)             // già usato oggi: mai due volte
       .filter(b => idsMantOggi.has(b.id) || giorniDaUsoMant(b) >= LUCY_MANT_RIPOSO_GG)
       .sort((a,b) => (Number(idsMantOggi.has(b.id)) - Number(idsMantOggi.has(a.id))) || (giorniDaUsoMant(b) - giorniDaUsoMant(a)))
@@ -4163,6 +4232,7 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
       .filter(b => !b.sport_bloccato && !lucyMaiSport(b) && !limitazioniDaNota(b.note).includes('sport')) // limitati anche sport: non reggono una copertura. I DORMIENTI limitati SÌ: muoverli fa parte del recupero
       .filter(b => !/bet365|betfair|admiral/i.test(String(b.nome || '')))
       .filter(b => !idsBaseOggiLucy.has(b.id))
+      .filter(b => !decisiOggiLucy.has(String(b.id)))
 
     const proposte=[]
     const eventiUsatiPerBook = new Map()
@@ -7649,6 +7719,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
       {conSezione({ id: 'pagella', titolo: '📊 Pagella PronoX · i pronostici funzionano?', badge: '', colore: '#818cf8', aperta: false }, (
         <PagellaPronox onError={(e) => console.warn('[Pagella PronoX]', e)} />
       ))}
+      {/* 02/10/2026 — ARCHIVIO OPERAZIONI: tutto quello che hai fatto (o deciso di non fare) */}
+      {conSezione({ id: 'archivio', titolo: '📚 Archivio operazioni · cosa ho fatto', badge: '', colore: '#94a3b8', aperta: false }, (
+        <ArchivioLucy books={books} />
+      ))}
 
       {/* LUCY SPORT — proposta incroci dai dati PronoX */}
       {lucyVista === 'completa' && (
@@ -7977,6 +8051,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                     <td style={{border:'1px solid #ddd6fe',padding:6,textAlign:'center'}}>{g.ripetizioni||1}×</td>
                     <td style={{border:'1px solid #ddd6fe',padding:6,textAlign:'right',fontWeight:800}}>{Number(g.budgetTotale||g.budget||0).toFixed(2)} €</td>
                     <td style={{border:'1px solid #ddd6fe',padding:6,textAlign:'center',whiteSpace:'nowrap'}}>
+                      {gi===0 && <button title="Registra il gruppo come giocato (finisce nell'archivio)" onClick={()=>giocataLiveLucy(p,pi)} style={{background:'#16a34a',color:'white',border:0,borderRadius:6,padding:'3px 7px',fontWeight:900,fontSize:10,cursor:'pointer',marginRight:4}}>✓ Giocata</button>}
                       {gi===0 && <button title="Apre tutti i book del gruppo sui telefoni giusti" onClick={()=>apriContiSuTelefoni((p.gruppo||[]).map(x=>x.book), `il gruppo live ${pi+1}`)} style={{background:'#0ea5e9',color:'white',border:0,borderRadius:6,padding:'3px 7px',fontWeight:900,fontSize:10,cursor:'pointer',marginRight:4}}>📱 gruppo</button>}
                       <button title="Apri solo questo book" onClick={()=>apriContiSuTelefoni([g.book], `${g.book.nome} di ${g.book.intestatario}`)} style={{background:'#e0f2fe',color:'#0369a1',border:'1px solid #7dd3fc',borderRadius:6,padding:'3px 6px',fontSize:10,cursor:'pointer'}}>📱</button>
                     </td>
