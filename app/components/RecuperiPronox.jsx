@@ -82,9 +82,11 @@ export function usoConti(bets, oggi = new Date()) {
 const pianoDaDb = (p) => p ? { capitale: Number(p.capitale), N: Number(p.n_eventi), K: Number(p.k_vincite), quotaRif: Number(p.quota_rif), eventi_extra: Number(p.eventi_extra || 0) } : null
 
 // ─── componente ─────────────────────────────────────────────────────
-export default function RecuperiPronoxPanel({ books, recuperi, getRecuperoProtocollo, sitoBook, apriSuTelefoni, onMessage, onError, incorporato = false, onDaFare }) {
+export default function RecuperiPronoxPanel({ books, recuperi, getRecuperoProtocollo, sitoBook, apriSuTelefoni, onMessage, onError, incorporato = false, onDaFare, modo = 'completo' }) {
+  // modo 'tabella': dentro la Tabella bet di "Prepara bet" mostra solo proposta e bet da fare
   const [apertoProprio, setAperto] = useState(true)
-  const aperto = incorporato || apertoProprio // dentro una sezione a scomparsa: niente intestazione propria
+  const tabella = modo === 'tabella'
+  const aperto = tabella || incorporato || apertoProprio // dentro una sezione a scomparsa: niente intestazione propria
   const [piano, setPiano] = useState(null)
   const [bets, setBets] = useState([])
   const [righe, setRighe] = useState([])
@@ -197,7 +199,9 @@ export default function RecuperiPronoxPanel({ books, recuperi, getRecuperoProtoc
 
   // ─── viste ──────────────────────────────────────────────────────────
   const daFare = bets.filter(b => b.stato === 'da_fare' && !iniziata(b.event_start))
-  useEffect(() => { if (onDaFare) onDaFare(daFare.length) }, [daFare.length])
+  // conta le bet da fare + le partite proposte da Lucy non ancora confermate
+  const nProposte = scheda?.bets?.length || 0
+  useEffect(() => { if (onDaFare) onDaFare(daFare.length + nProposte) }, [daFare.length, nProposte])
   const scadute = bets.filter(b => b.stato === 'da_fare' && iniziata(b.event_start))
   const perPartita = (lista) => { const m = new Map(); for (const b of lista) { if (!m.has(b.event_id)) m.set(b.event_id, []); m.get(b.event_id).push(b) } return [...m.values()] }
   const conclusi = eventi.filter(e => e.esito !== 'attesa').slice(-20).reverse()
@@ -207,21 +211,23 @@ export default function RecuperiPronoxPanel({ books, recuperi, getRecuperoProtoc
 
   return (
     <div style={{ background: 'rgba(16,185,129,0.07)', border: '1px solid rgba(16,185,129,0.35)', borderRadius: 16, padding: '14px 16px', marginBottom: 16 }}>
-      {!incorporato && (<div onClick={() => setAperto(!aperto)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
+      {!incorporato && !tabella && (<div onClick={() => setAperto(!aperto)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
         <div style={{ fontWeight: 900, color: '#6ee7b7' }}>🎯 Recuperi con PronoX · Masaniello pilota {stato ? `· ${euro(stato.capitale)} · ${stato.vinte}V ${stato.perse}P` : ''} {daFare.length ? <span style={{ color: '#fbbf24' }}>· {daFare.length} bet da fare</span> : null}</div>
         <div style={{ color: '#94a3b8' }}>{aperto ? '▲' : '▼'}</div>
       </div>)}
       {aperto && (carico ? <div style={{ color: '#94a3b8', marginTop: 8 }}>Carico piano, fotografie ed esiti…</div> : !stato ? <div style={{ color: '#fca5a5', marginTop: 8 }}>Piano non trovato: lancia recupero_pronox.sql in Supabase.</div> : (
         <div style={{ marginTop: 10 }}>
           {/* stato del piano */}
-          <div style={{ ...box, display: 'flex', flexWrap: 'wrap', gap: 16, fontSize: 13, color: '#cbd5e1' }}>
+          {tabella ? (
+            <div style={{ fontSize: 12, color: '#c4b5fd', fontWeight: 800, marginBottom: 6 }}>🎯 Masaniello pilota · copertura 0 · capitale {euro(stato.capitale)} · {stato.vinte}V {stato.perse}P</div>
+          ) : <div style={{ ...box, display: 'flex', flexWrap: 'wrap', gap: 16, fontSize: 13, color: '#cbd5e1' }}>
             <span>Capitale <b>{euro(stato.capitale)}</b> (da {euro(stato.capitaleIniziale)})</span>
             <span>Obiettivo <b>{euro(stato.obiettivo)}</b></span>
             <span>Vincite mancanti <b>{stato.vinciteMancanti}</b> su <b>{stato.eventiRimasti}</b> eventi ({(stato.richiesta * 100).toFixed(1)}%)</span>
             <span>In attesa <b>{stato.inAttesa}</b> · nulle {stato.nulle}</span>
             <span>Conti disponibili <b>{conti.length}</b></span>
             <span style={{ color: '#94a3b8' }}>Stato: {stato.stato}</span>
-          </div>
+          </div>}
           {stato.avviso.livello !== 'ok' && (
             <div style={{ ...box, borderColor: stato.avviso.livello === 'rosso' ? '#ef4444' : '#f59e0b', color: stato.avviso.livello === 'rosso' ? '#fca5a5' : '#fcd34d' }}>
               {stato.avviso.livello === 'rosso' ? '🛑 ' : '⚠️ '}{stato.avviso.testo}
@@ -243,7 +249,7 @@ export default function RecuperiPronoxPanel({ books, recuperi, getRecuperoProtoc
               <button disabled={lavoro} onClick={confermaScheda} style={btn('#059669')}>✓ Conferma scheda</button>
             </div>
           )}
-          {scheda.bets.length === 0 && !daFare.length && <div style={{ ...box, color: '#94a3b8', fontSize: 13 }}>Nessuna partita PronoX nella fascia 1,40-1,60 nelle prossime 48 ore.</div>}
+          {scheda.bets.length === 0 && !daFare.length && !tabella && <div style={{ ...box, color: '#94a3b8', fontSize: 13 }}>Nessuna partita PronoX nella fascia 1,40-1,60 nelle prossime 48 ore.</div>}
 
           {/* bet da fare */}
           {perPartita(daFare).map(gr => (
@@ -264,7 +270,7 @@ export default function RecuperiPronoxPanel({ books, recuperi, getRecuperoProtoc
           {scadute.length > 0 && <div style={{ ...box, color: '#94a3b8', fontSize: 12 }}>⏱️ {scadute.length} bet non piazzate prima del fischio d'inizio: non contano nel piano.</div>}
 
           {/* ultimi esiti */}
-          {conclusi.length > 0 && (
+          {!tabella && conclusi.length > 0 && (
             <div style={box}>
               <div style={{ fontWeight: 800, color: '#cbd5e1', marginBottom: 4 }}>Ultimi esiti</div>
               {conclusi.map(e => { const b = nomePartita(e.event_id); const diff = e.incasso - e.puntata; return (
@@ -273,7 +279,8 @@ export default function RecuperiPronoxPanel({ books, recuperi, getRecuperoProtoc
                 </div>) })}
             </div>
           )}
-          <button onClick={carica} style={btn('#334155')}>↻ Aggiorna</button>
+          {!tabella && <button onClick={carica} style={btn('#334155')}>↻ Aggiorna</button>}
+          {tabella && scheda.bets.length === 0 && !daFare.length && <div style={{ fontSize: 12, color: '#94a3b8' }}>Nessuna bet del Masaniello da fare adesso.</div>}
         </div>
       ))}
     </div>
