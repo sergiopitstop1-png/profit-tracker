@@ -16,6 +16,7 @@ import RecuperiPronoxPanel from './RecuperiPronox'
 import PagellaPronox from './PagellaPronox'
 import SessioneLivePanel from './SessioneLive'
 import ArchivioLucy from './ArchivioLucy'
+import RegoleMantenimento, { regolaMantPer, passiStakeMant } from './RegoleMantenimento'
 import AvvisiContiPanel from './AvvisiConti'
 import ProfilazioniMiratePanel from './ProfilazioniMirate'
 import { impostaPausaRecupero } from './RecuperoConti'
@@ -31,6 +32,10 @@ const aggiungiGiorniLucy = (d, n) => new Date(new Date(d + 'T00:00:00').getTime(
 let PAUSE_PROF = []
 // 28/09/2026 — conti dentro una PROFILAZIONE MIRATA: la loro profilazione casinò normale è sostituita dal gruppo
 let MIRATE_IDS = new Set()
+// 02/10/2026 — REGOLE DI MANTENIMENTO DINAMICHE: le decide Sergio (tabella regole_mantenimento), generale + per bookmaker.
+// Valori di partenza = le vecchie costanti (60 giorni, dal 45°, 5-30 €, 1 bet, riposo coperture 28 gg).
+let REGOLE_MANT = {}
+const regolaMant = (book) => regolaMantPer(REGOLE_MANT, book)
 const RE_CASINO_MIRATE = /(slot|casin[oò]|live|roulette|blackjack|baccarat|numeri|spin|vxt)/i
 import DashboardTab from './DashboardTab'
 import AccantonamentiTab from './AccantonamentiTab'
@@ -185,6 +190,13 @@ const [avvisiConti, setAvvisiConti] = useState(null)
 // 01/10/2026 — sezione della tab Profilazione da aprire (dai pulsanti "Oggi" o dal banner della Dashboard)
 const [sezioneDaAprire, setSezioneDaAprire] = useState(null)
 const [pronoxDaFare, setPronoxDaFare] = useState(0)
+const [regoleMant, setRegoleMantStato] = useState({})
+const setRegoleMant = (r) => { REGOLE_MANT = r || {}; setRegoleMantStato(REGOLE_MANT) }
+useEffect(() => {
+  supabase.from('regole_mantenimento').select('*').then(({ data, error }) => {
+    if (!error && data) setRegoleMant(Object.fromEntries(data.map(r => [r.chiave, r])))
+  })
+}, [])
 // 02/10/2026 — decisioni sulle bet degli incroci: SALTATA (non torna) o RIMANDATA (Lucy la ripropone)
 const [lucyDecisioni, setLucyDecisioni] = useState([])
 useEffect(() => {
@@ -2088,20 +2100,22 @@ function getAzioniOggiBase(book) {
     // movimentato. Prima bastava saltare il giorno esatto per restare fermi altri 60 giorni.
     // Senza storico vale la prima scadenza del protocollo: giorno zero + offset stabile del conto.
     const oggiStr = lucyOggi()
-    const offset = hashBook(book.id, 6060) % 60
+    const regola = regolaMant(book)   // 02/10/2026: regole dinamiche (generale o del bookmaker)
+    const offset = hashBook(book.id, 6060) % regola.ogni_giorni
     const dovutoIniziale = aggiungiGiorniLucy(MANT_GIORNO_ZERO, offset)
     const ultimo = ultimoMovimentoBookLucy(book.id)
     if (bookInPausaOggi(book)) return null   // 27/09/2026: profilazione in pausa
     const pausaDaUltimo = ultimo ? giorniPausaBook(book, ultimo, oggiStr) : giorniPausaBook(book, dovutoIniziale, oggiStr)
-    const prossima = ultimo ? aggiungiGiorniLucy(ultimo, MANT_LIMITE_GG - MANT_ANTICIPO_GG + pausaDaUltimo) : aggiungiGiorniLucy(dovutoIniziale, pausaDaUltimo)
+    const prossima = ultimo ? aggiungiGiorniLucy(ultimo, regola.ogni_giorni - regola.anticipo_giorni + pausaDaUltimo) : aggiungiGiorniLucy(dovutoIniziale, pausaDaUltimo)
     if (oggiStr < prossima) return null
     // "scaduto" solo se c'è uno storico che lo prova (≥ 60 giorni dall'ultimo movimento). Senza storico non si
     // può sapere da quanto il conto è fermo: se la prima scadenza del protocollo è passata è solo "in ritardo".
-    const scaduto = ultimo ? giorniTraLucy(ultimo, oggiStr) - pausaDaUltimo >= MANT_LIMITE_GG : false
+    const scaduto = ultimo ? giorniTraLucy(ultimo, oggiStr) - pausaDaUltimo >= regola.ogni_giorni : false
     const ritardo = !ultimo && oggiStr > dovutoIniziale
     const badge = scaduto ? '🔴 Mantenimento SCADUTO' : ritardo ? '🟠 Mantenimento in ritardo' : '🟡 Mantenimento'
-    if (isSoloCasino(book.nome)) return { tipo: 'mantenimento', scaduto, ritardo, azioni: ['Sessione Casinò/slot da 5-30€'], badge }
-    return { tipo: 'mantenimento', scaduto, ritardo, azioni: ['1 bet sportiva da 5-30€'], badge }
+    const casino = regola.gioco === 'casino' || (regola.gioco === 'auto' && isSoloCasino(book.nome))
+    if (casino) return { tipo: 'mantenimento', scaduto, ritardo, azioni: [`Sessione Casinò/slot da ${regola.stake_min}-${regola.stake_max}€`], badge }
+    return { tipo: 'mantenimento', scaduto, ritardo, azioni: [`${regola.numero_bet} bet sportiv${regola.numero_bet > 1 ? 'e' : 'a'} da ${regola.stake_min}-${regola.stake_max}€`], badge }
   }
   return null
 }
@@ -2677,6 +2691,8 @@ function getNumeroBetRichieste(azione = '') {
   if (/10-15\s*bet/.test(a)) return 10
   if (/\b4\s*bet\b/.test(a)) return 4      // 24/09/2026: gruppo Lottomatica "Sport 100€ su 4 bet"
   if (/\b2\s*bet\b/.test(a)) return 2      // V51: "Sport 50€ su 2 bet"
+  const nMant = a.match(/\b(\d+)\s*bet\s*sportiv/)   // 02/10/2026: mantenimento con N bet (regole dinamiche)
+  if (nMant) return Math.max(1, Number(nMant[1]))
   return 1
 }
 
@@ -3557,12 +3573,12 @@ function normalizzaProbPronoxLucy(prob) {
 }
 
 // ── Parametri coperture di mantenimento (V29) ─────────────────────────────
-const LUCY_MANT_MIN = 5          // puntata minima su un conto di mantenimento
-const LUCY_MANT_MAX = 30         // puntata massima su un conto di mantenimento
+const LUCY_MANT_MIN = regolaMant(null).stake_min   // puntata minima su un conto di mantenimento (regola generale)
+const LUCY_MANT_MAX = regolaMant(null).stake_max   // puntata massima su un conto di mantenimento (regola generale)
 const LUCY_MANT_MAX_TOT = 90     // oltre questo buco totale: una sola puntata extra su un conto in profilazione
 const LUCY_MANUALI_MAX = 12         // V38: massimo incroci in modalità manuale (senza quote) per volta
 const LUCY_RECUPERO_MAX_GG = 90    // 27/09/2026 (era 3): una bet arretrata di profilazione si ripropone finché il conto è in profilazione, in coda dopo quelle del giorno
-const LUCY_MANT_RIPOSO_GG = 28   // giorni di riposo tra due usi dello stesso conto (soglia inattività 45)
+const LUCY_MANT_RIPOSO_GG = regolaMant(null).riposo_giorni   // riposo tra due usi dello stesso conto (regola generale; ogni book può avere il suo)
 
 // V30: assegnazione degli esiti ai conti di profilazione a COSTO MINIMO (solo senza segnale PronoX).
 // Con coperture complete il costo dell'incrocio è R*(somma(1/quota)-1), dove R = max sugli esiti di
@@ -3597,7 +3613,7 @@ function stakeMantenimentoProtocolloLucy(book) {
   let x=seed
   x=Math.imul(x^(x>>>15),x|1); x^=x+Math.imul(x^(x>>>7),x|61)
   const r=((x^(x>>>14))>>>0)/4294967296
-  const passi=[5,10,15,20,25,30]
+  const passi=passiStakeMant(regolaMant(book))   // 02/10/2026: dal minimo al massimo della regola, a passi di 5 €
   return passi[Math.min(passi.length-1,Math.floor(r*passi.length))]
 }
 
@@ -4218,7 +4234,8 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
       .filter(b => !idsProfilazioneOggiLucy.has(b.id)) // mai PROF + MANT sullo stesso conto nello stesso giorno
       .filter(b => !decisiOggiLucy.has(String(b.id)))
       .filter(b => giorniDaUsoMant(b) > 0)             // già usato oggi: mai due volte
-      .filter(b => idsMantOggi.has(b.id) || giorniDaUsoMant(b) >= LUCY_MANT_RIPOSO_GG)
+      .filter(b => idsMantOggi.has(b.id) || giorniDaUsoMant(b) >= regolaMant(b).riposo_giorni) // riposo del suo bookmaker
+      .filter(b => regolaMant(b).gioco !== 'casino')   // regola "sempre casinò": niente coperture sport
       .sort((a,b) => (Number(idsMantOggi.has(b.id)) - Number(idsMantOggi.has(a.id))) || (giorniDaUsoMant(b) - giorniDaUsoMant(a)))
     const usoMant = new Set()
     const usatiMantOggiLucy = new Set() // un conto di mantenimento = una sola bet al giorno
@@ -7426,7 +7443,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         const rete = riepilogoMantenimento60Lucy()
         const cicli = riepilogoPostCicloLucy()
         const problemi = []
-        if (rete.scaduti > 0) problemi.push(`${rete.scaduti} conti in mantenimento scaduti (≥${MANT_LIMITE_GG} gg)`)
+        if (rete.scaduti > 0) problemi.push(`${rete.scaduti} conti in mantenimento scaduti (≥${regolaMant(null).ogni_giorni} gg)`)
         if (cicli.daRiavviare > 0) problemi.push(`${cicli.daRiavviare} cicli di profilazione da riavviare`)
         if (lucySync.stato === 'errore') problemi.push('storico Lucy non sincronizzato')
         if (lucyOddsCrediti?.remaining != null && Number(lucyOddsCrediti.remaining) < 100) problemi.push('datapoint TheRundown quasi finiti')
@@ -7570,7 +7587,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             <div style={{ fontSize: 13, fontWeight: 800, color: '#93c5fd', marginBottom: 10 }}>📋 {giornoLabel} — {agendaOggi.length} account da movimentare oggi <span style={{ fontSize: 11, fontWeight: 400, color: '#64748b' }}>({agendaOggi.filter(x => x.agenda.tipo === 'attivo').length} attivi · {agendaOggi.filter(x => x.agenda.tipo !== 'attivo' && x.agenda.tipo !== 'recupero').length} mantenimento{agendaOggi.some(x => x.agenda.tipo === 'recupero') ? ` · ${agendaOggi.filter(x => x.agenda.tipo === 'recupero').length} recupero` : ''})</span></div>
             {lucyVista === 'completa' && (() => { const r = riepilogoMantenimento60Lucy(); return (
               <div style={{ fontSize: 11, marginBottom: 8, padding: '6px 9px', borderRadius: 8, background: r.scaduti > 0 ? 'rgba(239,68,68,.10)' : 'rgba(34,197,94,.08)', border: r.scaduti > 0 ? '1px solid rgba(239,68,68,.35)' : '1px solid rgba(34,197,94,.30)', color: r.scaduti > 0 ? '#fca5a5' : '#86efac' }}>
-                🛡️ Rete {MANT_LIMITE_GG} giorni · {r.totale} conti in mantenimento: {r.ok} in regola · {r.daFare} da movimentare (≥{MANT_LIMITE_GG - MANT_ANTICIPO_GG} gg) · <b>{r.scaduti} scaduti (≥{MANT_LIMITE_GG} gg)</b> · {r.inAttesa} senza storico, prima scadenza da protocollo
+                🛡️ Rete {regolaMant(null).ogni_giorni} giorni · {r.totale} conti in mantenimento: {r.ok} in regola · {r.daFare} da movimentare (≥{regolaMant(null).ogni_giorni - regolaMant(null).anticipo_giorni} gg) · <b>{r.scaduti} scaduti (≥{regolaMant(null).ogni_giorni} gg)</b> · {r.inAttesa} senza storico, prima scadenza da protocollo
               </div>) })()}
             {lucyVista === 'completa' && (() => { const r = riepilogoPostCicloLucy(); return (r.inCiclo + r.fineCiclo + r.daRiavviare) > 0 ? (
               <div style={{ fontSize: 11, marginBottom: 8, padding: '6px 9px', borderRadius: 8, background: r.daRiavviare > 0 ? 'rgba(249,115,22,.10)' : 'rgba(168,85,247,.08)', border: r.daRiavviare > 0 ? '1px solid rgba(249,115,22,.35)' : '1px solid rgba(168,85,247,.30)', color: r.daRiavviare > 0 ? '#fdba74' : '#d8b4fe' }}>
@@ -7636,15 +7653,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 
           {/* MANTENIMENTO V2 */}
           {(lucyVista === 'completa' || mostraLegendaMant) && (
-  <div style={{ background: 'rgba(11,18,32,0.7)', border: '1px solid rgba(51,65,85,0.85)', borderRadius: 16, padding: '14px 16px' }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: '#f8fafc', marginBottom: 10 }}>📖 Mantenimento unico</div>
-            <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.6 }}>
-              <div>🟡 <b>Una movimentazione almeno ogni 60 giorni</b> (si propone dal 45° giorno), puntata <b>variabile da 5 a 30€</b>.</div>
-              <div>⚽ Book Sport: 1 bet sportiva da 5 a 30€.</div>
-              <div>🎰 Solo Casinò: sessione Casinò/slot da 5 a 30€.</div>
-              <div style={{ marginTop: 6, color: '#94a3b8' }}>I Dormienti non entrano nell'agenda. La scelta dello stato resta sempre manuale.</div>
-            </div>
-          </div>
+  <RegoleMantenimento regole={regoleMant} setRegole={setRegoleMant} books={books} onMessage={setMessage} onError={setErrorMessage} />
   )}
 
         </div>
