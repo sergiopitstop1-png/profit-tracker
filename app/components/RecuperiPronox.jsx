@@ -82,7 +82,7 @@ export function usoConti(bets, oggi = new Date()) {
 const pianoDaDb = (p) => p ? { capitale: Number(p.capitale), N: Number(p.n_eventi), K: Number(p.k_vincite), quotaRif: Number(p.quota_rif), eventi_extra: Number(p.eventi_extra || 0) } : null
 
 // ─── componente ─────────────────────────────────────────────────────
-export default function RecuperiPronoxPanel({ books, recuperi, getRecuperoProtocollo, sitoBook, apriSuTelefoni, onMessage, onError, incorporato = false, onDaFare, modo = 'completo' }) {
+export default function RecuperiPronoxPanel({ books, recuperi, getRecuperoProtocollo, sitoBook, apriSuTelefoni, onMessage, onError, incorporato = false, onDaFare, modo = 'completo', apriContiSuTelefoni }) {
   // modo 'tabella': dentro la Tabella bet di "Prepara bet" mostra solo proposta e bet da fare
   const [apertoProprio, setAperto] = useState(true)
   const tabella = modo === 'tabella'
@@ -242,7 +242,13 @@ export default function RecuperiPronoxPanel({ books, recuperi, getRecuperoProtoc
               {scheda.bets.map(b => (
                 <div key={b.event_id} style={{ fontSize: 12, color: '#cbd5e1', marginBottom: 6 }}>
                   <b>{quando(b.event_start)}</b> · {b.partita} · <b>{b.esito}</b> · prob {(b.prob * 100).toFixed(1)}% · quota min <b>{String(b.quotaMinima).replace('.', ',')}</b> · puntata <b>{euro(b.puntata)}</b>
-                  <div style={{ color: '#94a3b8' }}>{b.pezzi.map(z => `${z.nome} · ${z.intestatario} ${euro(z.importo)}${z.tipo === 'sport' ? ' (sport)' : ''}`).join('  |  ')}</div>
+                  <div style={{ color: '#94a3b8', display: 'flex', flexWrap: 'wrap', gap: '4px 10px', alignItems: 'center', marginTop: 3 }}>
+                    {apriContiSuTelefoni && b.pezzi.length > 1 && <button onClick={() => apriContiSuTelefoni(b.pezzi.map(z => bookDi(z)), `${b.partita} (${b.pezzi.length} conti)`)} style={btn('#0ea5e9')}>📱 Apri tutti ({b.pezzi.length})</button>}
+                    {b.pezzi.map(z => (
+                      <span key={z.book_id} onClick={() => apriSuTelefoni(z.nome, sitoBook(bookDi(z)), [z.intestatario])} title="Clic: apri questo book sul suo telefono" style={{ cursor: 'pointer', textDecoration: 'underline dotted' }}>
+                        📱 {z.nome} · {z.intestatario} {euro(z.importo)}{z.tipo === 'sport' ? ' (sport)' : ''}
+                      </span>))}
+                  </div>
                   {b.nonCollocato > 0 && <div style={{ color: '#fca5a5' }}>⚠️ {euro(b.nonCollocato)} non collocati: conti al tetto settimanale</div>}
                 </div>
               ))}
@@ -254,7 +260,10 @@ export default function RecuperiPronoxPanel({ books, recuperi, getRecuperoProtoc
           {/* bet da fare */}
           {perPartita(daFare).map(gr => (
             <div key={gr[0].event_id} style={box}>
-              <div style={{ fontSize: 13, color: '#e2e8f0', marginBottom: 4 }}><b>{quando(gr[0].event_start)}</b> · {gr[0].partita} · <b>{gr[0].esito_label}</b> · quota min <b>{String(gr[0].quota_minima).replace('.', ',')}</b></div>
+              <div style={{ fontSize: 13, color: '#e2e8f0', marginBottom: 4, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span><b>{quando(gr[0].event_start)}</b> · {gr[0].partita} · <b>{gr[0].esito_label}</b> · quota min <b>{String(gr[0].quota_minima).replace('.', ',')}</b></span>
+                {apriContiSuTelefoni && gr.length > 1 && <button onClick={() => apriContiSuTelefoni(gr.map(b => bookDi(b)), `${gr[0].partita} (${gr.length} conti)`)} style={btn('#0ea5e9')}>📱 Apri tutti ({gr.length})</button>}
+              </div>
               {gr.map(b => (
                 <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: '#cbd5e1', padding: '3px 0' }}>
                   <span>{b.book_nome} · {b.intestatario} · <b>{euro(b.importo)}</b>{b.tipo === 'sport' ? ' (sport)' : ''}</span>
