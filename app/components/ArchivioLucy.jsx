@@ -99,14 +99,20 @@ export function righeLive(rows) {
   }
   return out
 }
-export function righeMirate(rows, books) {
+export function righeMirate(rows, books, sessioni = []) {
   const out = []
-  for (const f of rows || []) for (const id of f.conti || []) {
-    const b = (books || []).find(x => String(x.id) === String(id))
-    out.push({
-      quando: f.creato || f.data, data: f.data, origine: 'Profilazione mirata', tipo: 'casino live', cliente: b?.intestatario || '?',
-      book: b?.nome || `conto ${id}`, evento: f.nome_gruppo, giocata: '', importo: null, quota: null, stato: 'FATTA', esito: '', pl: null, note: '',
-    })
+  for (const f of rows || []) {
+    // se quel giorno il gruppo è stato giocato con 🎰 Numeri, la sessione live ha già conti, numeri e importi:
+    // qui non si ripete (02/10/2026)
+    if ((sessioni || []).some(s => s.origine === 'mirata' && s.gruppo === f.nome_gruppo && s.giorno === f.data)) continue
+    for (const id of f.conti || []) {
+      const b = (books || []).find(x => String(x.id) === String(id))
+      out.push({
+        quando: f.creato || f.data, data: f.data, origine: 'Profilazione mirata', tipo: 'casino live', cliente: b?.intestatario || '?',
+        book: b?.nome || `conto ${id}`, evento: f.nome_gruppo, giocata: '', importo: num(f.importo_per_conto), quota: null, stato: 'FATTA', esito: '', pl: null,
+        note: f.importo_per_conto == null ? 'importo non indicato' : '',
+      })
+    }
   }
   return out
 }
@@ -140,8 +146,9 @@ export default function ArchivioLucy({ books }) {
       }
       return righeMasaniello(bets, esiti)
     })
-    await prova('Casino live', async () => righeLive(await tutte(() => supabase.from('live_sessioni').select('*').gte('giorno', da).order('creato', { ascending: false }))))
-    await prova('Profilazioni mirate', async () => righeMirate(await tutte(() => supabase.from('profilazioni_mirate_fatte').select('*').gte('data', da).order('data', { ascending: false })), books))
+    let sessioniLive = []
+    await prova('Casino live', async () => { sessioniLive = await tutte(() => supabase.from('live_sessioni').select('*').gte('giorno', da).order('creato', { ascending: false })); return righeLive(sessioniLive) })
+    await prova('Profilazioni mirate', async () => righeMirate(await tutte(() => supabase.from('profilazioni_mirate_fatte').select('*').gte('data', da).order('data', { ascending: false })), books, sessioniLive))
     tutto.sort((a, b) => String(b.quando || b.data).localeCompare(String(a.quando || a.data)))
     setRighe(tutto); setAvvisi(note); setCarico(false)
   }, [periodo, books])
