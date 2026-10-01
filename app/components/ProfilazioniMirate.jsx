@@ -117,10 +117,20 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
     setGruppi(prev => prev.map(x => x.id === g.id ? { ...x, prossima_manuale: iso } : x))
     onMessage(iso ? `📅 ${g.nome}: prossima il ${dataIt(iso)}` : `📅 ${g.nome}: cadenza automatica ogni ${g.ogni_giorni} giorni`)
   }
-  async function fatta(g) {
+  async function fatta(g, daSessione = false) {
     const nomi = g.conti.map(bookDi).filter(Boolean).map(b => `${b.nome} – ${b.intestatario || '—'}`)
     if (!window.confirm(`✅ Operazione fatta su "${g.nome}" oggi?\n\n${nomi.join('\n')}`)) return
-    const { data, error } = await supabase.from('profilazioni_mirate_fatte').insert([{ gruppo_id: g.id, nome_gruppo: g.nome, data: oggi, conti: g.conti }]).select().single()
+    // 02/10/2026: l'importo resta nell'archivio. Se arrivi da 🎰 Numeri gli importi sono già nella sessione salvata.
+    let importo = null
+    if (!daSessione) {
+      const t = window.prompt(`Quanto ha giocato OGNI conto di "${g.nome}" in questa operazione? (€)\nServe per l'archivio. Lascia vuoto se non vuoi indicarlo.`, '')
+      if (t === null) return
+      const v = Number(String(t).replace(',', '.'))
+      importo = String(t).trim() && Number.isFinite(v) && v > 0 ? v : null
+    }
+    const riga = { gruppo_id: g.id, nome_gruppo: g.nome, data: oggi, conti: g.conti }
+    if (importo != null) riga.importo_per_conto = importo
+    const { data, error } = await supabase.from('profilazioni_mirate_fatte').insert([riga]).select().single()
     if (error) { onError('Non registrata: ' + error.message); return }
     setFatte(prev => [...prev, data])
     onMessage(`✅ ${g.nome} registrata`)
@@ -226,7 +236,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
                   <div style={{ marginTop: 8 }}>
                     <SessioneLivePanel books={books} contiIniziali={conti} origine="mirata" gruppo={g.nome}
                       apriContiSuTelefoni={apriSuTelefoni} onMessage={onMessage} onError={onError}
-                      onSalvata={() => { setNumeri(null); fatta(g) }} />
+                      onSalvata={() => { setNumeri(null); fatta(g, true) }} />
                   </div>
                 )}
                 {nonProf.length > 0 && (
