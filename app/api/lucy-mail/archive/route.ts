@@ -44,6 +44,8 @@ type UnifiedRow = {
   richiede_azione: boolean | null
 
   letta: boolean | null
+  archiviata: boolean
+
   feedback_utente: string | null
   feedback_note: string | null
 }
@@ -51,17 +53,6 @@ type UnifiedRow = {
 /* =========================================================
    CATEGORIE
    ========================================================= */
-
-const OPPORTUNITY_CATEGORIES = [
-  'BONUS',
-  'FREEBET',
-  'CASHBACK',
-  'PROMO_DEPOSITO',
-  'PROMO_CASINO',
-  'PROMO_SLOT',
-  'PROMO_PERSONALIZZATA',
-  'RIMBORSO',
-]
 
 const PROBLEM_CATEGORIES = [
   'KYC',
@@ -187,17 +178,26 @@ function normalizeEmail(row: any): UnifiedRow {
     cliente_nome: row.cliente_nome ?? null,
     bookmaker: row.bookmaker ?? null,
     mittente: row.mittente ?? null,
+
     destinatario_originale:
       row.destinatario_originale ?? null,
 
     oggetto: row.oggetto ?? null,
+
     testo_completo:
       row.testo_completo ?? null,
 
-    categoria: row.categoria ?? null,
-    giudizio: row.giudizio ?? null,
-    priorita: row.priorita ?? null,
-    confidenza: row.confidenza ?? null,
+    categoria:
+      row.categoria ?? null,
+
+    giudizio:
+      row.giudizio ?? null,
+
+    priorita:
+      row.priorita ?? null,
+
+    confidenza:
+      row.confidenza ?? null,
 
     tipo_offerta:
       row.tipo_offerta ?? null,
@@ -225,6 +225,9 @@ function normalizeEmail(row: any): UnifiedRow {
 
     letta:
       row.letta ?? false,
+
+    archiviata:
+      row.archiviata ?? false,
 
     feedback_utente:
       row.feedback_utente ?? null,
@@ -308,6 +311,9 @@ function normalizeSms(row: any): UnifiedRow {
     letta:
       row.letta ?? false,
 
+    archiviata:
+      row.archiviata ?? false,
+
     feedback_utente:
       row.feedback_utente ?? null,
 
@@ -319,8 +325,11 @@ function normalizeSms(row: any): UnifiedRow {
 /* =========================================================
    CLASSIFICAZIONE DELLA VISTA
 
-   IMPORTANTE:
-   ogni comunicazione appartiene a UNA SOLA vista.
+   Ogni comunicazione NON archiviata
+   appartiene a una sola vista operativa.
+
+   Le comunicazioni archiviate appartengono
+   esclusivamente alla vista "archiviate".
    ========================================================= */
 
 type LucyBucket =
@@ -331,9 +340,6 @@ type LucyBucket =
   | 'da_analizzare'
 
 function getBucket(row: UnifiedRow): LucyBucket {
-  /*
-   * Non ancora analizzata.
-   */
   if (
     !row.giudizio ||
     row.giudizio === 'DA_ANALIZZARE'
@@ -343,10 +349,6 @@ function getBucket(row: UnifiedRow): LucyBucket {
 
   /*
    * IGNORA ha precedenza sui problemi.
-   *
-   * Esempio:
-   * OTP classificato SICUREZZA + IGNORA
-   * NON deve diventare un problema.
    */
   if (row.giudizio === 'IGNORA') {
     return 'ignora'
@@ -354,12 +356,6 @@ function getBucket(row: UnifiedRow): LucyBucket {
 
   /*
    * Problema operativo reale.
-   *
-   * Non basta appartenere a KYC / PRELIEVO /
-   * SICUREZZA ecc.
-   *
-   * Lucy deve aver indicato che Sergio deve
-   * effettivamente intervenire.
    */
   if (
     row.giudizio === 'DA_VALUTARE' &&
@@ -373,32 +369,18 @@ function getBucket(row: UnifiedRow): LucyBucket {
 
   /*
    * Opportunità economica.
-   *
-   * UTILE viene mostrato come opportunità.
-   * Per i dati storici manteniamo compatibilità
-   * con le analisi già salvate.
    */
   if (row.giudizio === 'UTILE') {
     return 'opportunita'
   }
 
   /*
-   * Tutto il resto che Lucy considera
-   * DA_VALUTARE rimane da valutare.
-   *
-   * Esempi:
-   * - KYC completato
-   * - registrazione completata
-   * - comunicazione tecnica
-   * - informazione operativa non urgente
+   * Comunicazione da valutare.
    */
   if (row.giudizio === 'DA_VALUTARE') {
     return 'da_valutare'
   }
 
-  /*
-   * Fallback prudente.
-   */
   return 'da_valutare'
 }
 
@@ -410,6 +392,28 @@ function matchesVista(
   row: UnifiedRow,
   vista: string | null
 ) {
+  /*
+   * ARCHIVIATE:
+   * mostra esclusivamente ciò che Sergio
+   * ha deciso di archiviare.
+   */
+  if (vista === 'archiviate') {
+    return row.archiviata === true
+  }
+
+  /*
+   * Tutte le altre viste sono operative.
+   * Una comunicazione archiviata NON deve
+   * più comparire qui.
+   */
+  if (row.archiviata === true) {
+    return false
+  }
+
+  /*
+   * TUTTE significa tutte le comunicazioni
+   * ancora operative, non quelle archiviate.
+   */
   if (!vista || vista === 'tutte') {
     return true
   }
@@ -535,25 +539,35 @@ function matchesFilters(
 }
 
 /* =========================================================
-   CONTATORI
+   CONTATORI OPERATIVI
 
-   Le categorie sono MUTUAMENTE ESCLUSIVE.
-   La loro somma deve quindi essere uguale a "tutte".
+   Le comunicazioni archiviate NON entrano
+   nei contatori operativi.
+
+   "archiviate" ha un contatore separato.
    ========================================================= */
 
 function getCounters(
   rows: UnifiedRow[]
 ) {
   const counters = {
-    tutte: rows.length,
+    tutte: 0,
     opportunita: 0,
     da_valutare: 0,
     problemi: 0,
     ignora: 0,
     da_analizzare: 0,
+    archiviate: 0,
   }
 
   for (const row of rows) {
+    if (row.archiviata) {
+      counters.archiviate++
+      continue
+    }
+
+    counters.tutte++
+
     const bucket =
       getBucket(row)
 
@@ -750,8 +764,7 @@ export async function GET(
      * CONTATORI
      *
      * Rispettano periodo e canale.
-     * Non rispettano la vista selezionata,
-     * così le schede rimangono sempre navigabili.
+     * Le archiviate hanno un contatore separato.
      */
     const rowsForCounters =
       allRows.filter(row =>
@@ -876,6 +889,7 @@ export async function PATCH(
       feedback_utente,
       feedback_note,
       letta,
+      archiviata,
     } = body
 
     let realId =
@@ -890,7 +904,7 @@ export async function PATCH(
           : null
 
     /*
-     * Nuovo ID:
+     * ID unificato:
      * EMAIL:123
      * SMS:uuid
      */
@@ -974,6 +988,19 @@ export async function PATCH(
       patch.letta = letta
     }
 
+    /*
+     * ARCHIVIA / RIPRISTINA
+     *
+     * true  = finisce nelle Archiviate
+     * false = torna nelle viste operative
+     */
+    if (
+      archiviata !== undefined
+    ) {
+      patch.archiviata =
+        Boolean(archiviata)
+    }
+
     const table =
       realCanale === 'SMS'
         ? 'sms_clienti'
@@ -1008,6 +1035,9 @@ export async function PATCH(
     return NextResponse.json({
       ok: true,
       canale: realCanale,
+      archiviata:
+        data?.archiviata ??
+        false,
       data,
     })
   } catch (error) {
