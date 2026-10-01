@@ -113,6 +113,8 @@ export default function DashboardTab({
   promemoriaNuoviBook = null,
   onPromemoriaNuoviBookFatto,
   onPagaRoyaltyMensile,
+  chatDaSentire = [],
+  onApriChat,
 }) {
   const [dashChartSymbol, setDashChartSymbol] = useState('XAUUSD')
 
@@ -208,7 +210,8 @@ export default function DashboardTab({
         if (
           tutte.length === 0 &&
           royaltyMensili.length === 0 &&
-          !promemoriaNuoviBook
+          !promemoriaNuoviBook &&
+          !(chatDaSentire || []).length
         ) return null
 
         const righe = tutte.map(item => {
@@ -269,6 +272,43 @@ export default function DashboardTab({
                 }}
               >
                 {r.testo}
+              </div>
+            ))}
+
+            {/* 01/10/2026 — CHAT DA SENTIRE (assistenza e recupero conti): restano qui finché non annoti l'esito */}
+            {(chatDaSentire || []).map(ch => (
+              <div
+                key={'chat-' + ch.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  flexWrap: 'wrap',
+                  color: ch.ritardo > 0 ? '#ff4444' : '#f9a8d4'
+                }}
+              >
+                <span>
+                  📞 [CHAT] {(ch.chi || '').toUpperCase()} — {ch.titolo}
+                  {ch.ritardo > 0 ? ` — IN RITARDO DI ${ch.ritardo} GIORN${ch.ritardo === 1 ? 'O' : 'I'}` : ' — DA FARE OGGI'}
+                </span>
+                {onApriChat && (
+                  <button
+                    onClick={onApriChat}
+                    style={{
+                      padding: '2px 10px',
+                      borderRadius: 8,
+                      border: '1px solid rgba(244,114,182,0.6)',
+                      background: 'rgba(244,114,182,0.15)',
+                      color: '#f9a8d4',
+                      fontWeight: 800,
+                      fontSize: 12,
+                      cursor: 'pointer',
+                      lineHeight: 1.6
+                    }}
+                  >
+                    📝 Annota esito
+                  </button>
+                )}
               </div>
             ))}
 
