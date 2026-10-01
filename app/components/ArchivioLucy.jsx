@@ -75,14 +75,25 @@ export function righeLive(rows) {
   for (const s of rows || []) {
     const giri = num(s.giri_fatti) || 0, stake = num(s.stake) || 0
     const orig = s.origine === 'mirata' ? 'mirata' : s.origine === 'lucy' ? 'proposta da Lucy' : 'libera'
+    const baccarat = s.gioco === 'baccarat'
     for (const p of s.partecipanti || []) {
-      const n = (p.numeri || []).length
+      if (baccarat) {
+        const imp = num(p.importo) ?? stake
+        out.push({
+          quando: s.creato, data: s.giorno, origine: 'Casino live', tipo: `${orig} · baccarat ${s.operazione || ''}`.trim(), cliente: p.intestatario, book: p.nome,
+          evento: `Baccarat ${s.operazione || ''} · sessione ${s.numero}${s.gruppo ? ` · ${s.gruppo}` : ''}`,
+          giocata: `${p.tipo}: ${euro(imp)} a mano`, importo: Math.round(imp * giri * 100) / 100, quota: null, stato: 'GIOCATA', esito: '', pl: null,
+          note: `${giri} mani × ${euro(imp)}`,
+        })
+        continue
+      }
+      const n = (p.numeri || []).length, st = num(p.stake) ?? stake
       out.push({
-        quando: s.creato, data: s.giorno, origine: 'Casino live', tipo: orig, cliente: p.intestatario, book: p.nome,
+        quando: s.creato, data: s.giorno, origine: 'Casino live', tipo: `${orig} · roulette`, cliente: p.intestatario, book: p.nome,
         evento: `Roulette · sessione ${s.numero}${s.gruppo ? ` · ${s.gruppo}` : ''}`,
         giocata: `${p.tipo || 'Numeri'}: ${(p.numeri || []).join(', ')}`,
-        importo: Math.round(n * stake * giri * 100) / 100, quota: null, stato: 'GIOCATA', esito: '', pl: null,
-        note: `${giri} giri × ${n} numeri × ${euro(stake)}`,
+        importo: Math.round(n * st * giri * 100) / 100, quota: null, stato: 'GIOCATA', esito: '', pl: null,
+        note: `${giri} giri × ${n} numeri × ${euro(st)}`,
       })
     }
   }
