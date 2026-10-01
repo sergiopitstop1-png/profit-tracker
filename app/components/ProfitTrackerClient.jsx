@@ -13,6 +13,7 @@ import { RisparmiCard, calcolaRisparmi, maturaInteressi, normalizza as normalizz
 import SlotConsigliate, { PulsanteSlot, parlaDiSlot } from './SlotConsigliate'
 import RecuperoContiPanel, { contiInRecupero, azioniRecuperoOggi, limitazioniDaNota, daPromuovere, recuperoSport } from './RecuperoConti'
 import RecuperiPronoxPanel from './RecuperiPronox'
+import PagellaPronox from './PagellaPronox'
 import AvvisiContiPanel from './AvvisiConti'
 import ProfilazioniMiratePanel from './ProfilazioniMirate'
 import { impostaPausaRecupero } from './RecuperoConti'
@@ -7564,6 +7565,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           onMessage={setMessage}
           onError={setErrorMessage}
         />
+      ))}
+      {/* 01/10/2026 — PAGELLA PRONOX: i pronostici fotografati confrontati con gli esiti */}
+      {conSezione({ id: 'pagella', titolo: '📊 Pagella PronoX · i pronostici funzionano?', badge: '', colore: '#818cf8', aperta: false }, (
+        <PagellaPronox onError={(e) => console.warn('[Pagella PronoX]', e)} />
       ))}
 
       {/* LUCY SPORT — proposta incroci dai dati PronoX */}
