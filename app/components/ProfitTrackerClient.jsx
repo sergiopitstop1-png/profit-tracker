@@ -7533,6 +7533,12 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 )}
               </div>
             )}
+            {/* 02/10/2026 — le regole di mantenimento si aprono QUI, sotto il pulsante (prima finivano dentro l'Agenda, spesso chiusa) */}
+            {mostraLegendaMant && lucyVista === 'operativa' && (
+              <div style={{ marginTop: 9 }}>
+                <RegoleMantenimento regole={regoleMant} setRegole={setRegoleMant} books={books} onMessage={setMessage} onError={setErrorMessage} />
+              </div>
+            )}
             {lucyRecuperi.length > 0 && (
               <div style={{ fontSize: 11, marginTop: 9, padding: '7px 9px', borderRadius: 8, background: 'rgba(249,115,22,.10)', border: '1px solid rgba(249,115,22,.40)', color: '#fdba74' }}>
                 ↩️ {lucyRecuperi.length} bet arretrate riproposte: {lucyRecuperi.map(r => `${r.book} · ${r.intestatario} (dal ${String(r.dataOrigine).slice(5).split('-').reverse().join('/')}, ~${Math.round(r.stake)}€)`).join(' — ')}
@@ -7652,7 +7658,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           </div>
 
           {/* MANTENIMENTO V2 */}
-          {(lucyVista === 'completa' || mostraLegendaMant) && (
+          {lucyVista === 'completa' && (
   <RegoleMantenimento regole={regoleMant} setRegole={setRegoleMant} books={books} onMessage={setMessage} onError={setErrorMessage} />
   )}
 
