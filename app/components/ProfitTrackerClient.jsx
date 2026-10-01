@@ -4160,7 +4160,7 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
       .filter(it => it.tipo !== 'sport' && it.proto?.disponibile)
       .map(it => it.book)
       .filter((b, i, arr) => arr.findIndex(x => x.id === b.id) === i)
-      .filter(b => !b.sport_bloccato && !lucyMaiSport(b) && b.profilo_livello !== 'dormiente' && !limitazioniDaNota(b.note).includes('sport')) // limitati anche sport: non reggono una copertura
+      .filter(b => !b.sport_bloccato && !lucyMaiSport(b) && !limitazioniDaNota(b.note).includes('sport')) // limitati anche sport: non reggono una copertura. I DORMIENTI limitati SÌ: muoverli fa parte del recupero
       .filter(b => !/bet365|betfair|admiral/i.test(String(b.nome || '')))
       .filter(b => !idsBaseOggiLucy.has(b.id))
 
@@ -4455,11 +4455,13 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
     const nonCollocate=[
       ...slot.map(s => ({
         book:s.book, betNumero:s.betNumero, betRichieste:s.betRichieste,
-        stake:s.importoIndicativo, budgetTotale:s.budgetTotale, motivo:'nessuna partita compatibile'
+        stake:s.importoIndicativo, budgetTotale:s.budgetTotale, motivo:'nessuna partita compatibile',
+        tipoConto:s.tipoConto, spot:s.spot
       })),
       ...rinviate.flatMap(p => (p.assegnazioni||[]).map(a => ({
         book:a.book, betNumero:a.betNumero, betRichieste:a.betRichieste,
-        stake:a.stake, budgetTotale:a.budgetTotale, motivo:'rinviata per budget costo'
+        stake:a.stake, budgetTotale:a.budgetTotale, motivo:'rinviata per budget costo',
+        tipoConto:a.tipoConto, spot:a.spot
       })))
     ]
     setLucySportNonCollocate(nonCollocate)
@@ -7590,6 +7592,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           onError={setErrorMessage}
         incorporato={lucyVista === 'operativa'}
         onDaFare={setPronoxDaFare}
+        apriContiSuTelefoni={apriContiSuTelefoni}
         />
         </>
       ))}
@@ -7874,6 +7877,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 onMessage={setMessage}
                 onError={setErrorMessage}
                 onDaFare={setPronoxDaFare}
+                apriContiSuTelefoni={apriContiSuTelefoni}
               />
             </div>
 
@@ -7890,7 +7894,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 <div style={{fontWeight:900,color:'#991b1b',marginBottom:6}}>🔴 DA COMPLETARE</div>
                 {lucySportNonCollocate.map((s,i)=>(
                   <div key={i} style={{fontSize:11,color:'#7f1d1d',margin:'3px 0'}}>
-                    <b>{s.book.nome} · {s.book.intestatario}</b> — Bet {s.betNumero}/{s.betRichieste} — circa {Number(s.stake).toFixed(0)} € — da collocare su un'altra partita.
+                    <b>{s.book.nome} · {s.book.intestatario}</b> <span style={{background:'#fecaca',borderRadius:4,padding:'0 5px',fontWeight:800}}>{s.tipoConto||'profilazione'}{s.spot?' · spot':''}</span> — Bet {s.betNumero}/{s.betRichieste} — circa {Number(s.stake).toFixed(0)} € — {s.motivo==='rinviata per budget costo' ? 'rinviata: supererebbe il costo massimo di oggi' : 'nessuna partita compatibile oggi (una partita = un incrocio; stesso bookmaker = stesso esito)'}.
                   </div>
                 ))}
               </div>
