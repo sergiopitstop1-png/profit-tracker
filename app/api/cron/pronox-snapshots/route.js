@@ -180,6 +180,8 @@ function buildSnapshotRows({ fix, code, model, oddsData, horizon }) {
     event_id: `fd_${fix.id}`,
     competition: code,
     event_start: fix.utcDate,
+    home_team: fix.homeTeam?.name ?? null,   // 01/10/2026: nomi per la scheda bet
+    away_team: fix.awayTeam?.name ?? null,
     horizon,
     market_odds: marketOdds,
     features,
