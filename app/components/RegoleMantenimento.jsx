@@ -52,8 +52,14 @@ const CAMPI = [
 
 export default function RegoleMantenimento({ regole, setRegole, books, onMessage, onError }) {
   const [bozza, setBozza] = useState(null) // { chiave, nome, ...campi }
-  const nomiBook = useMemo(() => [...new Set((books || []).filter(b => String(b.profilo_livello || '').startsWith('mantenimento')).map(b => b.nome))].sort(), [books])
+  // tutti i bookmaker che hai (anche se oggi nessun conto è in mantenimento: la regola vale per quando ci entreranno)
+  const nomiBook = useMemo(() => {
+    const per = new Map()
+    for (const b of books || []) { const k = chiaveBookMant(b.nome); if (k && !per.has(k)) per.set(k, b.nome) }
+    return [...per.values()].sort((a, b) => String(a).localeCompare(String(b)))
+  }, [books])
   const contiPer = (nome) => (books || []).filter(b => chiaveBookMant(b.nome) === chiaveBookMant(nome) && String(b.profilo_livello || '').startsWith('mantenimento')).length
+  const contiTot = (nome) => (books || []).filter(b => chiaveBookMant(b.nome) === chiaveBookMant(nome)).length
   const generale = regolaMantPer(regole, null)
   const personalizzati = Object.entries(regole || {}).filter(([k]) => k !== '*')
 
@@ -102,7 +108,7 @@ export default function RegoleMantenimento({ regole, setRegole, books, onMessage
         Regola diversa per un bookmaker:{' '}
         <select style={{ ...inp, width: 180 }} value="" onChange={e => e.target.value && apri(chiaveBookMant(e.target.value), e.target.value)}>
           <option value="">scegli il book…</option>
-          {nomiBook.filter(n => !regole?.[chiaveBookMant(n)]).map(n => <option key={n} value={n}>{n} ({contiPer(n)} conti)</option>)}
+          {nomiBook.filter(n => !regole?.[chiaveBookMant(n)]).map(n => <option key={n} value={n}>{n} ({contiPer(n)} in mantenimento · {contiTot(n)} conti)</option>)}
         </select>
       </div>
 
