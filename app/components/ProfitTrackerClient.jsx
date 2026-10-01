@@ -12,6 +12,7 @@ import { calcolaRoyalty, RoyaltyRiepilogo, RoyaltyBadge, RoyaltyModal, inserisci
 import { RisparmiCard, calcolaRisparmi, maturaInteressi, normalizza as normalizzaRisparmi } from './RisparmiPanel'
 import SlotConsigliate, { PulsanteSlot, parlaDiSlot } from './SlotConsigliate'
 import RecuperoContiPanel, { contiInRecupero, azioniRecuperoOggi, limitazioniDaNota, daPromuovere, recuperoSport } from './RecuperoConti'
+import RecuperiPronoxPanel from './RecuperiPronox'
 import AvvisiContiPanel from './AvvisiConti'
 import ProfilazioniMiratePanel from './ProfilazioniMirate'
 import { impostaPausaRecupero } from './RecuperoConti'
@@ -7370,6 +7371,16 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         avvisi={avvisiConti}
         getClasseBook={getClasseBook}
         getRecuperoProtocollo={getRecuperoProtocollo}
+        onMessage={setMessage}
+        onError={setErrorMessage}
+      />
+      {/* 01/10/2026 — Recuperi con PronoX: Masaniello pilota (RecuperiPronox.jsx) */}
+      <RecuperiPronoxPanel
+        books={books}
+        recuperi={recuperiConti}
+        getRecuperoProtocollo={getRecuperoProtocollo}
+        sitoBook={sitoBook}
+        apriSuTelefoni={apriSuTelefoni}
         onMessage={setMessage}
         onError={setErrorMessage}
       />
