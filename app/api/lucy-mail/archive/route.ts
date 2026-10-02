@@ -795,6 +795,19 @@ export async function GET(
       getClienti(allRows)
 
     /*
+     * 03/10/2026 — Mittenti per il filtro con suggerimenti
+     * (il più frequente per primo).
+     */
+    const contaMittenti = new Map<string, number>()
+    for (const row of allRows as any[]) {
+      const m = String(row?.mittente || '').trim()
+      if (m) contaMittenti.set(m, (contaMittenti.get(m) || 0) + 1)
+    }
+    const mittenti = [...contaMittenti.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([m]) => m)
+
+    /*
      * FILTRI TABELLA
      */
     const filtered =
@@ -836,6 +849,7 @@ export async function GET(
       count,
       counters,
       clienti,
+      mittenti,
       periodo,
       page,
       pageSize,
