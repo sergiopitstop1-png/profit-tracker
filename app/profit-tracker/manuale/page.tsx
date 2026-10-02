@@ -4,6 +4,7 @@
 // Pagina riservata (/profit-tracker/manuale). Il testo è in ./contenuto.ts
 // ════════════════════════════════════════════════════════════════════
 import { useMemo, useState } from 'react'
+import Link from 'next/link'
 import { PARTI, AGGIORNATO, type Sezione, type Nota } from './contenuto'
 
 const testoDi = (s: Sezione) => [s.titolo, s.intro, ...s.blocchi.flatMap(b => [b.titolo, b.testo, b.nota?.testo, ...(b.punti || []), ...(b.passi || []), ...((b.tabella || []).flat())])].join(' ').toLowerCase()
@@ -33,7 +34,7 @@ export default function ManualePage() {
     <div style={{ minHeight: '100vh', background: '#0b1220', color: '#e2e8f0', fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif' }}>
       <div style={{ maxWidth: 1220, margin: '0 auto', padding: '24px 18px 80px', display: 'flex', gap: 28, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <nav style={{ position: 'sticky', top: 16, flex: '0 0 270px', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto', background: 'rgba(15,23,42,.92)', border: '1px solid #1e293b', borderRadius: 14, padding: 14 }}>
-          <a href="/profit-tracker" style={{ color: '#7dd3fc', fontSize: 12, textDecoration: 'none', fontWeight: 700 }}>← Torna al Profit Tracker</a>
+          <Link href="/profit-tracker" style={{ color: '#7dd3fc', fontSize: 12, textDecoration: 'none', fontWeight: 700 }}>← Torna al Profit Tracker</Link>
           <div style={{ fontWeight: 900, margin: '12px 0 8px', fontSize: 13, color: '#f8fafc' }}>📘 Indice</div>
           <input value={cerca} onChange={e => setCerca(e.target.value)} placeholder="🔎 Cerca nel manuale…"
             style={{ width: '100%', boxSizing: 'border-box', background: '#020617', color: '#f8fafc', border: '1px solid #334155', borderRadius: 8, padding: '6px 8px', fontSize: 12, marginBottom: 8 }} />
