@@ -2,13 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
-export const maxDuration = 60
+export const maxDuration = 300 // 03/10/2026: piano Pro Vercel, c'è tempo per smaltire la coda
 
 const MODEL = 'openai/gpt-oss-20b'
 
-const EMAIL_BATCH_SIZE = 5
-const SMS_BATCH_SIZE = 5
-const MAX_WORK_TIME_MS = 50_000
+const EMAIL_BATCH_SIZE = 12
+const SMS_BATCH_SIZE = 12
+const MAX_WORK_TIME_MS = 270_000
+// 03/10/2026 — una comunicazione che fallisce 3 volte non blocca più la coda:
+// passa in DA_VALUTARE con il motivo, così la vedi tu e la coda va avanti.
+const MAX_TENTATIVI = 3
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -132,6 +135,7 @@ type LucyItem = {
   testo_completo: string | null
   data_comunicazione: string | null
   tabella: 'lucy_mail_archive' | 'sms_clienti'
+  tentativi?: number
 }
 
 function compactBody(
@@ -1075,7 +1079,7 @@ async function analyzeItem(
   const body = {
     model: MODEL,
     reasoning_effort: 'low',
-    max_completion_tokens: 700,
+    max_completion_tokens: 2000, // 03/10/2026: con 700 il ragionamento a volte mangiava tutto e la risposta usciva vuota/troncata
 
     messages: [
       {
@@ -1639,6 +1643,8 @@ async function getEmails():
         'giudizio',
         'DA_ANALIZZARE'
       )
+      .lt('analisi_tentativi', MAX_TENTATIVI)
+      .order('analisi_tentativi', { ascending: true }) // prima chi non ha mai fallito
       .order(
         'data_mail',
         {
@@ -1678,6 +1684,8 @@ async function getEmails():
 
     tabella:
       'lucy_mail_archive' as const,
+
+    tentativi: Number(mail.analisi_tentativi || 0),
   }))
 }
 
@@ -1704,6 +1712,8 @@ async function getSms():
         'tipo',
         'OTP'
       )
+      .lt('analisi_tentativi', MAX_TENTATIVI)
+      .order('analisi_tentativi', { ascending: true }) // prima chi non ha mai fallito
       .order(
         'data_ricezione',
         {
@@ -1745,7 +1755,33 @@ async function getSms():
 
     tabella:
       'sms_clienti' as const,
+
+    tentativi: Number(sms.analisi_tentativi || 0),
   }))
+}
+
+/* =========================================================
+   ERRORE DI ANALISI (03/10/2026)
+   ========================================================= */
+
+async function segnaErrore(item: LucyItem, error: any) {
+  const tentativi = Number(item.tentativi || 0) + 1
+  const messaggio = String(error?.message || error).slice(0, 400)
+  const aggiornamento: Record<string, any> = {
+    analisi_tentativi: tentativi,
+    analisi_errore: messaggio,
+    updated_at: new Date().toISOString(),
+  }
+  if (tentativi >= MAX_TENTATIVI) {
+    aggiornamento.giudizio = 'DA_VALUTARE'
+    aggiornamento.categoria = 'ALTRO'
+    aggiornamento.priorita = 'media'
+    aggiornamento.richiede_azione = true
+    aggiornamento.motivazione_ai = `Lucy non è riuscita ad analizzarla (${tentativi} tentativi): controllala tu. Ultimo errore: ${messaggio}`
+    aggiornamento.analizzata_at = new Date().toISOString()
+  }
+  const { error: e } = await supabase.from(item.tabella).update(aggiornamento).eq('id', item.id)
+  if (e) console.error('[Lucy AI] impossibile segnare l\'errore', item.id, e.message)
 }
 
 /* =========================================================
@@ -1986,10 +2022,11 @@ async function runAnalysis() {
       )
 
       /*
-       * Il messaggio rimane
-       * DA_ANALIZZARE e verrà
-       * riprovato.
+       * 03/10/2026: il tentativo viene contato.
+       * Al terzo errore la comunicazione esce dalla coda
+       * e va in DA_VALUTARE con il motivo: la controlli tu.
        */
+      await segnaErrore(item, error)
       risultati.push({
         id: item.id,
         canale:
