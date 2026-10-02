@@ -17,6 +17,7 @@ import PagellaPronox from './PagellaPronox'
 import SessioneLivePanel from './SessioneLive'
 import ArchivioLucy from './ArchivioLucy'
 import RegoleMantenimento, { regolaMantPer, passiStakeMant } from './RegoleMantenimento'
+import AvvisoManuale from './AvvisoManuale' // 03/10/2026: testo scorrevole che apre il manuale
 import AvvisiContiPanel from './AvvisiConti'
 import ProfilazioniMiratePanel from './ProfilazioniMirate'
 import { impostaPausaRecupero } from './RecuperoConti'
@@ -6685,6 +6686,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 
  return (
     <div style={container}>
+      <AvvisoManuale />
      {message && (
   <div style={{
     position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)',
