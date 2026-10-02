@@ -92,6 +92,9 @@ export default function ManualePage() {
             </div>
           ))}
           <p style={{ fontSize: 12, color: '#64748b' }}>Il manuale descrive il sistema al {AGGIORNATO}: quando il Profit Tracker cambia, va aggiornato (il testo è nel file contenuto.ts).</p>
+          <footer style={{ marginTop: 28, paddingTop: 14, borderTop: '1px solid #1e293b', textAlign: 'center', fontSize: 12, color: '#64748b' }}>
+            © Sergio Apicella — Tutti i diritti riservati · Manuale operativo ProfitTracker · Lucy · PronoX · uso interno riservato
+          </footer>
         </main>
       </div>
     </div>
