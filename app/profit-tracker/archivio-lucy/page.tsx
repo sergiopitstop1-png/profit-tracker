@@ -105,6 +105,10 @@ export default function ArchivioLucyPage() {
   const [counters, setCounters] =
     useState<Counters>(emptyCounters)
 
+  // 03/10/2026 — mittenti per il filtro con suggerimenti
+  const [mittenti, setMittenti] = useState<string[]>([])
+  const [suggerimentiAperti, setSuggerimentiAperti] = useState(false)
+
   const [clienti, setClienti] =
     useState<string[]>([])
 
@@ -199,6 +203,10 @@ export default function ArchivioLucyPage() {
 
         setClienti(
           j.clienti || []
+        )
+
+        setMittenti(
+          j.mittenti || []
         )
       } catch (error) {
         console.error(
@@ -1234,18 +1242,56 @@ export default function ArchivioLucyPage() {
               )}
             </select>
 
-            <input
-              className="matrix-input"
-              placeholder="🎰 Bookmaker"
-              value={f.bookmaker}
-              onChange={e =>
-                setF({
-                  ...f,
-                  bookmaker:
-                    e.target.value,
-                })
-              }
-            />
+            {/* 03/10/2026 — MITTENTE con suggerimenti: scrivi "aer" e compaiono i mittenti che contengono "aer" */}
+            <div style={{ position: 'relative' }}>
+              <input
+                className="matrix-input"
+                style={{ width: '100%' }}
+                placeholder="✉️ Mittente"
+                value={f.bookmaker}
+                onFocus={() => setSuggerimentiAperti(true)}
+                onBlur={() => setTimeout(() => setSuggerimentiAperti(false), 150)}
+                onChange={e => {
+                  setSuggerimentiAperti(true)
+                  setF({
+                    ...f,
+                    bookmaker:
+                      e.target.value,
+                  })
+                }}
+              />
+              {f.bookmaker && (
+                <button
+                  type="button"
+                  title="Togli il filtro"
+                  onMouseDown={e => { e.preventDefault(); setF({ ...f, bookmaker: '' }) }}
+                  style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 0, color: '#86efac', cursor: 'pointer', fontSize: 14 }}
+                >
+                  ✕
+                </button>
+              )}
+              {suggerimentiAperti && f.bookmaker.trim().length > 0 && (() => {
+                const q = f.bookmaker.trim().toLowerCase()
+                const trovati = mittenti.filter(m => m.toLowerCase().includes(q)).slice(0, 12)
+                if (!trovati.length || (trovati.length === 1 && trovati[0] === f.bookmaker)) return null
+                return (
+                  <div style={{ position: 'absolute', zIndex: 50, top: '100%', left: 0, right: 0, marginTop: 4, maxHeight: 280, overflowY: 'auto', background: '#020617', border: '1px solid rgba(34,197,94,.5)', borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,.6)' }}>
+                    {trovati.map(m => {
+                      const i = m.toLowerCase().indexOf(q)
+                      return (
+                        <div
+                          key={m}
+                          onMouseDown={e => { e.preventDefault(); setF({ ...f, bookmaker: m }); setSuggerimentiAperti(false) }}
+                          style={{ padding: '7px 10px', fontSize: 12, color: '#d1fae5', cursor: 'pointer', borderBottom: '1px solid rgba(34,197,94,.12)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                        >
+                          {m.slice(0, i)}<b style={{ color: '#4ade80' }}>{m.slice(i, i + q.length)}</b>{m.slice(i + q.length)}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
+            </div>
 
             <select
               className="matrix-input"
@@ -1714,7 +1760,7 @@ export default function ArchivioLucyPage() {
                         </div>
                       )}
 
-                      {item.rollover && (
+                      {item.rollover && !['null', 'none', 'nessuno', 'n/a', '-'].includes(String(item.rollover).trim().toLowerCase()) && (
                         <div
                           className="
                             mt-1
