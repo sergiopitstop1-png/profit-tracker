@@ -3265,7 +3265,7 @@ function bloccoIncrocioLucy(p, pi, numero) {
         const qMin=p.pronox ? (1.03/p.pronox.prob) : null
         return (
           <div style={{padding:'6px 10px',fontSize:11,background:'#fee2e2',color:'#991b1b',borderBottom:'1px solid #fca5a5',fontWeight:700}}>
-            ⚠️ COPERTURA MANCANTE: {p.coperturaMancante.map(m=>`${m.importo.toFixed(2)} € su ${m.esito}`).join(' · ')} — nessun conto di mantenimento né di recupero libero.
+            ⚠️ {p.coperturaMancante.some(m=>m.parziale)?'COPERTURA INSUFFICIENTE':'COPERTURA MANCANTE'}: {p.coperturaMancante.map(m=>`mancano ${m.importo.toFixed(2)} € su ${m.esito}`).join(' · ')} — {p.coperturaMancante.some(m=>m.parziale)?'la copertura trovata è troppo piccola rispetto a quella necessaria.':'nessun conto di mantenimento né di recupero libero.'}
             {ev!=null && <> Valore atteso delle bet base secondo PronoX: <b>{ev>=0?'+':''}{(ev*100).toFixed(1)}%</b> (quota minima {qMin.toFixed(2)}).</>}
             {' '}{ev!=null&&ev>=0.03 ? 'Puoi giocarle scoperte.' : 'Copri a mano o salta le bet base.'}
           </div>)
@@ -4152,6 +4152,15 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
       const inv=esiti.reduce((z,[,q])=>z+1/q,0)
       candidati.push({lega:tm.league||'Tennis',home:tm.home,away:tm.away,ora:tm.time,giorno:tm.giorno||'oggi',mercato:merc,esiti,pronox,tier:2,_provider:'PronoX Tennis',score:20000+inv-(pronox?0.015:0)+(tm.giorno==='domani'?1000:0)})
     })
+    // 03/10/2026 — REGOLA DI SERGIO: MAI BET SOTTO QUOTA 1,40 (base, coperture, extra, spot, mantenimento).
+    // In un incrocio si gioca OGNI esito del mercato, quindi una partita entra solo se TUTTI i suoi esiti
+    // sono quotati almeno 1,40. Così spariscono anche le partite sbilanciate (es. Alcaraz 1,04 – Arnaldi 11),
+    // dove la copertura dello sfavorito sarebbe impossibile e l'incrocio diventerebbe una scommessa secca.
+    const LUCY_QUOTA_MIN_ASSOLUTA = 1.40
+    for (let i = candidati.length - 1; i >= 0; i--) {
+      const qs = (candidati[i].esiti || []).map(([, q]) => Number(q)).filter(q => q > 1)
+      if (qs.length && Math.min(...qs) < LUCY_QUOTA_MIN_ASSOLUTA) candidati.splice(i, 1)
+    }
     candidati.sort((a,b)=>a.score-b.score)
 
     // Ogni conto genera N "slot bet". Quindi Lottomatica 100€ su 3/4 bet compare su 4 partite diverse.
@@ -4444,7 +4453,8 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
         if(c.pronox?.preferito && r.esito!==c.pronox.preferito) necessario*=Number(c.pronox.protezione||1)
         if(necessario < 2) return
         const piazzato=[...integrazioni,...extraProfilazione].filter(a=>a.esito===r.esito).reduce((s,a)=>s+Number(a.stake||0),0)
-        if(piazzato < 2) coperturaMancante.push({esito:r.esito,quota:r.quota,importo:Math.round(necessario*100)/100})
+        // 03/10/2026: avviso anche quando la copertura c'è ma è troppo piccola (sotto l'80% del necessario)
+        if(piazzato < necessario*0.8) coperturaMancante.push({esito:r.esito,quota:r.quota,importo:Math.round((necessario-piazzato)*100)/100,parziale:piazzato>=2})
       })
       const giocato=assegnazioni.reduce((s,a)=>s+a.stake,0)+integrazioni.reduce((s,a)=>s+a.stake,0)+extraProfilazione.reduce((s,a)=>s+a.stake,0)
       const scenari=c.esiti.map(([esito])=>{
