@@ -7209,6 +7209,9 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           <button style={activeTab === 'team' ? activeTabButton : tabButton} onClick={() => handleTabChange('team')}>👥 Team</button>
           <button style={activeTab === 'prop-hedge' ? activeTabButton : tabButton} onClick={() => handleTabChange('prop-hedge')}>📈 Prop Hedge</button>
           <button style={activeTab === 'masaniello' ? activeTabButton : tabButton} onClick={() => handleTabChange('masaniello')}>🎲 Masaniello</button>
+          {/* 03/10/2026 — pagine a sé: segnali ScoreTrend e archivio Lucy Mail */}
+          <button style={{ ...tabButton, borderColor: 'rgba(56,189,248,0.6)' }} title="Segnali del canale ScoreTrend in tempo reale, con la pagella" onClick={() => { window.location.href = '/profit-tracker/segnali' }}>📡 Segnali</button>
+          <button style={{ ...tabButton, borderColor: 'rgba(34,197,94,0.6)' }} title="Email e SMS dei bookmaker analizzati da Lucy" onClick={() => { window.location.href = '/profit-tracker/archivio-lucy' }}>📬 Lucy Mail</button>
 <button
   style={activeTab === 'stime-cassa' ? activeTabButton : tabButton}
   onClick={() => {
