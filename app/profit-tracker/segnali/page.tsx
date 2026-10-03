@@ -19,6 +19,12 @@ const quando = (iso: string | null) => iso ? new Date(iso).toLocaleString('it-IT
 const mercatoDi = (s: Segnale) => `${s.mercato || ''}${s.linea != null ? ' ' + String(s.linea).replace('.', ',') : ''}${s.tempo && s.tempo !== 'finale' ? ' ' + s.tempo : ''}`.trim()
 const fascia = (q: number) => q < 1.4 ? '1,00-1,40' : q < 1.6 ? '1,40-1,60' : q < 1.8 ? '1,60-1,80' : q < 2.1 ? '1,80-2,10' : q < 3 ? '2,10-3,00' : '3,00+'
 
+type Hunter = {
+  msg_id:number; data_msg:string|null; competizione:string|null; casa:string|null; ospite:string|null; tipo_segnale:string|null;
+  score_casa_segnale:number|null; score_ospite_segnale:number|null; minuto_segnale:number|null; fixture_id:number|null;
+  score_casa_attuale:number|null; score_ospite_attuale:number|null; stato_match:string|null; esito:string|null; data_esito:string|null; minuti_al_gol:number|null
+}
+
 type Riga = { voce: string; bet: number; vinte: number; unita: number; puntato: number; quota: number }
 function raggruppa(lista: Segnale[], chiave: (s: Segnale) => string): Riga[] {
   const m = new Map<string, Riga>()
@@ -34,7 +40,9 @@ function raggruppa(lista: Segnale[], chiave: (s: Segnale) => string): Riga[] {
 }
 
 export default function SegnaliPage() {
+  const [tab, setTab] = useState<'scoretrend'|'hunterbet'>('scoretrend')
   const [dati, setDati] = useState<Segnale[]>([])
+  const [hunter, setHunter] = useState<Hunter[]>([])
   const [errore, setErrore] = useState('')
   const [aggiornato, setAggiornato] = useState<Date | null>(null)
   const [periodo, setPeriodo] = useState('30')
@@ -55,7 +63,10 @@ export default function SegnaliPage() {
       out.push(...((data || []) as Segnale[]))
       if (!data || data.length < 1000) break
     }
-    setErrore(''); setDati(out); setAggiornato(new Date())
+    setErrore(''); setDati(out)
+    const h=await supabase.from('hunterbet_segnali').select('*').order('data_msg',{ascending:false}).limit(5000)
+    if(!h.error) setHunter((h.data||[]) as Hunter[])
+    setAggiornato(new Date())
   }, [periodo])
   useEffect(() => { carica(); const t = setInterval(carica, 30000); return () => clearInterval(t) }, [carica])
 
@@ -98,11 +109,35 @@ export default function SegnaliPage() {
     <div style={{ minHeight: '100vh', background: '#0b1220', color: '#e2e8f0', fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif' }}>
       <div style={{ maxWidth: 1300, margin: '0 auto', padding: '22px 18px 60px' }}>
         <Link href="/profit-tracker" style={{ color: '#7dd3fc', fontSize: 12, textDecoration: 'none', fontWeight: 700 }}>← Torna al Profit Tracker</Link>
-        <h1 style={{ fontSize: 28, margin: '8px 0 2px', color: '#f8fafc' }}>📡 Segnali ScoreTrend</h1>
+        <h1 style={{ fontSize: 28, margin: '8px 0 2px', color: '#f8fafc' }}>📡 Segnali</h1>
+        <div style={{display:'flex',gap:8,margin:'12px 0 14px'}}>
+          <button onClick={()=>setTab('scoretrend')} style={{...sel,cursor:'pointer',fontWeight:900,borderColor:tab==='scoretrend'?'#38bdf8':'#334155'}}>ScoreTrend</button>
+          <button onClick={()=>setTab('hunterbet')} style={{...sel,cursor:'pointer',fontWeight:900,borderColor:tab==='hunterbet'?'#38bdf8':'#334155'}}>Hunterbet</button>
+        </div>
         <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 14 }}>
           Arrivano dal canale in tempo reale · aggiornamento ogni 30 secondi{aggiornato ? ` · ultimo alle ${aggiornato.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
         </div>
 
+{tab==='hunterbet' ? (
+        <div style={{ background:'rgba(15,23,42,.6)', border:'1px solid #1e293b', borderRadius:14, padding:12, overflowX:'auto' }}>
+          <div style={{fontWeight:900,marginBottom:8}}>Hunterbet · {hunter.length}</div>
+          <table style={{borderCollapse:'collapse',width:'100%'}}>
+            <thead><tr>{['Arrivato','Partita','Competizione','Segnale','Ris. al segnale','Minuto','Ris. attuale','Stato','Esito','Gol dopo'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+            <tbody>{hunter.map(s=><tr key={s.msg_id}>
+              <td style={td}>{quando(s.data_msg)}</td>
+              <td style={{...td,fontWeight:800}}>{s.casa} – {s.ospite}</td>
+              <td style={{...td,color:'#94a3b8'}}>{s.competizione}</td>
+              <td style={td}>{s.tipo_segnale==='GOL_CASA'?'🏠 Gol casa':'✈️ Gol ospiti'}</td>
+              <td style={td}>{s.score_casa_segnale}–{s.score_ospite_segnale}</td>
+              <td style={td}>{s.minuto_segnale!=null?`${s.minuto_segnale}'`:'—'}</td>
+              <td style={td}>{s.score_casa_attuale}–{s.score_ospite_attuale}</td>
+              <td style={td}>{s.stato_match||'—'}</td>
+              <td style={{...td,fontWeight:900,color:s.esito==='VINTA'?'#86efac':s.esito==='PERSA'?'#fca5a5':'#94a3b8'}}>{s.esito||'⏳ in corso'}</td>
+              <td style={td}>{s.minuti_al_gol!=null?`+${s.minuti_al_gol} min`:'—'}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+        ) : (<>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
           <select style={sel} value={periodo} onChange={e => setPeriodo(e.target.value)}>
             <option value="1">Ultime 24 ore</option><option value="7">Ultimi 7 giorni</option><option value="30">Ultimi 30 giorni</option><option value="90">Ultimi 90 giorni</option><option value="tutto">Tutto lo storico</option>
@@ -164,6 +199,7 @@ export default function SegnaliPage() {
             </div>))}
         </div>
         <p style={{ fontSize: 11, color: '#64748b', marginTop: 16 }}>Le unità sono quelle dichiarate dal canale (1 unità = la puntata indicata). Con poche decine di bet i numeri oscillano molto: per giudicare un mercato servono almeno 100 bet chiuse.</p>
+        </>)}
         <footer style={{ marginTop: 22, textAlign: 'center', fontSize: 12, color: '#64748b' }}>© Sergio Apicella — Tutti i diritti riservati · uso interno riservato</footer>
       </div>
     </div>
