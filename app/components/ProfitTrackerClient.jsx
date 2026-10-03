@@ -21,6 +21,7 @@ import AvvisoManuale from './AvvisoManuale' // 03/10/2026: testo scorrevole che 
 import AvvisiContiPanel from './AvvisiConti'
 import ProfilazioniMiratePanel from './ProfilazioniMirate'
 import { impostaPausaRecupero } from './RecuperoConti'
+import CalendarioAperture from './CalendarioAperture'
 
 // V32 — rete di sicurezza 60 giorni sui conti in MANTENIMENTO
 const MANT_LIMITE_GG = 60        // limite massimo tra due movimentazioni dello stesso conto
@@ -8672,7 +8673,13 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         </div>
       ))}
     </div>
-
+{/* Calendario aperture bookmaker */}
+<div style={{ marginBottom: 20 }}>
+  <CalendarioAperture
+    supabase={supabase}
+    matrice={matrice}
+  />
+</div>
     {/* Filtri */}
     <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
       <select value={matriceFiltroVista} onChange={e => setMatriceFiltroVista(e.target.value)}
