@@ -275,7 +275,8 @@ export default function DashboardTab({
               </div>
             ))}
 
-            {/* 01/10/2026 — CHAT DA SENTIRE (assistenza e recupero conti): restano qui finché non annoti l'esito */}
+            {/* 01/10/2026 — CHAT DA SENTIRE (assistenza e recupero conti): restano qui finché non annoti l'esito
+                03/10/2026 — e le cose con SCADENZA nella nota a 3 giorni o meno (⏰ [SCADENZA]) */}
             {(chatDaSentire || []).map(ch => (
               <div
                 key={'chat-' + ch.id}
@@ -288,8 +289,8 @@ export default function DashboardTab({
                 }}
               >
                 <span>
-                  📞 [CHAT] {(ch.chi || '').toUpperCase()} — {ch.titolo}
-                  {ch.ritardo > 0 ? ` — IN RITARDO DI ${ch.ritardo} GIORN${ch.ritardo === 1 ? 'O' : 'I'}` : ' — DA FARE OGGI'}
+                  {ch.etichetta || '📞 [CHAT]'} {(ch.chi || '').toUpperCase()} — {ch.titolo}
+                  {ch.testoData ? ` — ${ch.testoData}` : ch.ritardo > 0 ? ` — IN RITARDO DI ${ch.ritardo} GIORN${ch.ritardo === 1 ? 'O' : 'I'}` : ' — DA FARE OGGI'}
                 </span>
                 {onApriChat && (
                   <button
@@ -306,7 +307,7 @@ export default function DashboardTab({
                       lineHeight: 1.6
                     }}
                   >
-                    📝 Annota esito
+                    {String(ch.id).startsWith('sc-') ? '👉 Vai all\'avviso' : '📝 Annota esito'}
                   </button>
                 )}
               </div>
