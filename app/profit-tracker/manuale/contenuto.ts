@@ -221,6 +221,7 @@ export const PARTI: Parte[] = [
   { id: 'avvisi', titolo: 'Avvisi e chat con l\'assistenza',
     blocchi: [
       { testo: 'La sezione ⚠️ Avvisi raccoglie tutto quello che va fatto a mano, raggruppato per tipo. Ogni avviso ha Fatto (con una conferma) e Rimanda. Un avviso non sparisce finché non viene segnato.' },
+      { nota: { tipo: 'regola', testo: 'Un avviso al giorno. Tra tutti gli avvisi da fare (chat, documenti, live, riaperture, recupero, note) la sezione ne propone UNO al giorno: prima chi ha una scadenza, poi il più vecchio. Gli altri aspettano in "📋 In coda" con il giorno previsto e si possono fare in anticipo. Se una scadenza non potesse essere rispettata, quell\'avviso compare oggi in più, segnalato in rosso.' } },
       { titolo: 'Le chat con l\'assistenza', passi: [
         'Apri la chat del book dal telefono del cliente (📱).',
         'Segui il motivo scritto nell\'avviso (es. chiedere la rivalutazione del conto, lo sblocco di un metodo di prelievo).',
@@ -241,6 +242,7 @@ export const PARTI: Parte[] = [
         ['inviare documento', 'Avviso per l\'invio dei documenti'],
         ['riconoscimento live', 'Avviso per la verifica tramite riconoscimento'],
       ] },
+      { titolo: 'La scadenza nella nota', testo: 'Se una cosa va fatta entro una data, scrivila nella nota dopo la parola chiave: "INVIARE DOCUMENTO (LIVE) ENTRO 27/10", "SENTIRE ASSISTENZA entro il 5/11", "INVIARE DOCUMENTO scadenza 31.10". L\'avviso mostra il badge ⏰ con i giorni che mancano, diventa "da fare" al più tardi 2 giorni prima, finisce in cima alla lista e, a 3 giorni dalla scadenza, compare anche nel banner della Dashboard. Il sistema non lo rimanda e non fissa appuntamenti oltre la scadenza senza chiedertelo.' },
       { nota: { tipo: 'attenzione', testo: 'Se cancelli una parola chiave da una nota, gli avvisi già creati NON si annullano da soli: serve la conferma dell\'amministratore. Non togliere parole chiave per "far sparire" un avviso: segnalo come fatto.' } },
     ] },
   { id: 'recuperi', titolo: 'Il recupero dei conti limitati',
