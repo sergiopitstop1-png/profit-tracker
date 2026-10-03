@@ -8676,9 +8676,52 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 {/* Calendario aperture bookmaker */}
 <div style={{ marginBottom: 20 }}>
   <CalendarioAperture
-    supabase={supabase}
-    matrice={matrice}
-  />
+  supabase={supabase}
+  matrice={matrice}
+  onSegnaAperto={async (r) => {
+    if (!window.confirm(
+      `Segnare ${r.bookmaker} — ${r.cliente} come APERTO e creare il Book?`
+    )) return false
+
+    const { error: matriceError } = await supabase
+      .from('matrice_bookmakers')
+      .update({
+        stato: 'APERTO',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', r.id)
+
+    if (matriceError) {
+      window.alert(`Errore aggiornamento Matrice: ${matriceError.message}`)
+      return false
+    }
+
+    const { error: bookError } = await supabase
+      .from('books')
+      .insert([{
+        nome: r.bookmaker,
+        intestatario: r.cliente,
+        saldo: 0,
+        note: ''
+      }])
+
+    if (bookError) {
+      window.alert(`Matrice aggiornata, ma errore creazione Book: ${bookError.message}`)
+      return false
+    }
+
+    setMatrice(prev =>
+      prev.map(m =>
+        m.id === r.id ? { ...m, stato: 'APERTO' } : m
+      )
+    )
+
+    setMessage(`✅ ${r.bookmaker} aperto per ${r.cliente}!`)
+    setTimeout(() => setMessage(''), 3000)
+
+    return true
+  }}
+/>
 </div>
     {/* Filtri */}
     <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
