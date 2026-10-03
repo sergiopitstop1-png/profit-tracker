@@ -113,6 +113,8 @@ export default function SegnaliPage() {
         <div style={{display:'flex',gap:8,margin:'12px 0 14px'}}>
           <button onClick={()=>setTab('scoretrend')} style={{...sel,cursor:'pointer',fontWeight:900,borderColor:tab==='scoretrend'?'#38bdf8':'#334155'}}>ScoreTrend</button>
           <button onClick={()=>setTab('hunterbet')} style={{...sel,cursor:'pointer',fontWeight:900,borderColor:tab==='hunterbet'?'#38bdf8':'#334155'}}>Hunterbet</button>
+          {/* 04/10/2026 — pagina di analisi: torte, segmenti, simulazione */}
+          <Link href="/profit-tracker/segnali/analisi" style={{...sel,cursor:'pointer',fontWeight:900,textDecoration:'none',borderColor:'#a78bfa',color:'#c4b5fd'}}>📈 Analisi</Link>
         </div>
         <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 14 }}>
           Arrivano dal canale in tempo reale · aggiornamento ogni 30 secondi{aggiornato ? ` · ultimo alle ${aggiornato.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
