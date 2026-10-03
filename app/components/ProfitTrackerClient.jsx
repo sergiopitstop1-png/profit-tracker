@@ -18,6 +18,8 @@ import SessioneLivePanel from './SessioneLive'
 import ArchivioLucy from './ArchivioLucy'
 import RegoleMantenimento, { regolaMantPer, passiStakeMant } from './RegoleMantenimento'
 import AvvisoManuale from './AvvisoManuale' // 03/10/2026: testo scorrevole che apre il manuale
+import { scadenzaNota } from './noteConti' // 03/10/2026: scadenze scritte nelle note ("ENTRO 27/10")
+import { pianoAvvisi } from './pianoAvvisi' // 03/10/2026: un avviso al giorno
 import AvvisiContiPanel from './AvvisiConti'
 import ProfilazioniMiratePanel from './ProfilazioniMirate'
 import { impostaPausaRecupero } from './RecuperoConti'
@@ -3359,20 +3361,41 @@ function apriSezioneProfilazione(id) {
   setTimeout(() => { try { document.getElementById('sezione-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) } catch {} }, 350)
 }
 // avvisi aperti da fare oggi (o in ritardo). I recuperi SPORT li colloca Lucy negli incroci: non si contano qui.
-function avvisiDaFareOggi() {
+// 03/10/2026: scadenza scritta nella nota del conto ("ENTRO 27/10"); con 2 giorni o meno l'avviso è già da fare
+function scadenzaAvviso(a) {
+  const ids = a.book_id != null ? [a.book_id] : (a.meta?.book_ids || [])
+  const date = ids.map(id => books.find(b => String(b.id) === String(id))).filter(Boolean).map(b => scadenzaNota(b.note, lucyOggi())).filter(Boolean)
+  if (a.meta?.scadenza) date.push(a.meta.scadenza)
+  return date.length ? date.sort()[0] : null
+}
+const recuperoSportLucy = (a) => a.tipo === 'recupero' && a.meta?.azione === 'periodica' && recuperoSport(a.titolo)
+// 03/10/2026 — UN AVVISO AL GIORNO (stessa regola del pannello Avvisi): tra quelli da fare se ne propone uno,
+// prima chi ha una scadenza, poi il più vecchio; in più solo se una scadenza non verrebbe rispettata.
+function pianoAvvisiOggi() {
   const oggi = lucyOggi()
-  return (avvisiConti || []).filter(a => a.stato === 'aperto' && a.data_prevista && a.data_prevista <= oggi
-    && !(a.tipo === 'recupero' && a.meta?.azione === 'periodica' && recuperoSport(a.titolo)))
+  const candidati = (avvisiConti || []).filter(a => a.stato === 'aperto' && a.data_prevista && !recuperoSportLucy(a)
+    && (a.data_prevista <= oggi || (scadenzaAvviso(a) && aggiungiGiorniLucy(scadenzaAvviso(a), -2) <= oggi)))
+  const fattiOggi = (avvisiConti || []).filter(a => a.stato === 'fatto' && a.fatto_il === oggi && !recuperoSportLucy(a)).length
+  return pianoAvvisi({ candidati, oggi, scadenzaDi: scadenzaAvviso, fattiOggi })
+}
+function avvisiDaFareOggi() {
+  return pianoAvvisiOggi().oggi
 }
 const eChat = (a) => a.tipo === 'assistenza' || (a.tipo === 'recupero' && a.meta?.azione === 'contatto')
 // chat da sentire: assistenza e contatti del recupero. Restano finché non annoti l'esito (pannello Avvisi)
+// 03/10/2026: nel banner va l'avviso del giorno (uno solo, salvo scadenze urgenti), di qualunque tipo
 function chatDaSentireOggi() {
   const oggi = lucyOggi()
-  return avvisiDaFareOggi().filter(eChat).map(a => {
+  const piano = pianoAvvisiOggi()
+  return piano.oggi.map(a => {
     const b = books.find(x => String(x.id) === String(a.book_id))
     const ritardo = Math.max(0, Math.round((new Date(oggi + 'T00:00:00') - new Date(a.data_prevista + 'T00:00:00')) / 86400000))
-    return { id: a.id, titolo: a.titolo, chi: b ? `${b.nome} · ${b.intestatario || '—'}` : (a.meta?.intestatario || ''), ritardo }
-  }).sort((x, y) => y.ritardo - x.ritardo)
+    const sc = scadenzaAvviso(a), gg = sc ? giorniTraLucy(oggi, sc) : null
+    const chi = b ? `${b.nome} · ${b.intestatario || '—'}` : (a.meta?.intestatario || '')
+    const etichetta = eChat(a) ? '📞 [CHAT]' : sc ? '⏰ [SCADENZA]' : '📌 [AVVISO DEL GIORNO]'
+    const testoData = sc ? (gg < 0 ? `SCADUTA DA ${-gg} GIORN${gg === -1 ? 'O' : 'I'}` : gg === 0 ? 'SCADE OGGI' : `SCADE IL ${sc.split('-').reverse().join('/')} (TRA ${gg} GIORN${gg === 1 ? 'O' : 'I'})`) : null
+    return { id: eChat(a) ? a.id : 'sc-' + a.id, etichetta, titolo: a.titolo, chi, ritardo, testoData }
+  })
 }
 function contaOggiProfilazione(nAgenda = 0) {
   const lista = avvisiDaFareOggi()
