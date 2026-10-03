@@ -90,6 +90,35 @@ const inp = { background: '#0b1220', color: '#f8fafc', border: '1px solid rgba(5
 const btn = (c) => ({ padding: '5px 10px', borderRadius: 8, border: `1px solid ${c}66`, background: `${c}1a`, color: c, fontWeight: 700, fontSize: 12, cursor: 'pointer' })
 
 // ════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════
+// 03/10/2026 — L'AVVISO DEL GIORNO, UNA SOLA FONTE DI VERITÀ
+// La usano il pannello Avvisi E i contatori/banner della Dashboard, così mostrano sempre lo stesso avviso.
+// Esclusi: le azioni che colloca Lucy negli incroci (recupero sport, operazioni spot su book sport)
+// e gli avvisi "orfani" (parola chiave tolta dalla nota, da confermare a parte).
+// ════════════════════════════════════════════════════════════════════
+export function pianoDelGiorno({ avvisi, books, lucyColloca, oggi = new Date().toLocaleDateString('sv-SE') }) {
+  const bookDi = (id) => (books || []).find(b => String(b.id) === String(id)) || null
+  const libriDi = (a) => (a.book_id ? [a.book_id] : (a.meta?.book_ids || [])).map(bookDi).filter(Boolean)
+  const haParola = (b, f) => (f === 'bonus' || f === 'sport') ? limitazioniDaNota(b.note).includes(f) : paroleChiave(b.note).includes(f)
+  const orfano = (a) => { const f = a.meta?.flusso; const lib = libriDi(a); return !!f && lib.length > 0 && !lib.some(b => haParola(b, f)) }
+  const perLucy = (a) => {
+    if (a.meta?.origine === 'saldo_fermo') { const b = bookDi(a.book_id); return !!b && !!lucyColloca && lucyColloca(b) }
+    if (a.tipo !== 'recupero' || a.meta?.azione !== 'periodica' || !recuperoSport(a.titolo)) return false
+    const b = bookDi(a.book_id)
+    return !!b && !!lucyColloca && lucyColloca(b)
+  }
+  const scadenzaDi = (a) => {
+    const date = libriDi(a).map(b => scadenzaNota(b.note, oggi)).filter(Boolean)
+    if (a.meta?.scadenza) date.push(a.meta.scadenza)
+    return date.length ? date.sort()[0] : null
+  }
+  const piu = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('sv-SE') }
+  const dataEff = (a) => { const sc = scadenzaDi(a); const lim = sc ? piu(sc, -2) : null; return lim && lim < a.data_prevista ? (lim < oggi ? oggi : lim) : a.data_prevista }
+  const candidati = (avvisi || []).filter(a => a.stato === 'aperto' && a.data_prevista && dataEff(a) <= oggi && !orfano(a) && !perLucy(a))
+  const fattiOggi = (avvisi || []).filter(a => a.stato === 'fatto' && a.fatto_il === oggi && !perLucy(a)).length
+  return { ...pianoAvvisi({ candidati, oggi, scadenzaDi, fattiOggi, limite: LIMITE_AVVISI_GIORNO }), scadenzaDi }
+}
+
 export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, recuperi, setRecuperi, getRecuperoProtocollo, lucyColloca, onMessage, onError }) {
   const oggi = oggiISO()
   const [mostra, setMostra] = useState(true)
@@ -420,8 +449,7 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
   const futuri = aperti.filter(a => dataEff(a) > oggi && !orfano(a)).sort((x, y) => dataEff(x).localeCompare(dataEff(y)))
   const inRitardo = daFare.filter(a => a.data_prevista < oggi).length
   // 03/10/2026 — UN AVVISO AL GIORNO: tra tutti quelli da fare se ne propone uno (scadenze prima, poi il più vecchio)
-  const fattiOggi = (avvisi || []).filter(a => a.stato === 'fatto' && a.fatto_il === oggi && !perLucy(a)).length
-  const piano = pianoAvvisi({ candidati: daFare, oggi, scadenzaDi, fattiOggi, limite: LIMITE_AVVISI_GIORNO })
+  const piano = pianoDelGiorno({ avvisi, books, lucyColloca, oggi })   // stessa funzione usata dalla Dashboard
   const [mostraCoda, setMostraCoda] = [mostraCodaStato, setMostraCodaStato]
   // Una nota va vista se: non ha parole chiave, oppure ha testo in più per cui l'AI propone qualcosa.
   // Sparisce quando la proposta è confermata / tenuta / scartata (per QUELLA versione della nota).
