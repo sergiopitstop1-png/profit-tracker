@@ -12,7 +12,8 @@
 // ════════════════════════════════════════════════════════════════════
 import React, { useEffect, useRef, useState } from 'react'
 import { supabase } from '../profit-tracker/supabaseClient'
-import { paroleChiave, motivoAssistenza, togliParola, aggiornaNotaBook, notaDaAttenzionare, pulisciNota, annullaAvvisiFlusso, aggiungiParola, soloParoleChiave, testoExtra, improntaNota } from './noteConti'
+import { paroleChiave, motivoAssistenza, togliParola, aggiornaNotaBook, notaDaAttenzionare, pulisciNota, annullaAvvisiFlusso, aggiungiParola, soloParoleChiave, testoExtra, improntaNota, scadenzaNota } from './noteConti'
+import { pianoAvvisi, LIMITE_AVVISI_GIORNO } from './pianoAvvisi' // 03/10/2026: un avviso al giorno
 import { contiInRecupero, avvisiRecupero, limitazioniDaNota, registraEsitoRecupero, MAX_RECUPERI_ATTIVI, recuperoSport } from './RecuperoConti'
 
 // ─── PARAMETRI ──────────────────────────────────────────────────────
@@ -103,10 +104,22 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
   const [aiErrore, setAiErrore] = useState('')
   const [bozze, setBozze] = useState({})              // modifiche alla proposta prima della conferma, per book
   const aiLette = useRef(0)
+  const [mostraCodaStato, setMostraCodaStato] = useState(false)   // 03/10/2026: elenco degli avvisi in coda
   const aiAttivo = useRef(false)   // 🧹 "Ho tempo": tutte le cose da fare in sequenza, anche quelle future
   const tentate = useRef(new Set())
   const bookDi = (id) => (books || []).find(b => String(b.id) === String(id)) || null
   const aperti = (avvisi || []).filter(a => a.stato === 'aperto')
+  // ─── 03/10/2026 SCADENZE DALLE NOTE ("ENTRO 27/10") ───────────────
+  // La scadenza si legge sempre dalla nota attuale del conto (vale anche per gli avvisi nati prima di questa modifica).
+  // Un avviso con scadenza diventa "da fare" al più tardi 2 giorni prima, e non si rimanda oltre senza conferma.
+  const scadenzaDi = (a) => {
+    const ids = a.book_id != null ? [a.book_id] : (a.meta?.book_ids || [])
+    const date = ids.map(bookDi).filter(Boolean).map(b => scadenzaNota(b.note, oggi)).filter(Boolean)
+    if (a.meta?.scadenza) date.push(a.meta.scadenza)
+    return date.length ? date.sort()[0] : null
+  }
+  const dataEff = (a) => { const sc = scadenzaDi(a); const lim = sc ? addGiorni(sc, -2) : null; return lim && lim < a.data_prevista ? (lim < oggi ? oggi : lim) : a.data_prevista }
+  const limiteScadenza = (sc, d) => { if (!sc) return d; const lim = addGiorni(sc, -1); return d > lim ? (lim < oggi ? oggi : lim) : d }
 
   // ─── scrittura ────────────────────────────────────────────────────
   async function inserisci(righe) {
@@ -158,7 +171,7 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
     const riap = conFlusso('riapertura').sort((a, b) => (norm(a.nome).includes('admiral') - norm(b.nome).includes('admiral')) || norm(a.nome).localeCompare(norm(b.nome)) || norm(a.intestatario).localeCompare(norm(b.intestatario)))
     const extraSlot = []
     for (const b of riap) {
-      const d = prossimoSlot(oggi, b, slotOccupati(null, extraSlot))
+      const d = limiteScadenza(scadenzaNota(b.note, oggi), prossimoSlot(oggi, b, slotOccupati(null, extraSlot)))
       extraSlot.push({ data: d, nome: b.nome, intestatario: b.intestatario })
       aggiungi({ chiave: `riap|${b.id}|${oggi}`, tipo: 'riapertura', book_id: b.id, data_prevista: d, titolo: 'Fai il login e controlla il conto', sottotitolo: 'Se non si apre → riapertura · se dà avvisi strani → chiusura e riapertura', meta: { flusso: 'riapertura', passo: 'login', slot: true, nome: b.nome, intestatario: b.intestatario } })
     }
@@ -211,6 +224,8 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
       let oggiUsati = occupati[`${t}|${oggi}`] || 0
       for (const a of lista.slice().reverse()) {          // i più recenti sono i primi a spostarsi
         if (oggiUsati <= TETTO_GIORNO[t]) break
+        const sc = scadenzaDi(a)
+        if (sc && prossimoFeriale(oggi) > addGiorni(sc, -2)) continue   // 03/10/2026: con scadenza vicina resta oggi
         let d = prossimoFeriale(oggi)
         while ((occupati[`${t}|${d}`] || 0) >= TETTO_GIORNO[t]) d = prossimoFeriale(d)
         occupati[`${t}|${d}`] = (occupati[`${t}|${d}`] || 0) + 1
@@ -312,9 +327,10 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
     if (a.tipo === 'documento') {
       if (m.passo === 'prepara') {
         const extra = []
-        const righe = (m.book_ids || []).map(bookDi).filter(b => b && paroleChiave(b.note).includes('documento')).map(b => {
-          const d = prossimoGiornoInvio(addGiorni(oggi, 1), inviiOccupati(extra)); extra.push(d)
-          return { chiave: `doc|invio|${b.id}|${oggi}`, tipo: 'documento', book_id: b.id, data_prevista: d, titolo: 'Invia il documento', meta: { flusso: 'documento', passo: 'invio' } }
+        const righe = (m.book_ids || []).map(bookDi).filter(b => b && paroleChiave(b.note).includes('documento')).sort((x, y) => String(scadenzaNota(x.note, oggi) || '9999').localeCompare(String(scadenzaNota(y.note, oggi) || '9999'))).map(b => {
+          const sc = scadenzaNota(b.note, oggi)
+          const d = limiteScadenza(sc, prossimoGiornoInvio(addGiorni(oggi, 1), inviiOccupati(extra))); extra.push(d)   // 03/10/2026: entro la scadenza della nota
+          return { chiave: `doc|invio|${b.id}|${oggi}`, tipo: 'documento', book_id: b.id, data_prevista: d, titolo: 'Invia il documento', meta: { flusso: 'documento', passo: 'invio', ...(sc ? { scadenza: sc } : {}) } }
         })
         return inserisci(righe)
       }
@@ -340,6 +356,8 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
       if (!dataScelta) { onError('Scegli la data dell\'appuntamento'); return }
       const stessoGiorno = aperti.find(x => x.tipo === 'live' && x.meta?.passo === 'seduta' && x.data_prevista === dataScelta && norm(x.meta?.intestatario) !== norm(a.meta?.intestatario))
       if (stessoGiorno && !window.confirm(`Il ${dataIt(dataScelta)} c'è già il riconoscimento live con ${stessoGiorno.meta?.intestatario}: la regola è una persona al giorno. Vuoi fissarlo lo stesso?`)) return
+      const sc = scadenzaDi(a)
+      if (sc && dataScelta > sc && !window.confirm(`⏰ ATTENZIONE: la nota dice di farlo ENTRO il ${dataIt(sc)}, l'appuntamento del ${dataIt(dataScelta)} è DOPO la scadenza. Confermi lo stesso?`)) return
     }
     const anticipo = a.data_prevista > oggi
     if (anticipo && a.meta?.slot) {
@@ -366,12 +384,19 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
   }
 
   function dataRimandoProposta(a) {
+    const sc = scadenzaDi(a)
+    if (sc) { const p = dataRimandoBase(a); return limiteScadenza(sc, p) > oggi ? limiteScadenza(sc, p) : p }
+    return dataRimandoBase(a)
+  }
+  function dataRimandoBase(a) {
     if (a.meta?.slot) { const book = bookDi(a.book_id) || a.meta; return prossimoSlot(addGiorni(lunediDi(oggi), 7), book, slotOccupati(a.id)) }
     if (a.tipo === 'documento' && a.meta?.passo === 'invio') return prossimoGiornoInvio(addGiorni(oggi, 1), inviiOccupati())
     return addGiorni(oggi, 1)
   }
   async function confermaRimanda(a, data) {
     if (!data || data <= oggi) { onError('Scegli una data da domani in poi'); return }
+    const sc = scadenzaDi(a)
+    if (sc && data > sc && !window.confirm(`⏰ ATTENZIONE: va fatto ENTRO il ${dataIt(sc)}. Rimandarlo al ${dataIt(data)} vuol dire superare la scadenza. Confermi?`)) return
     setSalvando(true)
     await aggiornaAvviso(a, { data_prevista: data, rimandi: (a.rimandi || 0) + 1 })
     setSalvando(false)
@@ -391,9 +416,13 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
   }
   const lucyScaduto = () => false
   const aLucy = aperti.filter(a => a.data_prevista <= oggi && perLucy(a))
-  const daFare = aperti.filter(a => a.data_prevista <= oggi && !orfano(a) && !perLucy(a)).sort((x, y) => x.data_prevista.localeCompare(y.data_prevista) || x.tipo.localeCompare(y.tipo))
-  const futuri = aperti.filter(a => a.data_prevista > oggi && !orfano(a)).sort((x, y) => x.data_prevista.localeCompare(y.data_prevista))
+  const daFare = aperti.filter(a => dataEff(a) <= oggi && !orfano(a) && !perLucy(a)).sort((x, y) => String(scadenzaDi(x) || '9999').localeCompare(String(scadenzaDi(y) || '9999')) || x.data_prevista.localeCompare(y.data_prevista) || x.tipo.localeCompare(y.tipo))
+  const futuri = aperti.filter(a => dataEff(a) > oggi && !orfano(a)).sort((x, y) => dataEff(x).localeCompare(dataEff(y)))
   const inRitardo = daFare.filter(a => a.data_prevista < oggi).length
+  // 03/10/2026 — UN AVVISO AL GIORNO: tra tutti quelli da fare se ne propone uno (scadenze prima, poi il più vecchio)
+  const fattiOggi = (avvisi || []).filter(a => a.stato === 'fatto' && a.fatto_il === oggi && !perLucy(a)).length
+  const piano = pianoAvvisi({ candidati: daFare, oggi, scadenzaDi, fattiOggi, limite: LIMITE_AVVISI_GIORNO })
+  const [mostraCoda, setMostraCoda] = [mostraCodaStato, setMostraCodaStato]
   // Una nota va vista se: non ha parole chiave, oppure ha testo in più per cui l'AI propone qualcosa.
   // Sparisce quando la proposta è confermata / tenuta / scartata (per QUELLA versione della nota).
   const rigaAi = (b) => (noteAi || []).find(r => r.book_id === String(b.id) && r.impronta === improntaNota(b.note)) || null
@@ -500,6 +529,10 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
           <b style={{ color: '#f8fafc', fontSize: 13 }}>{book ? book.nome : (a.meta?.intestatario || '')}</b>
           {book && <span style={{ color: '#94a3b8', fontSize: 12 }}>{book.intestatario || '—'}</span>}
           <span style={{ color: '#e2e8f0', fontSize: 12 }}>{a.titolo}</span>
+          {(() => { const sc = scadenzaDi(a); if (!sc) return null; const gg = diffGiorni(oggi, sc)
+            const col = gg < 0 ? '#ef4444' : gg <= 3 ? '#f87171' : gg <= 7 ? '#fbbf24' : '#86efac'
+            return <span title="Scadenza scritta nella nota del conto" style={{ fontSize: 11, fontWeight: 900, color: col, border: `1px solid ${col}`, borderRadius: 999, padding: '1px 8px', whiteSpace: 'nowrap' }}>
+              ⏰ entro {dataIt(sc)} · {gg < 0 ? `SCADUTA da ${-gg} gg` : gg === 0 ? 'OGGI' : gg === 1 ? 'domani' : `tra ${gg} gg`}</span> })()}
           <span style={{ marginLeft: 'auto', fontSize: 11, color: ritardo ? '#f87171' : '#64748b', whiteSpace: 'nowrap' }}>
             {ritardo ? `in ritardo da ${ritardo} gg` : a.data_prevista > oggi ? dataIt(a.data_prevista) : 'oggi'}{a.rimandi ? ` · rimandato ${a.rimandi}×` : ''}
           </span>
@@ -534,18 +567,24 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
   }
 
   const perFlusso = {}
-  for (const a of daFare) (perFlusso[a.tipo] = perFlusso[a.tipo] || []).push(a)
+  for (const a of piano.oggi) (perFlusso[a.tipo] = perFlusso[a.tipo] || []).push(a)   // 03/10/2026: solo l'avviso del giorno
+  const rigaPiano = (a) => (
+    <div key={'p' + a.id}>
+      {piano.urgenti.includes(a) && <div style={{ fontSize: 11, fontWeight: 900, color: '#f87171', margin: '0 0 2px 4px' }}>⏰ In più oggi: con un avviso al giorno la scadenza non verrebbe rispettata</div>}
+      {riga(a)}
+    </div>)
 
   return (
     <>
       <div style={{ background: 'rgba(56,189,248,0.06)', border: '1px solid rgba(56,189,248,0.35)', borderRadius: 16, padding: '14px 16px', marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <div onClick={() => setMostra(!mostra)} style={{ fontSize: 14, fontWeight: 900, color: '#7dd3fc', cursor: 'pointer' }}>
-            🔔 Avvisi conti · {daFare.length} da fare{inRitardo ? <span style={{ color: '#f87171' }}> ({inRitardo} in ritardo)</span> : ''}{orfani.length ? <span style={{ color: '#f87171' }}> · ⚠️ {orfani.length} da confermare</span> : ''} {mostra ? '▾' : '▸'}
+            🔔 Avvisi conti · {piano.oggi.length ? `${piano.oggi.length} da fare oggi` : (piano.fattiOggi >= piano.limite ? '✅ avviso di oggi fatto' : 'niente da fare oggi')}{piano.coda.length ? <span style={{ color: '#94a3b8', fontWeight: 700 }}> · {piano.coda.length} in coda</span> : ''}{inRitardo ? <span style={{ color: '#f87171' }}> ({inRitardo} in ritardo)</span> : ''}{orfani.length ? <span style={{ color: '#f87171' }}> · ⚠️ {orfani.length} da confermare</span> : ''} {mostra ? '▾' : '▸'}
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             <button style={btn('#a78bfa')} onClick={() => setSequenza(true)}>🧹 Ho tempo: cosa posso sistemare</button>
             <button style={btn(noteAtt.length ? '#fbbf24' : '#64748b')} onClick={() => setPopupNote(true)}>📝 Note da attenzionare ({noteAtt.length})</button>
+            <button style={btn('#94a3b8')} onClick={() => setMostraCoda(!mostraCoda)}>📋 In coda ({piano.coda.length})</button>
             <button style={btn('#94a3b8')} onClick={() => setMostraFuturi(!mostraFuturi)}>📅 In programma ({futuri.length})</button>
           </div>
         </div>
@@ -572,13 +611,24 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
               </div>
             )}
             {aLucy.length > 0 && <div style={{ fontSize: 12, color: '#7dd3fc', background: 'rgba(14,165,233,0.08)', border: '1px solid rgba(14,165,233,0.3)', borderRadius: 10, padding: '6px 10px' }}>🎯 {new Set(aLucy.map(a => a.book_id)).size} recuperi sport in coda a Lucy{(() => { const v = aLucy.reduce((m, a) => a.data_prevista < m ? a.data_prevista : m, oggi); const g = diffGiorni(v, oggi); return g > 0 ? ` · il più vecchio aspetta da ${g} gg` : '' })()}. Li colloca lei negli incroci, prima quelli di oggi e poi i rimasti indietro; si chiudono da soli quando confermi la bet.</div>}
-            {daFare.length === 0 && <div style={{ fontSize: 12, color: '#64748b' }}>Nessun avviso da gestire oggi.</div>}
+            <div style={{ fontSize: 11, color: '#64748b' }}>Regola: {piano.limite} avviso al giorno · prima chi ha una scadenza, poi il più vecchio. Gli altri aspettano in coda: se hai tempo, aprila e anticipane qualcuno.</div>
+            {piano.oggi.length === 0 && <div style={{ fontSize: 12, color: piano.fattiOggi >= piano.limite ? '#86efac' : '#64748b' }}>{piano.fattiOggi >= piano.limite ? `✅ Per oggi hai fatto l'avviso del giorno.${piano.coda.length ? ` Il prossimo è previsto il ${dataIt(piano.coda[0].giorno)}.` : ''}` : 'Nessun avviso da gestire oggi.'}</div>}
             {Object.entries(perFlusso).map(([tipo, lista]) => (
               <div key={tipo}>
                 <div style={{ fontSize: 12, fontWeight: 800, color: '#cbd5e1', margin: '2px 0 6px' }}>{ICONA[tipo]} {NOME_FLUSSO[tipo] || tipo} · {lista.length}</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{lista.map(riga)}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{lista.map(rigaPiano)}</div>
               </div>
             ))}
+            {mostraCoda && piano.coda.length > 0 && (
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 800, color: '#94a3b8', margin: '6px 0' }}>📋 In coda · uno al giorno, nell'ordine in cui arriveranno (si possono fare in anticipo)</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{piano.coda.map(({ a, giorno }) => (
+                  <div key={'c' + a.id}>
+                    <div style={{ fontSize: 11, color: '#7dd3fc', margin: '0 0 2px 4px', fontWeight: 800 }}>previsto il {dataIt(giorno)}</div>
+                    {riga(a)}
+                  </div>))}</div>
+              </div>
+            )}
             {mostraFuturi && (
               <div>
                 <div style={{ fontSize: 12, fontWeight: 800, color: '#94a3b8', margin: '6px 0' }}>📅 In programma</div>
