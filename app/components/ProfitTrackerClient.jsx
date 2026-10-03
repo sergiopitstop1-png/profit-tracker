@@ -20,7 +20,7 @@ import RegoleMantenimento, { regolaMantPer, passiStakeMant } from './RegoleMante
 import AvvisoManuale from './AvvisoManuale' // 03/10/2026: testo scorrevole che apre il manuale
 import { scadenzaNota } from './noteConti' // 03/10/2026: scadenze scritte nelle note ("ENTRO 27/10")
 import { pianoAvvisi } from './pianoAvvisi' // 03/10/2026: un avviso al giorno
-import AvvisiContiPanel from './AvvisiConti'
+import AvvisiContiPanel, { pianoDelGiorno } from './AvvisiConti'
 import ProfilazioniMiratePanel from './ProfilazioniMirate'
 import { impostaPausaRecupero } from './RecuperoConti'
 import CalendarioAperture from './CalendarioAperture'
@@ -3371,12 +3371,10 @@ function scadenzaAvviso(a) {
 const recuperoSportLucy = (a) => a.tipo === 'recupero' && a.meta?.azione === 'periodica' && recuperoSport(a.titolo)
 // 03/10/2026 — UN AVVISO AL GIORNO (stessa regola del pannello Avvisi): tra quelli da fare se ne propone uno,
 // prima chi ha una scadenza, poi il più vecchio; in più solo se una scadenza non verrebbe rispettata.
+// 03/10/2026: stessa funzione del pannello Avvisi → Dashboard e pannello mostrano sempre lo stesso avviso
+const lucyCollocaConto = (b) => !/^(sisal|snai|pokerstars)$/.test(String(b?.nome || '').toLowerCase().replace(/[^a-z0-9]/g, '')) && !lucyMaiSport(b)
 function pianoAvvisiOggi() {
-  const oggi = lucyOggi()
-  const candidati = (avvisiConti || []).filter(a => a.stato === 'aperto' && a.data_prevista && !recuperoSportLucy(a)
-    && (a.data_prevista <= oggi || (scadenzaAvviso(a) && aggiungiGiorniLucy(scadenzaAvviso(a), -2) <= oggi)))
-  const fattiOggi = (avvisiConti || []).filter(a => a.stato === 'fatto' && a.fatto_il === oggi && !recuperoSportLucy(a)).length
-  return pianoAvvisi({ candidati, oggi, scadenzaDi: scadenzaAvviso, fattiOggi })
+  return pianoDelGiorno({ avvisi: avvisiConti || [], books, lucyColloca: lucyCollocaConto, oggi: lucyOggi() })
 }
 function avvisiDaFareOggi() {
   return pianoAvvisiOggi().oggi
@@ -7613,7 +7611,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           setBooks={setBooks}
           avvisi={avvisiConti}
           setAvvisi={setAvvisiConti}
-          lucyColloca={b => !/^(sisal|snai|pokerstars)$/.test(String(b?.nome || '').toLowerCase().replace(/[^a-z0-9]/g, '')) && !lucyMaiSport(b)}
+          lucyColloca={lucyCollocaConto}
           recuperi={recuperiConti}
           setRecuperi={setRecuperiConti}
           getRecuperoProtocollo={getRecuperoProtocollo}
