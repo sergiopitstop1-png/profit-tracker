@@ -326,6 +326,7 @@ export const PARTI: Parte[] = [
       { punti: [
         'Segna tutto subito: CONFERMA, Rimanda, Salta, Fatto, ✓ Giocata. Quello che non è segnato, per Lucy non è successo.',
         'Mai operazioni su Bet365 di domenica.',
+        'Mai bet sotto quota 1,40, per nessun motivo (Lucy non propone partite con un esito sotto 1,40).',
         'I conti dormienti non si usano (eccezione: i limitati in recupero, quando li propone Lucy).',
         'Sulla stessa partita, lo stesso bookmaker su un solo esito.',
         'Piazza esattamente importo ed esito indicati; se la quota è diversa, inseriscila prima di confermare.',
@@ -341,6 +342,7 @@ export const PARTI: Parte[] = [
       { tabella: [
         ['Situazione', 'Cosa fare'],
         ['La quota sul book è diversa da quella in tabella', 'Inseriscila nella riga prima di confermare: Lucy ricalcola le coperture'],
+        ['La quota reale è scesa sotto 1,40', 'Non piazzare: 🔁 Rimanda o ⏭ Salta con il motivo'],
         ['Fascia rossa COPERTURA MANCANTE', 'Leggi il valore atteso: se è negativo copri a mano o salta le bet base'],
         ['Bet in "Da completare"', 'Niente: verranno collocate nei prossimi giorni quando ci saranno partite compatibili'],
         ['Il book non mi fa piazzare (limite, errore, quota sparita)', '🔁 Rimanda o ⏭ Salta con il motivo; se è una limitazione, scrivi "limitato bonus/sport" nella nota del conto'],
