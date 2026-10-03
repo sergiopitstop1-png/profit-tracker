@@ -81,6 +81,10 @@ export default function CalendarioAperture({
   const [loaded, setLoaded] = useState(false)
   const [aperturaInCorso, setAperturaInCorso] = useState(null)
 
+  // =====================================================
+  // MATRICE = FONTE DELLA VERITÀ
+  // =====================================================
+
   const daAprire = useMemo(
     () => matrice.filter(r => r.stato === 'DA APRIRE'),
     [matrice]
@@ -90,6 +94,10 @@ export default function CalendarioAperture({
     () => matrice.filter(r => r.stato === 'APERTO'),
     [matrice]
   )
+
+  // =====================================================
+  // CARICAMENTO CALENDARIO
+  // =====================================================
 
   async function refresh() {
     setBusy(true)
@@ -130,14 +138,20 @@ export default function CalendarioAperture({
 
       setPiano(
         Object.fromEntries(
-          c.data.map(r => [String(r.matrice_id), r])
+          c.data.map(r => [
+            String(r.matrice_id),
+            r
+          ])
         )
       )
 
       setLoaded(true)
 
     } catch (e) {
-      setMsg('Errore caricamento: ' + e.message)
+      setMsg(
+        'Errore caricamento: ' +
+        (e?.message || String(e))
+      )
     } finally {
       setBusy(false)
     }
@@ -157,6 +171,10 @@ export default function CalendarioAperture({
     )
   }, [date, eccezioni, regole])
 
+  // =====================================================
+  // REGOLE SETTIMANALI
+  // =====================================================
+
   async function salvaRegole() {
     setBusy(true)
 
@@ -167,7 +185,8 @@ export default function CalendarioAperture({
           regole.map((quantita, giorno) => ({
             giorno,
             quantita,
-            aggiornato_il: new Date().toISOString()
+            aggiornato_il:
+              new Date().toISOString()
           }))
         )
 
@@ -178,11 +197,18 @@ export default function CalendarioAperture({
       )
 
     } catch (e) {
-      setMsg('Errore: ' + e.message)
+      setMsg(
+        'Errore: ' +
+        (e?.message || String(e))
+      )
     } finally {
       setBusy(false)
     }
   }
+
+  // =====================================================
+  // ECCEZIONI SINGOLA DATA
+  // =====================================================
 
   async function salvaEccezione() {
     setBusy(true)
@@ -190,8 +216,14 @@ export default function CalendarioAperture({
     try {
       const q = Number(override)
 
-      if (!Number.isInteger(q) || q < 0 || q > 500) {
-        throw Error('Inserisci una quantità da 0 a 500')
+      if (
+        !Number.isInteger(q) ||
+        q < 0 ||
+        q > 500
+      ) {
+        throw Error(
+          'Inserisci una quantità da 0 a 500'
+        )
       }
 
       const { error } = await supabase
@@ -199,7 +231,8 @@ export default function CalendarioAperture({
         .upsert({
           data: date,
           quantita: q,
-          aggiornato_il: new Date().toISOString()
+          aggiornato_il:
+            new Date().toISOString()
         })
 
       if (error) throw error
@@ -213,11 +246,14 @@ export default function CalendarioAperture({
       }))
 
       setMsg(
-        'Eccezione salvata. Ricalcola per aggiornare il piano.'
+        'Eccezione salvata. Premi Ricalcola per aggiornare il piano.'
       )
 
     } catch (e) {
-      setMsg('Errore: ' + e.message)
+      setMsg(
+        'Errore: ' +
+        (e?.message || String(e))
+      )
     } finally {
       setBusy(false)
     }
@@ -241,50 +277,173 @@ export default function CalendarioAperture({
       })
 
       setMsg(
-        'Eccezione eliminata. Ricalcola per aggiornare il calendario.'
+        'Eccezione eliminata. Premi Ricalcola per aggiornare il calendario.'
       )
 
     } catch (e) {
-      setMsg('Errore: ' + e.message)
+      setMsg(
+        'Errore: ' +
+        (e?.message || String(e))
+      )
     } finally {
       setBusy(false)
     }
   }
 
+  // =====================================================
+  // RICALCOLO CALENDARIO
+  //
+  // REGOLE:
+  //
+  // 1. La Matrice decide quali book sono DA APRIRE.
+  //
+  // 2. Il cliente con PIÙ book DA APRIRE ha precedenza.
+  //
+  // 3. Una volta iniziato un cliente, tutte le sue
+  //    aperture automatiche vengono pianificate
+  //    consecutivamente prima di passare al successivo.
+  //
+  // 4. A parità di aperture, ordine alfabetico cliente.
+  //
+  // 5. Dentro lo stesso cliente, ordine bookmaker.
+  //
+  // 6. Le aperture fissate manualmente NON vengono
+  //    spostate dal ricalcolo.
+  //
+  // 7. I book segnati APERTO direttamente dalla Matrice
+  //    non entrano più nella pianificazione.
+  // =====================================================
+
   async function ricalcola() {
 
     if (
       !window.confirm(
-        'Ricalcolare tutte le aperture future non fissate? Le aperture fissate manualmente resteranno nelle loro date.'
+        'Ricalcolare tutte le aperture future non fissate? ' +
+        'Il cliente con più book mancanti avrà precedenza e verrà completato prima di passare al successivo. ' +
+        'Le aperture fissate manualmente resteranno nelle loro date.'
       )
-    ) return
+    ) {
+      return
+    }
 
     setBusy(true)
 
     try {
-
       const start = today()
 
-      const rows = daAprire
-        .filter(r => !piano[String(r.id)]?.bloccata)
-        .sort((a, b) =>
-          (piano[String(b.id)]?.priorita || 0) -
-          (piano[String(a.id)]?.priorita || 0) ||
+      // -----------------------------------------------
+      // Raggruppamento per cliente
+      // -----------------------------------------------
 
-          String(a.cliente).localeCompare(
-            String(b.cliente)
-          ) ||
+      const clientiMap = {}
 
-          String(a.bookmaker).localeCompare(
-            String(b.bookmaker)
+      daAprire.forEach(r => {
+        const cliente =
+          r.cliente || 'Senza cliente'
+
+        if (!clientiMap[cliente]) {
+          clientiMap[cliente] = []
+        }
+
+        clientiMap[cliente].push(r)
+      })
+
+      // -----------------------------------------------
+      // Ordine clienti:
+      // prima chi ha più DA APRIRE.
+      // A parità -> alfabetico.
+      // -----------------------------------------------
+
+      const clientiOrdinati =
+        Object.entries(clientiMap)
+          .sort(
+            (
+              [clienteA, righeA],
+              [clienteB, righeB]
+            ) => {
+
+              if (
+                righeB.length !==
+                righeA.length
+              ) {
+                return (
+                  righeB.length -
+                  righeA.length
+                )
+              }
+
+              return String(
+                clienteA
+              ).localeCompare(
+                String(clienteB),
+                'it'
+              )
+            }
           )
-        )
+
+      // -----------------------------------------------
+      // Costruiamo la coda automatica.
+      //
+      // Tutti i book del primo cliente,
+      // poi tutti quelli del secondo, ecc.
+      //
+      // Le righe fissate manualmente vengono escluse
+      // perché devono restare dove sono.
+      // -----------------------------------------------
+
+      const rows = []
+
+      clientiOrdinati.forEach(
+        ([cliente, righeCliente]) => {
+
+          const automatiche =
+            righeCliente
+              .filter(
+                r =>
+                  !piano[String(r.id)]
+                    ?.bloccata
+              )
+              .sort((a, b) => {
+
+                const prioritaA =
+                  piano[String(a.id)]
+                    ?.priorita || 0
+
+                const prioritaB =
+                  piano[String(b.id)]
+                    ?.priorita || 0
+
+                if (
+                  prioritaB !== prioritaA
+                ) {
+                  return (
+                    prioritaB -
+                    prioritaA
+                  )
+                }
+
+                return String(
+                  a.bookmaker
+                ).localeCompare(
+                  String(b.bookmaker),
+                  'it'
+                )
+              })
+
+          rows.push(...automatiche)
+        }
+      )
+
+      // -----------------------------------------------
+      // Contiamo gli slot già occupati
+      // dalle aperture fissate.
+      // -----------------------------------------------
 
       const fixed = {}
 
       daAprire.forEach(r => {
-
-        const p = piano[String(r.id)]
+        const p =
+          piano[String(r.id)]
 
         if (
           p?.bloccata &&
@@ -292,9 +451,14 @@ export default function CalendarioAperture({
           p.data_prevista >= start
         ) {
           fixed[p.data_prevista] =
-            (fixed[p.data_prevista] || 0) + 1
+            (fixed[p.data_prevista] || 0) +
+            1
         }
       })
+
+      // -----------------------------------------------
+      // Distribuzione nelle date
+      // -----------------------------------------------
 
       let i = 0
       const updates = []
@@ -305,33 +469,41 @@ export default function CalendarioAperture({
         n++
       ) {
 
-        const day = addDays(start, n)
+        const day =
+          addDays(start, n)
 
         const quota =
           eccezioni[day]?.quantita ??
           regole[weekday(day)] ??
           0
 
-        const slots = Math.max(
-          0,
-          quota - (fixed[day] || 0)
-        )
+        const slots =
+          Math.max(
+            0,
+            quota -
+            (fixed[day] || 0)
+          )
 
         for (
           let j = 0;
-          j < slots && i < rows.length;
+          j < slots &&
+          i < rows.length;
           j++
         ) {
 
           const r = rows[i]
-          const old = piano[String(r.id)]
+
+          const old =
+            piano[String(r.id)]
 
           updates.push({
             matrice_id: r.id,
             data_prevista: day,
             bloccata: false,
-            priorita: old?.priorita || 0,
-            aggiornato_il: new Date().toISOString()
+            priorita:
+              old?.priorita || 0,
+            aggiornato_il:
+              new Date().toISOString()
           })
 
           i++
@@ -340,23 +512,34 @@ export default function CalendarioAperture({
 
       if (i < rows.length) {
         throw Error(
-          'Capienza insufficiente: aggiungi almeno un giorno con aperture prima di ricalcolare.'
+          'Capienza insufficiente: imposta almeno un giorno della settimana con un numero di aperture maggiore di zero.'
         )
       }
 
-      for (let k = 0; k < updates.length; k += 150) {
+      // -----------------------------------------------
+      // Salvataggio a blocchi
+      // -----------------------------------------------
 
-        const { error } = await supabase
-          .from('calendario_aperture_piano')
-          .upsert(
-            updates.slice(k, k + 150)
-          )
+      for (
+        let k = 0;
+        k < updates.length;
+        k += 150
+      ) {
+
+        const { error } =
+          await supabase
+            .from(
+              'calendario_aperture_piano'
+            )
+            .upsert(
+              updates.slice(k, k + 150)
+            )
 
         if (error) throw error
       }
 
       setMsg(
-        `Pianificate ${updates.length} aperture. Le aperture fissate sono rimaste invariate.`
+        `✅ Calendario ricalcolato: ${updates.length} aperture automatiche pianificate. Priorità ai clienti con più book da aprire.`
       )
 
       await refresh()
@@ -365,14 +548,17 @@ export default function CalendarioAperture({
 
       setMsg(
         'Ricalcolo non completato: ' +
-        e.message +
-        ' (verifica il piano prima di riprovare)'
+        (e?.message || String(e))
       )
 
     } finally {
       setBusy(false)
     }
   }
+
+  // =====================================================
+  // MODIFICA MANUALE / FISSA APERTURA
+  // =====================================================
 
   async function cambiaSingola(
     r,
@@ -383,23 +569,29 @@ export default function CalendarioAperture({
     setBusy(true)
 
     try {
-
       const old =
         piano[String(r.id)] || {}
 
-      const { error } = await supabase
-        .from('calendario_aperture_piano')
-        .upsert({
-          matrice_id: r.id,
-          data_prevista: nuovaData || null,
-          bloccata: locked,
-          priorita: old.priorita || 0,
-          rinvii:
-            (old.rinvii || 0) +
-            (locked ? 1 : 0),
-          nota: old.nota || null,
-          aggiornato_il: new Date().toISOString()
-        })
+      const { error } =
+        await supabase
+          .from(
+            'calendario_aperture_piano'
+          )
+          .upsert({
+            matrice_id: r.id,
+            data_prevista:
+              nuovaData || null,
+            bloccata: locked,
+            priorita:
+              old.priorita || 0,
+            rinvii:
+              (old.rinvii || 0) +
+              (locked ? 1 : 0),
+            nota:
+              old.nota || null,
+            aggiornato_il:
+              new Date().toISOString()
+          })
 
       if (error) throw error
 
@@ -412,11 +604,20 @@ export default function CalendarioAperture({
       )
 
     } catch (e) {
-      setMsg('Errore: ' + e.message)
+
+      setMsg(
+        'Errore: ' +
+        (e?.message || String(e))
+      )
+
     } finally {
       setBusy(false)
     }
   }
+
+  // =====================================================
+  // SEGNA APERTO
+  // =====================================================
 
   async function segnaAperto(r) {
 
@@ -430,16 +631,20 @@ export default function CalendarioAperture({
     setAperturaInCorso(r.id)
 
     try {
-
-      const ok = await onSegnaAperto(r)
+      const ok =
+        await onSegnaAperto(r)
 
       if (!ok) return
 
       /*
-       * Non cancelliamo la riga dal piano:
-       * matrice diventa APERTO e quindi sparisce
-       * automaticamente dalle aperture ancora da fare.
-       * La pianificazione rimane nel database come traccia.
+       * NON cancelliamo il record del piano.
+       *
+       * La Matrice passa ad APERTO.
+       * Quindi questa riga sparisce automaticamente
+       * dalla lista DA APRIRE.
+       *
+       * Il record calendario rimane come traccia
+       * della pianificazione originaria.
        */
 
       setMsg(
@@ -458,6 +663,10 @@ export default function CalendarioAperture({
     }
   }
 
+  // =====================================================
+  // ELENCO APERTURE
+  // =====================================================
+
   const schedule = useMemo(
     () =>
       daAprire
@@ -466,59 +675,118 @@ export default function CalendarioAperture({
             !filtro ||
             `${r.cliente} ${r.bookmaker}`
               .toLowerCase()
-              .includes(filtro.toLowerCase())
+              .includes(
+                filtro.toLowerCase()
+              )
         )
-        .sort((a, b) =>
-          String(
-            piano[String(a.id)]?.data_prevista ||
+        .sort((a, b) => {
+
+          const dataA =
+            piano[String(a.id)]
+              ?.data_prevista ||
             '9999'
+
+          const dataB =
+            piano[String(b.id)]
+              ?.data_prevista ||
+            '9999'
+
+          const confrontoData =
+            String(dataA)
+              .localeCompare(
+                String(dataB)
+              )
+
+          if (confrontoData !== 0) {
+            return confrontoData
+          }
+
+          const confrontoCliente =
+            String(a.cliente)
+              .localeCompare(
+                String(b.cliente),
+                'it'
+              )
+
+          if (
+            confrontoCliente !== 0
+          ) {
+            return confrontoCliente
+          }
+
+          return String(
+            a.bookmaker
           ).localeCompare(
-            String(
-              piano[String(b.id)]?.data_prevista ||
-              '9999'
-            )
+            String(b.bookmaker),
+            'it'
           )
-        ),
-    [daAprire, piano, filtro]
+        }),
+    [
+      daAprire,
+      piano,
+      filtro
+    ]
   )
 
-  const scheduled = schedule.filter(
-    r => piano[String(r.id)]?.data_prevista
-  )
+  const scheduled =
+    schedule.filter(
+      r =>
+        piano[String(r.id)]
+          ?.data_prevista
+    )
 
-  const groups = Object.groupBy
-    ? Object.groupBy(
-        scheduled,
-        r => piano[String(r.id)].data_prevista
-      )
-    : scheduled.reduce((o, r) => {
+  // Compatibilità anche con browser senza Object.groupBy
+  const groups =
+    scheduled.reduce(
+      (o, r) => {
 
         const d =
-          piano[String(r.id)].data_prevista
+          piano[String(r.id)]
+            .data_prevista
 
-        ;(o[d] ??= []).push(r)
+        if (!o[d]) {
+          o[d] = []
+        }
+
+        o[d].push(r)
 
         return o
-      }, {})
+      },
+      {}
+    )
+
+  // =====================================================
+  // INTERFACCIA
+  // =====================================================
 
   return (
-    <div style={{ color: '#e2e8f0' }}>
+    <div
+      style={{
+        color: '#e2e8f0'
+      }}
+    >
 
       {/* TESTATA */}
 
       <div style={box}>
 
-        <strong>📅 Calendario aperture</strong>
+        <strong>
+          📅 Calendario aperture
+        </strong>
 
         <p>
-          {daAprire.length} da aprire
+          {daAprire.length}
+          {' '}da aprire
           {' · '}
-          {aperti.length} aperti
+          {aperti.length}
+          {' '}aperti
           {' · '}
-          {scheduled.length} programmati
+          {scheduled.length}
+          {' '}programmati
         </p>
 
-        {!loaded && 'Caricamento...'}
+        {!loaded &&
+          'Caricamento...'}
 
         {msg && (
           <p
@@ -538,7 +806,9 @@ export default function CalendarioAperture({
 
       <div style={box}>
 
-        <h3>Settimana tipo</h3>
+        <h3>
+          Settimana tipo
+        </h3>
 
         <div
           style={{
@@ -548,48 +818,56 @@ export default function CalendarioAperture({
           }}
         >
 
-          {[1, 2, 3, 4, 5, 6, 0].map(d => (
+          {[1, 2, 3, 4, 5, 6, 0]
+            .map(d => (
 
-            <label
-              key={d}
-              style={{
-                display: 'grid',
-                gap: 5
-              }}
-            >
-
-              {GIORNI[d]}
-
-              <input
-                aria-label={'Aperture ' + GIORNI[d]}
+              <label
+                key={d}
                 style={{
-                  ...field,
-                  width: 72
+                  display: 'grid',
+                  gap: 5
                 }}
-                type="number"
-                min="0"
-                max="500"
-                value={regole[d]}
-                onChange={e =>
-                  setRegole(v =>
-                    v.map((n, i) =>
-                      i === d
-                        ? Math.max(
-                            0,
-                            Math.min(
-                              500,
-                              Number(e.target.value) || 0
-                            )
-                          )
-                        : n
+              >
+
+                {GIORNI[d]}
+
+                <input
+                  aria-label={
+                    'Aperture ' +
+                    GIORNI[d]
+                  }
+                  style={{
+                    ...field,
+                    width: 72
+                  }}
+                  type="number"
+                  min="0"
+                  max="500"
+                  value={regole[d]}
+                  onChange={e =>
+                    setRegole(v =>
+                      v.map(
+                        (n, i) =>
+                          i === d
+                            ? Math.max(
+                                0,
+                                Math.min(
+                                  500,
+                                  Number(
+                                    e.target
+                                      .value
+                                  ) || 0
+                                )
+                              )
+                            : n
+                      )
                     )
-                  )
-                }
-              />
+                  }
+                />
 
-            </label>
+              </label>
 
-          ))}
+            ))}
 
         </div>
 
@@ -605,20 +883,42 @@ export default function CalendarioAperture({
           <button
             style={btn}
             disabled={busy}
-            onClick={salvaRegole}
+            onClick={
+              salvaRegole
+            }
           >
             Salva regole
           </button>
 
           <button
             style={btn}
-            disabled={busy || !loaded}
-            onClick={ricalcola}
+            disabled={
+              busy || !loaded
+            }
+            onClick={
+              ricalcola
+            }
           >
             🔄 Ricalcola calendario
           </button>
 
         </div>
+
+        <p
+          style={{
+            color: '#94a3b8',
+            fontSize: 12,
+            marginBottom: 0
+          }}
+        >
+          Priorità automatica:
+          prima il cliente con
+          più bookmaker DA APRIRE.
+          Una volta iniziato,
+          viene completato prima
+          di passare al cliente
+          successivo.
+        </p>
 
       </div>
 
@@ -626,7 +926,9 @@ export default function CalendarioAperture({
 
       <div style={box}>
 
-        <h3>Eccezione per singola data</h3>
+        <h3>
+          Eccezione per singola data
+        </h3>
 
         <div
           style={{
@@ -638,6 +940,7 @@ export default function CalendarioAperture({
         >
 
           <label>
+
             Data
             <br />
 
@@ -646,12 +949,16 @@ export default function CalendarioAperture({
               type="date"
               value={date}
               onChange={e =>
-                setDate(e.target.value)
+                setDate(
+                  e.target.value
+                )
               }
             />
+
           </label>
 
           <label>
+
             Numero aperture
             <br />
 
@@ -665,15 +972,20 @@ export default function CalendarioAperture({
               max="500"
               value={override}
               onChange={e =>
-                setOverride(e.target.value)
+                setOverride(
+                  e.target.value
+                )
               }
             />
+
           </label>
 
           <button
             style={btn}
             disabled={busy}
-            onClick={salvaEccezione}
+            onClick={
+              salvaEccezione
+            }
           >
             Salva eccezione
           </button>
@@ -683,7 +995,9 @@ export default function CalendarioAperture({
             <button
               style={btn}
               disabled={busy}
-              onClick={togliEccezione}
+              onClick={
+                togliEccezione
+              }
             >
               Ripristina settimana tipo
             </button>
@@ -694,11 +1008,13 @@ export default function CalendarioAperture({
 
       </div>
 
-      {/* APERTURE */}
+      {/* APERTURE PROGRAMMATE */}
 
       <div style={box}>
 
-        <h3>Aperture programmate</h3>
+        <h3>
+          Aperture programmate
+        </h3>
 
         <input
           style={{
@@ -706,147 +1022,173 @@ export default function CalendarioAperture({
             width: '100%',
             maxWidth: 350
           }}
-          placeholder="Cerca cliente o bookmaker"
+          placeholder=
+            "Cerca cliente o bookmaker"
           value={filtro}
           onChange={e =>
-            setFiltro(e.target.value)
+            setFiltro(
+              e.target.value
+            )
           }
         />
 
         {Object.entries(groups)
-          .sort(([a], [b]) =>
-            a.localeCompare(b)
+          .sort(
+            ([a], [b]) =>
+              a.localeCompare(b)
           )
-          .map(([day, rs]) => (
+          .map(
+            ([day, rs]) => (
 
-            <section
-              key={day}
-              style={{
-                marginTop: 15
-              }}
-            >
+              <section
+                key={day}
+                style={{
+                  marginTop: 15
+                }}
+              >
 
-              <h4>
-                {day} · {rs.length}{' '}
-                {rs.length === 1
-                  ? 'apertura'
-                  : 'aperture'}
-              </h4>
+                <h4>
+                  {day}
+                  {' · '}
+                  {rs.length}
+                  {' '}
+                  {rs.length === 1
+                    ? 'apertura'
+                    : 'aperture'}
+                </h4>
 
-              {rs.map(r => {
+                {rs.map(r => {
 
-                const p =
-                  piano[String(r.id)]
+                  const p =
+                    piano[
+                      String(r.id)
+                    ]
 
-                const opening =
-                  aperturaInCorso === r.id
+                  const opening =
+                    aperturaInCorso ===
+                    r.id
 
-                return (
+                  return (
 
-                  <div
-                    key={r.id}
-                    style={{
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      gap: 10,
-                      alignItems: 'center',
-                      padding: 8,
-                      borderBottom:
-                        '1px solid #30435e'
-                    }}
-                  >
-
-                    <span
+                    <div
+                      key={r.id}
                       style={{
-                        flex: '1 1 250px'
+                        display:
+                          'flex',
+                        flexWrap:
+                          'wrap',
+                        gap: 10,
+                        alignItems:
+                          'center',
+                        padding: 8,
+                        borderBottom:
+                          '1px solid #30435e'
                       }}
                     >
 
-                      <strong>
-                        {r.cliente}
-                      </strong>
+                      <span
+                        style={{
+                          flex:
+                            '1 1 250px'
+                        }}
+                      >
 
-                      {' — '}
+                        <strong>
+                          {r.cliente}
+                        </strong>
 
-                      {r.bookmaker}
+                        {' — '}
 
-                      {p?.bloccata && ' 📌'}
+                        {r.bookmaker}
 
-                    </span>
+                        {p?.bloccata &&
+                          ' 📌'}
 
-                    <input
-                      aria-label={
-                        'Sposta ' +
-                        r.cliente +
-                        ' ' +
-                        r.bookmaker
-                      }
-                      style={field}
-                      type="date"
-                      value={
-                        p?.data_prevista || ''
-                      }
-                      onChange={e => {
+                      </span>
 
-                        if (e.target.value) {
+                      <input
+                        aria-label={
+                          'Sposta ' +
+                          r.cliente +
+                          ' ' +
+                          r.bookmaker
+                        }
+                        style={field}
+                        type="date"
+                        value={
+                          p?.data_prevista ||
+                          ''
+                        }
+                        onChange={e => {
+
+                          if (
+                            e.target.value
+                          ) {
+                            cambiaSingola(
+                              r,
+                              e.target
+                                .value,
+                              true
+                            )
+                          }
+
+                        }}
+                      />
+
+                      <button
+                        style={btn}
+                        disabled={busy}
+                        onClick={() =>
                           cambiaSingola(
                             r,
-                            e.target.value,
-                            true
+                            p?.data_prevista,
+                            !p?.bloccata
                           )
                         }
+                      >
 
-                      }}
-                    />
+                        {p?.bloccata
+                          ? '🔓 Sblocca'
+                          : '🔒 Fissa apertura'}
 
-                    <button
-                      style={btn}
-                      disabled={busy}
-                      onClick={() =>
-                        cambiaSingola(
-                          r,
-                          p?.data_prevista,
-                          !p?.bloccata
-                        )
-                      }
-                    >
+                      </button>
 
-                      {p?.bloccata
-                        ? '🔓 Sblocca'
-                        : '🔒 Fissa apertura'}
+                      <button
+                        style={
+                          btnAperto
+                        }
+                        disabled={
+                          opening ||
+                          busy
+                        }
+                        onClick={() =>
+                          segnaAperto(r)
+                        }
+                      >
 
-                    </button>
+                        {opening
+                          ? '⏳ Apertura...'
+                          : '✅ APERTO'}
 
-                    <button
-                      style={btnAperto}
-                      disabled={
-                        opening || busy
-                      }
-                      onClick={() =>
-                        segnaAperto(r)
-                      }
-                    >
+                      </button>
 
-                      {opening
-                        ? '⏳ Apertura...'
-                        : '✅ APERTO'}
+                    </div>
 
-                    </button>
+                  )
+                })}
 
-                  </div>
+              </section>
 
-                )
-              })}
-
-            </section>
-
-          ))}
+            )
+          )}
 
         {!scheduled.length && (
 
           <p>
-            Nessuna apertura pianificata.
-            Imposta le regole e ricalcola.
+            Nessuna apertura
+            pianificata. Imposta
+            le regole e premi
+            Ricalcola calendario.
           </p>
 
         )}
