@@ -7,7 +7,7 @@ export type Blocco = { titolo?: string; testo?: string; punti?: string[]; passi?
 export type Sezione = { id: string; titolo: string; intro?: string; blocchi: Blocco[] }
 export type Parte = { id: string; titolo: string; sottotitolo: string; sezioni: Sezione[] }
 
-export const AGGIORNATO = '3 ottobre 2026'
+export const AGGIORNATO = '4 ottobre 2026'
 
 export const PARTI: Parte[] = [
 // ─────────────────────────────────────────────────────────────────────
@@ -43,8 +43,10 @@ export const PARTI: Parte[] = [
         ['📱 SMS', 'Gli SMS arrivati sui telefoni dei clienti', 'Codici, avvisi dei book'],
         ['👥 Team', 'Promo, conti e risultati dei collaboratori', 'Se lavori in squadra'],
         ['📈 Prop Hedge · 🎲 Masaniello · Contabilità', 'Moduli dell\'amministratore', 'Solo se autorizzato'],
+        ['📡 Segnali', 'Apre la pagina dei segnali dei canali Telegram (ScoreTrend, Hunterbet) con pagella e analisi', 'Quando lavori sui segnali'],
+        ['📬 Lucy Mail', 'Apre l\'archivio delle email e degli SMS dei bookmaker analizzati da Lucy', 'Per promo, problemi e comunicazioni dei conti'],
       ] },
-      { nota: { tipo: 'consiglio', testo: 'Lucy Mail (le email e gli SMS dei bookmaker analizzati da Lucy) ha una pagina sua: la trovi all\'indirizzo /profit-tracker/archivio-lucy. È spiegata nel capitolo "Lucy Mail".' } },
+      { nota: { tipo: 'consiglio', testo: 'Lucy Mail e i Segnali hanno pagine loro: si aprono con i pulsanti 📬 Lucy Mail e 📡 Segnali nella barra delle schede. Sono spiegati nei capitoli dedicati.' } },
     ] },
   { id: 'parole', titolo: 'Le parole da conoscere',
     blocchi: [
@@ -216,6 +218,7 @@ export const PARTI: Parte[] = [
         'Gioca, poi "✓ Sessione giocata": il sistema ti chiede anche di segnare il gruppo come ✅ Fatta.',
         'Scrivi la data della prossima (gg/mm) oppure lascia vuoto per la cadenza automatica. Con 📅 puoi cambiarla quando vuoi.',
       ] },
+      { nota: { tipo: 'attenzione', testo: 'Quando crei o modifichi un gruppo, se aggiungi un conto che è già in un\'altra profilazione mirata il sistema te lo segnala ("⚠️ già in Profilazione 2") e chiede conferma. Con "Aggiungi tutti": OK aggiunge anche i doppi, Annulla aggiunge solo i conti nuovi.' } },
       { nota: { tipo: 'consiglio', testo: 'Se premi direttamente ✅ Fatta (senza 🎰 Numeri) il sistema chiede quanto ha giocato ogni conto: scrivilo sempre, serve all\'archivio.' } },
     ] },
   { id: 'avvisi', titolo: 'Avvisi e chat con l\'assistenza',
@@ -311,6 +314,25 @@ export const PARTI: Parte[] = [
         'I pollici 👍/👎 per ora registrano solo il tuo giudizio.',
       ] },
     ] },
+  { id: 'segnali', titolo: 'Segnali dei canali Telegram (ScoreTrend e Hunterbet)',
+    intro: 'Due programmi sul PC sempre acceso leggono i canali Telegram dei segnali e li mandano al Profit Tracker. Tutti gli utenti li vedono in tempo reale dalla pagina 📡 Segnali, senza bisogno di Telegram.',
+    blocchi: [
+      { titolo: 'La pagina 📡 Segnali', punti: [
+        'In alto scegli il canale: ScoreTrend o Hunterbet. La pagina si aggiorna da sola ogni 30 secondi; i segnali arrivati da meno di 30 minuti hanno 🆕.',
+        'ScoreTrend: partita, competizione, live (con il minuto) o prepartita, mercato, giocata, quota ed esito con le unità. Le quote sotto 1,40 sono in giallo; la spunta "solo quota ≥ 1,40" mostra i numeri come se applicassi la regola.',
+        'Hunterbet: il segnale è "probabile gol casa" o "gol ospiti" con il risultato al momento del segnale; l\'esito arriva in automatico dai risultati delle partite (VINTA appena segna la squadra indicata, PERSA a fine partita, NULLA se rinviata).',
+        'Filtri: periodo, esito, live/prepartita, mercato, ricerca per squadra o competizione.',
+      ] },
+      { titolo: 'La pagina 📈 Analisi segnali', punti: [
+        'Torte per il colpo d\'occhio: esiti, mercati (o tipo di segnale) e, per Hunterbet, i minuti tra il segnale e il gol.',
+        'Schede: bet chiuse, % vinte con il margine, unità e rendimento, calo massimo, striscia peggiore, cassa minima consigliata.',
+        'Curva della cassa bet dopo bet.',
+        'Tabelle per segmento: mercato, competizione, minuto del segnale, fascia di quota, casa/ospiti, risultato al segnale, giorno, fascia oraria. Ogni riga ha il margine al 95%: se è largo il dato non è affidabile. In grigio i segmenti con meno di 20 bet.',
+        '"Regge sui dati nuovi?": confronta la prima metà dei segnali con la seconda.',
+        'Hunterbet non dà le quote: la pagina calcola la quota di pareggio (sotto quella quota si perde) e simula il risultato a una quota ipotetica che scegli tu.',
+      ] },
+      { nota: { tipo: 'attenzione', testo: 'Con poche decine di segnali ogni numero è molto incerto. Prima di seguire un segnale con soldi veri servono almeno 100 bet chiuse (20 per ogni segmento): fidati del margine, non della percentuale da sola.' } },
+    ] },
   { id: 'telefoni', titolo: 'I telefoni e il pulsante 📱',
     blocchi: [
       { punti: [
@@ -354,6 +376,8 @@ export const PARTI: Parte[] = [
         ['Una chat è rimasta in sospeso', 'Annota "In attesa di risposta": Lucy ti ricorda di ricontrollare'],
         ['Una comunicazione di Lucy Mail sembra sbagliata', 'Apri l\'email originale e fidati del testo; segnala il caso'],
         ['Il pulsante di una sezione non apre nulla', 'Ricarica la pagina con Ctrl+F5'],
+        ['La pagina Segnali non si aggiorna più', 'Controlla che sul PC il programma del canale sia acceso (finestra nera aperta); se è spento, riavvialo: recupera da solo i segnali persi'],
+        ['Hunterbet: tanti segnali "in corso" da ore', 'Il controllo degli esiti ha finito le chiamate giornaliere di API-Football: riprendono alle 2 di notte e gli esiti si sistemano da soli'],
       ] },
     ] },
 ] },
@@ -384,6 +408,17 @@ export const PARTI: Parte[] = [
         'Il Market Engine produce un\'analisi direzionale (BUY, SELL o attesa), con storico e laboratorio di validazione dei segnali; XAUUSD è l\'asset principale.',
         'I bridge MT5 (MarketFeedBridge e PropHedgeBridge) portano i dati reali dal terminale; un controllo automatico segnala quando il trend iniziale non è più confermato (è un invito al controllo, non una chiusura automatica).',
         'Le stime di prezzo sono sperimentali: non sono prezzi garantiti.',
+      ] },
+    ] },
+  { id: 'programmi-pc', titolo: 'I programmi dei segnali sul PC',
+    blocchi: [
+      { punti: [
+        'scoretrend.py e hunterbet.py girano su UN solo PC sempre acceso, con un account Telegram iscritto ai canali. Si avviano con il loro .bat e restano in una finestra nera.',
+        'Le credenziali stanno nei file config (config.ini, config_hunterbet.ini), mai nel codice. I file .session sono la chiave dell\'account Telegram: non si condividono mai.',
+        'All\'avvio leggono lo storico del canale; poi mandano subito al sito ogni segnale nuovo e ogni esito. Se internet cade, tengono i dati in coda e li rimandano.',
+        'Hunterbet usa API-Football per gli esiti: una sola chiamata per giro per tutte le partite aperte, e rallenta da solo quando le chiamate del giorno stanno per finire (piano gratuito: 100 al giorno, poll_secondi = 900 nel config).',
+        'Il sito non cancella mai un dato già scritto: un riavvio del PC non può azzerare gli esiti.',
+        'La chiave SEGNALI_SECRET su Vercel e nei config autorizza i programmi a scrivere sul sito.',
       ] },
     ] },
   { id: 'dati', titolo: 'Dati e sicurezza',
