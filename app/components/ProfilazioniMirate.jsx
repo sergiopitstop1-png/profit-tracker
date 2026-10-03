@@ -155,6 +155,22 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
     const trovati = q.length < 2 ? [] : (books || []).filter(b => { const t = `${b.nome} ${b.intestatario || ''}`.toLowerCase(); return parole.every(w => t.includes(w)) && !edit.conti.includes(String(b.id)) && !(terminato && terminato(b.intestatario)) })
       .sort((a, b) => String(a.nome).localeCompare(String(b.nome)) || String(a.intestatario || '').localeCompare(String(b.intestatario || '')))
     const inAltri = id => (gruppi || []).find(g => g.id !== edit.id && (g.conti || []).map(String).includes(String(id)))
+    // 03/10/2026 — conto già presente in altri gruppi: chiede conferma prima di aggiungerlo
+    const gruppiDi = id => (gruppi || []).filter(g => g.id !== edit.id && (g.conti || []).map(String).includes(String(id))).map(g => g.nome)
+    const etichetta = id => { const b = (books || []).find(x => String(x.id) === String(id)); return b ? `${b.nome} · ${b.intestatario || '—'}` : `conto ${id}` }
+    const aggiungiConti = (ids) => {
+      const nuovi = ids.map(String).filter(id => !edit.conti.includes(id))
+      const doppi = nuovi.filter(id => gruppiDi(id).length)
+      let daAggiungere = nuovi
+      if (doppi.length === 1 && nuovi.length === 1) {
+        if (!window.confirm(`⚠️ ${etichetta(doppi[0])} è già in: ${gruppiDi(doppi[0]).join(', ')}.\n\nLo aggiungo anche a "${edit.nome || 'questo gruppo'}"?`)) return
+      } else if (doppi.length) {
+        const elenco = doppi.map(id => `• ${etichetta(id)} → già in ${gruppiDi(id).join(', ')}`).join('\n')
+        const anche = window.confirm(`⚠️ ${doppi.length} di questi conti sono già in altre profilazioni mirate:\n\n${elenco}\n\nOK = aggiungo anche questi\nAnnulla = aggiungo solo i ${nuovi.length - doppi.length} conti nuovi`)
+        if (!anche) daAggiungere = nuovi.filter(id => !doppi.includes(id))
+      }
+      setEdit({ ...edit, conti: [...edit.conti, ...daAggiungere], cerca: '' })
+    }
     return (
       <div style={{ marginTop: 10, padding: 12, borderRadius: 12, border: '1px solid rgba(250,204,21,0.45)', background: 'rgba(250,204,21,0.05)' }}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
@@ -167,15 +183,15 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
         {trovati.length > 0 && (
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, fontSize: 12, color: '#94a3b8' }}>
             <span>{trovati.length} conti trovati</span>
-            <button style={btn('#facc15')} onClick={() => setEdit({ ...edit, conti: [...edit.conti, ...trovati.map(b => String(b.id))], cerca: '' })}>➕ Aggiungi tutti ({trovati.length})</button>
+            <button style={btn('#facc15')} onClick={() => aggiungiConti(trovati.map(b => b.id))}>➕ Aggiungi tutti ({trovati.length})</button>
           </div>
         )}
         {trovati.length > 0 && (
           <div style={{ marginTop: 4, border: '1px solid #334155', borderRadius: 8, overflowY: 'auto', maxHeight: 320 }}>
             {trovati.map(b => {
-              return <div key={b.id} onClick={() => setEdit({ ...edit, conti: [...edit.conti, String(b.id)] })} style={{ padding: '5px 10px', cursor: 'pointer', display: 'flex', gap: 8, fontSize: 12, borderTop: '1px solid #1e293b' }}>
+              return <div key={b.id} onClick={() => aggiungiConti([b.id])} style={{ padding: '5px 10px', cursor: 'pointer', display: 'flex', gap: 8, fontSize: 12, borderTop: '1px solid #1e293b' }}>
                 <b>{b.nome}</b><span style={{ color: '#94a3b8' }}>{b.intestatario || '—'}</span>
-                {inAltri(b.id) && <span style={{ marginLeft: 'auto', color: '#fbbf24' }}>già in {inAltri(b.id).nome}</span>}
+                {inAltri(b.id) && <span style={{ marginLeft: 'auto', color: '#fbbf24' }}>⚠️ già in {gruppiDi(b.id).join(', ')}</span>}
               </div>
             })}
           </div>
