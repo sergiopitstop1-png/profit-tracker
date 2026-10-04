@@ -11,7 +11,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 export const runtime = 'nodejs'
 
-const CAMPI = ['msg_id', 'data_msg', 'competizione', 'casa', 'ospite', 'tipo_segnale', 'score_casa_segnale', 'score_ospite_segnale', 'minuto_segnale',
+const CAMPI = ['msg_id', 'fase', 'data_msg', 'competizione', 'casa', 'ospite', 'tipo_segnale', 'score_casa_segnale', 'score_ospite_segnale', 'minuto_segnale',
   'fixture_id', 'score_casa_attuale', 'score_ospite_attuale', 'stato_match', 'esito', 'data_esito', 'minuti_al_gol'] as const
 const vuoto = (v: any) => v === null || v === undefined || v === ''
 
