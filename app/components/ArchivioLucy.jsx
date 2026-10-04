@@ -7,6 +7,10 @@
 //   • Masaniello pilota ............ recupero_bets (+ esiti da selection_outcomes)
 //   • Casino live (libere, mirate, proposte da Lucy) ... live_sessioni
 //   • Profilazioni mirate fatte .... profilazioni_mirate_fatte
+//   • Avvisi conti fatti ........... avvisi_conti (stato 'fatto')          ← 04/10/2026
+//     (appuntamenti fissati, documenti inviati, riaperture, assistenze, verifiche…)
+//   • Recuperi conti chiusi ........ recupero_esiti                        ← 04/10/2026
+//   • Note dei conti gestite ....... note_storico (testo originale salvato) ← 04/10/2026
 // Solo lettura: non cambia niente di come funzionano i motori.
 // ════════════════════════════════════════════════════════════════════
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
@@ -117,8 +121,67 @@ export function righeMirate(rows, books, sessioni = []) {
   return out
 }
 
-const ORIGINI = ['Sport Lucy', 'Masaniello', 'Casino live', 'Profilazione mirata']
-const STATI = ['CONFERMATA', 'PIAZZATA', 'GIOCATA', 'FATTA', 'SALTATA', 'RIMANDATA', 'NON GIOCATA', 'DA FARE']
+// ─── 04/10/2026 · AVVISI, RECUPERI E NOTE: tutto quello che si fa finisce in archivio ───
+const ESITI_AVVISO = {
+  fatto: 'Fatto', ok: 'Fatto', approvato: 'Approvato', rifiutato: 'Rifiutato', attesa: 'In attesa di risposta',
+  risolto: 'Risolto', tolta: 'Limitazione tolta', ancora: 'Ancora limitato',
+}
+const nomeEsito = (e) => !e ? 'Fatto' : ESITI_AVVISO[e] || String(e).charAt(0).toUpperCase() + String(e).slice(1)
+const PASSI = { appuntamento: 'appuntamento', seduta: 'seduta live', verifica: 'verifica', prepara: 'preparazione', invio: 'invio' }
+export function righeAvvisi(rows, books) {
+  const bookDi = (id) => (books || []).find(b => String(b.id) === String(id))
+  return (rows || []).map(a => {
+    const m = a.meta || {}
+    const ids = (m.book_ids && m.book_ids.length ? m.book_ids : [a.book_id]).filter(Boolean)
+    const conti = ids.map(bookDi).filter(Boolean)
+    const nomiBook = conti.map(b => b.nome).join(', ')
+    const cliente = m.intestatario || conti[0]?.intestatario || ''
+    const appuntamento = String(a.esito || '').match(/^appuntamento (\d{4}-\d{2}-\d{2})$/)
+    const evento = appuntamento
+      ? `Fissato appuntamento con ${cliente || '?'}${nomiBook ? ` per ${nomiBook}` : ''} il ${dataIt(appuntamento[1])}${a.tipo === 'live' ? ' (riconoscimento live)' : ''}`
+      : a.titolo || ''
+    const t = a.aggiornato || a.updated_at
+    const stessoGiorno = t && new Date(t).toLocaleDateString('sv-SE') === a.fatto_il
+    return {
+      quando: stessoGiorno ? t : a.fatto_il, data: a.fatto_il, origine: 'Avvisi conti',
+      tipo: `${a.tipo || 'avviso'}${m.passo ? ` · ${PASSI[m.passo] || m.passo}` : ''}`,
+      cliente, book: nomiBook || (ids.length ? `conto ${ids.join(', ')}` : ''), evento,
+      giocata: appuntamento ? `Appuntamento: ${dataIt(appuntamento[1])}` : nomeEsito(a.esito),
+      importo: null, quota: null, stato: 'FATTO', esito: '', pl: null,
+      note: [a.sottotitolo, a.data_prevista && a.data_prevista > a.fatto_il ? `fatto in anticipo (era previsto il ${dataIt(a.data_prevista)})` : ''].filter(Boolean).join(' · '),
+    }
+  })
+}
+export function righeRecuperi(rows) {
+  return (rows || []).map(r => ({
+    quando: r.creato || r.created_at || r.chiuso_il, data: r.chiuso_il, origine: 'Recupero conti', tipo: `recupero ${r.tipo || ''}`.trim(),
+    cliente: r.intestatario, book: r.nome, evento: `Recupero chiuso${r.tentativi != null ? ` dopo ${r.tentativi} tentativi` : ''}`,
+    giocata: nomeEsito(r.esito), importo: null, quota: null, stato: 'CHIUSO', esito: '', pl: null,
+    note: [r.iniziato ? `iniziato il ${dataIt(r.iniziato)}` : '', r.attivo_dal ? `attivo dal ${dataIt(r.attivo_dal)}` : ''].filter(Boolean).join(' · '),
+  }))
+}
+export function righeNote(rows) {
+  return (rows || []).map(n => {
+    const quando = n.creato || n.created_at || ''
+    const testo = String(n.testo || '').replace(/\s+/g, ' ').trim()
+    return {
+      quando, data: quando ? new Date(quando).toLocaleDateString('sv-SE') : '', origine: 'Note conti', tipo: 'nota del conto',
+      cliente: n.intestatario, book: n.nome, evento: n.motivo || 'nota modificata', giocata: '', importo: null, quota: null,
+      stato: 'NOTA', esito: '', pl: null, note: testo ? `testo di prima: "${testo.length > 140 ? testo.slice(0, 140) + '…' : testo}"` : '',
+    }
+  })
+}
+// tabelle di cui non conosciamo con certezza la colonna della data: prova creato, poi created_at
+async function tutteDal(tabella, da) {
+  let ultimo = null
+  for (const col of ['creato', 'created_at']) {
+    try { return await tutte(() => supabase.from(tabella).select('*').gte(col, da).order(col, { ascending: false })) } catch (e) { ultimo = e }
+  }
+  throw ultimo
+}
+
+const ORIGINI = ['Sport Lucy', 'Masaniello', 'Casino live', 'Profilazione mirata', 'Avvisi conti', 'Recupero conti', 'Note conti']
+const STATI = ['CONFERMATA', 'PIAZZATA', 'GIOCATA', 'FATTA', 'FATTO', 'CHIUSO', 'NOTA', 'SALTATA', 'RIMANDATA', 'NON GIOCATA', 'DA FARE']
 
 export default function ArchivioLucy({ books }) {
   const [periodo, setPeriodo] = useState('7')
@@ -149,6 +212,10 @@ export default function ArchivioLucy({ books }) {
     let sessioniLive = []
     await prova('Casino live', async () => { sessioniLive = await tutte(() => supabase.from('live_sessioni').select('*').gte('giorno', da).order('creato', { ascending: false })); return righeLive(sessioniLive) })
     await prova('Profilazioni mirate', async () => righeMirate(await tutte(() => supabase.from('profilazioni_mirate_fatte').select('*').gte('data', da).order('data', { ascending: false })), books, sessioniLive))
+    // 04/10/2026: avvisi fatti, recuperi chiusi, note gestite
+    await prova('Avvisi conti', async () => righeAvvisi(await tutte(() => supabase.from('avvisi_conti').select('*').eq('stato', 'fatto').gte('fatto_il', da).order('fatto_il', { ascending: false })), books))
+    await prova('Recuperi chiusi', async () => righeRecuperi(await tutte(() => supabase.from('recupero_esiti').select('*').gte('chiuso_il', da).order('chiuso_il', { ascending: false }))))
+    await prova('Note conti', async () => righeNote(await tutteDal('note_storico', da)))
     tutto.sort((a, b) => String(b.quando || b.data).localeCompare(String(a.quando || a.data)))
     setRighe(tutto); setAvvisi(note); setCarico(false)
   }, [periodo, books])
@@ -177,7 +244,7 @@ export default function ArchivioLucy({ books }) {
   const sel = { border: '1px solid #cbd5e1', borderRadius: 6, padding: '5px 8px', fontSize: 12, background: 'white', color: '#0f172a' }
   const th = { textAlign: 'left', padding: '6px 8px', borderBottom: '2px solid #cbd5e1', fontSize: 11, color: '#475569', whiteSpace: 'nowrap', position: 'sticky', top: 0, background: '#f8fafc' }
   const td = { padding: '5px 8px', borderBottom: '1px solid #e2e8f0', fontSize: 12, color: '#0f172a', verticalAlign: 'top' }
-  const coloreStato = { CONFERMATA: '#166534', PIAZZATA: '#166534', GIOCATA: '#166534', FATTA: '#166534', SALTATA: '#b91c1c', RIMANDATA: '#b45309', 'NON GIOCATA': '#64748b', 'DA FARE': '#1d4ed8' }
+  const coloreStato = { CONFERMATA: '#166534', PIAZZATA: '#166534', GIOCATA: '#166534', FATTA: '#166534', FATTO: '#166534', CHIUSO: '#7c3aed', NOTA: '#475569', SALTATA: '#b91c1c', RIMANDATA: '#b45309', 'NON GIOCATA': '#64748b', 'DA FARE': '#1d4ed8' }
 
   return (
     <div style={{ background: 'white', borderRadius: 12, padding: 14, color: '#0f172a' }}>
