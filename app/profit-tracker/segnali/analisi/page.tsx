@@ -154,10 +154,14 @@ export default function AnalisiSegnali() {
           : `${/under/i.test(String(x.selezione || '')) ? 'Under' : 'Over'} ${x.linea != null ? String(x.linea).replace('.', ',') : ''}${x.tempo && x.tempo !== 'finale' ? ' ' + x.tempo : ''}`.trim(),
         ht: x.ht_casa != null && x.ht_ospite != null ? [x.ht_casa, x.ht_ospite] : null, ft: x.ft_casa != null && x.ft_ospite != null ? [x.ft_casa, x.ft_ospite] : null, gol: Array.isArray(x.gol) ? x.gol : null,
       } : {
-        id: x.msg_id, data: x.data_msg, competizione: x.competizione || 'n.d.', esito: x.esito, quota: null, profitto: null, unita: 1, live: 'live',
-        minuto: x.minuto_segnale, mercato: x.tipo_segnale === 'GOL_CASA' ? 'Gol casa' : 'Gol ospiti', casaOspiti: x.tipo_segnale === 'GOL_CASA' ? 'Casa' : 'Ospiti',
+        id: x.msg_id, data: x.data_msg, competizione: x.competizione || 'n.d.', esito: x.esito,
+        quota: x.quota != null ? Number(x.quota) : null,
+        profitto: x.quota != null && x.esito ? (x.esito === 'VINTA' ? Number(x.quota) - 1 : x.esito === 'PERSA' ? -1 : 0) : null, unita: 1,
+        live: (x.fase || (String(x.tipo_segnale || '').startsWith('GOL_') ? 'LIVE' : 'PRE-LIVE')) === 'LIVE' ? 'live' : 'prepartita',
+        minuto: x.minuto_segnale, mercato: x.tipo_segnale === 'GOL_CASA' ? 'Gol casa' : x.tipo_segnale === 'GOL_OSPITI' ? 'Gol ospiti' : `Pre-live · ${x.tipo_segnale || '?'}`,
+        casaOspiti: x.tipo_segnale === 'GOL_CASA' ? 'Casa' : x.tipo_segnale === 'GOL_OSPITI' ? 'Ospiti' : 'Pre-live',
         risultato: x.score_casa_segnale != null ? `${x.score_casa_segnale}-${x.score_ospite_segnale}` : null, minutiAlGol: x.minuti_al_gol,
-        tipo: x.tipo_segnale === 'GOL_CASA' ? 'Gol casa' : 'Gol ospiti',
+        tipo: x.tipo_segnale === 'GOL_CASA' ? 'Gol casa' : x.tipo_segnale === 'GOL_OSPITI' ? 'Gol ospiti' : `Pre-live · ${x.tipo_segnale || '?'}`,
         ht: x.ht_casa != null && x.ht_ospite != null ? [x.ht_casa, x.ht_ospite] : null, ft: x.ft_casa != null && x.ft_ospite != null ? [x.ft_casa, x.ft_ospite] : null, gol: Array.isArray(x.gol) ? x.gol : null,
       }))
     })()
