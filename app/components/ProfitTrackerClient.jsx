@@ -6540,21 +6540,13 @@ if (oggiClub >= CLUB_CICLO_INIZIO) {
   meseCicloClub = ((mesiTrascorsiClub - 1) % 12) + 1
   accantonamentoClub = mediaMensileClub * meseCicloClub
 }
-// Accantonamenti a rate (figlio, Paolo, Michela): stessa logica del club, importi modificabili
-// da interfaccia. I pagamenti reali finiscono anche in Contabilità quando li fai: l'accantonamento
-// sintetico si sovrappone volutamente a quelle uscite (stessa scelta di prudenza del rinnovo club).
-// Si azzerano da soli ogni mese perché seguono il giorno del calendario, non un ciclo custom.
-const FIGLIO_G1 = Number(dashboardSettings.figlio_g1 ?? 100)
-const FIGLIO_G7 = Number(dashboardSettings.figlio_g7 ?? 100)
-const FIGLIO_G13 = Number(dashboardSettings.figlio_g13 ?? 350)
-const FIGLIO_G20 = Number(dashboardSettings.figlio_g20 ?? 100)
-const FIGLIO_G27 = Number(dashboardSettings.figlio_g27 ?? 100)
+// Accantonamenti a rate. I pagamenti reali finiscono anche in Contabilità quando li fai:
+// l'accantonamento sintetico resta prudenziale e gli avvisi continuano a seguire le scadenze.
+
+// Massimiliano: 250 € al mese, unica scadenza il giorno 13.
+const FIGLIO_G13 = 250
 const FIGLIO_SCHEDULE = [
-  { day: 2, amount: FIGLIO_G1, key: 'figlio_g1_pagato_mese', label: 'giorno 2' },
-  { day: 7, amount: FIGLIO_G7, key: 'figlio_g7_pagato_mese', label: 'giorno 7' },
   { day: 13, amount: FIGLIO_G13, key: 'figlio_g13_pagato_mese', label: 'giorno 13' },
-  { day: 20, amount: FIGLIO_G20, key: 'figlio_g20_pagato_mese', label: 'giorno 20' },
-  { day: 27, amount: FIGLIO_G27, key: 'figlio_g27_pagato_mese', label: 'giorno 27' },
 ]
 const rateFiglio = calcolaRateAccantonamento(FIGLIO_SCHEDULE, dashboardSettings)
 const giornoFiglio = rateFiglio.giorno
@@ -6575,17 +6567,32 @@ const accantonamentoPaolo = PAOLO_ATTIVO ? ratePaolo.maturato : 0
 const totaleMensilePaolo = ratePaolo.totale
 const ratePaoloDaPagare = PAOLO_ATTIVO ? ratePaolo.daPagare : []
 
-// Michela (spese di casa): 1.300€/mese in 4 rate da 325€.
-const MICHELA_R1 = Number(dashboardSettings.michela_r1 ?? 325)
-const MICHELA_R9 = Number(dashboardSettings.michela_r9 ?? 325)
-const MICHELA_R17 = Number(dashboardSettings.michela_r17 ?? 325)
-const MICHELA_R24 = Number(dashboardSettings.michela_r24 ?? 325)
-const MICHELA_SCHEDULE = [
-  { day: 1, amount: MICHELA_R1, key: 'michela_r1_pagato_mese', label: 'giorno 1' },
-  { day: 9, amount: MICHELA_R9, key: 'michela_r9_pagato_mese', label: 'giorno 9' },
-  { day: 17, amount: MICHELA_R17, key: 'michela_r17_pagato_mese', label: 'giorno 17' },
-  { day: 24, amount: MICHELA_R24, key: 'michela_r24_pagato_mese', label: 'giorno 24' },
+// Michela: 260 € ogni lunedì. Lo schedule nasce dal calendario del mese corrente:
+// 4 lunedì = 1.040 €, 5 lunedì = 1.300 €.
+const MICHELA_SETTIMANALE = 260
+const oggiMichela = new Date()
+const annoMichela = oggiMichela.getFullYear()
+const meseMichela = oggiMichela.getMonth()
+const giorniNelMeseMichela = new Date(annoMichela, meseMichela + 1, 0).getDate()
+const lunediMichela = []
+for (let d = 1; d <= giorniNelMeseMichela; d += 1) {
+  if (new Date(annoMichela, meseMichela, d).getDay() === 1) lunediMichela.push(d)
+}
+// Le prime 4 chiavi sono quelle storiche di Michela. La quinta usa una chiave legacy di
+// Massimiliano ora libera, così non serve alcuna migrazione di dashboard_settings.
+const MICHELA_PAGATO_KEYS = [
+  'michela_r1_pagato_mese',
+  'michela_r9_pagato_mese',
+  'michela_r17_pagato_mese',
+  'michela_r24_pagato_mese',
+  'figlio_g27_pagato_mese',
 ]
+const MICHELA_SCHEDULE = lunediMichela.map((day, i) => ({
+  day,
+  amount: MICHELA_SETTIMANALE,
+  key: MICHELA_PAGATO_KEYS[i],
+  label: `lunedì ${day}`,
+}))
 const rateMichela = calcolaRateAccantonamento(MICHELA_SCHEDULE, dashboardSettings)
 const accantonamentoMichela = rateMichela.maturato
 const totaleMensileMichela = rateMichela.totale
@@ -6626,7 +6633,7 @@ const accantonamentiDaPagareTotale =
   accantonamentoClub +
   totaleMenoPagato(FIGLIO_SCHEDULE, dashboardSettings) +
   (PAOLO_ATTIVO ? totaleMenoPagato(PAOLO_SCHEDULE, dashboardSettings) : 0) +
-  totaleMenoPagato(MICHELA_SCHEDULE, dashboardSettings) +
+  totaleMensileMichela +
   accantonamentoAntonello
 
 // I risparmi di Samu e Massi sono già dentro accantonamentiDaPagareTotale
@@ -7302,11 +7309,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             accantonamentoFiglio={accantonamentoFiglio}
             totaleMensileFiglio={totaleMensileFiglio}
             giornoFiglio={giornoFiglio}
-            figlioG1={FIGLIO_G1}
-            figlioG7={FIGLIO_G7}
             figlioG13={FIGLIO_G13}
-            figlioG20={FIGLIO_G20}
-            figlioG27={FIGLIO_G27}
             rateFiglioDaPagare={rateFiglioDaPagare}
             paoloAttivo={PAOLO_ATTIVO}
             accantonamentoPaolo={accantonamentoPaolo}
@@ -7316,10 +7319,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             ratePaoloDaPagare={ratePaoloDaPagare}
             accantonamentoMichela={accantonamentoMichela}
             totaleMensileMichela={totaleMensileMichela}
-            michelaR1={MICHELA_R1}
-            michelaR9={MICHELA_R9}
-            michelaR17={MICHELA_R17}
-            michelaR24={MICHELA_R24}
+            michelaSettimanale={MICHELA_SETTIMANALE}
+            lunediMichela={lunediMichela}
             rateMichelaDaPagare={rateMichelaDaPagare}
             accantonamentoAntonello={accantonamentoAntonello}
             meseCicloAntonello={meseCicloAntonello}
