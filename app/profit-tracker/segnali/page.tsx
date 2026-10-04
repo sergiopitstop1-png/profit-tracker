@@ -23,6 +23,83 @@ type Hunter = {
   msg_id:number; data_msg:string|null; competizione:string|null; casa:string|null; ospite:string|null; tipo_segnale:string|null;
   score_casa_segnale:number|null; score_ospite_segnale:number|null; minuto_segnale:number|null; fixture_id:number|null;
   score_casa_attuale:number|null; score_ospite_attuale:number|null; stato_match:string|null; esito:string|null; data_esito:string|null; minuti_al_gol:number|null
+  fase?:string|null; quota?:number|null; ht_casa?:number|null; ht_ospite?:number|null; ft_casa?:number|null; ft_ospite?:number|null; esito_manuale?:boolean
+}
+
+// ─── 04/10/2026 · HUNTERBET: risultati, quota ed esito inseriti a mano ───
+// L'esito si calcola dal risultato finale: "Gol casa/ospiti" = la squadra ha segnato DOPO il segnale
+// (gol finali > gol al momento del segnale); per i PRE-LIVE si leggono i mercati (es. "12 + MG 1-3").
+function valutaHunter(s: Hunter, fc: number, fo: number): 'VINTA' | 'PERSA' | null {
+  if (s.tipo_segnale === 'GOL_CASA') return fc > (s.score_casa_segnale ?? 0) ? 'VINTA' : 'PERSA'
+  if (s.tipo_segnale === 'GOL_OSPITI') return fo > (s.score_ospite_segnale ?? 0) ? 'VINTA' : 'PERSA'
+  const tot = fc + fo
+  const pezzi = String(s.tipo_segnale || '').toUpperCase().split('+').map(x => x.trim()).filter(Boolean)
+  if (!pezzi.length) return null
+  for (const p of pezzi) {
+    let ok: boolean | null = null, m: RegExpMatchArray | null
+    if (p === '1') ok = fc > fo; else if (p === 'X') ok = fc === fo; else if (p === '2') ok = fc < fo
+    else if (p === '12') ok = fc !== fo; else if (p === '1X') ok = fc >= fo; else if (p === 'X2') ok = fc <= fo
+    else if (/^(GG|GOAL)$/.test(p)) ok = fc > 0 && fo > 0; else if (/^(NG|NO ?GOAL)$/.test(p)) ok = !(fc > 0 && fo > 0)
+    else if ((m = p.match(/^(?:OVER|O)\s*(\d+(?:[.,]5)?)$/))) ok = tot > Number(m[1].replace(',', '.'))
+    else if ((m = p.match(/^(?:UNDER|U)\s*(\d+(?:[.,]5)?)$/))) ok = tot < Number(m[1].replace(',', '.'))
+    else if ((m = p.match(/^(?:MG|MULTIGOL)\s*(\d+)\s*-\s*(\d+)$/))) ok = tot >= Number(m[1]) && tot <= Number(m[2])
+    if (ok === null) return null          // mercato non riconosciuto: esito da scegliere a mano
+    if (!ok) return 'PERSA'
+  }
+  return 'VINTA'
+}
+const leggiRis = (t: string): [number, number] | null => { const m = t.trim().match(/^(\d{1,2})\s*[-–:]\s*(\d{1,2})$/); return m ? [Number(m[1]), Number(m[2])] : null }
+
+function RigaHunter({ s, td, onSalvato }: { s: Hunter; td: any; onSalvato: (r: Hunter) => void }) {
+  const fmt = (a?: number | null, b?: number | null) => a != null && b != null ? `${a}-${b}` : ''
+  const [ft, setFt] = useState(fmt(s.ft_casa, s.ft_ospite))
+  const [ht, setHt] = useState(fmt(s.ht_casa, s.ht_ospite))
+  const [quota, setQuota] = useState(s.quota != null ? String(s.quota).replace('.', ',') : '')
+  const [esito, setEsito] = useState<string>(s.esito_manuale ? (s.esito || '') : 'auto')
+  const [stato, setStato] = useState('')
+  const rFt = leggiRis(ft)
+  const auto = rFt ? valutaHunter(s, rFt[0], rFt[1]) : null
+  const esitoFinale = esito === 'auto' ? (auto || s.esito || null) : (esito || null)
+  const cambiato = ft !== fmt(s.ft_casa, s.ft_ospite) || ht !== fmt(s.ht_casa, s.ht_ospite) || quota !== (s.quota != null ? String(s.quota).replace('.', ',') : '') || (esito === 'auto' ? !!s.esito_manuale || (auto != null && auto !== s.esito) : esito !== (s.esito || ''))
+  async function salva() {
+    if (ft && !rFt) { setStato('risultato finale: scrivi es. 2-1'); return }
+    const rHt = ht ? leggiRis(ht) : null
+    if (ht && !rHt) { setStato('1° tempo: scrivi es. 1-0'); return }
+    const q = quota ? Number(quota.replace(',', '.')) : null
+    if (quota && !(q && q > 1)) { setStato('quota non valida'); return }
+    const patch: Record<string, any> = { ft_casa: rFt?.[0] ?? null, ft_ospite: rFt?.[1] ?? null, ht_casa: rHt?.[0] ?? null, ht_ospite: rHt?.[1] ?? null, quota: q,
+      esito: esitoFinale, esito_manuale: esito !== 'auto', stato_match: rFt ? 'FINITA' : s.stato_match,
+      data_esito: esitoFinale && !s.data_esito ? new Date().toISOString() : s.data_esito, aggiornato: new Date().toISOString() }
+    if (rFt) { patch.score_casa_attuale = rFt[0]; patch.score_ospite_attuale = rFt[1] }
+    setStato('salvo…')
+    const { error } = await supabase.from('hunterbet_segnali').update(patch).eq('msg_id', s.msg_id)
+    if (error) { setStato('errore: ' + error.message + ' (hai lanciato hunterbet_manuale.sql?)'); return }
+    setStato('✓ salvato'); onSalvato({ ...s, ...patch })
+  }
+  const inp = { background: '#020617', color: '#f8fafc', border: '1px solid #334155', borderRadius: 6, padding: '3px 6px', fontSize: 12, width: 52 }
+  const live = (s.fase || (s.tipo_segnale?.startsWith('GOL_') ? 'LIVE' : 'PRE-LIVE')) === 'LIVE'
+  return (
+    <tr>
+      <td style={td}>{quando(s.data_msg)}</td>
+      <td style={{ ...td, fontWeight: 800, color: live ? '#f87171' : '#a78bfa' }}>{live ? '🔴 LIVE' : '🕐 PRE-LIVE'}</td>
+      <td style={{ ...td, fontWeight: 800 }}>{s.casa} – {s.ospite}</td>
+      <td style={{ ...td, color: '#94a3b8' }}>{s.competizione}</td>
+      <td style={td}>{s.tipo_segnale === 'GOL_CASA' ? '🏠 Gol casa' : s.tipo_segnale === 'GOL_OSPITI' ? '✈️ Gol ospiti' : <b>{s.tipo_segnale}</b>}</td>
+      <td style={td}>{s.score_casa_segnale != null ? `${s.score_casa_segnale}–${s.score_ospite_segnale}` : '—'}</td>
+      <td style={td}><input style={inp} placeholder="1-0" value={ht} onChange={e => setHt(e.target.value)} /></td>
+      <td style={td}><input style={{ ...inp, borderColor: rFt || !ft ? '#334155' : '#f87171' }} placeholder="2-1" value={ft} onChange={e => setFt(e.target.value)} /></td>
+      <td style={td}><input style={inp} placeholder="1,70" value={quota} onChange={e => setQuota(e.target.value.replace(/[^0-9.,]/g, ''))} /></td>
+      <td style={td}>
+        <select value={esito} onChange={e => setEsito(e.target.value)} style={{ ...inp, width: 'auto' }}>
+          <option value="auto">auto{auto ? ` (${auto === 'VINTA' ? 'vinta' : 'persa'})` : ''}</option><option value="VINTA">vinta</option><option value="PERSA">persa</option><option value="NULLA">nulla</option><option value="">in corso</option>
+        </select>
+        <div style={{ fontWeight: 900, fontSize: 11, color: esitoFinale === 'VINTA' ? '#86efac' : esitoFinale === 'PERSA' ? '#fca5a5' : '#94a3b8' }}>{esitoFinale ? (esitoFinale === 'VINTA' ? '🟢 vinta' : esitoFinale === 'PERSA' ? '🔴 persa' : '⚪ nulla') : '⏳ in corso'}{esitoFinale && quota && Number(quota.replace(',', '.')) > 1 ? ` · ${esitoFinale === 'VINTA' ? '+' + (Number(quota.replace(',', '.')) - 1).toFixed(2).replace('.', ',') : esitoFinale === 'PERSA' ? '−1' : '0'} u` : ''}</div>
+      </td>
+      <td style={td}>
+        <button onClick={salva} disabled={!cambiato} style={{ background: cambiato ? '#059669' : '#1e293b', color: 'white', border: 0, borderRadius: 6, padding: '4px 10px', fontWeight: 800, fontSize: 12, cursor: cambiato ? 'pointer' : 'default' }}>Salva</button>
+        {stato && <div style={{ fontSize: 10.5, color: stato.startsWith('✓') ? '#86efac' : stato === 'salvo…' ? '#94a3b8' : '#fca5a5' }}>{stato}</div>}
+      </td>
+    </tr>)
 }
 
 type Riga = { voce: string; bet: number; vinte: number; unita: number; puntato: number; quota: number }
@@ -122,21 +199,11 @@ export default function SegnaliPage() {
 
 {tab==='hunterbet' ? (
         <div style={{ background:'rgba(15,23,42,.6)', border:'1px solid #1e293b', borderRadius:14, padding:12, overflowX:'auto' }}>
-          <div style={{fontWeight:900,marginBottom:8}}>Hunterbet · {hunter.length}</div>
+          <div style={{fontWeight:900,marginBottom:4}}>Hunterbet · {hunter.length}</div>
+          <div style={{fontSize:11.5,color:'#94a3b8',marginBottom:8}}>Scrivi il risultato finale (es. 2-1) e, se lo sai, quello del 1° tempo: l'esito si calcola da solo ("auto"). Puoi sceglierlo a mano se il mercato non viene riconosciuto. La quota serve per la pagella; arriverà da Betfair quando sarà collegato.</div>
           <table style={{borderCollapse:'collapse',width:'100%'}}>
-            <thead><tr>{['Arrivato','Partita','Competizione','Segnale','Ris. al segnale','Minuto','Ris. attuale','Stato','Esito','Gol dopo'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
-            <tbody>{hunter.map(s=><tr key={s.msg_id}>
-              <td style={td}>{quando(s.data_msg)}</td>
-              <td style={{...td,fontWeight:800}}>{s.casa} – {s.ospite}</td>
-              <td style={{...td,color:'#94a3b8'}}>{s.competizione}</td>
-              <td style={td}>{s.tipo_segnale==='GOL_CASA'?'🏠 Gol casa':'✈️ Gol ospiti'}</td>
-              <td style={td}>{s.score_casa_segnale}–{s.score_ospite_segnale}</td>
-              <td style={td}>{s.minuto_segnale!=null?`${s.minuto_segnale}'`:'—'}</td>
-              <td style={td}>{s.score_casa_attuale}–{s.score_ospite_attuale}</td>
-              <td style={td}>{s.stato_match||'—'}</td>
-              <td style={{...td,fontWeight:900,color:s.esito==='VINTA'?'#86efac':s.esito==='PERSA'?'#fca5a5':'#94a3b8'}}>{s.esito||'⏳ in corso'}</td>
-              <td style={td}>{s.minuti_al_gol!=null?`+${s.minuti_al_gol} min`:'—'}</td>
-            </tr>)}</tbody>
+            <thead><tr>{['Arrivato','Fase','Partita','Competizione','Segnale','Ris. al segnale','1° tempo','Finale','Quota','Esito',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+            <tbody>{hunter.map(s=><RigaHunter key={s.msg_id} s={s} td={td} onSalvato={r=>setHunter((v:Hunter[])=>v.map(x=>x.msg_id===r.msg_id?r:x))} />)}</tbody>
           </table>
         </div>
         ) : (<>
