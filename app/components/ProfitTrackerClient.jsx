@@ -409,7 +409,18 @@ useEffect(() => {
   const carica = () => {
     if (document.visibilityState !== 'visible') return
     const da = aggiungiGiorniLucy(new Date().toLocaleDateString('sv-SE'), -45)
-    supabase.from('book_attivita').select('book_id,data,fonte,host,ultimo_visto').gte('data', da).then(({ data, error }) => { if (!error) setBookAttivita(data || []) })
+    // 04/10/2026: Supabase restituisce al massimo 1000 righe per richiesta. Senza paginazione le attività
+    // più recenti (quelle di oggi) restavano fuori e i conti appena usati non comparivano in "Saldi da aggiornare".
+    ;(async () => {
+      const tutte = []
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase.from('book_attivita').select('book_id,data,fonte,host,ultimo_visto').gte('data', da).order('id', { ascending: false }).range(from, from + 999)
+        if (error) return
+        tutte.push(...(data || []))
+        if (!data || data.length < 1000) break
+      }
+      setBookAttivita(tutte)
+    })()
   }
   carica()
   const t = setInterval(carica, 60000)
