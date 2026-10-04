@@ -9,8 +9,40 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '../../supabaseClient'
 
+type Gol = { m: number; s: 'casa' | 'ospite'; autogol?: boolean }
 type Riga = { id: number; data: string; competizione: string; esito: string | null; quota: number | null; profitto: number | null; unita: number
-  live: string; minuto: number | null; mercato: string; casaOspiti: string | null; risultato: string | null; minutiAlGol: number | null }
+  live: string; minuto: number | null; mercato: string; casaOspiti: string | null; risultato: string | null; minutiAlGol: number | null
+  tipo: string; ht: [number, number] | null; ft: [number, number] | null; gol: Gol[] | null }
+
+// ─── 04/10/2026 · DOVE FINISCONO I SEGNALI: mercati verificati sul risultato vero della partita ───
+type Mercato = { id: string; gruppo: string; test: (r: Riga) => boolean | null }
+const ft = (r: Riga) => r.ft, ht = (r: Riga) => r.ht
+const sTot = (x: [number, number]) => x[0] + x[1]
+// gol dopo il segnale: solo se la lista dei gol è completa (stesso numero del risultato finale)
+const dopo = (r: Riga) => (r.ft && r.gol && r.gol.length === sTot(r.ft)) ? r.gol.filter(g => g.m > (r.minuto ?? 0)) : null
+const M = (id: string, gruppo: string, test: (r: Riga) => boolean | null): Mercato => ({ id, gruppo, test })
+const conFT = (f: (h: number, a: number) => boolean) => (r: Riga) => r.ft ? f(r.ft[0], r.ft[1]) : null
+const conHT = (f: (h: number, a: number) => boolean) => (r: Riga) => r.ht ? f(r.ht[0], r.ht[1]) : null
+const MERCATI: Mercato[] = [
+  M('1', 'Finale', conFT((h, a) => h > a)), M('X', 'Finale', conFT((h, a) => h === a)), M('2', 'Finale', conFT((h, a) => h < a)),
+  M('1X', 'Finale', conFT((h, a) => h >= a)), M('X2', 'Finale', conFT((h, a) => h <= a)), M('12', 'Finale', conFT((h, a) => h !== a)),
+  M('Over 0,5', 'Finale', conFT((h, a) => h + a >= 1)), M('Over 1,5', 'Finale', conFT((h, a) => h + a >= 2)), M('Over 2,5', 'Finale', conFT((h, a) => h + a >= 3)),
+  M('Over 3,5', 'Finale', conFT((h, a) => h + a >= 4)), M('Under 2,5', 'Finale', conFT((h, a) => h + a <= 2)), M('Under 3,5', 'Finale', conFT((h, a) => h + a <= 3)),
+  M('Goal', 'Finale', conFT((h, a) => h > 0 && a > 0)), M('No Goal', 'Finale', conFT((h, a) => !(h > 0 && a > 0))),
+  M('Segna casa', 'Finale', conFT(h => h > 0)), M('Segna ospite', 'Finale', conFT((h, a) => a > 0)),
+  M('Multigol 1-3', 'Finale', conFT((h, a) => h + a >= 1 && h + a <= 3)), M('Multigol 2-4', 'Finale', conFT((h, a) => h + a >= 2 && h + a <= 4)),
+  M('1 + Over 1,5', 'Finale', conFT((h, a) => h > a && h + a >= 2)), M('1X + Over 1,5', 'Finale', conFT((h, a) => h >= a && h + a >= 2)),
+  M('Over 0,5 1°T', '1° tempo', conHT((h, a) => h + a >= 1)), M('Over 1,5 1°T', '1° tempo', conHT((h, a) => h + a >= 2)),
+  M('1°T: 1', '1° tempo', conHT((h, a) => h > a)), M('1°T: X', '1° tempo', conHT((h, a) => h === a)), M('1°T: 2', '1° tempo', conHT((h, a) => h < a)),
+  M('Gol nel 2°T', '2° tempo', r => r.ft && r.ht ? sTot(r.ft) - sTot(r.ht) >= 1 : null),
+  M('Over 1,5 nel 2°T', '2° tempo', r => r.ft && r.ht ? sTot(r.ft) - sTot(r.ht) >= 2 : null),
+  M('Almeno 1 gol dopo il segnale', 'Dopo il segnale', r => { const d = dopo(r); return d ? d.length >= 1 : null }),
+  M('Almeno 2 gol dopo il segnale', 'Dopo il segnale', r => { const d = dopo(r); return d ? d.length >= 2 : null }),
+  M('Segna casa dopo il segnale', 'Dopo il segnale', r => { const d = dopo(r); return d ? d.some(g => g.s === 'casa') : null }),
+  M('Segna ospite dopo il segnale', 'Dopo il segnale', r => { const d = dopo(r); return d ? d.some(g => g.s === 'ospite') : null }),
+]
+const MAPPA = ['Over 1,5', 'Over 2,5', 'Goal', 'Over 0,5 1°T', 'Gol nel 2°T', '1', 'X', '2', 'Almeno 1 gol dopo il segnale']
+const simNome = (a: string, b: string) => { const n = (x: string) => x.toLowerCase().normalize('NFD').replace(/[^a-z0-9 ]/g, ' ').trim(); const A = n(a), B = n(b); return !!A && !!B && (A === B || A.includes(B) || B.includes(A)) }
 
 const MIN_N = 20 // sotto questa soglia un segmento è "pochi dati"
 const COLORI = ['#38bdf8', '#a78bfa', '#f472b6', '#fbbf24', '#34d399', '#f87171', '#60a5fa', '#c084fc', '#fb923c', '#94a3b8']
@@ -101,6 +133,7 @@ export default function AnalisiSegnali() {
   const [errore, setErrore] = useState('')
   const [quotaIpotesi, setQuotaIpotesi] = useState('1.70')
   const [soloSopra140, setSoloSopra140] = useState(false)
+  const [tipoScelto, setTipoScelto] = useState('Tutti i segnali')
 
   useEffect(() => {
     (async () => {
@@ -117,10 +150,15 @@ export default function AnalisiSegnali() {
         profitto: x.profitto != null ? Number(x.profitto) : null, unita: Number(x.unita || 1), live: x.live || 'n.d.', minuto: x.minuto,
         mercato: `${x.mercato || ''}${x.linea != null ? ' ' + String(x.linea).replace('.', ',') : ''}${x.tempo && x.tempo !== 'finale' ? ' ' + x.tempo : ''}`.trim(),
         casaOspiti: null, risultato: null, minutiAlGol: null,
+        tipo: x.mercato === '1X2' ? (simNome(String(x.selezione || ''), String(x.casa || '')) ? 'Segno 1 (casa)' : simNome(String(x.selezione || ''), String(x.ospite || '')) ? 'Segno 2 (ospite)' : 'Segno X')
+          : `${/under/i.test(String(x.selezione || '')) ? 'Under' : 'Over'} ${x.linea != null ? String(x.linea).replace('.', ',') : ''}${x.tempo && x.tempo !== 'finale' ? ' ' + x.tempo : ''}`.trim(),
+        ht: x.ht_casa != null && x.ht_ospite != null ? [x.ht_casa, x.ht_ospite] : null, ft: x.ft_casa != null && x.ft_ospite != null ? [x.ft_casa, x.ft_ospite] : null, gol: Array.isArray(x.gol) ? x.gol : null,
       } : {
         id: x.msg_id, data: x.data_msg, competizione: x.competizione || 'n.d.', esito: x.esito, quota: null, profitto: null, unita: 1, live: 'live',
         minuto: x.minuto_segnale, mercato: x.tipo_segnale === 'GOL_CASA' ? 'Gol casa' : 'Gol ospiti', casaOspiti: x.tipo_segnale === 'GOL_CASA' ? 'Casa' : 'Ospiti',
         risultato: x.score_casa_segnale != null ? `${x.score_casa_segnale}-${x.score_ospite_segnale}` : null, minutiAlGol: x.minuti_al_gol,
+        tipo: x.tipo_segnale === 'GOL_CASA' ? 'Gol casa' : 'Gol ospiti',
+        ht: x.ht_casa != null && x.ht_ospite != null ? [x.ht_casa, x.ht_ospite] : null, ft: x.ft_casa != null && x.ft_ospite != null ? [x.ft_casa, x.ft_ospite] : null, gol: Array.isArray(x.gol) ? x.gol : null,
       }))
     })()
   }, [canale])
@@ -145,6 +183,14 @@ export default function AnalisiSegnali() {
   const gol = tutte.map(r => r.minutiAlGol).filter((x): x is number => x != null).sort((a, b) => a - b)
   const golTorta = gol.length ? [['entro 5\'', 0, 5], ['6-10\'', 6, 10], ['11-20\'', 11, 20], ['21-30\'', 21, 30], ['oltre 30\'', 31, 999]].map(([nome, a, b], i) =>
     ({ nome: String(nome), valore: gol.filter(g => g >= Number(a) && g <= Number(b)).length, colore: COLORI[i] })) : []
+
+  // DOVE FINISCONO: per ogni tipo di segnale, quante volte si è verificato ogni mercato
+  const conRisultato = tutte.filter(r => r.ft)
+  const tipi = ['Tutti i segnali', ...[...new Set(conRisultato.map(r => r.tipo))].sort()]
+  const incrocio = (lista: Riga[], m: Mercato) => { const val = lista.map(m.test).filter((x): x is boolean => x !== null); const v = val.filter(Boolean).length; const [lo, hi] = wilson(v, val.length); return { n: val.length, v, p: val.length ? v / val.length : 0, lo, hi } }
+  const listaTipo = tipoScelto === 'Tutti i segnali' ? conRisultato : conRisultato.filter(r => r.tipo === tipoScelto)
+  const classifica = MERCATI.map(m => ({ m, ...incrocio(listaTipo, m) })).filter(x => x.n > 0).sort((a, b) => b.p - a.p || b.n - a.n)
+  const coloreP = (p: number, n: number) => n < 5 ? 'rgba(51,65,85,.4)' : `hsla(${Math.round(p * 120)}, 70%, 40%, ${0.35 + 0.5 * Math.min(1, n / MIN_N)})`
 
   const blocchi: [string, Seg[]][] = [
     ['Per competizione', segmenta(chiuse, r => r.competizione)],
@@ -222,6 +268,55 @@ export default function AnalisiSegnali() {
             {Math.abs(prima.p - seconda.p) <= (prima.hi - prima.lo) / 2 ? <span style={{ color: '#86efac' }}>Coerente: la differenza sta dentro il margine del caso.</span> : <span style={{ color: '#fbbf24' }}>Attenzione: il rendimento è cambiato più di quanto spiegherebbe il caso.</span>}
           </div>
         )}
+
+        {/* ─── 🔀 DOVE FINISCONO I SEGNALI ─── */}
+        <div style={{ background: 'rgba(15,23,42,.6)', border: '1px solid #334155', borderRadius: 14, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontWeight: 900, fontSize: 16, color: '#f8fafc', marginBottom: 4 }}>🔀 Dove finiscono i segnali</div>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>
+            Per ogni tipo di segnale: in quante partite si è verificato ogni altro mercato (sul risultato vero). Risultati disponibili per <b>{conRisultato.length}</b> segnali su {tutte.length}
+            {conRisultato.length < tutte.length ? ' — gli altri arrivano con il programma "risultati partite" (o la partita non è stata trovata).' : '.'}
+          </div>
+          {conRisultato.length === 0 ? <div style={{ fontSize: 13, color: '#64748b' }}>Ancora nessun risultato: avvia risultati_partite.py sul PC.</div> : <>
+            <div style={{ overflowX: 'auto', marginBottom: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: '#7dd3fc', marginBottom: 6 }}>Mappa a colori · clicca un tipo di segnale per il dettaglio</div>
+              <table style={{ borderCollapse: 'separate', borderSpacing: 3 }}>
+                <thead><tr><th style={th}>Segnale</th>{MAPPA.map(id => <th key={id} style={{ ...th, whiteSpace: 'normal', maxWidth: 90, textAlign: 'center' }}>{id}</th>)}</tr></thead>
+                <tbody>{tipi.map(t => { const lista = t === 'Tutti i segnali' ? conRisultato : conRisultato.filter(r => r.tipo === t); return (
+                  <tr key={t} onClick={() => setTipoScelto(t)} style={{ cursor: 'pointer' }}>
+                    <td style={{ ...td, fontWeight: 800, whiteSpace: 'nowrap', color: t === tipoScelto ? '#7dd3fc' : '#e2e8f0' }}>{t === tipoScelto ? '▶ ' : ''}{t} <span style={{ color: '#64748b', fontWeight: 400 }}>({lista.length})</span></td>
+                    {MAPPA.map(id => { const m = MERCATI.find(x => x.id === id)!; const x = incrocio(lista, m); return (
+                      <td key={id} title={x.n ? `${x.v} su ${x.n} · margine ${pct(x.lo, 0)}–${pct(x.hi, 0)}` : 'nessun dato'} style={{ background: x.n ? coloreP(x.p, x.n) : 'transparent', borderRadius: 6, textAlign: 'center', padding: '6px 8px', fontSize: 12.5, fontWeight: 800, color: '#f8fafc', minWidth: 62 }}>
+                        {x.n ? pct(x.p, 0) : '—'}{x.n ? <div style={{ fontSize: 9.5, fontWeight: 400, color: '#cbd5e1' }}>{x.n}</div> : null}
+                      </td>) })}
+                  </tr>) })}</tbody>
+              </table>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+              <b style={{ fontSize: 13 }}>Dettaglio:</b>
+              <select value={tipoScelto} onChange={e => setTipoScelto(e.target.value)} style={{ background: '#020617', color: '#f8fafc', border: '1px solid #334155', borderRadius: 8, padding: '5px 8px', fontSize: 12 }}>
+                {tipi.map(t => <option key={t}>{t}</option>)}
+              </select>
+              <span style={{ fontSize: 12, color: '#94a3b8' }}>{listaTipo.length} partite con risultato · dal mercato più frequente al meno frequente</span>
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                <thead><tr>{['Mercato', 'Quando', 'Si è verificato', '', 'Margine (95%)', 'Quota minima per guadagnare'].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                <tbody>{classifica.map(x => { const pochi = x.n < MIN_N; return (
+                  <tr key={x.m.id} style={{ opacity: pochi ? 0.6 : 1 }}>
+                    <td style={{ ...td, fontWeight: 800 }}>{x.m.id}</td>
+                    <td style={{ ...td, color: '#94a3b8' }}>{x.m.gruppo}</td>
+                    <td style={{ ...td, fontWeight: 900 }}>{pct(x.p)} <span style={{ color: '#94a3b8', fontWeight: 400 }}>({x.v}/{x.n})</span></td>
+                    <td style={{ ...td, width: 160 }}><div style={{ height: 8, borderRadius: 4, background: '#1e293b' }}><div style={{ width: `${Math.round(100 * x.p)}%`, height: 8, borderRadius: 4, background: coloreP(x.p, Math.max(x.n, MIN_N)) }} /></div></td>
+                    <td style={{ ...td, color: '#94a3b8' }}>{pct(x.lo, 0)} – {pct(x.hi, 0)}{pochi && <span style={{ fontSize: 10 }}> · pochi dati</span>}</td>
+                    <td style={{ ...td, color: '#fbbf24', fontWeight: 800 }}>{x.v ? `≥ ${(x.n / x.v).toFixed(2).replace('.', ',')}` : '—'}</td>
+                  </tr>) })}</tbody>
+              </table>
+            </div>
+            <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 8, lineHeight: 1.6 }}>
+              Come usarla: se un mercato alternativo si verifica spesso e il bookmaker lo paga più della <b>quota minima</b> indicata, quel mercato conviene più del segnale originale. Per i segnali live, il risultato finale comprende anche i gol segnati prima dell'avviso: per sapere cosa succede DA QUANDO entri guarda il gruppo "Dopo il segnale".
+            </div>
+          </>}
+        </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(520px, 1fr))', gap: 14 }}>
           {[['Per mercato', segMercato] as [string, Seg[]], ...blocchi].map(([t, s]) => (
