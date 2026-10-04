@@ -6552,6 +6552,7 @@ const rateFiglio = calcolaRateAccantonamento(FIGLIO_SCHEDULE, dashboardSettings)
 const giornoFiglio = rateFiglio.giorno
 const accantonamentoFiglio = rateFiglio.maturato
 const totaleMensileFiglio = rateFiglio.totale
+const residuoMensileFiglio = totaleMenoPagato(FIGLIO_SCHEDULE, dashboardSettings)
 const rateFiglioDaPagare = rateFiglio.daPagare
 
 // Paolo (collaboratore, bisettimanale): non ancora operativo -> non conta finché non lo attivi.
@@ -6596,6 +6597,7 @@ const MICHELA_SCHEDULE = lunediMichela.map((day, i) => ({
 const rateMichela = calcolaRateAccantonamento(MICHELA_SCHEDULE, dashboardSettings)
 const accantonamentoMichela = rateMichela.maturato
 const totaleMensileMichela = rateMichela.totale
+const residuoMensileMichela = totaleMenoPagato(MICHELA_SCHEDULE, dashboardSettings)
 const rateMichelaDaPagare = rateMichela.daPagare
 
 // Servizi software: 22 € al mese ciascuno. L'intero importo è accantonato dal 1° del mese;
@@ -7322,6 +7324,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             rinnovoClubAnnuo={CLUB_RINNOVO_ANNUO}
             accantonamentoFiglio={accantonamentoFiglio}
             totaleMensileFiglio={totaleMensileFiglio}
+            residuoMensileFiglio={residuoMensileFiglio}
             giornoFiglio={giornoFiglio}
             figlioG13={FIGLIO_G13}
             rateFiglioDaPagare={rateFiglioDaPagare}
@@ -7333,6 +7336,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             ratePaoloDaPagare={ratePaoloDaPagare}
             accantonamentoMichela={accantonamentoMichela}
             totaleMensileMichela={totaleMensileMichela}
+            residuoMensileMichela={residuoMensileMichela}
             michelaSettimanale={MICHELA_SETTIMANALE}
             lunediMichela={lunediMichela}
             rateMichelaDaPagare={rateMichelaDaPagare}
