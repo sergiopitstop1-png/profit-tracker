@@ -38,7 +38,6 @@ export default function AvvisoManuale() {
         .pt-matrix-alert:before{content:"01001101 01000001 01010100 01010010 01001001 01011000";position:absolute;inset:0;color:rgba(0,255,102,.055);font-family:monospace;font-size:10px;letter-spacing:5px;line-height:28px;overflow:hidden;pointer-events:none}
         .pt-matrix-alert:after{content:"";position:absolute;top:0;bottom:0;width:22%;background:linear-gradient(90deg,transparent,rgba(0,255,102,.08),transparent);animation:ptMatrixScan 6s linear infinite;pointer-events:none}
       `}</style>
-      <div style={{ color: '#00ff66', fontFamily: 'monospace', fontWeight: 900, fontSize: 14, textShadow: '0 0 8px #00ff66', animation: 'ptMatrixPulse 1.8s ease-in-out infinite', flex: '0 0 auto', zIndex: 1 }}>[ PT:// ]</div>
       <div className="pt-scorri" style={{ flex: 1, overflow: 'hidden', whiteSpace: 'nowrap', zIndex: 1 }}>
         <span style={{ display: 'inline-block', paddingLeft: '100%', animation: 'ptScorri 28s linear infinite', color: '#7CFF9B', textShadow: '0 0 7px rgba(0,255,102,.8)', fontFamily: 'monospace', fontWeight: 800, fontSize: 13, letterSpacing: '.25px' }}>{TESTO}</span>
       </div>
