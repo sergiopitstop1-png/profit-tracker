@@ -2,16 +2,86 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
-export const maxDuration = 300 // 03/10/2026: piano Pro Vercel, c'è tempo per smaltire la coda
+export const maxDuration = 60
 
 const MODEL = 'openai/gpt-oss-20b'
 
-const EMAIL_BATCH_SIZE = 12
-const SMS_BATCH_SIZE = 12
-const MAX_WORK_TIME_MS = 270_000
-// 03/10/2026 — una comunicazione che fallisce 3 volte non blocca più la coda:
-// passa in DA_VALUTARE con il motivo, così la vedi tu e la coda va avanti.
-const MAX_TENTATIVI = 3
+const EMAIL_BATCH_SIZE = 5
+const SMS_BATCH_SIZE = 5
+const MAX_WORK_TIME_MS = 50_000
+
+/* =========================================================
+   04/10/2026 · FILTRO GRATUITO OTP (prima dell'AI)
+   - Gli SMS con tipo = 'OTP' non andavano mai all'AI ma restavano
+     DA_ANALIZZARE per sempre: ora vengono chiusi in blocco come IGNORA.
+   - Mail e SMS con un codice di verifica (parola tipo "codice",
+     "OTP", "verification code" + un numero di 4-8 cifre) vengono
+     classificati senza chiamare l'AI.
+   - Se il testo parla di bonus/promo NON è un OTP: va all'AI.
+   ========================================================= */
+
+const OTP_PAROLE =
+  /\b(otp|one[- ]?time|codice (di )?(verifica|sicurezza|accesso|conferma|autenticazione)|codice temporaneo|password temporanea|verification code|security code|login code|your code|il tuo codice|2fa|autenticazione a due fattori|pin temporaneo)\b/i
+
+const OTP_NUMERO =
+  /\b\d{4,8}\b|\b\d{3}[ -]\d{3}\b/
+
+const OTP_NON_E =
+  /\b(bonus|freebet|free bet|cashback|promo|promozione|giri gratis|free spin|quota maggiorata|rimborso)\b/i
+
+function eOtp(item: LucyItem) {
+  const testo = `${item.oggetto || ''} ${item.testo_completo || ''}`
+
+  if (OTP_NON_E.test(testo)) {
+    return false
+  }
+
+  return OTP_PAROLE.test(testo) && OTP_NUMERO.test(testo)
+}
+
+const RISULTATO_OTP = {
+  giudizio: 'IGNORA',
+  categoria: 'SICUREZZA',
+  priorita: 'bassa',
+  confidenza: 1,
+  bookmaker: null,
+  tipo_offerta: null,
+  bonus_importo: null,
+  deposito_richiesto: null,
+  rollover: null,
+  scadenza: null,
+  condizioni: null,
+  motivazione_ai:
+    'Codice OTP / di verifica: classificato dal filtro gratuito, senza AI.',
+  richiede_azione: false,
+}
+
+/*
+ * SMS già marcati OTP dal lettore: chiusi in blocco, senza AI.
+ */
+async function chiudiSmsOtp() {
+  const now =
+    new Date().toISOString()
+
+  const { data, error } =
+    await supabase
+      .from('sms_clienti')
+      .update({
+        ...RISULTATO_OTP,
+        analizzata_at: now,
+        updated_at: now,
+      })
+      .eq('giudizio', 'DA_ANALIZZARE')
+      .eq('tipo', 'OTP')
+      .select('id')
+
+  if (error) {
+    console.error('[Lucy AI] filtro OTP SMS', error)
+    return 0
+  }
+
+  return (data || []).length
+}
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -135,7 +205,6 @@ type LucyItem = {
   testo_completo: string | null
   data_comunicazione: string | null
   tabella: 'lucy_mail_archive' | 'sms_clienti'
-  tentativi?: number
 }
 
 function compactBody(
@@ -1079,7 +1148,7 @@ async function analyzeItem(
   const body = {
     model: MODEL,
     reasoning_effort: 'low',
-    max_completion_tokens: 2000, // 03/10/2026: con 700 il ragionamento a volte mangiava tutto e la risposta usciva vuota/troncata
+    max_completion_tokens: 700,
 
     messages: [
       {
@@ -1643,8 +1712,10 @@ async function getEmails():
         'giudizio',
         'DA_ANALIZZARE'
       )
-      .lt('analisi_tentativi', MAX_TENTATIVI)
-      .order('analisi_tentativi', { ascending: true }) // prima chi non ha mai fallito
+      // 04/10/2026: le archiviate (già lette a mano) non vanno all'AI
+      .or(
+        'archiviata.is.null,archiviata.eq.false'
+      )
       .order(
         'data_mail',
         {
@@ -1684,8 +1755,6 @@ async function getEmails():
 
     tabella:
       'lucy_mail_archive' as const,
-
-    tentativi: Number(mail.analisi_tentativi || 0),
   }))
 }
 
@@ -1708,12 +1777,14 @@ async function getSms():
         'giudizio',
         'DA_ANALIZZARE'
       )
+      // 04/10/2026: le archiviate (già lette a mano) non vanno all'AI
+      .or(
+        'archiviata.is.null,archiviata.eq.false'
+      )
       .neq(
         'tipo',
         'OTP'
       )
-      .lt('analisi_tentativi', MAX_TENTATIVI)
-      .order('analisi_tentativi', { ascending: true }) // prima chi non ha mai fallito
       .order(
         'data_ricezione',
         {
@@ -1755,33 +1826,7 @@ async function getSms():
 
     tabella:
       'sms_clienti' as const,
-
-    tentativi: Number(sms.analisi_tentativi || 0),
   }))
-}
-
-/* =========================================================
-   ERRORE DI ANALISI (03/10/2026)
-   ========================================================= */
-
-async function segnaErrore(item: LucyItem, error: any) {
-  const tentativi = Number(item.tentativi || 0) + 1
-  const messaggio = String(error?.message || error).slice(0, 400)
-  const aggiornamento: Record<string, any> = {
-    analisi_tentativi: tentativi,
-    analisi_errore: messaggio,
-    updated_at: new Date().toISOString(),
-  }
-  if (tentativi >= MAX_TENTATIVI) {
-    aggiornamento.giudizio = 'DA_VALUTARE'
-    aggiornamento.categoria = 'ALTRO'
-    aggiornamento.priorita = 'media'
-    aggiornamento.richiede_azione = true
-    aggiornamento.motivazione_ai = `Lucy non è riuscita ad analizzarla (${tentativi} tentativi): controllala tu. Ultimo errore: ${messaggio}`
-    aggiornamento.analizzata_at = new Date().toISOString()
-  }
-  const { error: e } = await supabase.from(item.tabella).update(aggiornamento).eq('id', item.id)
-  if (e) console.error('[Lucy AI] impossibile segnare l\'errore', item.id, e.message)
 }
 
 /* =========================================================
@@ -1880,6 +1925,13 @@ async function runAnalysis() {
   const startedAt =
     Date.now()
 
+  // 04/10/2026: filtro gratuito, prima di tutto
+  const otpChiusi =
+    await chiudiSmsOtp()
+
+  let otpFiltrati =
+    otpChiusi
+
   const [
     emails,
     sms,
@@ -1929,6 +1981,8 @@ async function runAnalysis() {
     return {
       ok: true,
 
+      otp_filtrati: otpFiltrati,
+
       email_trovate: 0,
       sms_trovati: 0,
 
@@ -1971,6 +2025,22 @@ async function runAnalysis() {
     }
 
     try {
+      // 04/10/2026: codice di verifica → nessuna chiamata AI
+      if (eOtp(item)) {
+        await saveResult(
+          item,
+          RISULTATO_OTP
+        )
+
+        otpFiltrati++
+
+        console.log(
+          `[Lucy AI] OTP ${item.canale} ${item.id} filtro gratuito`
+        )
+
+        continue
+      }
+
       const result =
         await analyzeItem(
           item
@@ -2022,11 +2092,10 @@ async function runAnalysis() {
       )
 
       /*
-       * 03/10/2026: il tentativo viene contato.
-       * Al terzo errore la comunicazione esce dalla coda
-       * e va in DA_VALUTARE con il motivo: la controlli tu.
+       * Il messaggio rimane
+       * DA_ANALIZZARE e verrà
+       * riprovato.
        */
-      await segnaErrore(item, error)
       risultati.push({
         id: item.id,
         canale:
@@ -2041,6 +2110,9 @@ async function runAnalysis() {
 
   return {
     ok: true,
+
+    // 04/10/2026: comunicazioni chiuse dal filtro gratuito (senza AI)
+    otp_filtrati: otpFiltrati,
 
     email_trovate:
       emails.length,
