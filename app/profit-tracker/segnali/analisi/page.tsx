@@ -1,9 +1,11 @@
 'use client'
 // ════════════════════════════════════════════════════════════════════
-// 📈 ANALISI SEGNALI · ScoreTrend e Hunterbet (04/10/2026)
+// 📈 ANALISI SEGNALI · ScoreTrend, Hunterbet e PronoX (04/10/2026)
 // Colpo d'occhio (torte), segmenti con margine d'errore, tempo al gol,
 // simulazione della cassa e verifica su dati nuovi (prima metà / seconda metà).
-// Legge scoretrend_segnali e hunterbet_segnali (solo lettura).
+// Legge scoretrend_segnali, hunterbet_segnali e la vista pronox_segnali (solo lettura).
+// 04/10/2026: PronoX come terzo canale + calibrazione (grezza / calibrata / bookmaker,
+// Brier score) + confronto dei tre canali con le stesse regole.
 // ════════════════════════════════════════════════════════════════════
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
@@ -12,7 +14,10 @@ import { supabase } from '../../supabaseClient'
 type Gol = { m: number; s: 'casa' | 'ospite'; autogol?: boolean }
 type Riga = { id: number; data: string; competizione: string; esito: string | null; quota: number | null; profitto: number | null; unita: number
   live: string; minuto: number | null; mercato: string; casaOspiti: string | null; risultato: string | null; minutiAlGol: number | null
-  tipo: string; ht: [number, number] | null; ft: [number, number] | null; gol: Gol[] | null }
+  tipo: string; ht: [number, number] | null; ft: [number, number] | null; gol: Gol[] | null
+  pG?: number | null; pC?: number | null; pM?: number | null; value?: boolean; forte?: boolean }
+type Canale = 'scoretrend' | 'hunterbet' | 'pronox'
+const NOMI: Record<Canale, string> = { scoretrend: 'ScoreTrend', hunterbet: 'Hunterbet', pronox: 'PronoX' }
 
 // ─── 04/10/2026 · DOVE FINISCONO I SEGNALI: mercati verificati sul risultato vero della partita ───
 type Mercato = { id: string; gruppo: string; test: (r: Riga) => boolean | null }
@@ -106,6 +111,100 @@ function Linea({ punti, titolo }: { punti: number[]; titolo: string }) {
     </div>)
 }
 
+// ─── 04/10/2026 · CALIBRAZIONE PRONOX: quando dice 70%, vince il 70%? ───
+type Fonte = { id: 'pG' | 'pC' | 'pM'; nome: string; colore: string }
+const FONTI: Fonte[] = [
+  { id: 'pG', nome: 'Modello (grezza)', colore: '#38bdf8' },
+  { id: 'pC', nome: '/oggi (calibrata)', colore: '#a78bfa' },
+  { id: 'pM', nome: 'Bookmaker (senza margine)', colore: '#fbbf24' },
+]
+const FASCE_P: [number, number][] = [[0, 0.5], [0.5, 0.6], [0.6, 0.7], [0.7, 0.8], [0.8, 1.01]]
+const nomeFascia = ([a, b]: [number, number]) => a === 0 ? 'sotto 50%' : b > 1 ? '80% e oltre' : `${Math.round(a * 100)}-${Math.round(b * 100)}%`
+type Bin = { fascia: string; n: number; dichiarata: number; reale: number; lo: number; hi: number }
+function calibra(lista: Riga[], f: Fonte['id']): Bin[] {
+  return FASCE_P.map(fa => {
+    const g = lista.filter(r => r[f] != null && Number(r[f]) >= fa[0] && Number(r[f]) < fa[1])
+    const v = g.filter(r => r.esito === 'VINTA').length, [lo, hi] = wilson(v, g.length)
+    return { fascia: nomeFascia(fa), n: g.length, dichiarata: g.length ? g.reduce((a, r) => a + Number(r[f]), 0) / g.length : 0, reale: g.length ? v / g.length : 0, lo, hi }
+  }).filter(b => b.n > 0)
+}
+// Brier: media di (probabilità − esito)², più basso = più preciso. 0,25 = tirare a indovinare al 50%.
+const brier = (lista: Riga[], f: Fonte['id']) => lista.length ? lista.reduce((a, r) => a + (Number(r[f]) - (r.esito === 'VINTA' ? 1 : 0)) ** 2, 0) / lista.length : null
+
+function GraficoCalibrazione({ serie }: { serie: { fonte: Fonte; bins: Bin[] }[] }) {
+  const W = 420, H = 320, P = 40
+  const X = (v: number) => P + v * (W - 2 * P), Y = (v: number) => H - P - v * (H - 2 * P)
+  const tacche = [0, 0.2, 0.4, 0.6, 0.8, 1]
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxWidth: W }}>
+      {tacche.map(t => <g key={t}>
+        <line x1={X(t)} x2={X(t)} y1={Y(0)} y2={Y(1)} stroke="#1e293b" /><line x1={X(0)} x2={X(1)} y1={Y(t)} y2={Y(t)} stroke="#1e293b" />
+        <text x={X(t)} y={H - P + 16} textAnchor="middle" fill="#94a3b8" fontSize="10">{Math.round(t * 100)}%</text>
+        <text x={P - 6} y={Y(t) + 3} textAnchor="end" fill="#94a3b8" fontSize="10">{Math.round(t * 100)}%</text>
+      </g>)}
+      <line x1={X(0)} y1={Y(0)} x2={X(1)} y2={Y(1)} stroke="#64748b" strokeDasharray="5 5" />
+      <text x={X(0.98)} y={Y(0.98) + 14} textAnchor="end" fill="#64748b" fontSize="10">perfetta</text>
+      {serie.map(({ fonte, bins }) => <g key={fonte.id}>
+        {bins.length > 1 && <polyline fill="none" stroke={fonte.colore} strokeWidth="2" points={bins.map(b => `${X(b.dichiarata)},${Y(b.reale)}`).join(' ')} />}
+        {bins.map(b => <g key={b.fascia}>
+          <line x1={X(b.dichiarata)} x2={X(b.dichiarata)} y1={Y(b.lo)} y2={Y(b.hi)} stroke={fonte.colore} strokeOpacity=".35" strokeWidth="5" />
+          <circle cx={X(b.dichiarata)} cy={Y(b.reale)} r={Math.min(9, 3 + Math.sqrt(b.n))} fill={fonte.colore} fillOpacity={b.n < MIN_N ? 0.45 : 1}>
+            <title>{`${fonte.nome} · ${b.fascia}: dichiarata ${pct(b.dichiarata)}, vinte ${pct(b.reale)} su ${b.n} (margine ${pct(b.lo, 0)}–${pct(b.hi, 0)})`}</title>
+          </circle>
+        </g>)}
+      </g>)}
+      <text x={W / 2} y={H - 4} textAnchor="middle" fill="#cbd5e1" fontSize="11">probabilità dichiarata</text>
+      <text x={12} y={H / 2} textAnchor="middle" fill="#cbd5e1" fontSize="11" transform={`rotate(-90 12 ${H / 2})`}>vinte davvero</text>
+    </svg>)
+}
+
+// ─── caricamento e normalizzazione dei tre canali ───────────────────
+function normalizza(canale: Canale, x: any): Riga {
+  const htR: [number, number] | null = x.ht_casa != null && x.ht_ospite != null ? [x.ht_casa, x.ht_ospite] : null
+  const ftR: [number, number] | null = x.ft_casa != null && x.ft_ospite != null ? [x.ft_casa, x.ft_ospite] : null
+  if (canale === 'scoretrend') return {
+    id: x.msg_id, data: x.data_msg, competizione: x.competizione || 'n.d.', esito: x.esito, quota: x.quota != null ? Number(x.quota) : null,
+    profitto: x.profitto != null ? Number(x.profitto) : null, unita: Number(x.unita || 1), live: x.live || 'n.d.', minuto: x.minuto,
+    mercato: `${x.mercato || ''}${x.linea != null ? ' ' + String(x.linea).replace('.', ',') : ''}${x.tempo && x.tempo !== 'finale' ? ' ' + x.tempo : ''}`.trim(),
+    casaOspiti: null, risultato: null, minutiAlGol: null,
+    tipo: x.mercato === '1X2' ? (simNome(String(x.selezione || ''), String(x.casa || '')) ? 'Segno 1 (casa)' : simNome(String(x.selezione || ''), String(x.ospite || '')) ? 'Segno 2 (ospite)' : 'Segno X')
+      : `${/under/i.test(String(x.selezione || '')) ? 'Under' : 'Over'} ${x.linea != null ? String(x.linea).replace('.', ',') : ''}${x.tempo && x.tempo !== 'finale' ? ' ' + x.tempo : ''}`.trim(),
+    ht: htR, ft: ftR, gol: Array.isArray(x.gol) ? x.gol : null,
+  }
+  if (canale === 'hunterbet') return {
+    id: x.msg_id, data: x.data_msg, competizione: x.competizione || 'n.d.', esito: x.esito,
+    quota: x.quota != null ? Number(x.quota) : null,
+    profitto: x.quota != null && x.esito ? (x.esito === 'VINTA' ? Number(x.quota) - 1 : x.esito === 'PERSA' ? -1 : 0) : null, unita: 1,
+    live: (x.fase || (String(x.tipo_segnale || '').startsWith('GOL_') ? 'LIVE' : 'PRE-LIVE')) === 'LIVE' ? 'live' : 'prepartita',
+    minuto: x.minuto_segnale, mercato: x.tipo_segnale === 'GOL_CASA' ? 'Gol casa' : x.tipo_segnale === 'GOL_OSPITI' ? 'Gol ospiti' : `Pre-live · ${x.tipo_segnale || '?'}`,
+    casaOspiti: x.tipo_segnale === 'GOL_CASA' ? 'Casa' : x.tipo_segnale === 'GOL_OSPITI' ? 'Ospiti' : 'Pre-live',
+    risultato: x.score_casa_segnale != null ? `${x.score_casa_segnale}-${x.score_ospite_segnale}` : null, minutiAlGol: x.minuti_al_gol,
+    tipo: x.tipo_segnale === 'GOL_CASA' ? 'Gol casa' : x.tipo_segnale === 'GOL_OSPITI' ? 'Gol ospiti' : `Pre-live · ${x.tipo_segnale || '?'}`,
+    ht: htR, ft: ftR, gol: Array.isArray(x.gol) ? x.gol : null,
+  }
+  // PronoX: 1 unità solo dove c'è la quota (il BTTS non ha quota: conta nelle % vinte, non nelle unità)
+  const q = x.quota != null ? Number(x.quota) : null
+  return {
+    id: x.msg_id, data: x.data_partita, competizione: x.competizione || 'n.d.', esito: x.esito, quota: q,
+    profitto: x.profitto != null ? Number(x.profitto) : null, unita: q != null ? 1 : 0, live: 'prepartita', minuto: null,
+    mercato: x.etichetta, casaOspiti: null, risultato: null, minutiAlGol: null, tipo: x.etichetta, ht: htR, ft: ftR, gol: null,
+    pG: x.prob_grezza != null ? Number(x.prob_grezza) : null, pC: x.prob_calibrata != null ? Number(x.prob_calibrata) : null,
+    pM: x.prob_mercato != null ? Number(x.prob_mercato) : null, value: !!x.value, forte: !!x.forte,
+  }
+}
+async function caricaCanale(canale: Canale): Promise<{ righe: Riga[]; errore: string }> {
+  const tab = canale === 'scoretrend' ? 'scoretrend_segnali' : canale === 'hunterbet' ? 'hunterbet_segnali' : 'pronox_segnali'
+  const ordine = canale === 'pronox' ? 'data_partita' : 'data_msg'
+  const out: any[] = []
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase.from(tab).select('*').order(ordine, { ascending: true }).range(from, from + 999)
+    if (error) return { righe: [], errore: `${NOMI[canale]}: ${error.message}` }
+    out.push(...(data || [])); if (!data || data.length < 1000) break
+  }
+  return { righe: out.map(x => normalizza(canale, x)), errore: '' }
+}
+const fasciaProb = (p: number | null | undefined) => p == null ? 'n.d.' : p < 0.6 ? 'sotto 60%' : p < 0.7 ? '60-69%' : p < 0.8 ? '70-79%' : '80%+'
+
 // ─── statistiche ─────────────────────────────────────────────────────
 type Seg = { voce: string; n: number; v: number; p: number; lo: number; hi: number; unita: number; puntato: number; quotaPareggio: number }
 function segmenta(lista: Riga[], chiave: (r: Riga) => string): Seg[] {
@@ -128,8 +227,8 @@ function simula(lista: Riga[], quotaFissa: number | null) {
 }
 
 export default function AnalisiSegnali() {
-  const [canale, setCanale] = useState<'scoretrend' | 'hunterbet'>('scoretrend')
-  const [righe, setRighe] = useState<Riga[]>([])
+  const [canale, setCanale] = useState<Canale>('scoretrend')
+  const [dati, setDati] = useState<Record<Canale, Riga[]>>({ scoretrend: [], hunterbet: [], pronox: [] })
   const [errore, setErrore] = useState('')
   const [quotaIpotesi, setQuotaIpotesi] = useState('1.70')
   const [soloSopra140, setSoloSopra140] = useState(false)
@@ -137,39 +236,18 @@ export default function AnalisiSegnali() {
 
   useEffect(() => {
     (async () => {
-      setErrore(''); setRighe([])
-      const tab = canale === 'scoretrend' ? 'scoretrend_segnali' : 'hunterbet_segnali'
-      const out: any[] = []
-      for (let from = 0; ; from += 1000) {
-        const { data, error } = await supabase.from(tab).select('*').order('data_msg', { ascending: true }).range(from, from + 999)
-        if (error) { setErrore(error.message); return }
-        out.push(...(data || [])); if (!data || data.length < 1000) break
-      }
-      setRighe(out.map((x: any): Riga => canale === 'scoretrend' ? {
-        id: x.msg_id, data: x.data_msg, competizione: x.competizione || 'n.d.', esito: x.esito, quota: x.quota != null ? Number(x.quota) : null,
-        profitto: x.profitto != null ? Number(x.profitto) : null, unita: Number(x.unita || 1), live: x.live || 'n.d.', minuto: x.minuto,
-        mercato: `${x.mercato || ''}${x.linea != null ? ' ' + String(x.linea).replace('.', ',') : ''}${x.tempo && x.tempo !== 'finale' ? ' ' + x.tempo : ''}`.trim(),
-        casaOspiti: null, risultato: null, minutiAlGol: null,
-        tipo: x.mercato === '1X2' ? (simNome(String(x.selezione || ''), String(x.casa || '')) ? 'Segno 1 (casa)' : simNome(String(x.selezione || ''), String(x.ospite || '')) ? 'Segno 2 (ospite)' : 'Segno X')
-          : `${/under/i.test(String(x.selezione || '')) ? 'Under' : 'Over'} ${x.linea != null ? String(x.linea).replace('.', ',') : ''}${x.tempo && x.tempo !== 'finale' ? ' ' + x.tempo : ''}`.trim(),
-        ht: x.ht_casa != null && x.ht_ospite != null ? [x.ht_casa, x.ht_ospite] : null, ft: x.ft_casa != null && x.ft_ospite != null ? [x.ft_casa, x.ft_ospite] : null, gol: Array.isArray(x.gol) ? x.gol : null,
-      } : {
-        id: x.msg_id, data: x.data_msg, competizione: x.competizione || 'n.d.', esito: x.esito,
-        quota: x.quota != null ? Number(x.quota) : null,
-        profitto: x.quota != null && x.esito ? (x.esito === 'VINTA' ? Number(x.quota) - 1 : x.esito === 'PERSA' ? -1 : 0) : null, unita: 1,
-        live: (x.fase || (String(x.tipo_segnale || '').startsWith('GOL_') ? 'LIVE' : 'PRE-LIVE')) === 'LIVE' ? 'live' : 'prepartita',
-        minuto: x.minuto_segnale, mercato: x.tipo_segnale === 'GOL_CASA' ? 'Gol casa' : x.tipo_segnale === 'GOL_OSPITI' ? 'Gol ospiti' : `Pre-live · ${x.tipo_segnale || '?'}`,
-        casaOspiti: x.tipo_segnale === 'GOL_CASA' ? 'Casa' : x.tipo_segnale === 'GOL_OSPITI' ? 'Ospiti' : 'Pre-live',
-        risultato: x.score_casa_segnale != null ? `${x.score_casa_segnale}-${x.score_ospite_segnale}` : null, minutiAlGol: x.minuti_al_gol,
-        tipo: x.tipo_segnale === 'GOL_CASA' ? 'Gol casa' : x.tipo_segnale === 'GOL_OSPITI' ? 'Gol ospiti' : `Pre-live · ${x.tipo_segnale || '?'}`,
-        ht: x.ht_casa != null && x.ht_ospite != null ? [x.ht_casa, x.ht_ospite] : null, ft: x.ft_casa != null && x.ft_ospite != null ? [x.ft_casa, x.ft_ospite] : null, gol: Array.isArray(x.gol) ? x.gol : null,
-      }))
+      const canali: Canale[] = ['scoretrend', 'hunterbet', 'pronox']
+      const ris = await Promise.all(canali.map(caricaCanale))
+      setDati({ scoretrend: ris[0].righe, hunterbet: ris[1].righe, pronox: ris[2].righe })
+      setErrore(ris.map(r => r.errore).filter(Boolean).join(' · '))
     })()
-  }, [canale])
+  }, [])
+  const righe = dati[canale]
 
   const tutte = useMemo(() => righe.filter(r => !soloSopra140 || r.quota == null || r.quota >= 1.4), [righe, soloSopra140])
   const chiuse = useMemo(() => tutte.filter(r => r.esito === 'VINTA' || r.esito === 'PERSA'), [tutte])
-  const conQuota = canale === 'scoretrend'
+  const conQuota = canale !== 'hunterbet'
+  const isPronox = canale === 'pronox'
   const qIp = Math.max(1.01, Number(quotaIpotesi.replace(',', '.')) || 1.7)
   const sim = simula(chiuse, conQuota ? null : qIp)
   const metà = Math.floor(chiuse.length / 2)
@@ -196,7 +274,14 @@ export default function AnalisiSegnali() {
   const classifica = MERCATI.map(m => ({ m, ...incrocio(listaTipo, m) })).filter(x => x.n > 0).sort((a, b) => b.p - a.p || b.n - a.n)
   const coloreP = (p: number, n: number) => n < 5 ? 'rgba(51,65,85,.4)' : `hsla(${Math.round(p * 120)}, 70%, 40%, ${0.35 + 0.5 * Math.min(1, n / MIN_N)})`
 
-  const blocchi: [string, Seg[]][] = [
+  const blocchi: [string, Seg[]][] = isPronox ? [
+    ['Value bet o no', segmenta(chiuse, r => r.value ? '💎 VALUE (EV > 3%)' : 'Senza value')],
+    ['Forte o normale', segmenta(chiuse, r => r.forte ? '🔥 Forte' : '→ Normale')],
+    ['Per probabilità del modello', segmenta(chiuse, r => fasciaProb(r.pG)).sort((a, b) => a.voce.localeCompare(b.voce))],
+    ['Per fascia di quota', segmenta(chiuse, r => fasciaQuota(r.quota))],
+    ['Per competizione', segmenta(chiuse, r => r.competizione)],
+    ['Per giorno', segmenta(chiuse, r => giorno(r.data))],
+  ] : [
     ['Per competizione', segmenta(chiuse, r => r.competizione)],
     ['Per minuto del segnale', segmenta(chiuse, r => fasciaMinuto(r.minuto))],
     ...(conQuota ? [['Per fascia di quota', segmenta(chiuse, r => fasciaQuota(r.quota))] as [string, Seg[]], ['Live o prepartita', segmenta(chiuse, r => r.live)] as [string, Seg[]]]
@@ -204,6 +289,24 @@ export default function AnalisiSegnali() {
     ['Per giorno', segmenta(chiuse, r => giorno(r.data))],
     ['Per fascia oraria', segmenta(chiuse, r => fasciaOra(r.data))],
   ]
+
+  // 04/10/2026 · calibrazione (solo PronoX): Brier sulle stesse bet per tutte e tre le fonti
+  const serieCal = isPronox ? FONTI.map(f => ({ fonte: f, bins: calibra(chiuse, f.id) })) : []
+  const comuni = isPronox ? chiuse.filter(r => r.pG != null && r.pC != null && r.pM != null) : []
+  const brierComuni = FONTI.map(f => ({ fonte: f, b: brier(comuni, f.id) }))
+  const brierTutte = FONTI.map(f => { const l = chiuse.filter(r => r[f.id] != null); return { fonte: f, n: l.length, b: brier(l, f.id) } })
+  const migliore = comuni.length ? [...brierComuni].sort((a, b) => (a.b ?? 9) - (b.b ?? 9))[0] : null
+
+  // 04/10/2026 · confronto dei tre canali con le stesse regole (rispetta "solo quota ≥ 1,40")
+  const confronto = (['scoretrend', 'hunterbet', 'pronox'] as Canale[]).map(c => {
+    const ch = dati[c].filter(r => !soloSopra140 || r.quota == null || r.quota >= 1.4).filter(r => r.esito === 'VINTA' || r.esito === 'PERSA')
+    const v = ch.filter(r => r.esito === 'VINTA').length, [lo, hi] = wilson(v, ch.length)
+    const cq = ch.filter(r => r.quota != null && (c !== 'pronox' || r.unita > 0))
+    const sm = simula(cq, null)
+    return { c, n: ch.length, v, p: ch.length ? v / ch.length : 0, lo, hi, nq: cq.length, unita: sm.finale,
+      resa: cq.length ? sm.finale / cq.length : null, quotaMedia: cq.length ? cq.reduce((a, r) => a + Number(r.quota), 0) / cq.length : null,
+      dd: sm.drawdown, pareggio: v ? ch.length / v : null }
+  })
 
   const th = { textAlign: 'left' as const, padding: '6px 8px', fontSize: 11, color: '#94a3b8', borderBottom: '1px solid #334155', whiteSpace: 'nowrap' as const }
   const td = { padding: '6px 8px', fontSize: 12.5, color: '#e2e8f0', borderBottom: '1px solid rgba(51,65,85,.5)' }
@@ -236,8 +339,8 @@ export default function AnalisiSegnali() {
         <Link href="/profit-tracker/segnali" style={{ color: '#7dd3fc', fontSize: 12, textDecoration: 'none', fontWeight: 700 }}>← Torna ai segnali</Link>
         <h1 style={{ fontSize: 28, margin: '8px 0 10px', color: '#f8fafc' }}>📈 Analisi segnali</h1>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
-          {(['scoretrend', 'hunterbet'] as const).map(c => (
-            <button key={c} onClick={() => setCanale(c)} style={{ background: canale === c ? '#0c4a6e' : '#0f172a', color: '#f8fafc', border: `1px solid ${canale === c ? '#38bdf8' : '#334155'}`, borderRadius: 10, padding: '7px 14px', fontWeight: 900, cursor: 'pointer' }}>{c === 'scoretrend' ? 'ScoreTrend' : 'Hunterbet'}</button>))}
+          {(['scoretrend', 'hunterbet', 'pronox'] as const).map(c => (
+            <button key={c} onClick={() => setCanale(c)} style={{ background: canale === c ? '#0c4a6e' : '#0f172a', color: '#f8fafc', border: `1px solid ${canale === c ? '#38bdf8' : '#334155'}`, borderRadius: 10, padding: '7px 14px', fontWeight: 900, cursor: 'pointer' }}>{NOMI[c]}</button>))}
           {conQuota && <label style={{ fontSize: 12, color: '#cbd5e1', display: 'flex', gap: 5, alignItems: 'center' }}><input type="checkbox" checked={soloSopra140} onChange={e => setSoloSopra140(e.target.checked)} /> solo quota ≥ 1,40 (la tua regola)</label>}
           {!conQuota && <label style={{ fontSize: 12, color: '#cbd5e1' }}>Quota ipotetica per la simulazione: <input value={quotaIpotesi} onChange={e => setQuotaIpotesi(e.target.value.replace(/[^0-9.,]/g, ''))} style={{ width: 60, background: '#020617', color: '#f8fafc', border: '1px solid #334155', borderRadius: 8, padding: '4px 6px' }} /></label>}
         </div>
@@ -258,7 +361,7 @@ export default function AnalisiSegnali() {
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 14, marginBottom: 14 }}>
           <Torta titolo="Esiti" fette={esitiTorta} />
-          <Torta titolo={conQuota ? 'Mercati (bet chiuse)' : 'Tipo di segnale (bet chiuse)'} fette={tortaMercati} />
+          <Torta titolo={conQuota && !isPronox ? 'Mercati (bet chiuse)' : 'Tipo di segnale (bet chiuse)'} fette={tortaMercati} />
           {!conQuota && golTorta.some(f => f.valore) && <Torta titolo={`Minuti tra segnale e gol (mediana ${gol[Math.floor(gol.length / 2)]}')`} fette={golTorta} />}
         </div>
 
@@ -273,14 +376,77 @@ export default function AnalisiSegnali() {
           </div>
         )}
 
+        {/* ─── 04/10/2026 · ⚖️ CONFRONTO DEI TRE CANALI ─── */}
+        <div style={{ background: 'rgba(15,23,42,.6)', border: '1px solid #334155', borderRadius: 14, padding: 14, marginBottom: 14, overflowX: 'auto' }}>
+          <div style={{ fontWeight: 900, fontSize: 16, color: '#f8fafc', marginBottom: 4 }}>⚖️ Confronto dei tre canali</div>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>Stesse regole per tutti: 1 unità a bet, bet chiuse (vinte o perse){soloSopra140 ? ', solo quota ≥ 1,40' : ''}. Unità e rendimento solo sulle bet con quota.</div>
+          <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+            <thead><tr>{['Canale', 'Bet chiuse', '% vinte', 'Margine (95%)', 'Bet con quota', 'Quota media', 'Unità', 'Rendimento', 'Calo massimo', 'Quota di pareggio'].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
+            <tbody>{confronto.map(x => { const col = x.resa == null ? '#94a3b8' : x.resa >= 0 ? '#86efac' : '#fca5a5'; return (
+              <tr key={x.c} onClick={() => setCanale(x.c)} style={{ cursor: 'pointer', background: x.c === canale ? 'rgba(56,189,248,.08)' : undefined, opacity: x.n < MIN_N ? 0.6 : 1 }}>
+                <td style={{ ...td, fontWeight: 900, color: x.c === canale ? '#7dd3fc' : '#f8fafc' }}>{NOMI[x.c]}{x.n < MIN_N && <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 400 }}> · pochi dati</span>}</td>
+                <td style={td}>{x.n}</td>
+                <td style={{ ...td, fontWeight: 800 }}>{x.n ? pct(x.p) : '—'}</td>
+                <td style={{ ...td, color: '#94a3b8' }}>{x.n ? `${pct(x.lo, 0)} – ${pct(x.hi, 0)}` : '—'}</td>
+                <td style={td}>{x.nq}</td>
+                <td style={td}>{x.quotaMedia != null ? x.quotaMedia.toFixed(2).replace('.', ',') : '—'}</td>
+                <td style={{ ...td, color: col, fontWeight: 800 }}>{x.nq ? `${x.unita >= 0 ? '+' : ''}${n2(x.unita)}` : '—'}</td>
+                <td style={{ ...td, color: col, fontWeight: 800 }}>{x.resa != null ? `${x.resa >= 0 ? '+' : ''}${pct(x.resa)}` : '—'}</td>
+                <td style={{ ...td, color: '#fca5a5' }}>{x.nq ? `${n2(x.dd)} unità` : '—'}</td>
+                <td style={{ ...td, color: '#fbbf24', fontWeight: 800 }}>{x.pareggio != null ? `≥ ${x.pareggio.toFixed(2).replace('.', ',')}` : '—'}</td>
+              </tr>) })}</tbody>
+          </table>
+          <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 8 }}>Clicca un canale per vederne l'analisi completa. La <b>quota di pareggio</b> (1 ÷ % vinte) è la quota media minima a cui il canale smette di perdere. Hunterbet ha unità solo sulle bet di cui hai scritto la quota; PronoX solo su 1X2 e Over/Under 2,5 (il BTTS non ha quota).</div>
+        </div>
+
+        {/* ─── 04/10/2026 · 🎯 CALIBRAZIONE PRONOX ─── */}
+        {isPronox && (
+          <div style={{ background: 'rgba(15,23,42,.6)', border: '1px solid #334155', borderRadius: 14, padding: 14, marginBottom: 14 }}>
+            <div style={{ fontWeight: 900, fontSize: 16, color: '#f8fafc', marginBottom: 4 }}>🎯 Calibrazione: quando dice 70%, vince il 70%?</div>
+            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>Ogni punto è una fascia di probabilità: in orizzontale quella dichiarata, in verticale quante sono state vinte davvero. Sulla diagonale = previsione onesta; <b>sotto</b> = troppo ottimista; <b>sopra</b> = troppo prudente. La barra verticale è il margine (95%); i punti sbiaditi hanno meno di {MIN_N} bet.</div>
+            {chiuse.length === 0 ? <div style={{ fontSize: 13, color: '#64748b' }}>Ancora nessun segnale chiuso: la calibrazione si riempie da sola con gli esiti della cron.</div> : (
+              <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                <div style={{ flex: '1 1 380px', maxWidth: 440 }}>
+                  <GraficoCalibrazione serie={serieCal} />
+                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12 }}>{FONTI.map(f => <span key={f.id} style={{ display: 'flex', gap: 5, alignItems: 'center' }}><span style={{ width: 11, height: 11, borderRadius: 6, background: f.colore, display: 'inline-block' }} />{f.nome}</span>)}</div>
+                </div>
+                <div style={{ flex: '1 1 420px', overflowX: 'auto' }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: '#7dd3fc', marginBottom: 6 }}>Brier score (più basso = più preciso · 0,25 = tirare a indovinare)</div>
+                  <table style={{ borderCollapse: 'collapse', width: '100%', marginBottom: 10 }}>
+                    <thead><tr>{['Fonte', `Stesse bet (${comuni.length})`, 'Tutte le sue bet'].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                    <tbody>{FONTI.map((f, i) => { const bc = brierComuni[i].b, bt = brierTutte[i]; return (
+                      <tr key={f.id}>
+                        <td style={{ ...td, fontWeight: 800, color: f.colore }}>{f.nome}{migliore && migliore.fonte.id === f.id && comuni.length >= MIN_N ? ' 🏆' : ''}</td>
+                        <td style={{ ...td, fontWeight: 800 }}>{bc != null ? bc.toFixed(3).replace('.', ',') : '—'}</td>
+                        <td style={{ ...td, color: '#94a3b8' }}>{bt.b != null ? `${bt.b.toFixed(3).replace('.', ',')} su ${bt.n}` : '—'}</td>
+                      </tr>) })}</tbody>
+                  </table>
+                  <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                    <thead><tr>{['Fonte', 'Fascia', 'Bet', 'Dichiarata', 'Vinte davvero', 'Margine (95%)'].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                    <tbody>{serieCal.flatMap(({ fonte, bins }) => bins.map(b => (
+                      <tr key={fonte.id + b.fascia} style={{ opacity: b.n < MIN_N ? 0.6 : 1 }}>
+                        <td style={{ ...td, color: fonte.colore, fontWeight: 700 }}>{fonte.nome}</td><td style={td}>{b.fascia}</td><td style={td}>{b.n}</td>
+                        <td style={td}>{pct(b.dichiarata)}</td>
+                        <td style={{ ...td, fontWeight: 800, color: b.n < MIN_N ? '#94a3b8' : b.lo <= b.dichiarata && b.dichiarata <= b.hi ? '#86efac' : b.reale < b.dichiarata ? '#fca5a5' : '#7dd3fc' }}>{pct(b.reale)}</td>
+                        <td style={{ ...td, color: '#94a3b8' }}>{pct(b.lo, 0)} – {pct(b.hi, 0)}</td>
+                      </tr>)))}</tbody>
+                  </table>
+                  <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 8, lineHeight: 1.6 }}>
+                    Verde: la probabilità dichiarata sta dentro il margine (onesta). Rosso: vince <b>meno</b> di quanto dichiara (ottimista). Azzurro: vince di più (prudente). Il confronto che conta è sulle <b>stesse bet</b>: se il bookmaker ha il Brier più basso, il modello non sa ancora più del mercato e le VALUE sono in gran parte illusorie. Il BTTS non ha quota: entra solo nelle righe Modello e /oggi.
+                  </div>
+                </div>
+              </div>)}
+          </div>
+        )}
+
         {/* ─── 🔀 DOVE FINISCONO I SEGNALI ─── */}
         <div style={{ background: 'rgba(15,23,42,.6)', border: '1px solid #334155', borderRadius: 14, padding: 14, marginBottom: 14 }}>
           <div style={{ fontWeight: 900, fontSize: 16, color: '#f8fafc', marginBottom: 4 }}>🔀 Dove finiscono i segnali</div>
           <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>
             Per ogni tipo di segnale: in quante partite si è verificato ogni altro mercato (sul risultato vero). Risultati disponibili per <b>{conRisultato.length}</b> segnali su {tutte.length}
-            {conRisultato.length < tutte.length ? ' — gli altri arrivano con il programma "risultati partite" (o la partita non è stata trovata).' : '.'}
+            {conRisultato.length < tutte.length ? (isPronox ? ' — gli altri arrivano da soli con la cron degli esiti, a partita finita.' : ' — gli altri arrivano con il programma "risultati partite" (o la partita non è stata trovata).') : '.'}
           </div>
-          {conRisultato.length === 0 ? <div style={{ fontSize: 13, color: '#64748b' }}>Ancora nessun risultato: avvia risultati_partite.py sul PC.</div> : <>
+          {conRisultato.length === 0 ? <div style={{ fontSize: 13, color: '#64748b' }}>{isPronox ? 'Ancora nessun risultato: arrivano da soli a partita finita.' : 'Ancora nessun risultato: avvia risultati_partite.py sul PC.'}</div> : <>
             <div style={{ overflowX: 'auto', marginBottom: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 800, color: '#7dd3fc', marginBottom: 6 }}>Mappa a colori · clicca un tipo di segnale per il dettaglio</div>
               <table style={{ borderCollapse: 'separate', borderSpacing: 3 }}>
