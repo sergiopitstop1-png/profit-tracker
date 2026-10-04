@@ -1,10 +1,15 @@
 // =====================================================================
-// PronoX · Cron esiti delle fotografie (01/10/2026)
+// PronoX · Cron esiti delle fotografie (04/10/2026)
 // Per ogni esito fotografato in prediction_snapshots, quando la partita
 // è finita scrive in selection_outcomes se è vinto (true), perso (false)
 // o nullo (null: partita rinviata, annullata o sospesa).
 // Il verdetto usa le stesse regole del catalogo mercati di footballModel,
 // sul risultato dei 90 minuti (supplementari e rigori esclusi).
+//
+// Novità 04/10: salva anche il punteggio (1° tempo e 90 minuti) in
+// pronox_risultati, una riga per partita. Le partite con gli esiti già
+// scritti ma senza punteggio vengono ripassate, così si completano da sole.
+// Nessuna riga già scritta viene sovrascritta (né esiti né punteggi).
 //
 // Esecuzione manuale (test): /api/cron/pronox-outcomes
 // =====================================================================
@@ -30,6 +35,10 @@ function giorno(ts) {
   return new Date(ts).toISOString().split("T")[0];
 }
 
+function intero(v) {
+  return Number.isInteger(v) ? v : null;
+}
+
 // Gol nei 90 minuti. Se la partita è andata ai supplementari/rigori
 // usa regularTime; se manca, non si può decidere (si riprova dopo).
 function gol90(match) {
@@ -42,6 +51,25 @@ function gol90(match) {
   const f = s.fullTime;
   if (f && Number.isInteger(f.home) && Number.isInteger(f.away)) return { h: f.home, a: f.away };
   return null;
+}
+
+// Riga per pronox_risultati (punteggi null se la partita non si è giocata)
+function rigaRisultato(id, ev, m, g, scritto_at) {
+  const ht = m.score?.halfTime || {};
+  return {
+    event_id: id,
+    competition: m.competition?.code ?? null,
+    event_start: ev.start,
+    home_team: m.homeTeam?.name ?? null,
+    away_team: m.awayTeam?.name ?? null,
+    stato: m.status ?? null,
+    durata: m.score?.duration ?? null,
+    ht_casa: g ? intero(ht.home) : null,
+    ht_ospite: g ? intero(ht.away) : null,
+    ft_casa: g ? g.h : null,
+    ft_ospite: g ? g.a : null,
+    scritto_at,
+  };
 }
 
 export async function GET(request) {
@@ -58,7 +86,8 @@ export async function GET(request) {
 
   const report = {
     partite_da_controllare: 0, partite_finite: 0, partite_nulle: 0,
-    partite_in_attesa: 0, esiti_scritti: 0, esiti_sconosciuti: [], errors: [],
+    partite_in_attesa: 0, esiti_scritti: 0, risultati_scritti: 0,
+    esiti_sconosciuti: [], errors: [],
   };
 
   try {
@@ -67,7 +96,7 @@ export async function GET(request) {
     const a = new Date(ora - ATTESA_FINE_MS).toISOString();
 
     // 1. Esiti fotografati nella finestra (paginati)
-    const fotografati = new Map(); // event_id -> { start, chiavi:Set("market|selection") }
+    const fotografati = new Map(); // event_id -> { start, chiavi:Set("market|selection"), serveRisultato }
     for (let from = 0; ; from += 1000) {
       const { data, error } = await supabase
         .from("prediction_snapshots")
@@ -78,27 +107,37 @@ export async function GET(request) {
         .range(from, from + 999);
       if (error) throw new Error(`snapshots: ${error.message}`);
       for (const r of data || []) {
-        if (!fotografati.has(r.event_id)) fotografati.set(r.event_id, { start: r.event_start, chiavi: new Set() });
+        if (!fotografati.has(r.event_id)) fotografati.set(r.event_id, { start: r.event_start, chiavi: new Set(), serveRisultato: true });
         fotografati.get(r.event_id).chiavi.add(`${r.market}|${r.selection}`);
       }
       if (!data || data.length < 1000) break;
     }
     if (fotografati.size === 0) return NextResponse.json({ ...report, note: "nessuna partita da controllare" });
 
-    // 2. Esiti già scritti: si salta ciò che è già deciso
+    // 2. Esiti e risultati già scritti: si salta ciò che è già deciso
     const ids = [...fotografati.keys()];
     const giaScritti = new Set();
+    const risultatiScritti = new Set();
     for (let i = 0; i < ids.length; i += 100) {
+      const blocco = ids.slice(i, i + 100);
       const { data, error } = await supabase
         .from("selection_outcomes")
         .select("event_id, market, selection")
-        .in("event_id", ids.slice(i, i + 100));
+        .in("event_id", blocco);
       if (error) throw new Error(`outcomes: ${error.message}`);
       for (const r of data || []) giaScritti.add(`${r.event_id}|${r.market}|${r.selection}`);
+
+      const { data: ris, error: errRis } = await supabase
+        .from("pronox_risultati")
+        .select("event_id")
+        .in("event_id", blocco);
+      if (errRis) throw new Error(`risultati: ${errRis.message}`);
+      for (const r of ris || []) risultatiScritti.add(r.event_id);
     }
     for (const [id, ev] of fotografati) {
       for (const k of ev.chiavi) if (giaScritti.has(`${id}|${k}`)) ev.chiavi.delete(k);
-      if (ev.chiavi.size === 0) fotografati.delete(id);
+      ev.serveRisultato = !risultatiScritti.has(id);
+      if (ev.chiavi.size === 0 && !ev.serveRisultato) fotografati.delete(id);
     }
     report.partite_da_controllare = fotografati.size;
     if (fotografati.size === 0) return NextResponse.json({ ...report, note: "tutto già aggiornato" });
@@ -114,8 +153,9 @@ export async function GET(request) {
     if (!r.ok) throw new Error(`football-data ${r.status}`);
     const partite = new Map(((await r.json()).matches || []).map((m) => [`fd_${m.id}`, m]));
 
-    // 4. Verdetti
+    // 4. Verdetti e punteggi
     const righe = [];
+    const risultati = [];
     const settled_at = new Date().toISOString();
     for (const [id, ev] of fotografati) {
       const m = partite.get(id);
@@ -128,6 +168,7 @@ export async function GET(request) {
           const [market, selection] = k.split("|");
           righe.push({ event_id: id, market, selection, won: null, settled_at });
         }
+        if (ev.serveRisultato) risultati.push(rigaRisultato(id, ev, m, null, settled_at));
         report.partite_nulle++;
         continue;
       }
@@ -136,6 +177,7 @@ export async function GET(request) {
       const g = gol90(m);
       if (!g) { report.partite_in_attesa++; continue; }
       report.partite_finite++;
+      if (ev.serveRisultato) risultati.push(rigaRisultato(id, ev, m, g, settled_at));
       for (const k of ev.chiavi) {
         const regola = REGOLE.get(k);
         if (!regola) {
@@ -147,7 +189,7 @@ export async function GET(request) {
       }
     }
 
-    // 5. Scrittura (un esito già deciso non viene riscritto)
+    // 5. Scrittura esiti (un esito già deciso non viene riscritto)
     for (let i = 0; i < righe.length; i += 500) {
       const { data, error } = await supabase
         .from("selection_outcomes")
@@ -155,6 +197,16 @@ export async function GET(request) {
         .select("event_id");
       if (error) report.errors.push(`insert: ${error.message}`);
       else report.esiti_scritti += data?.length || 0;
+    }
+
+    // 6. Scrittura punteggi (un risultato già scritto non viene riscritto)
+    for (let i = 0; i < risultati.length; i += 500) {
+      const { data, error } = await supabase
+        .from("pronox_risultati")
+        .upsert(risultati.slice(i, i + 500), { onConflict: "event_id", ignoreDuplicates: true })
+        .select("event_id");
+      if (error) report.errors.push(`risultati: ${error.message}`);
+      else report.risultati_scritti += data?.length || 0;
     }
   } catch (e) {
     report.errors.push(String(e?.message || e));
