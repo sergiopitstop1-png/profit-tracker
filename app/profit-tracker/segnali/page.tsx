@@ -12,6 +12,33 @@ type Segnale = {
   msg_id: number; data_msg: string | null; data_partita: string | null; ora: string | null; competizione: string | null
   casa: string | null; ospite: string | null; live: string | null; minuto: number | null; mercato: string | null; linea: number | null
   tempo: string | null; quota: number | null; selezione: string | null; unita: number | null; esito: string | null; profitto: number | null; link: string | null
+  ht_casa?: number | null; ht_ospite?: number | null; ft_casa?: number | null; ft_ospite?: number | null
+}
+
+// 04/10/2026 — risultato della partita scritto a mano (1° tempo e finale): serve all'analisi "Dove finiscono i segnali"
+function CelleRisultato({ s, td }: { s: Segnale; td: any }) {
+  const fmt = (a?: number | null, b?: number | null) => a != null && b != null ? `${a}-${b}` : ''
+  const [ht, setHt] = useState(fmt(s.ht_casa, s.ht_ospite))
+  const [ft, setFt] = useState(fmt(s.ft_casa, s.ft_ospite))
+  const [salvati, setSalvati] = useState({ ht: fmt(s.ht_casa, s.ht_ospite), ft: fmt(s.ft_casa, s.ft_ospite) })
+  const [stato, setStato] = useState('')
+  const leggi = (t: string): [number, number] | null => { const m = t.trim().match(/^(\d{1,2})\s*[-–:]\s*(\d{1,2})$/); return m ? [Number(m[1]), Number(m[2])] : null }
+  const cambiato = ht !== salvati.ht || ft !== salvati.ft
+  async function salva() {
+    const rHt = ht ? leggi(ht) : null, rFt = ft ? leggi(ft) : null
+    if ((ht && !rHt) || (ft && !rFt)) { setStato('scrivi es. 2-1'); return }
+    setStato('salvo…')
+    const { error } = await supabase.from('scoretrend_segnali').update({ ht_casa: rHt?.[0] ?? null, ht_ospite: rHt?.[1] ?? null, ft_casa: rFt?.[0] ?? null, ft_ospite: rFt?.[1] ?? null }).eq('msg_id', s.msg_id)
+    if (error) { setStato('errore: ' + error.message + ' (hai lanciato scoretrend_manuale.sql?)'); return }
+    setSalvati({ ht, ft }); setStato('✓')
+  }
+  const inp = { background: '#020617', color: '#f8fafc', border: '1px solid #334155', borderRadius: 6, padding: '3px 5px', fontSize: 12, width: 44 }
+  return (<>
+    <td style={td}><input style={inp} placeholder="1-0" value={ht} onChange={e => setHt(e.target.value)} /></td>
+    <td style={td}><input style={inp} placeholder="2-1" value={ft} onChange={e => setFt(e.target.value)} /></td>
+    <td style={td}>{cambiato ? <button onClick={salva} style={{ background: '#059669', color: 'white', border: 0, borderRadius: 6, padding: '3px 8px', fontWeight: 800, fontSize: 11, cursor: 'pointer' }}>Salva</button> : <span style={{ fontSize: 11, color: stato.startsWith('errore') ? '#fca5a5' : '#86efac' }}>{stato}</span>}
+      {cambiato && stato && <div style={{ fontSize: 10, color: '#fca5a5' }}>{stato}</div>}</td>
+  </>)
 }
 
 const n2 = (x: number) => x.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -242,7 +269,7 @@ export default function SegnaliPage() {
           <div style={{ fontWeight: 900, marginBottom: 8 }}>Segnali · {visibili.length}</div>
           <div style={{ maxHeight: 460, overflowY: 'auto' }}>
             <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-              <thead><tr>{['Arrivato', 'Partita', 'Competizione', 'Tipo', 'Mercato', 'Giocata', 'Quota', 'Esito', 'Unità', ''].map(h => <th key={h} style={{ ...th, position: 'sticky', top: 0, background: '#0f172a' }}>{h}</th>)}</tr></thead>
+              <thead><tr>{['Arrivato', 'Partita', 'Competizione', 'Tipo', 'Mercato', 'Giocata', 'Quota', 'Esito', 'Unità', '', '1° tempo', 'Finale', ''].map((h, i) => <th key={i} style={{ ...th, position: 'sticky', top: 0, background: '#0f172a' }}>{h}</th>)}</tr></thead>
               <tbody>{visibili.map(s => (
                 <tr key={s.msg_id} style={{ background: recenti(s.data_msg) && !s.esito ? 'rgba(56,189,248,.08)' : undefined }}>
                   <td style={{ ...td, whiteSpace: 'nowrap' }}>{recenti(s.data_msg) && !s.esito ? '🆕 ' : ''}{quando(s.data_msg)}</td>
@@ -255,6 +282,7 @@ export default function SegnaliPage() {
                   <td style={{ ...td, fontWeight: 900, color: s.esito === 'VINTA' ? '#86efac' : s.esito === 'PERSA' ? '#fca5a5' : '#94a3b8' }}>{s.esito ? (s.esito === 'VINTA' ? '🟢 vinta' : s.esito === 'PERSA' ? '🔴 persa' : '⚪ nulla') : '⏳ in corso'}</td>
                   <td style={{ ...td, color: Number(s.profitto) >= 0 ? '#86efac' : '#fca5a5' }}>{s.profitto != null ? `${s.profitto >= 0 ? '+' : ''}${n2(Number(s.profitto))}` : ''}</td>
                   <td style={td}>{s.link && <a href={s.link} target="_blank" rel="noopener noreferrer" style={{ color: '#7dd3fc', fontSize: 11 }}>apri</a>}</td>
+                  <CelleRisultato s={s} td={td} />
                 </tr>))}</tbody>
             </table>
           </div>
