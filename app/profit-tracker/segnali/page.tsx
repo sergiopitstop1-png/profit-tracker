@@ -3,6 +3,7 @@
 // 📡 SEGNALI SCORETREND · pagina condivisa (03/10/2026)
 // I segnali li manda il lettore sul PC (scoretrend.py) → tabella scoretrend_segnali.
 // La vedono tutti gli utenti loggati, in tempo reale (aggiornamento ogni 30 secondi).
+// 04/10/2026: terza scheda PronoX (vista pronox_segnali, sola lettura).
 // ════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
@@ -129,6 +130,124 @@ function RigaHunter({ s, td, onSalvato }: { s: Hunter; td: any; onSalvato: (r: H
     </tr>)
 }
 
+// ─── 04/10/2026 · PRONOX: segnali sopra soglia di /oggi, letti dalla vista pronox_segnali ───
+// Sola lettura: esiti e risultati li scrive la cron pronox-outcomes (football-data.org).
+// Le unità si contano solo dove c'è la quota (1X2 e Over/Under 2,5); il BTTS conta nelle % vinte.
+type Pronox = {
+  msg_id: number; data_msg: string | null; data_partita: string | null; event_id: string; competizione: string | null
+  casa: string | null; ospite: string | null; fotografia: string | null; mercato: string; selezione: string; etichetta: string
+  forte: boolean | null; prob_grezza: number | null; prob_calibrata: number | null; prob_mercato: number | null
+  quota: number | null; bookmaker: string | null; ev: number | null; value: boolean; unita: number
+  esito: string | null; profitto: number | null; ht_casa: number | null; ht_ospite: number | null; ft_casa: number | null; ft_ospite: number | null
+}
+const pc = (x: number | null | undefined, d = 1) => x == null ? '' : `${(100 * Number(x)).toFixed(d).replace('.', ',')}%`
+
+function raggruppaPronox(lista: Pronox[], chiave: (s: Pronox) => string): Riga[] {
+  const m = new Map<string, Riga & { nq: number; sq: number }>()
+  for (const s of lista) {
+    if (s.esito !== 'VINTA' && s.esito !== 'PERSA') continue
+    const k = chiave(s) || '—'
+    const r = m.get(k) || { voce: k, bet: 0, vinte: 0, unita: 0, puntato: 0, quota: 0, nq: 0, sq: 0 }
+    r.bet++; if (s.esito === 'VINTA') r.vinte++
+    if (s.quota != null) { r.nq++; r.sq += Number(s.quota); r.puntato += 1; r.unita += Number(s.profitto || 0) }
+    m.set(k, r)
+  }
+  // la tabella fa quota / bet: la quota media è calcolata solo sulle bet con quota
+  return [...m.values()].map(r => ({ voce: r.voce, bet: r.bet, vinte: r.vinte, unita: r.unita, puntato: r.puntato, quota: r.nq ? (r.sq / r.nq) * r.bet : 0 }))
+    .sort((a, b) => b.bet - a.bet)
+}
+
+function SchedaPronox({ dati, sel, th, td, tabellaPagella }: { dati: Pronox[]; sel: any; th: any; td: any; tabellaPagella: (r: Riga[]) => any }) {
+  const [etichetta, setEtichetta] = useState('')
+  const [stato, setStato] = useState('')
+  const [soloValue, setSoloValue] = useState(false)
+  const [soloForti, setSoloForti] = useState(false)
+  const [cerca, setCerca] = useState('')
+  const etichette = useMemo(() => [...new Set(dati.map(s => s.etichetta))].sort(), [dati])
+  const visibili = useMemo(() => {
+    const q = cerca.trim().toLowerCase()
+    return dati.filter(s =>
+      (!etichetta || s.etichetta === etichetta) && (!stato || (stato === 'corso' ? !s.esito : s.esito === stato)) &&
+      (!soloValue || s.value) && (!soloForti || s.forte) &&
+      (!q || `${s.competizione} ${s.casa} ${s.ospite}`.toLowerCase().includes(q)))
+  }, [dati, etichetta, stato, soloValue, soloForti, cerca])
+
+  const chiuse = visibili.filter(s => s.esito === 'VINTA' || s.esito === 'PERSA')
+  const vinte = chiuse.filter(s => s.esito === 'VINTA').length
+  const conQuota = chiuse.filter(s => s.quota != null)
+  const unita = conQuota.reduce((a, s) => a + Number(s.profitto || 0), 0)
+  const probMedia = chiuse.length ? chiuse.reduce((a, s) => a + Number(s.prob_grezza || 0), 0) / chiuse.length : null
+  const ris = (a: number | null, b: number | null) => a != null && b != null ? `${a}-${b}` : ''
+  const blocchi: [string, Riga[]][] = [
+    ['Per segnale', raggruppaPronox(visibili, s => s.etichetta)],
+    ['Value bet o no', raggruppaPronox(visibili, s => s.value ? '💎 VALUE (EV > 3%)' : 'Senza value')],
+    ['Forte o normale', raggruppaPronox(visibili, s => s.forte ? '🔥 Forte' : '→ Normale')],
+    ['Per competizione', raggruppaPronox(visibili, s => s.competizione || '—')],
+  ]
+
+  return (<>
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
+      <select style={sel} value={etichetta} onChange={e => setEtichetta(e.target.value)}>
+        <option value="">Tutti i segnali</option>{etichette.map(m => <option key={m}>{m}</option>)}
+      </select>
+      <select style={sel} value={stato} onChange={e => setStato(e.target.value)}>
+        <option value="">Tutti gli esiti</option><option value="corso">Da giocare / in corso</option><option value="VINTA">Vinte</option><option value="PERSA">Perse</option><option value="NULLA">Nulle</option>
+      </select>
+      <label style={{ fontSize: 12, color: '#cbd5e1', display: 'flex', gap: 5, alignItems: 'center' }}><input type="checkbox" checked={soloValue} onChange={e => setSoloValue(e.target.checked)} /> solo VALUE</label>
+      <label style={{ fontSize: 12, color: '#cbd5e1', display: 'flex', gap: 5, alignItems: 'center' }}><input type="checkbox" checked={soloForti} onChange={e => setSoloForti(e.target.checked)} /> solo forti 🔥</label>
+      <input style={{ ...sel, width: 220 }} placeholder="🔎 Squadra, competizione…" value={cerca} onChange={e => setCerca(e.target.value)} />
+    </div>
+
+    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+      {[['Segnali', String(visibili.length)], ['Chiusi', String(chiuse.length)],
+        ['Vinte', chiuse.length ? `${vinte} (${pc(vinte / chiuse.length)})` : '—'],
+        ['Prob. media dichiarata', probMedia != null ? pc(probMedia) : '—'],
+        ['Unità (con quota)', conQuota.length ? `${unita >= 0 ? '+' : ''}${n2(unita)}` : '—'],
+        ['Rendimento', conQuota.length ? `${unita >= 0 ? '+' : ''}${(100 * unita / conQuota.length).toFixed(1).replace('.', ',')}%` : '—'],
+        ['Da giocare', String(visibili.filter(s => !s.esito).length)]].map(([t, v]) => (
+        <div key={t} style={{ background: 'rgba(15,23,42,.8)', border: '1px solid #1e293b', borderRadius: 12, padding: '10px 14px', minWidth: 120 }}>
+          <div style={{ fontSize: 11, color: '#94a3b8' }}>{t}</div>
+          <div style={{ fontSize: 20, fontWeight: 900, color: t.startsWith('Unità') || t === 'Rendimento' ? (conQuota.length ? (unita >= 0 ? '#86efac' : '#fca5a5') : '#f8fafc') : '#f8fafc' }}>{v}</div>
+        </div>))}
+    </div>
+
+    <div style={{ background: 'rgba(15,23,42,.6)', border: '1px solid #1e293b', borderRadius: 14, padding: 12, marginBottom: 18, overflowX: 'auto' }}>
+      <div style={{ fontWeight: 900, marginBottom: 4 }}>PronoX · {visibili.length}</div>
+      <div style={{ fontSize: 11.5, color: '#94a3b8', marginBottom: 8 }}>Ogni esito sopra la soglia di /oggi, preso dalla fotografia del giorno prima (t24h). Tre probabilità: <b>modello</b> (grezza, decide il segnale), <b>/oggi</b> (calibrata, usata per il VALUE), <b>bookmaker</b> (senza margine). Esiti e risultati arrivano da soli.</div>
+      <div style={{ maxHeight: 460, overflowY: 'auto' }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+          <thead><tr>{['Partita il', 'Partita', 'Competizione', 'Segnale', 'Modello', '/oggi', 'Bookmaker', 'Quota', 'EV', 'Esito', 'Unità', '1° tempo', 'Finale'].map((h, i) => <th key={i} style={{ ...th, position: 'sticky', top: 0, background: '#0f172a' }}>{h}</th>)}</tr></thead>
+          <tbody>{visibili.map(s => (
+            <tr key={s.msg_id}>
+              <td style={{ ...td, whiteSpace: 'nowrap' }}>{quando(s.data_partita)}</td>
+              <td style={{ ...td, fontWeight: 800 }}>{s.casa || s.ospite ? `${s.casa ?? '?'} – ${s.ospite ?? '?'}` : <span style={{ color: '#64748b', fontWeight: 400 }}>nomi alla fotografia t24h</span>}</td>
+              <td style={{ ...td, color: '#94a3b8' }}>{s.competizione}</td>
+              <td style={{ ...td, fontWeight: 700, whiteSpace: 'nowrap' }}>{s.forte ? '🔥 ' : ''}{s.etichetta}{s.value ? ' 💎' : ''}</td>
+              <td style={{ ...td, fontWeight: 800 }}>{pc(s.prob_grezza)}</td>
+              <td style={td}>{pc(s.prob_calibrata)}</td>
+              <td style={{ ...td, color: '#94a3b8' }}>{pc(s.prob_mercato)}</td>
+              <td style={{ ...td, fontWeight: 800, color: s.quota != null && Number(s.quota) < 1.4 ? '#fbbf24' : '#f8fafc' }} title={s.quota != null && Number(s.quota) < 1.4 ? 'Sotto la regola di 1,40' : ''}>{s.quota != null ? String(s.quota).replace('.', ',') : ''}</td>
+              <td style={{ ...td, color: s.ev != null && s.ev > 0.03 ? '#86efac' : '#94a3b8' }}>{s.ev != null ? `${s.ev >= 0 ? '+' : ''}${pc(s.ev)}` : ''}</td>
+              <td style={{ ...td, fontWeight: 900, color: s.esito === 'VINTA' ? '#86efac' : s.esito === 'PERSA' ? '#fca5a5' : '#94a3b8' }}>{s.esito ? (s.esito === 'VINTA' ? '🟢 vinta' : s.esito === 'PERSA' ? '🔴 persa' : '⚪ nulla') : '⏳ da giocare'}</td>
+              <td style={{ ...td, color: Number(s.profitto) >= 0 ? '#86efac' : '#fca5a5' }}>{s.profitto != null ? `${s.profitto >= 0 ? '+' : ''}${n2(Number(s.profitto))}` : ''}</td>
+              <td style={td}>{ris(s.ht_casa, s.ht_ospite)}</td>
+              <td style={{ ...td, fontWeight: 700 }}>{ris(s.ft_casa, s.ft_ospite)}</td>
+            </tr>))}</tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 14 }}>
+      {blocchi.map(([titolo, righe]) => (
+        <div key={titolo} style={{ background: 'rgba(15,23,42,.6)', border: '1px solid #1e293b', borderRadius: 14, padding: 12 }}>
+          <div style={{ fontWeight: 900, marginBottom: 8, color: '#7dd3fc' }}>📊 {titolo}</div>
+          {righe.length ? tabellaPagella(righe) : <div style={{ fontSize: 12, color: '#64748b' }}>Ancora nessun segnale chiuso.</div>}
+        </div>))}
+    </div>
+    <p style={{ fontSize: 11, color: '#64748b', marginTop: 16 }}>1 unità per segnale. Unità e rendimento contano solo i segnali con quota (1X2 e Over/Under 2,5); il BTTS entra nelle % vinte. La calibrazione (quando dice 70%, vince il 70%?) è nella pagina 📈 Analisi.</p>
+  </>)
+}
+
 type Riga = { voce: string; bet: number; vinte: number; unita: number; puntato: number; quota: number }
 function raggruppa(lista: Segnale[], chiave: (s: Segnale) => string): Riga[] {
   const m = new Map<string, Riga>()
@@ -144,9 +263,10 @@ function raggruppa(lista: Segnale[], chiave: (s: Segnale) => string): Riga[] {
 }
 
 export default function SegnaliPage() {
-  const [tab, setTab] = useState<'scoretrend'|'hunterbet'>('scoretrend')
+  const [tab, setTab] = useState<'scoretrend'|'hunterbet'|'pronox'>('scoretrend')
   const [dati, setDati] = useState<Segnale[]>([])
   const [hunter, setHunter] = useState<Hunter[]>([])
+  const [pronox, setPronox] = useState<Pronox[]>([])
   const [errore, setErrore] = useState('')
   const [aggiornato, setAggiornato] = useState<Date | null>(null)
   const [periodo, setPeriodo] = useState('30')
@@ -170,6 +290,8 @@ export default function SegnaliPage() {
     setErrore(''); setDati(out)
     const h=await supabase.from('hunterbet_segnali').select('*').order('data_msg',{ascending:false}).limit(5000)
     if(!h.error) setHunter((h.data||[]) as Hunter[])
+    const p = await supabase.from('pronox_segnali').select('*').order('data_partita', { ascending: false }).limit(5000)
+    if (!p.error) setPronox((p.data || []) as Pronox[])
     setAggiornato(new Date())
   }, [periodo])
   useEffect(() => { carica(); const t = setInterval(carica, 30000); return () => clearInterval(t) }, [carica])
@@ -217,6 +339,7 @@ export default function SegnaliPage() {
         <div style={{display:'flex',gap:8,margin:'12px 0 14px'}}>
           <button onClick={()=>setTab('scoretrend')} style={{...sel,cursor:'pointer',fontWeight:900,borderColor:tab==='scoretrend'?'#38bdf8':'#334155'}}>ScoreTrend</button>
           <button onClick={()=>setTab('hunterbet')} style={{...sel,cursor:'pointer',fontWeight:900,borderColor:tab==='hunterbet'?'#38bdf8':'#334155'}}>Hunterbet</button>
+          <button onClick={()=>setTab('pronox')} style={{...sel,cursor:'pointer',fontWeight:900,borderColor:tab==='pronox'?'#38bdf8':'#334155'}}>PronoX</button>
           {/* 04/10/2026 — pagina di analisi: torte, segmenti, simulazione */}
           <Link href="/profit-tracker/segnali/analisi" style={{...sel,cursor:'pointer',fontWeight:900,textDecoration:'none',borderColor:'#a78bfa',color:'#c4b5fd'}}>📈 Analisi</Link>
         </div>
@@ -224,7 +347,9 @@ export default function SegnaliPage() {
           Arrivano dal canale in tempo reale · aggiornamento ogni 30 secondi{aggiornato ? ` · ultimo alle ${aggiornato.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
         </div>
 
-{tab==='hunterbet' ? (
+{tab==='pronox' ? (
+        <SchedaPronox dati={pronox} sel={sel} th={th} td={td} tabellaPagella={tabellaPagella} />
+        ) : tab==='hunterbet' ? (
         <div style={{ background:'rgba(15,23,42,.6)', border:'1px solid #1e293b', borderRadius:14, padding:12, overflowX:'auto' }}>
           <div style={{fontWeight:900,marginBottom:4}}>Hunterbet · {hunter.length}</div>
           <div style={{fontSize:11.5,color:'#94a3b8',marginBottom:8}}>Scrivi il risultato finale (es. 2-1) e, se lo sai, quello del 1° tempo: l'esito si calcola da solo ("auto"). Puoi sceglierlo a mano se il mercato non viene riconosciuto. La quota serve per la pagella; arriverà da Betfair quando sarà collegato.</div>
