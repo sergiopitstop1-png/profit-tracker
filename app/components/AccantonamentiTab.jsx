@@ -106,7 +106,7 @@ export default function AccantonamentiTab({
   accantonamentoFiglio,
   totaleMensileFiglio,
   giornoFiglio,
-  figlioG1, figlioG7, figlioG13, figlioG20, figlioG27,
+  figlioG13,
   rateFiglioDaPagare,
 
   paoloAttivo,
@@ -117,7 +117,8 @@ export default function AccantonamentiTab({
 
   accantonamentoMichela,
   totaleMensileMichela,
-  michelaR1, michelaR9, michelaR17, michelaR24,
+  michelaSettimanale,
+  lunediMichela = [],
   rateMichelaDaPagare,
 
   accantonamentoAntonello,
@@ -224,22 +225,12 @@ export default function AccantonamentiTab({
           <div style={panelHeader}>
             <div>
               <h2 style={panelTitle}>Stipendio Massimiliano</h2>
-              <p style={panelSubtitle}>Giorni 2 · 7 · 13 · 20 · 27</p>
+              <p style={panelSubtitle}>250 € al mese · scadenza giorno 13</p>
             </div>
           </div>
-          <BigValue>{fmt(totaleMensileFiglio - accantonamentoFiglio)}</BigValue>
-          <SubNote>ancora da pagare questo mese (su {fmt(totaleMensileFiglio)}) · aggiornato al giorno {giornoFiglio}</SubNote>
+          <BigValue>{fmt(totaleMensileFiglio)}</BigValue>
+          <SubNote>rata mensile {fmt(figlioG13)} · avviso dal giorno 13 finché non viene segnata pagata</SubNote>
           <AvvisiRate label="Massimiliano" rate={rateFiglioDaPagare} onPagato={toggleAccantonamentoPagato} />
-          <RateEditor
-            updateDashboardSetting={updateDashboardSetting}
-            rate={[
-              { key: 'f1', settingKey: 'figlio_g1', label: 'g.2', value: figlioG1 },
-              { key: 'f7', settingKey: 'figlio_g7', label: 'g.7', value: figlioG7 },
-              { key: 'f13', settingKey: 'figlio_g13', label: 'g.13', value: figlioG13 },
-              { key: 'f20', settingKey: 'figlio_g20', label: 'g.20', value: figlioG20 },
-              { key: 'f27', settingKey: 'figlio_g27', label: 'g.27', value: figlioG27 },
-            ]}
-          />
         </div>
 
         {/* PAOLO */}
@@ -284,21 +275,14 @@ export default function AccantonamentiTab({
           <div style={panelHeader}>
             <div>
               <h2 style={panelTitle}>Michela (spese di casa)</h2>
-              <p style={panelSubtitle}>Giorni 1 · 9 · 17 · 24</p>
+              <p style={panelSubtitle}>260 € ogni lunedì · calcolo automatico sul calendario del mese</p>
             </div>
           </div>
-          <BigValue>{fmt(totaleMensileMichela - accantonamentoMichela)}</BigValue>
-          <SubNote>ancora da pagare questo mese (su {fmt(totaleMensileMichela)})</SubNote>
+          <BigValue>{fmt(totaleMensileMichela)}</BigValue>
+          <SubNote>
+            {lunediMichela.length} lunedì questo mese ({lunediMichela.map(g => `g. ${g}`).join(' · ')}) × {fmt(michelaSettimanale)}
+          </SubNote>
           <AvvisiRate label="Michela" rate={rateMichelaDaPagare} onPagato={toggleAccantonamentoPagato} />
-          <RateEditor
-            updateDashboardSetting={updateDashboardSetting}
-            rate={[
-              { key: 'm1', settingKey: 'michela_r1', label: 'g.1', value: michelaR1 },
-              { key: 'm9', settingKey: 'michela_r9', label: 'g.9', value: michelaR9 },
-              { key: 'm17', settingKey: 'michela_r17', label: 'g.17', value: michelaR17 },
-              { key: 'm24', settingKey: 'michela_r24', label: 'g.24', value: michelaR24 },
-            ]}
-          />
         </div>
 
         {/* ANTONELLO */}
