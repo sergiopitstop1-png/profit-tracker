@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
       const v = r[k]
       if (v !== null && v !== undefined && v !== '' && JSON.stringify(v) !== JSON.stringify(prima[k])) patch[k] = v
     }
-    if (r?.non_trovata) patch.risultato_tentativi = Number(prima.risultato_tentativi || 0) + 1   // dopo 6 tentativi si smette di cercarla
+    if (r?.non_trovata) patch.risultato_tentativi = r?.definitiva ? 99 : Number(prima.risultato_tentativi || 0) + 1   // dopo 6 tentativi (o se irrecuperabile) si smette di cercarla
     if (!Object.keys(patch).length) continue
     const { error } = await supabase.from(tabella).update(patch).eq('msg_id', id)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
