@@ -6598,6 +6598,19 @@ const accantonamentoMichela = rateMichela.maturato
 const totaleMensileMichela = rateMichela.totale
 const rateMichelaDaPagare = rateMichela.daPagare
 
+// Servizi software: 22 € al mese ciascuno. L'intero importo è accantonato dal 1° del mese;
+// quando viene segnato Pagato sparisce dagli accantonamenti perché l'uscita reale è già nei wallet.
+const SERVIZI_SCHEDULE = [
+  { day: 11, amount: 22, key: 'chatgpt_openai_pagato_mese', label: 'giorno 11', nome: 'ChatGPT / OpenAI' },
+  { day: 17, amount: 22, key: 'supabase_database_pagato_mese', label: 'giorno 17', nome: 'Supabase Database' },
+  { day: 27, amount: 22, key: 'anthropic_claude_pagato_mese', label: 'giorno 27', nome: 'Anthropic / Claude' },
+  { day: 30, amount: 22, key: 'vercel_deployment_pagato_mese', label: 'giorno 30', nome: 'Vercel Deployment' },
+]
+const rateServizi = calcolaRateAccantonamento(SERVIZI_SCHEDULE, dashboardSettings)
+const totaleMensileServizi = rateServizi.totale
+const rateServiziDaPagare = rateServizi.daPagare
+const accantonamentoServizi = totaleMenoPagato(SERVIZI_SCHEDULE, dashboardSettings)
+
 // Antonello: 1.050€ ogni 3 mesi (350€/mese equivalente). Settembre 2026 già pagato/in Contabilità,
 // quindi il ciclo sintetico parte da ottobre 2026. Prossime rate reali: dic 2026, mar 2027, giu 2027,
 // poi il contratto finisce -> da luglio 2027 in poi l'accantonamento torna a 0 in automatico.
@@ -6619,7 +6632,7 @@ if (oggiAntonello >= ANTONELLO_INIZIO && oggiAntonello <= ANTONELLO_FINE) {
   }
 }
 
-const accantonamentiAvvisiCount = rateFiglioDaPagare.length + ratePaoloDaPagare.length + rateMichelaDaPagare.length + antonelloDaPagare.length +
+const accantonamentiAvvisiCount = rateFiglioDaPagare.length + ratePaoloDaPagare.length + rateMichelaDaPagare.length + rateServiziDaPagare.length + antonelloDaPagare.length +
   royaltyCalc.avvisi.filter(a => a.giorniRitardo >= 0).length
 
 // Totale "da pagare questo mese" mostrato in Dashboard e in cima al tab Accantonamenti:
@@ -6633,7 +6646,8 @@ const accantonamentiDaPagareTotale =
   accantonamentoClub +
   totaleMenoPagato(FIGLIO_SCHEDULE, dashboardSettings) +
   (PAOLO_ATTIVO ? totaleMenoPagato(PAOLO_SCHEDULE, dashboardSettings) : 0) +
-  totaleMensileMichela +
+  totaleMenoPagato(MICHELA_SCHEDULE, dashboardSettings) +
+  accantonamentoServizi +
   accantonamentoAntonello
 
 // I risparmi di Samu e Massi sono già dentro accantonamentiDaPagareTotale
@@ -7322,6 +7336,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             michelaSettimanale={MICHELA_SETTIMANALE}
             lunediMichela={lunediMichela}
             rateMichelaDaPagare={rateMichelaDaPagare}
+            accantonamentoServizi={accantonamentoServizi}
+            totaleMensileServizi={totaleMensileServizi}
+            serviziSchedule={SERVIZI_SCHEDULE}
+            rateServiziDaPagare={rateServiziDaPagare}
             accantonamentoAntonello={accantonamentoAntonello}
             meseCicloAntonello={meseCicloAntonello}
             antonelloImporto={ANTONELLO_IMPORTO}
