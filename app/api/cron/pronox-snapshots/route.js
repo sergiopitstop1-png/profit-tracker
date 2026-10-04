@@ -5,11 +5,10 @@
 // cui il modello futuro imparerà. Non tocca nulla di ciò che vedono gli
 // utenti: scrive solo nella tabella prediction_snapshots.
 //
-// 01/10/2026: aggiunto il catalogo mercati (versione dc_v2_mk_v1) e
-// features salvate una sola volta per partita.
-//
 // Esecuzione manuale (test):
 //   /api/cron/pronox-snapshots?date=2026-10-04&horizon=manual
+//
+// 04/10/2026: salva anche i nomi delle squadre (home_team, away_team).
 // =====================================================================
 
 import { NextResponse } from "next/server";
@@ -20,7 +19,6 @@ import {
   calcRatings, currentSeasonFor, getSeasonData,
   parseOddsForDate, matchOdds, computeFixtureModel,
   calibrateFootballProbability,
-  calcMarkets, MARKETS_VERSION,
 } from "../../../../lib/pronox/footballModel";
 
 export const dynamic = "force-dynamic";
@@ -180,21 +178,12 @@ function buildSnapshotRows({ fix, code, model, oddsData, horizon }) {
     event_id: `fd_${fix.id}`,
     competition: code,
     event_start: fix.utcDate,
-    home_team: fix.homeTeam?.name ?? null,   // 01/10/2026: nomi per la scheda bet
+    home_team: fix.homeTeam?.name ?? null,   // 04/10/2026: nomi squadre per la pagina Segnali
     away_team: fix.awayTeam?.name ?? null,
     horizon,
     market_odds: marketOdds,
     features,
     feature_schema_version: 1,
-  };
-
-  // 01/10/2026: le features (il blocco più pesante) si salvano UNA volta
-  // per partita, sulla prima riga (1X2 · 1 · grezza). Le altre righe hanno {}.
-  let featuresSaved = false;
-  const featuresOnce = () => {
-    if (featuresSaved) return {};
-    featuresSaved = true;
-    return features;
   };
 
   const rows = [];
@@ -203,7 +192,6 @@ function buildSnapshotRows({ fix, code, model, oddsData, horizon }) {
     // Riga 1: probabilità grezza del Dixon-Coles
     rows.push({
       ...base,
-      features: featuresOnce(),
       market: s.market,
       selection: s.selection,
       model_name: MODEL_NAME,
@@ -216,7 +204,6 @@ function buildSnapshotRows({ fix, code, model, oddsData, horizon }) {
     if (s.label) {
       rows.push({
         ...base,
-        features: {},
         market: s.market,
         selection: s.selection,
         model_name: `${MODEL_NAME}_calibrated`,
@@ -226,29 +213,6 @@ function buildSnapshotRows({ fix, code, model, oddsData, horizon }) {
         odds_bookmaker: odds ? "media_eu" : null,
       });
     }
-  }
-
-  // 01/10/2026: catalogo mercati (doppia chance, over/under, multigol,
-  // gol squadra, combo) con versione propria, così la pagella delle
-  // righe grezze/calibrate resta confrontabile. Esclusi i mercati già
-  // fotografati sopra e gli esiti estremi (sotto il 15% o sopra il 95%),
-  // che non servono e occupano spazio. Niente quote: per ora non esistono.
-  const GIA_FOTOGRAFATI = new Set(["1X2", "OU2.5", "BTTS"]);
-  for (const m of calcMarkets(model.lH, model.lA)) {
-    if (GIA_FOTOGRAFATI.has(m.market)) continue;
-    if (m.prob < 0.15 || m.prob > 0.95) continue;
-    rows.push({
-      ...base,
-      market_odds: {},
-      features: {},
-      market: m.market,
-      selection: m.selection,
-      model_name: MODEL_NAME,
-      model_version: `${MODEL_VERSION}_${MARKETS_VERSION}`,
-      model_prob: cleanProb(m.prob),
-      odds_taken: null,
-      odds_bookmaker: null,
-    });
   }
   return rows;
 }
@@ -375,7 +339,6 @@ export async function GET(request) {
       }
     }
     report.rows = rows.length;
-    report.rows_catalogo = rows.filter((r) => r.model_version.endsWith(`_${MARKETS_VERSION}`)).length;
 
     // 6. Scrittura: i doppioni vengono ignorati (le fotografie non si sovrascrivono)
     for (let i = 0; i < rows.length; i += 500) {
