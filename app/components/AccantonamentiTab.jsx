@@ -105,6 +105,7 @@ export default function AccantonamentiTab({
 
   accantonamentoFiglio,
   totaleMensileFiglio,
+  residuoMensileFiglio,
   giornoFiglio,
   figlioG13,
   rateFiglioDaPagare,
@@ -117,9 +118,15 @@ export default function AccantonamentiTab({
 
   accantonamentoMichela,
   totaleMensileMichela,
+  residuoMensileMichela,
   michelaSettimanale,
   lunediMichela = [],
   rateMichelaDaPagare,
+
+  accantonamentoServizi,
+  totaleMensileServizi,
+  serviziSchedule = [],
+  rateServiziDaPagare,
 
   accantonamentoAntonello,
   meseCicloAntonello,
@@ -135,7 +142,7 @@ export default function AccantonamentiTab({
       <div style={{ marginBottom: 18 }}>
         <h1 style={{ color: '#f8fafc', fontSize: 22, fontWeight: 900, marginBottom: 4 }}>Accantonamenti</h1>
         <p style={{ color: '#94a3b8', fontSize: 13 }}>
-          Royalty, rinnovo club, stipendio figlio, Paolo, Michela e risparmi di Samu e Massi — {fmt(accantonamentiTotale)} accantonati/da accantonare in totale.
+          Royalty, rinnovo club, Massimiliano, Paolo, Michela, servizi software e risparmi di Samu e Massi — {fmt(accantonamentiTotale)} accantonati/da accantonare in totale.
         </p>
       </div>
 
@@ -228,7 +235,7 @@ export default function AccantonamentiTab({
               <p style={panelSubtitle}>250 € al mese · scadenza giorno 13</p>
             </div>
           </div>
-          <BigValue>{fmt(totaleMensileFiglio)}</BigValue>
+          <BigValue>{fmt(residuoMensileFiglio)}</BigValue>
           <SubNote>rata mensile {fmt(figlioG13)} · avviso dal giorno 13 finché non viene segnata pagata</SubNote>
           <AvvisiRate label="Massimiliano" rate={rateFiglioDaPagare} onPagato={toggleAccantonamentoPagato} />
         </div>
@@ -278,11 +285,34 @@ export default function AccantonamentiTab({
               <p style={panelSubtitle}>260 € ogni lunedì · calcolo automatico sul calendario del mese</p>
             </div>
           </div>
-          <BigValue>{fmt(totaleMensileMichela)}</BigValue>
+          <BigValue>{fmt(residuoMensileMichela)}</BigValue>
           <SubNote>
             {lunediMichela.length} lunedì questo mese ({lunediMichela.map(g => `g. ${g}`).join(' · ')}) × {fmt(michelaSettimanale)}
           </SubNote>
           <AvvisiRate label="Michela" rate={rateMichelaDaPagare} onPagato={toggleAccantonamentoPagato} />
+        </div>
+
+        {/* SERVIZI SOFTWARE */}
+        <div style={panel}>
+          <div style={panelHeader}>
+            <div>
+              <h2 style={panelTitle}>Servizi software</h2>
+              <p style={panelSubtitle}>22 € al mese ciascuno · scadenze automatiche</p>
+            </div>
+          </div>
+          <BigValue>{fmt(accantonamentoServizi)}</BigValue>
+          <SubNote>ancora accantonati questo mese (su {fmt(totaleMensileServizi)})</SubNote>
+          <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 5 }}>
+            {serviziSchedule.map(s => (
+              <div key={s.key} style={{ fontSize: 12, color: '#94a3b8', display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                <span>{s.nome}</span><span>{fmt(s.amount)} · g. {s.day}</span>
+              </div>
+            ))}
+          </div>
+          {rateServiziDaPagare.map(r => {
+            const servizio = serviziSchedule.find(s => s.key === r.key)
+            return <AvvisiRate key={r.key} label={servizio?.nome || 'Servizio'} rate={[r]} onPagato={toggleAccantonamentoPagato} />
+          })}
         </div>
 
         {/* ANTONELLO */}
