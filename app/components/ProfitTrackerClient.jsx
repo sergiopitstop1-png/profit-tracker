@@ -2310,7 +2310,7 @@ async function updateProfiloLivello(bookId, livello, variante = null) {
   }
 
   useEffect(() => {
-    if (activeTab === 'matrice') loadMatrice()
+    if (activeTab === 'matrice' || activeTab === 'credenziali') loadMatrice()
     else if (activeTab === 'punti-monete') loadPuntiMonete()
     else if (activeTab === 'sms') loadSms()
   }, [activeTab])
@@ -8693,8 +8693,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               disabled={!generatoreCliente}
             >
               <option value=''>— Seleziona bookmaker —</option>
-              {[...new Set(books.map(b => b.nome).filter(Boolean))].sort().map(nome => {
-                const conto = books.find(b => b.nome === nome && b.intestatario === generatoreCliente)
+              {[...new Set(matrice.map(r => r.bookmaker).filter(Boolean))].sort((a,b) => a.localeCompare(b, 'it', { sensitivity: 'base' })).map(nome => {
+                const conto = books.find(b => String(b.nome || '').localeCompare(nome, 'it', { sensitivity: 'base' }) === 0 && b.intestatario === generatoreCliente)
                 return <option key={nome} value={conto ? String(conto.id) : `manuale:${nome}`}>{nome}</option>
               })}
             </select>
