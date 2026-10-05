@@ -21,6 +21,7 @@ import AvvisoManuale from './AvvisoManuale' // 03/10/2026: testo scorrevole che 
 import { scadenzaNota } from './noteConti' // 03/10/2026: scadenze scritte nelle note ("ENTRO 27/10")
 import { pianoAvvisi } from './pianoAvvisi' // 03/10/2026: un avviso al giorno
 import AvvisiContiPanel, { pianoDelGiorno } from './AvvisiConti'
+import PromoBonusPanel, { PromoScadenze } from './PromoBonus'   // 05/10/2026: tab Promo + striscia scadenze
 import ProfilazioniMiratePanel, { prossimaMirata } from './ProfilazioniMirate'   // 05/10/2026: prossimaMirata per il banner in Dashboard
 import { impostaPausaRecupero } from './RecuperoConti'
 import CalendarioAperture from './CalendarioAperture'
@@ -106,6 +107,17 @@ export default function ProfitTrackerClient() {
     return `${y}-${m}`
   }
   const [activeTab, setActiveTab] = useState('dashboard')
+  // 05/10/2026 · 🎁 arrivo da Lucy Mail (/profit-tracker?tab=promo&...): apre la tab Promo con il modulo già compilato
+  const [promoPrefill, setPromoPrefill] = useState(null)
+  useEffect(() => {
+    try {
+      const q = new URLSearchParams(window.location.search)
+      if (q.get('tab') !== 'promo') return
+      if (q.get('mail_id')) setPromoPrefill(Object.fromEntries(q.entries()))
+      setActiveTab('promo')
+      window.history.replaceState(null, '', window.location.pathname)
+    } catch {}
+  }, [])
   const [teamSubTab, setTeamSubTab] = useState('promo')
   const [books, setBooks] = useState([])
   const [wallets, setWallets] = useState([])
@@ -7300,6 +7312,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           <button style={activeTab === 'team' ? activeTabButton : tabButton} onClick={() => handleTabChange('team')}>👥 Team</button>
           <button style={activeTab === 'prop-hedge' ? activeTabButton : tabButton} onClick={() => handleTabChange('prop-hedge')}>📈 Prop Hedge</button>
           <button style={activeTab === 'masaniello' ? activeTabButton : tabButton} onClick={() => handleTabChange('masaniello')}>🎲 Masaniello</button>
+          <button style={activeTab === 'promo' ? activeTabButton : tabButton} onClick={() => handleTabChange('promo')}>🎁 Promo</button>
           {/* 03/10/2026 — pagine a sé: segnali ScoreTrend e archivio Lucy Mail */}
           <button style={{ ...tabButton, borderColor: 'rgba(56,189,248,0.6)' }} title="Segnali del canale ScoreTrend in tempo reale, con la pagella" onClick={() => { window.location.href = '/profit-tracker/segnali' }}>📡 Segnali</button>
           <button style={{ ...tabButton, borderColor: 'rgba(34,197,94,0.6)' }} title="Email e SMS dei bookmaker analizzati da Lucy" onClick={() => { window.location.href = '/profit-tracker/archivio-lucy' }}>📬 Lucy Mail</button>
@@ -7317,6 +7330,9 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
   Contabilità
 </button>       
         </nav>
+
+       {/* 05/10/2026 · 🎁 PROMO IN SCADENZA (lampeggia entro 2 giorni) */}
+       {activeTab === 'dashboard' && <PromoScadenze onApri={() => handleTabChange('promo')} />}
 
        {/* 05/10/2026 · 🎯 PROFILAZIONI MIRATE IN ARRIVO: scadute, oggi, domani e nei 3 giorni dopo */}
        {activeTab === 'dashboard' && (() => {
@@ -8871,6 +8887,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
     </div>
   </div>
 )}
+
+      {activeTab === 'promo' && (
+        <PromoBonusPanel books={books} prefill={promoPrefill} onPrefillUsato={() => setPromoPrefill(null)} onMessage={setMessage} onError={setErrorMessage} />
+      )}
 
       {activeTab === 'matrice' && (
   <div style={tabContent}>
