@@ -2072,9 +2072,18 @@ function getGiornoAssegnato(book, frequenzaSettimane) {
   return seed % 7
 }
 
+// 06/10/2026 — Conto LIMITATO (nota "limitato bonus" / "limitato sport") = IN RECUPERO: resta in elenco ma non ha più
+// un livello (profilazione / mantenimento / dormiente) e non riceve le azioni di quei livelli: lo segue solo il pannello
+// "Recupero conti limitati". Quando togli la nota, torna al suo livello com'era. Stessa regola di contiInRecupero().
+// Per escludere dai livelli SOLO i limitati bonus (e lasciare i limitati sport com'erano): metti ['bonus']
+const LIMITATI_FUORI_DAI_LIVELLI = ['bonus', 'sport']
+function bookInRecuperoLimitato(book) {
+  return limitazioniDaNota(book?.note).some(t => LIMITATI_FUORI_DAI_LIVELLI.includes(t) && !(t === 'sport' && book?.sport_bloccato))
+}
 // 26/09/2026: per i conti limitati sport / sport bloccato si tolgono dall'agenda le azioni solo-sport
 // (in mantenimento la bet diventa una sessione casinò/slot). Le azioni di recupero restano (vedi RecuperoConti).
 function getAzioniOggi(book) {
+  if (bookInRecuperoLimitato(book)) return null   // 06/10/2026: conto limitato = in recupero, niente azioni di profilazione/mantenimento
   const a = getAzioniOggiBase(book)
   if (!a || !contoSportLimitato(book)) return a
   const soloSport = t => /(sport|bet\b|scommess|superquote|doppia|exchange)/i.test(t) && !/(slot|casin[oò]|blackjack|roulette|numeri|virtuali|ricarica)/i.test(t)
@@ -3216,7 +3225,7 @@ function riepilogoPostCicloLucy() {
 
 // Riepilogo della "rete 60 giorni" sui conti in mantenimento
 function riepilogoMantenimento60Lucy() {
-  const mant=books.filter(b=>b.profilo_livello && String(b.profilo_livello).startsWith('mantenimento'))
+  const mant=books.filter(b=>b.profilo_livello && String(b.profilo_livello).startsWith('mantenimento') && !bookInRecuperoLimitato(b))
   let ok=0, daFare=0, scaduti=0, inAttesa=0
   mant.forEach(b=>{
     const a=getAzioniOggi(b)
@@ -4301,6 +4310,7 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
     }
     const poolMantenimento = books
       .filter(b => b.profilo_livello && String(b.profilo_livello).startsWith('mantenimento'))
+      .filter(b => !bookInRecuperoLimitato(b))         // 06/10/2026: i conti limitati sono in recupero, non fanno da copertura di mantenimento
       .filter(b => b.profilo_livello !== 'dormiente')
       .filter(b => !lucyMaiSport(b))                   // V45: i solo-casinò non fanno mai sport, nemmeno come copertura
       .filter(b => !idsProfilazioneOggiLucy.has(b.id)) // mai PROF + MANT sullo stesso conto nello stesso giorno
@@ -7182,7 +7192,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             || (f.soloProf && b.profilo_livello !== 'attivo')
             || (f.soloSaldo && !(Number(b.saldo || 0) > 0))
           const scelti = conti.filter(b => !escluso(b) && !apriTel.esclusi.has(b.id))
-          const liv = b => b.profilo_livello === 'attivo' ? '🟢' : String(b.profilo_livello || '').startsWith('mantenimento') ? '🟡' : b.profilo_livello === 'dormiente' ? '⚫' : '·'
+          const liv = b => bookInRecuperoLimitato(b) ? '🔧' : b.profilo_livello === 'attivo' ? '🟢' : String(b.profilo_livello || '').startsWith('mantenimento') ? '🟡' : b.profilo_livello === 'dormiente' ? '⚫' : '·'
           const inp = { background: '#020617', color: '#f8fafc', border: '1px solid #475569', borderRadius: 8, padding: '7px 9px', fontSize: 13 }
           const filtro = (k, l) => <label key={k} style={{ display: 'flex', gap: 5, alignItems: 'center', fontSize: 12, cursor: 'pointer', color: '#cbd5e1' }}><input type="checkbox" checked={!!f[k]} onChange={e => setApriTel({ ...apriTel, filtri: { ...f, [k]: e.target.checked } })} />{l}</label>
           return (
@@ -7243,7 +7253,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           const scelto = books.find(b => String(b.id) === String(regForm.bookId))
           const reg = registroManualeProf().slice(0, 60)
           const inp = { background: '#020617', color: '#f8fafc', border: '1px solid #475569', borderRadius: 8, padding: '7px 9px', fontSize: 13 }
-          const liv = b => b.profilo_livello === 'attivo' ? '🟢 Profilazione' : String(b.profilo_livello || '').startsWith('mantenimento') ? '🟡 Mantenimento' : b.profilo_livello === 'dormiente' ? '⚫ Dormiente' : '— non impostato'
+          const liv = b => bookInRecuperoLimitato(b) ? '🔧 Limitato - in recupero' : b.profilo_livello === 'attivo' ? '🟢 Profilazione' : String(b.profilo_livello || '').startsWith('mantenimento') ? '🟡 Mantenimento' : b.profilo_livello === 'dormiente' ? '⚫ Dormiente' : '— non impostato'
           return (
             <div onClick={() => setRegistroAperto(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
               <div onClick={e => e.stopPropagation()} style={{ background: '#0f172a', border: '1px solid rgba(147,51,234,0.5)', borderRadius: 16, padding: 18, width: 'min(820px, 100%)', maxHeight: '88vh', overflowY: 'auto', color: '#e2e8f0' }}>
@@ -7595,16 +7605,18 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
   const filteredProf = books.filter(b => {
     const matchInt = !profilazioneFilter.intestatario || (b.intestatario || '').toLowerCase().includes(profilazioneFilter.intestatario.toLowerCase())
     const matchBook = !profilazioneFilter.book || (b.nome || '').toLowerCase().includes(profilazioneFilter.book.toLowerCase())
-    const matchLiv = !profilazioneFilter.livello || b.profilo_livello === profilazioneFilter.livello || (profilazioneFilter.livello === 'mantenimento' && b.profilo_livello && b.profilo_livello.startsWith('mantenimento'))
+    const limitatoRec = bookInRecuperoLimitato(b)
+    const matchLiv = !profilazioneFilter.livello || (profilazioneFilter.livello === 'recupero' ? limitatoRec : (!limitatoRec && (b.profilo_livello === profilazioneFilter.livello || (profilazioneFilter.livello === 'mantenimento' && b.profilo_livello && b.profilo_livello.startsWith('mantenimento')))))
     const matchSearch = !profilazioneSearch || (b.nome || '').toLowerCase().includes(profilazioneSearch.toLowerCase()) || (b.intestatario || '').toLowerCase().includes(profilazioneSearch.toLowerCase())
     return matchInt && matchBook && matchLiv && matchSearch
   })
 
-  const totAttivi = books.filter(b => b.profilo_livello === 'attivo').length
-  const totMantenimento = books.filter(b => b.profilo_livello && b.profilo_livello.startsWith('mantenimento')).length
-  const totDormienti = books.filter(b => b.profilo_livello === 'dormiente').length
-  const totNessuno = books.filter(b => !b.profilo_livello).length
-  const capitaleStimato = books.filter(b => b.profilo_livello === 'attivo').reduce((sum, b) => {
+  const totAttivi = books.filter(b => b.profilo_livello === 'attivo' && !bookInRecuperoLimitato(b)).length
+  const totMantenimento = books.filter(b => b.profilo_livello && b.profilo_livello.startsWith('mantenimento') && !bookInRecuperoLimitato(b)).length
+  const totDormienti = books.filter(b => b.profilo_livello === 'dormiente' && !bookInRecuperoLimitato(b)).length
+  const totNessuno = books.filter(b => !b.profilo_livello && !bookInRecuperoLimitato(b)).length
+  const totRecupero = books.filter(b => bookInRecuperoLimitato(b)).length   // 06/10/2026: limitati = in recupero
+  const capitaleStimato = books.filter(b => b.profilo_livello === 'attivo' && !bookInRecuperoLimitato(b)).reduce((sum, b) => {
     const proto = getProtocollo(b.nome)
     return sum + (proto.capitale_min || 200)
   }, 0)
@@ -8285,7 +8297,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         <div onClick={() => setGestioneContiAperta(v => !v)}
           style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', borderRadius: 12, border: '1px solid rgba(51,65,85,0.85)', background: 'rgba(11,18,32,0.7)', color: '#e2e8f0', fontSize: 13, fontWeight: 700, marginBottom: 12, userSelect: 'none' }}>
           🔎 Gestione conti
-          <span style={{ color: '#94a3b8', fontWeight: 600, fontSize: 12 }}>· {totAttivi} profilazione · {totMantenimento} mantenimento · {totDormienti} dormienti · {totNessuno} non impostati</span>
+          <span style={{ color: '#94a3b8', fontWeight: 600, fontSize: 12 }}>· {totAttivi} profilazione · {totMantenimento} mantenimento · {totDormienti} dormienti · {totRecupero} in recupero · {totNessuno} non impostati</span>
           <span style={{ marginLeft: 'auto', color: '#38bdf8' }}>{gestioneContiAperta ? '▲ chiudi' : '▼ apri'}</span>
         </div>
       )}
@@ -8308,6 +8320,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Non impostati</div>
           <div style={{ fontSize: 24, fontWeight: 800, color: '#f8fafc' }}>{totNessuno}</div>
         </div>
+        <div style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 16, padding: '14px 18px' }}>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Limitati · in recupero</div>
+          <div style={{ fontSize: 24, fontWeight: 800, color: '#f87171' }}>{totRecupero}</div>
+        </div>
         <div style={{ background: 'rgba(56,189,248,0.10)', border: '1px solid rgba(56,189,248,0.25)', borderRadius: 16, padding: '14px 18px' }}>
           <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Capitale stimato attivi</div>
           <div style={{ fontSize: 20, fontWeight: 800, color: '#38bdf8' }}>{formatCurrency(capitaleStimato)}</div>
@@ -8321,6 +8337,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           <option value="attivo">🟢 Profilazione</option>
           <option value="mantenimento">🟡 Mantenimento</option>
           <option value="dormiente">⚫ Dormienti</option>
+          <option value="recupero">🔧 Limitati · in recupero</option>
         </select>
         <select style={filterInput} value={profilazioneFilter.intestatario} onChange={e => setProfilazioneFilter(p => ({ ...p, intestatario: e.target.value }))}>
           <option value="">Tutti gli intestatari</option>
@@ -8349,7 +8366,9 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               const protoNuovo = book.profilo_livello === 'attivo' ? getRiassuntoProtocolloAttivo(book.nome, book.profilo_variante) : null
               const variantiBook = getVariantiProfilazione(book.nome)
               const proto = protoNuovo || getProtocollo(book.nome)
-              const badge = getLivelloBadge(book.profilo_livello)
+              const limitato = bookInRecuperoLimitato(book)           // 06/10/2026
+              const tipiLimitato = limitazioniDaNota(book.note)
+              const badge = limitato ? { bg: 'rgba(239,68,68,0.18)', color: '#f87171', label: '🔧 Limitato' } : getLivelloBadge(book.profilo_livello)
               return (
                 <tr key={book.id} style={tr}>
                   <td style={tdStrong}>{book.nome}</td>
@@ -8358,6 +8377,17 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                     <span style={{ background: badge.bg, color: badge.color, padding: '4px 10px', borderRadius: 8, fontSize: 12, fontWeight: 700 }}>{badge.label}</span>
                   </td>
                   <td style={{ ...td, maxWidth: 280 }}>
+                    {limitato ? (
+                      <div style={{ fontSize: 12, color: '#fca5a5' }}>
+                        🔧 Conto limitato {tipiLimitato.join(' + ')}: lo segue il pannello <b>Recupero conti limitati</b>. Quando torna libero togli "limitato…" dalla nota e riprende il suo livello.
+                        {proto.recupero && (
+                          <details style={{ marginTop: 4 }}>
+                            <summary style={{ cursor: 'pointer', color: '#f87171', fontWeight: 700, fontSize: 11 }}>🔧 Recupero conto</summary>
+                            {proto.recupero.map((a, i) => <div key={i} style={{ marginBottom: 2, color: '#fca5a5' }}>• {a}</div>)}
+                          </details>
+                        )}
+                      </div>
+                    ) : (
                     <div style={{ fontSize: 12, color: '#94a3b8' }}>
                       <div style={{ color: '#38bdf8', fontWeight: 700, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                         {proto.durata}
@@ -8382,10 +8412,16 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                         </details>
                       )}
                     </div>
+                    )}
                   </td>
-                  <td style={td}>{formatCurrency(proto.capitale_min)}</td>
-                  <td style={{ ...td, fontSize: 12 }}>{book.profilo_ciclo_inizio || '—'}</td>
+                  <td style={td}>{limitato ? '—' : formatCurrency(proto.capitale_min)}</td>
+                  <td style={{ ...td, fontSize: 12 }}>{limitato ? '—' : (book.profilo_ciclo_inizio || '—')}</td>
                   <td style={tdActions}>
+                    {limitato ? (
+                      <span title={`Nota del book: limitato ${tipiLimitato.join(' + ')}`} style={{ display: 'inline-block', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(248,113,113,0.5)', color: '#f87171', padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 800 }}>
+                        Book limitato - in recupero
+                      </span>
+                    ) : (
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       <button style={{ ...tinyGreenButton, opacity: book.profilo_livello === 'attivo' ? 0.4 : 1, fontSize: 11 }}
                         disabled={savingProfilo[book.id] || book.profilo_livello === 'attivo'}
@@ -8397,6 +8433,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                         disabled={savingProfilo[book.id] || book.profilo_livello === 'dormiente'}
                         onClick={() => updateProfiloLivello(book.id, 'dormiente')}>Dorm.</button>
                     </div>
+                    )}
                   </td>
                 </tr>
               )
@@ -9576,7 +9613,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               <div style={tableWrap}>
                 <table style={tableLarge}><thead><tr><th style={th}>ID</th><th style={th}>Nome</th><th style={th}>Intestatario</th><th style={th}>Saldo</th><th style={th}>Note</th><th style={th}>Azioni</th></tr></thead><tbody>
                   {filteredBooks.map((book) => {
-  const livBadge = book.profilo_livello === 'attivo' ? { bg: 'rgba(34,197,94,0.18)', color: '#22c55e', label: '🟢' } : (book.profilo_livello && book.profilo_livello.startsWith('mantenimento')) ? { bg: 'rgba(251,191,36,0.18)', color: '#fbbf24', label: '🟡' } : book.profilo_livello === 'dormiente' ? { bg: 'rgba(100,116,139,0.18)', color: '#94a3b8', label: '⚫' } : null
+  const livBadge = bookInRecuperoLimitato(book) ? { bg: 'rgba(239,68,68,0.18)', color: '#f87171', label: '🔧' } : book.profilo_livello === 'attivo' ? { bg: 'rgba(34,197,94,0.18)', color: '#22c55e', label: '🟢' } : (book.profilo_livello && book.profilo_livello.startsWith('mantenimento')) ? { bg: 'rgba(251,191,36,0.18)', color: '#fbbf24', label: '🟡' } : book.profilo_livello === 'dormiente' ? { bg: 'rgba(100,116,139,0.18)', color: '#94a3b8', label: '⚫' } : null
 
   const gruppoMirato = MIRATE_IDS.has(String(book.id)) ? (gruppiMirati || []).find(g => (g.conti || []).map(String).includes(String(book.id))) : null   // 28/09/2026: pallino blu
   const pendingVal = pendingBookSaldi[book.id]
