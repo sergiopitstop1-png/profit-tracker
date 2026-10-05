@@ -7,6 +7,7 @@
 // 05/10/2026: UNA PERSONA = UN CONTO per gruppo. Al casinò live ci si collega con un solo conto alla volta:
 // la stessa persona con due book nello stesso gruppo viene bloccata (aggiunta, salvataggio) e segnalata nei gruppi salvati.
 // 05/10/2026: 📝 NOTE del gruppo (cosa fare la prossima volta) — colonna profilazioni_mirate.note (profilazioni_mirate_note.sql).
+// 05/10/2026: ELENCO SEMPLICE — una riga per gruppo con i dati essenziali; clic → finestra con tutti i dettagli e i pulsanti.
 // ════════════════════════════════════════════════════════════════════
 import React, { useState } from 'react'
 import { supabase } from '../profit-tracker/supabaseClient'
@@ -43,6 +44,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
   const [storico, setStorico] = useState(null)    // id gruppo con lo storico aperto
   const [numeri, setNumeri] = useState(null)      // 02/10/2026: id gruppo con la tabella numeri aperta
   const [nota, setNota] = useState(null)          // 05/10/2026: { id, testo } nota in modifica
+  const [dettaglio, setDettaglio] = useState(null) // 05/10/2026: id del gruppo aperto nella finestra
   const oggi = oggiISO()
   const bookDi = id => (books || []).find(b => String(b.id) === String(id))
 
@@ -265,8 +267,33 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
             const nonProf = conti.filter(b => b.profilo_livello !== 'attivo')
             const libri = [...new Set(conti.map(b => b.nome))]
             const doppie = personeDoppie(conti)   // 05/10/2026
+            // 05/10/2026 · riga semplice dell'elenco
+            const tra = diffGiorni(oggi, prossima)
+            const colore = tra <= 0 ? '#f87171' : tra === 1 ? '#fbbf24' : '#64748b'
+            const quando = tra < 0 ? `in ritardo di ${-tra} gg` : tra === 0 ? 'OGGI' : tra === 1 ? 'domani' : `tra ${tra} gg`
+            const problemi = (doppie.length ? 1 : 0) + (nonProf.length ? 1 : 0)
             return (
-              <div key={g.id} style={{ background: 'rgba(11,18,32,0.75)', border: `1px solid ${prossima <= oggi ? 'rgba(248,113,113,0.5)' : 'rgba(51,65,85,0.7)'}`, borderRadius: 12, padding: '8px 12px' }}>
+              <React.Fragment key={g.id}>
+              <div onClick={() => setDettaglio(g.id)} title="Clic per aprire tutti i dettagli"
+                style={{ display: 'grid', gridTemplateColumns: '14px minmax(110px,1.2fr) minmax(130px,1fr) minmax(120px,1.4fr) 70px minmax(0,2fr)', gap: 10, alignItems: 'center',
+                  padding: '9px 12px', borderRadius: 10, cursor: 'pointer', background: 'rgba(11,18,32,0.75)', border: `1px solid ${tra <= 0 ? 'rgba(248,113,113,0.45)' : 'rgba(51,65,85,0.7)'}` }}>
+                <span style={{ width: 11, height: 11, borderRadius: 6, background: colore, display: 'inline-block' }} />
+                <b style={{ color: '#fde047', fontSize: 13.5 }}>{g.nome}</b>
+                <span style={{ fontSize: 13, color: colore === '#64748b' ? '#cbd5e1' : colore, fontWeight: 800 }}>{quando} <span style={{ color: '#94a3b8', fontWeight: 400 }}>· {dataIt(prossima)}</span></span>
+                <span style={{ fontSize: 12.5, color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{libri.join(', ') || '—'}</span>
+                <span style={{ fontSize: 12.5, color: '#94a3b8' }}>{conti.length} conti</span>
+                <span style={{ fontSize: 12, color: '#fde68a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {problemi > 0 && <span style={{ color: doppie.length ? '#f87171' : '#fbbf24', marginRight: 8 }}>{doppie.length ? '⛔' : '⚠️'}</span>}
+                  {g.note ? `📝 ${g.note.replace(/\s+/g, ' ')}` : ''}
+                </span>
+              </div>
+              {dettaglio === g.id && (
+              <div onClick={() => setDettaglio(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.75)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '6vh 16px', overflowY: 'auto' }}>
+              <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 980, background: '#0b1220', border: '1px solid rgba(250,204,21,0.45)', borderRadius: 16, padding: 16, boxShadow: '0 20px 60px rgba(0,0,0,.6)' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+                <button style={btn('#94a3b8')} onClick={() => setDettaglio(null)}>✕ Chiudi</button>
+              </div>
+              <div style={{ background: 'rgba(11,18,32,0.75)', border: `1px solid ${prossima <= oggi ? 'rgba(248,113,113,0.5)' : 'rgba(51,65,85,0.7)'}`, borderRadius: 12, padding: '8px 12px' }}>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <b style={{ color: '#fde047', fontSize: 13 }}>🎯 {g.nome}</b>
                   <span style={{ fontSize: 12, color: '#cbd5e1' }}>{conti.length} conti · {manuale ? `📅 data scelta da te (${dataIt(prossima)})` : `ogni ${g.ogni_giorni} gg`} · ultima {ultima ? dataIt(ultima) : 'mai'}</span>
@@ -279,7 +306,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
                     <button style={btn('#94a3b8')} title="Scegli tu la data della prossima" onClick={() => scegliProssima(g, prossima)}>📅</button>
                     <button style={{ ...btn(g.note ? '#fbbf24' : '#94a3b8'), fontWeight: g.note ? 900 : 700 }} title={g.note ? 'Modifica la nota' : 'Aggiungi una nota (cosa fare la prossima volta)'} onClick={() => setNota(nota?.id === g.id ? null : { id: g.id, testo: g.note || '' })}>📝</button>
                     <button style={btn('#94a3b8')} onClick={() => setStorico(storico === g.id ? null : g.id)}>📜</button>
-                    <button style={btn('#facc15')} onClick={() => setEdit({ id: g.id, nome: g.nome, ogni_giorni: g.ogni_giorni, conti: (g.conti || []).map(String), cerca: '' })}>✏️</button>
+                    <button style={btn('#facc15')} onClick={() => { setDettaglio(null); setEdit({ id: g.id, nome: g.nome, ogni_giorni: g.ogni_giorni, conti: (g.conti || []).map(String), cerca: '' }) }}>✏️</button>
                     <button style={btn('#f87171')} onClick={() => elimina(g)}>🗑</button>
                   </span>
                 </div>
@@ -334,6 +361,10 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
                   </div>
                 )}
               </div>
+              </div>
+              </div>
+              )}
+              </React.Fragment>
             )
           })}
         </div>
