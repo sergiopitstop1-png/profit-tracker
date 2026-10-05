@@ -10,7 +10,7 @@ import https from "https";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const LOGIN_URL = "https://identitysso-cert.betfair.com/api/certlogin";
+const LOGIN_URL = "https://identitysso-cert.betfair.it/api/certlogin";
 const BETTING_HOST = "api.betfair.com";
 const BETTING_PATH = "/exchange/betting/json-rpc/v1";
 
@@ -60,7 +60,7 @@ async function loginBetfair() {
 
   const body = new URLSearchParams({ username, password }).toString();
   const risposta = await postHttps({
-    hostname: "identitysso-cert.betfair.com",
+    hostname: "identitysso-cert.betfair.it",
     path: "/api/certlogin",
     headers: {
       "X-Application": appKey,
