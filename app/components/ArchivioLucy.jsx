@@ -11,6 +11,7 @@
 //     (appuntamenti fissati, documenti inviati, riaperture, assistenze, verifiche…)
 //   • Recuperi conti chiusi ........ recupero_esiti                        ← 04/10/2026
 //   • Note dei conti gestite ....... note_storico (testo originale salvato) ← 04/10/2026
+//   • Promo fatte .................. promo_bonus (stato 'fatta')            ← 05/10/2026
 // Solo lettura: non cambia niente di come funzionano i motori.
 // ════════════════════════════════════════════════════════════════════
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
@@ -171,6 +172,16 @@ export function righeNote(rows) {
     }
   })
 }
+// 05/10/2026 · 🎁 promo segnate fatte nella tab Promo
+export function righePromo(rows) {
+  return (rows || []).map(p => ({
+    quando: p.fatta_il, data: p.fatta_il, origine: 'Promo', tipo: p.tipo || 'promo',
+    cliente: p.cliente, book: p.book, evento: p.oggetto || `Promo ${p.tipo || ''}`.trim(),
+    giocata: [p.versamento != null ? `versa ${euro(p.versamento)}` : '', p.bonus != null ? `bonus ${euro(p.bonus)}` : '', p.rollover || ''].filter(Boolean).join(' · '),
+    importo: null, quota: null, stato: 'FATTO', esito: '', pl: null,   // il versamento è nella colonna Giocata, non nel totale giocato
+    note: [p.scadenza ? `scadenza ${dataIt(p.scadenza)}` : '', p.note || ''].filter(Boolean).join(' · '),
+  }))
+}
 // tabelle di cui non conosciamo con certezza la colonna della data: prova creato, poi created_at
 async function tutteDal(tabella, da) {
   let ultimo = null
@@ -180,7 +191,7 @@ async function tutteDal(tabella, da) {
   throw ultimo
 }
 
-const ORIGINI = ['Sport Lucy', 'Masaniello', 'Casino live', 'Profilazione mirata', 'Avvisi conti', 'Recupero conti', 'Note conti']
+const ORIGINI = ['Sport Lucy', 'Masaniello', 'Casino live', 'Profilazione mirata', 'Avvisi conti', 'Recupero conti', 'Note conti', 'Promo']
 const STATI = ['CONFERMATA', 'PIAZZATA', 'GIOCATA', 'FATTA', 'FATTO', 'CHIUSO', 'NOTA', 'SALTATA', 'RIMANDATA', 'NON GIOCATA', 'DA FARE']
 
 export default function ArchivioLucy({ books }) {
@@ -216,6 +227,7 @@ export default function ArchivioLucy({ books }) {
     await prova('Avvisi conti', async () => righeAvvisi(await tutte(() => supabase.from('avvisi_conti').select('*').eq('stato', 'fatto').gte('fatto_il', da).order('fatto_il', { ascending: false })), books))
     await prova('Recuperi chiusi', async () => righeRecuperi(await tutte(() => supabase.from('recupero_esiti').select('*').gte('chiuso_il', da).order('chiuso_il', { ascending: false }))))
     await prova('Note conti', async () => righeNote(await tutteDal('note_storico', da)))
+    await prova('Promo', async () => righePromo(await tutte(() => supabase.from('promo_bonus').select('*').eq('stato', 'fatta').gte('fatta_il', da).order('fatta_il', { ascending: false }))))
     tutto.sort((a, b) => String(b.quando || b.data).localeCompare(String(a.quando || a.data)))
     setRighe(tutto); setAvvisi(note); setCarico(false)
   }, [periodo, books])
