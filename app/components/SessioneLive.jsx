@@ -11,6 +11,7 @@
 // Costo teorico roulette: 1/37 del giocato a ogni giro.
 // 02/10/2026: € a numero per OGNI conto; BACCARAT (Banco/Giocatore, operazione spot o campionato).
 // Tabella: live_sessioni (vedi live_sessioni.sql).
+// 05/10/2026: tra i conti da aggiungere compaiono solo quelli già profilati (livello assegnato, non dormienti).
 // ════════════════════════════════════════════════════════════════════
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '../profit-tracker/supabaseClient'
@@ -104,6 +105,9 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
   const candidati = useMemo(() => {
     const q = cerca.trim().toLowerCase()
     return (books || []).filter(b => (contoUsabile ? contoUsabile(b) : true))
+      // 05/10/2026: solo conti GIÀ PROFILATI (livello assegnato e non dormienti). I conti nuovi, senza livello,
+      // compaiono qui solo dopo averli classificati in Profilazione.
+      .filter(b => b.profilo_livello && b.profilo_livello !== 'dormiente')
       .filter(b => !q || `${b.nome} ${b.intestatario}`.toLowerCase().includes(q))
       .filter(b => !scelti.some(s => String(s.id) === String(b.id)))
       .sort((a, b) => Number(giocatoOggi.has(String(a.id))) - Number(giocatoOggi.has(String(b.id))) || String(a.nome).localeCompare(String(b.nome)) || String(a.intestatario).localeCompare(String(b.intestatario)))
