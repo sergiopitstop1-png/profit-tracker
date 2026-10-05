@@ -353,6 +353,10 @@ const [credenzialeForm, setCredenzialeForm] = useState({ book_id: '', bookmaker_
 const [credenzialeRivelata, setCredenzialeRivelata] = useState(null)
 const [credenzialeRivelataLoading, setCredenzialeRivelataLoading] = useState(null)
   const [editingCredenziale, setEditingCredenziale] = useState(null)
+const [generatoreCliente, setGeneratoreCliente] = useState('')
+const [passwordLength, setPasswordLength] = useState(12)
+const [passwordConSimboli, setPasswordConSimboli] = useState(true)
+const [loginProposti, setLoginProposti] = useState([])
 const [showImportModal, setShowImportModal] = useState(false)
 const [testoCopiatoId, setTestoCopiatoId] = useState(null)
 const [importTesto, setImportTesto] = useState('')
@@ -6239,6 +6243,46 @@ async function rivelaCredenziale(id) {
   }
 }
 
+function generaLoginCredenziale() {
+  const nomeCompleto = generatoreCliente || books.find(b => String(b.id) === String(credenzialeForm.book_id))?.intestatario || ''
+  const nome = String(nomeCompleto).trim().split(/\s+/)[0].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '')
+  if (!nome) { alert('Seleziona prima il cliente'); return }
+  const anno = String(new Date().getFullYear()).slice(-2)
+  const n = nome
+  const radice = n.length > 4 ? n.slice(0, Math.max(3, n.length - 2)) : n
+  const fine = n.length > 3 ? n.slice(-3) : n
+  const candidati = [
+    n + Math.floor(10 + Math.random() * 90),
+    radice + ['ino','etto','ix','one','ino'][Math.floor(Math.random()*5)],
+    fine + radice,
+    radice + anno,
+    n.slice(0, Math.ceil(n.length/2)) + ['api','zen','fox','max','lab'][Math.floor(Math.random()*5)]
+  ].map(x => x.replace(/[^a-z0-9]/g,'').slice(0,18))
+  setLoginProposti([...new Set(candidati)].slice(0,5))
+}
+
+function generaPasswordCredenziale() {
+  const minuscole = 'abcdefghijkmnopqrstuvwxyz'
+  const maiuscole = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
+  const numeri = '23456789'
+  const simboli = '!@#$%&*+-_?'
+  const gruppi = [minuscole, maiuscole, numeri, ...(passwordConSimboli ? [simboli] : [])]
+  const chars = gruppi.join('')
+  const casuale = (set) => {
+    const a = new Uint32Array(1)
+    crypto.getRandomValues(a)
+    return set[a[0] % set.length]
+  }
+  const obbligatori = gruppi.map(casuale)
+  const resto = Array.from({ length: Math.max(0, passwordLength - obbligatori.length) }, () => casuale(chars))
+  const tutti = [...obbligatori, ...resto]
+  for (let i = tutti.length - 1; i > 0; i--) {
+    const a = new Uint32Array(1); crypto.getRandomValues(a)
+    const j = a[0] % (i + 1); [tutti[i], tutti[j]] = [tutti[j], tutti[i]]
+  }
+  setCredenzialeForm(prev => ({ ...prev, password: tutti.join('') }))
+}
+
 async function salvaCredenziale(e) {
   e.preventDefault()
   try {
@@ -8619,22 +8663,68 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         <button style={modalClose} onClick={() => setShowCredenzialeModal(false)}>✕</button>
       </div>
       <form onSubmit={salvaCredenziale}>
-        <select
-          value={credenzialeForm.book_id}
-          onChange={(e) => setCredenzialeForm({ ...credenzialeForm, book_id: e.target.value })}
-          style={input}
-        >
-          <option value=''>— Nessun book collegato (inserisci a mano sotto) —</option>
-          {books.map(b => <option key={b.id} value={b.id}>{b.nome} — {b.intestatario}</option>)}
-        </select>
+        {!editingCredenziale && (
+          <div style={{ padding: 14, marginBottom: 14, border: '1px solid rgba(74,222,128,.35)', borderRadius: 12, background: 'rgba(34,197,94,.06)' }}>
+            <div style={{ color: '#4ade80', fontWeight: 800, marginBottom: 10 }}>⚡ Generatore login e password</div>
+            <select
+              value={generatoreCliente}
+              onChange={(e) => {
+                const cliente = e.target.value
+                setGeneratoreCliente(cliente)
+                setLoginProposti([])
+                setCredenzialeForm(prev => ({ ...prev, book_id: '', bookmaker_manuale: '', intestatario_manuale: cliente, username: '' }))
+              }}
+              style={input}
+            >
+              <option value=''>— Seleziona cliente —</option>
+              {[...new Set(books.map(b => b.intestatario).filter(Boolean))].sort().map(nome => <option key={nome} value={nome}>{nome}</option>)}
+            </select>
+            <select
+              value={credenzialeForm.book_id}
+              onChange={(e) => setCredenzialeForm(prev => ({ ...prev, book_id: e.target.value, bookmaker_manuale: '', intestatario_manuale: '' }))}
+              style={input}
+              disabled={!generatoreCliente}
+            >
+              <option value=''>— Seleziona bookmaker —</option>
+              {books.filter(b => b.intestatario === generatoreCliente).map(b => <option key={b.id} value={b.id}>{b.nome}</option>)}
+            </select>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '8px 0' }}>
+              <button type='button' style={secondaryButton} onClick={generaLoginCredenziale}>↻ Genera 5 login</button>
+              {loginProposti.map(login => (
+                <button key={login} type='button' onClick={() => setCredenzialeForm(prev => ({ ...prev, username: login }))} style={{ ...secondaryButton, borderColor: credenzialeForm.username === login ? '#4ade80' : undefined, color: credenzialeForm.username === login ? '#4ade80' : undefined }}>{login}</button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
+              <span style={{ color: '#cbd5e1', fontSize: 13 }}>Password: <b>{passwordLength}</b> caratteri</span>
+              <input type='range' min='6' max='18' value={passwordLength} onChange={(e) => setPasswordLength(Number(e.target.value))} />
+              <label style={{ color: '#cbd5e1', fontSize: 13, display: 'flex', gap: 6, alignItems: 'center' }}>
+                <input type='checkbox' checked={passwordConSimboli} onChange={(e) => setPasswordConSimboli(e.target.checked)} /> simboli
+              </label>
+              <button type='button' style={secondaryButton} onClick={generaPasswordCredenziale}>↻ Genera / rigenera password</button>
+            </div>
+          </div>
+        )}
+        {editingCredenziale && (
+          <select
+            value={credenzialeForm.book_id}
+            onChange={(e) => setCredenzialeForm({ ...credenzialeForm, book_id: e.target.value })}
+            style={input}
+          >
+            <option value=''>— Nessun book collegato (inserisci a mano sotto) —</option>
+            {books.map(b => <option key={b.id} value={b.id}>{b.nome} — {b.intestatario}</option>)}
+          </select>
+        )}
         {!credenzialeForm.book_id && (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input value={credenzialeForm.bookmaker_manuale} onChange={(e) => setCredenzialeForm({ ...credenzialeForm, bookmaker_manuale: e.target.value })} placeholder='Bookmaker (a mano) *' style={{ ...input, flex: 1 }} required={!credenzialeForm.book_id} />
-            <input value={credenzialeForm.intestatario_manuale} onChange={(e) => setCredenzialeForm({ ...credenzialeForm, intestatario_manuale: e.target.value })} placeholder='Intestatario (a mano) *' style={{ ...input, flex: 1 }} required={!credenzialeForm.book_id} />
+          <div style={{ display: editingCredenziale ? 'flex' : 'none', gap: 8 }}>
+            <input value={credenzialeForm.bookmaker_manuale} onChange={(e) => setCredenzialeForm({ ...credenzialeForm, bookmaker_manuale: e.target.value })} placeholder='Bookmaker (a mano) *' style={{ ...input, flex: 1 }} required={editingCredenziale && !credenzialeForm.book_id} />
+            <input value={credenzialeForm.intestatario_manuale} onChange={(e) => setCredenzialeForm({ ...credenzialeForm, intestatario_manuale: e.target.value })} placeholder='Intestatario (a mano) *' style={{ ...input, flex: 1 }} required={editingCredenziale && !credenzialeForm.book_id} />
           </div>
         )}
         <input value={credenzialeForm.username} onChange={(e) => setCredenzialeForm({ ...credenzialeForm, username: e.target.value })} placeholder='Username *' style={input} required />
-        <input type='text' value={credenzialeForm.password} onChange={(e) => setCredenzialeForm({ ...credenzialeForm, password: e.target.value })} placeholder='Password *' style={input} required />
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input type='text' value={credenzialeForm.password} onChange={(e) => setCredenzialeForm({ ...credenzialeForm, password: e.target.value })} placeholder='Password *' style={{ ...input, flex: 1 }} required />
+          {!editingCredenziale && <button type='button' style={secondaryButton} onClick={generaPasswordCredenziale}>↻</button>}
+        </div>
         <input type='date' value={credenzialeForm.data_iscrizione} onChange={(e) => setCredenzialeForm({ ...credenzialeForm, data_iscrizione: e.target.value })} style={input} />
         <input value={credenzialeForm.risposta_segreta} onChange={(e) => setCredenzialeForm({ ...credenzialeForm, risposta_segreta: e.target.value })} placeholder='Risposta segreta' style={input} />
         <input type='number' value={credenzialeForm.limite_settimanale} onChange={(e) => setCredenzialeForm({ ...credenzialeForm, limite_settimanale: e.target.value })} placeholder='Limite settimanale €' style={input} />
