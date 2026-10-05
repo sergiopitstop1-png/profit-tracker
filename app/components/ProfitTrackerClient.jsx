@@ -21,7 +21,7 @@ import AvvisoManuale from './AvvisoManuale' // 03/10/2026: testo scorrevole che 
 import { scadenzaNota } from './noteConti' // 03/10/2026: scadenze scritte nelle note ("ENTRO 27/10")
 import { pianoAvvisi } from './pianoAvvisi' // 03/10/2026: un avviso al giorno
 import AvvisiContiPanel, { pianoDelGiorno } from './AvvisiConti'
-import ProfilazioniMiratePanel from './ProfilazioniMirate'
+import ProfilazioniMiratePanel, { prossimaMirata } from './ProfilazioniMirate'   // 05/10/2026: prossimaMirata per il banner in Dashboard
 import { impostaPausaRecupero } from './RecuperoConti'
 import CalendarioAperture from './CalendarioAperture'
 
@@ -7317,6 +7317,35 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
   Contabilità
 </button>       
         </nav>
+
+       {/* 05/10/2026 · 🎯 PROFILAZIONI MIRATE IN ARRIVO: scadute, oggi, domani e nei 3 giorni dopo */}
+       {activeTab === 'dashboard' && (() => {
+          const oggiM = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' })
+          const traGiorni = (iso) => Math.round((new Date(iso + 'T12:00:00') - new Date(oggiM + 'T12:00:00')) / 86400000)
+          const dataIt = (iso) => iso.split('-').reverse().join('/')
+          const prossime = (gruppiMirati || [])
+            .map(g => ({ g, ...prossimaMirata(g, fatteMirate || [], giorniPausaTotale) }))
+            .map(r => ({ ...r, tra: traGiorni(r.prossima) }))
+            .filter(r => r.tra <= 3)
+            .sort((a, b) => a.prossima.localeCompare(b.prossima))
+          if (!prossime.length) return null
+          return (
+            <div style={{ background: 'rgba(124,58,237,.10)', border: '1px solid rgba(167,139,250,.45)', borderRadius: 14, padding: '10px 14px', margin: '0 0 14px', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              <span style={{ fontWeight: 900, color: '#c4b5fd', fontSize: 13, marginRight: 4 }}>🎯 Profilazioni mirate in arrivo</span>
+              {prossime.map(({ g, prossima, tra }) => {
+                const nomiBook = [...new Set((g.conti || []).map(id => (books || []).find(b => String(b.id) === String(id))?.nome).filter(Boolean))]
+                const quando = tra < 0 ? `scaduta da ${-tra} gg` : tra === 0 ? 'OGGI' : tra === 1 ? 'domani' : `tra ${tra} gg`
+                const colore = tra <= 0 ? '#fca5a5' : tra === 1 ? '#fde68a' : '#c4b5fd'
+                return (
+                  <button key={g.id} onClick={() => handleTabChange('profilazione')} title="Apri Profilazione"
+                    style={{ padding: '4px 10px', borderRadius: 999, border: `1px solid ${colore}88`, background: `${colore}1a`, color: colore, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                    {g.nome} · <b>{quando}</b> ({dataIt(prossima)}) · {(g.conti || []).length} conti{nomiBook.length ? ` · ${nomiBook.slice(0, 3).join(', ')}${nomiBook.length > 3 ? '…' : ''}` : ''}
+                  </button>
+                )
+              })}
+            </div>
+          )
+        })()}
 
        {activeTab === 'dashboard' && (
           <DashboardTab
