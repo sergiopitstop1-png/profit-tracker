@@ -4,6 +4,8 @@
 // Ogni gruppo si ripete ogni N giorni; con ✅ Fatta si registra l'operazione (storico con i conti coinvolti).
 // I conti di un gruppo NON ricevono più la profilazione casinò normale (la sostituisce): il filtro è in
 // ProfitTrackerClient (getAzioniOggiBase → togliCasinoMirate). Tabelle: profilazioni_mirate, profilazioni_mirate_fatte.
+// 05/10/2026: UNA PERSONA = UN CONTO per gruppo. Al casinò live ci si collega con un solo conto alla volta:
+// la stessa persona con due book nello stesso gruppo viene bloccata (aggiunta, salvataggio) e segnalata nei gruppi salvati.
 // ════════════════════════════════════════════════════════════════════
 import React, { useState } from 'react'
 import { supabase } from '../profit-tracker/supabaseClient'
@@ -12,6 +14,13 @@ import SessioneLivePanel from './SessioneLive' // 02/10/2026: numeri a conto nel
 const oggiISO = () => new Date().toLocaleDateString('sv-SE')
 const addGiorni = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('sv-SE') }
 const diffGiorni = (da, a) => Math.round((new Date(a + 'T00:00:00') - new Date(da + 'T00:00:00')) / 86400000)
+// 05/10/2026: stessa persona presente più volte nello stesso gruppo → [{ persona, conti: [book, …] }]
+const normNome = s => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '')
+function personeDoppie(contiBook) {
+  const m = new Map()
+  for (const b of contiBook || []) { if (!b) continue; const k = normNome(b.intestatario); if (!k) continue; if (!m.has(k)) m.set(k, []); m.get(k).push(b) }
+  return [...m.values()].filter(l => l.length > 1).map(l => ({ persona: l[0].intestatario, conti: l }))
+}
 const dataIt = (iso) => iso ? iso.split('-').reverse().join('/') : ''
 const inp = { background: '#020617', color: '#f8fafc', border: '1px solid #475569', borderRadius: 8, padding: '6px 9px', fontSize: 13 }
 const btn = (c) => ({ padding: '5px 10px', borderRadius: 8, border: `1px solid ${c}66`, background: `${c}1a`, color: c, fontWeight: 700, fontSize: 12, cursor: 'pointer' })
@@ -43,6 +52,9 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
     const e = edit
     if (!e.nome.trim()) { onError('Dai un nome al gruppo'); return }
     if (!e.conti.length) { onError('Aggiungi almeno un conto'); return }
+    // 05/10/2026: una persona = un conto per gruppo
+    const doppie = personeDoppie(e.conti.map(bookDi))
+    if (doppie.length) { onError(`⛔ Non salvato: ${doppie.map(d => `${d.persona} è presente ${d.conti.length} volte (${d.conti.map(b => b.nome).join(', ')})`).join(' · ')}. Al casinò live ci si collega con un solo conto per persona: togline uno.`); return }
     const riga = { nome: e.nome.trim(), ogni_giorni: Math.max(1, Number(e.ogni_giorni) || 7), conti: e.conti.map(String), tipo: 'casino live' }
     const q = e.id ? supabase.from('profilazioni_mirate').update(riga).eq('id', e.id).select().single()
       : supabase.from('profilazioni_mirate').insert([riga]).select().single()
@@ -158,8 +170,16 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
     // 03/10/2026 — conto già presente in altri gruppi: chiede conferma prima di aggiungerlo
     const gruppiDi = id => (gruppi || []).filter(g => g.id !== edit.id && (g.conti || []).map(String).includes(String(id))).map(g => g.nome)
     const etichetta = id => { const b = (books || []).find(x => String(x.id) === String(id)); return b ? `${b.nome} · ${b.intestatario || '—'}` : `conto ${id}` }
+    // 05/10/2026: persona già nel gruppo con un altro conto → quel conto non si aggiunge
+    const personaGiaNelGruppo = id => { const b = bookDi(id); const k = normNome(b?.intestatario); return k ? edit.conti.map(bookDi).find(x => x && normNome(x.intestatario) === k) : null }
     const aggiungiConti = (ids) => {
-      const nuovi = ids.map(String).filter(id => !edit.conti.includes(id))
+      let nuovi = ids.map(String).filter(id => !edit.conti.includes(id))
+      // 05/10/2026: una persona = un conto: scarta chi è già nel gruppo e, tra i nuovi, tiene il primo conto di ogni persona
+      const visti = new Set(edit.conti.map(bookDi).filter(Boolean).map(b => normNome(b.intestatario)))
+      const scartati = []
+      nuovi = nuovi.filter(id => { const k = normNome(bookDi(id)?.intestatario); if (k && visti.has(k)) { scartati.push(id); return false } if (k) visti.add(k); return true })
+      if (scartati.length) onError(`⛔ Una persona = un conto per sessione. Non aggiunti: ${scartati.map(id => { const g = personaGiaNelGruppo(id); return `${etichetta(id)}${g ? ` (c'è già ${g.nome})` : ''}` }).join(', ')}`)
+      if (!nuovi.length) { setEdit({ ...edit, cerca: '' }); return }
       const doppi = nuovi.filter(id => gruppiDi(id).length)
       let daAggiungere = nuovi
       if (doppi.length === 1 && nuovi.length === 1) {
@@ -192,14 +212,19 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
               return <div key={b.id} onClick={() => aggiungiConti([b.id])} style={{ padding: '5px 10px', cursor: 'pointer', display: 'flex', gap: 8, fontSize: 12, borderTop: '1px solid #1e293b' }}>
                 <b>{b.nome}</b><span style={{ color: '#94a3b8' }}>{b.intestatario || '—'}</span>
                 {inAltri(b.id) && <span style={{ marginLeft: 'auto', color: '#fbbf24' }}>⚠️ già in {gruppiDi(b.id).join(', ')}</span>}
+                {personaGiaNelGruppo(b.id) && <span style={{ marginLeft: inAltri(b.id) ? 8 : 'auto', color: '#f87171', fontWeight: 700 }}>⛔ {b.intestatario} è già nel gruppo con {personaGiaNelGruppo(b.id).nome}</span>}
               </div>
             })}
           </div>
         )}
+        {(() => { const d = personeDoppie(edit.conti.map(bookDi)); return d.length > 0 && (
+          <div style={{ marginTop: 8, padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(248,113,113,0.6)', background: 'rgba(248,113,113,0.10)', color: '#fca5a5', fontSize: 12, fontWeight: 700 }}>
+            ⛔ {d.map(x => `${x.persona} è presente ${x.conti.length} volte (${x.conti.map(b => b.nome).join(' + ')})`).join(' · ')}. Al casinò live ci si collega con un solo conto per persona: togline uno con ✕ prima di salvare.
+          </div>) })()}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 8 }}>
-          {edit.conti.map(id => { const b = bookDi(id); return (
-            <span key={id} style={{ fontSize: 12, padding: '3px 8px', borderRadius: 999, background: 'rgba(250,204,21,0.12)', border: '1px solid rgba(250,204,21,0.35)', color: '#fde68a' }}>
-              {b ? `${b.nome} · ${b.intestatario || '—'}` : `conto ${id}`} <span onClick={() => setEdit({ ...edit, conti: edit.conti.filter(x => x !== id) })} style={{ cursor: 'pointer', marginLeft: 4, color: '#f87171' }}>✕</span>
+          {edit.conti.map(id => { const b = bookDi(id); const doppio = b && personeDoppie(edit.conti.map(bookDi)).some(x => x.conti.some(c => String(c.id) === String(id))); return (
+            <span key={id} style={{ fontSize: 12, padding: '3px 8px', borderRadius: 999, background: doppio ? 'rgba(248,113,113,0.15)' : 'rgba(250,204,21,0.12)', border: `1px solid ${doppio ? 'rgba(248,113,113,0.7)' : 'rgba(250,204,21,0.35)'}`, color: doppio ? '#fca5a5' : '#fde68a' }}>
+              {doppio ? '⛔ ' : ''}              {b ? `${b.nome} · ${b.intestatario || '—'}` : `conto ${id}`} <span onClick={() => setEdit({ ...edit, conti: edit.conti.filter(x => x !== id) })} style={{ cursor: 'pointer', marginLeft: 4, color: '#f87171' }}>✕</span>
             </span>) })}
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 10 }}>
@@ -228,6 +253,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
             const conti = (g.conti || []).map(bookDi).filter(Boolean)
             const nonProf = conti.filter(b => b.profilo_livello !== 'attivo')
             const libri = [...new Set(conti.map(b => b.nome))]
+            const doppie = personeDoppie(conti)   // 05/10/2026
             return (
               <div key={g.id} style={{ background: 'rgba(11,18,32,0.75)', border: `1px solid ${prossima <= oggi ? 'rgba(248,113,113,0.5)' : 'rgba(51,65,85,0.7)'}`, borderRadius: 12, padding: '8px 12px' }}>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -248,6 +274,11 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
                 <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: '2px 10px' }}>
                   {conti.map(b => <span key={b.id} onClick={() => apriSuTelefoni([b], `${b.nome} di ${b.intestatario || '—'}`)} title="Clic: apri solo questo book sul suo telefono" style={{ cursor: 'pointer', textDecoration: 'underline dotted', textUnderlineOffset: 3 }}>📱 {b.nome} · {b.intestatario || '—'}</span>)}
                 </div>
+                {doppie.length > 0 && (
+                  <div style={{ fontSize: 12, color: '#fca5a5', fontWeight: 700, marginTop: 4 }}>
+                    ⛔ {doppie.map(x => `${x.persona} ha ${x.conti.length} conti in questo gruppo (${x.conti.map(b => b.nome).join(' + ')})`).join(' · ')}: al casinò live solo un conto per persona. Correggi con ✏️.
+                  </div>
+                )}
                 {numeri === g.id && (
                   <div style={{ marginTop: 8 }}>
                     <SessioneLivePanel books={books} contiIniziali={conti} origine="mirata" gruppo={g.nome}
