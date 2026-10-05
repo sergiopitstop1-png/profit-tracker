@@ -10,7 +10,8 @@ const CHIAVE = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SER
 const UTENTE = process.env.PT_USER_ID
 
 // siti con un nome diverso dal book (aggiungere qui se serve): etichetta del dominio → nome del book normalizzato
-const ALIAS = {}
+// 05/10/2026: 888 ha più domini (888casino.it, 888poker.it, 888sport.it) ma in Books c'è un solo conto "888sport"
+const ALIAS = { '888casino': '888sport', '888poker': '888sport', '888': '888sport' }
 
 const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '')
 function etichetta(host) {
