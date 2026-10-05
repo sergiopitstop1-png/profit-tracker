@@ -7323,6 +7323,26 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           const oggiM = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' })
           const traGiorni = (iso) => Math.round((new Date(iso + 'T12:00:00') - new Date(oggiM + 'T12:00:00')) / 86400000)
           const dataIt = (iso) => iso.split('-').reverse().join('/')
+          // 05/10/2026: 📅 rimanda dalla Dashboard alla data scelta da Sergio (stessa regola del pannello Profilazione)
+          const leggiData = (t) => {
+            const m = String(t || '').trim().match(/^(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?$/)
+            if (!m) return null
+            let y = m[3] ? Number(m[3]) : Number(oggiM.slice(0, 4)); if (y < 100) y += 2000
+            const iso = `${y}-${String(m[2]).padStart(2, '0')}-${String(m[1]).padStart(2, '0')}`
+            const d = new Date(iso + 'T00:00:00')
+            if (Number.isNaN(d.getTime()) || d.getDate() !== Number(m[1])) return null
+            return iso < oggiM && !m[3] ? `${y + 1}${iso.slice(4)}` : iso
+          }
+          const rimanda = async (g, prossima) => {
+            const t = window.prompt(`📅 "${g.nome}": a quando la rimandi?\nScrivi la data (gg/mm/aaaa oppure gg/mm).\nLascia vuoto per tornare alla cadenza automatica (ogni ${g.ogni_giorni} giorni).`, dataIt(prossima))
+            if (t === null) return
+            const iso = t.trim() ? leggiData(t) : null
+            if (t.trim() && !iso) { setErrorMessage('Data non valida: usa gg/mm/aaaa'); return }
+            const { error } = await supabase.from('profilazioni_mirate').update({ prossima_manuale: iso }).eq('id', g.id)
+            if (error) { setErrorMessage('Data non salvata: ' + error.message); return }
+            setGruppiMirati(prev => prev.map(x => x.id === g.id ? { ...x, prossima_manuale: iso } : x))
+            setMessage(iso ? `📅 ${g.nome}: rimandata al ${dataIt(iso)}` : `📅 ${g.nome}: cadenza automatica ogni ${g.ogni_giorni} giorni`)
+          }
           const prossime = (gruppiMirati || [])
             .map(g => ({ g, ...prossimaMirata(g, fatteMirate || [], giorniPausaTotale) }))
             .map(r => ({ ...r, tra: traGiorni(r.prossima) }))
@@ -7337,10 +7357,16 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 const quando = tra < 0 ? `scaduta da ${-tra} gg` : tra === 0 ? 'OGGI' : tra === 1 ? 'domani' : `tra ${tra} gg`
                 const colore = tra <= 0 ? '#fca5a5' : tra === 1 ? '#fde68a' : '#c4b5fd'
                 return (
-                  <button key={g.id} onClick={() => handleTabChange('profilazione')} title="Apri Profilazione"
-                    style={{ padding: '4px 10px', borderRadius: 999, border: `1px solid ${colore}88`, background: `${colore}1a`, color: colore, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                    {g.nome} · <b>{quando}</b> ({dataIt(prossima)}) · {(g.conti || []).length} conti{nomiBook.length ? ` · ${nomiBook.slice(0, 3).join(', ')}${nomiBook.length > 3 ? '…' : ''}` : ''}
-                  </button>
+                  <span key={g.id} style={{ display: 'inline-flex', alignItems: 'stretch', borderRadius: 999, border: `1px solid ${colore}88`, background: `${colore}1a`, overflow: 'hidden' }}>
+                    <button onClick={() => handleTabChange('profilazione')} title="Apri Profilazione"
+                      style={{ padding: '4px 10px', border: 'none', background: 'transparent', color: colore, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                      {g.nome} · <b>{quando}</b> ({dataIt(prossima)}) · {(g.conti || []).length} conti{nomiBook.length ? ` · ${nomiBook.slice(0, 3).join(', ')}${nomiBook.length > 3 ? '…' : ''}` : ''}
+                    </button>
+                    <button onClick={() => rimanda(g, prossima)} title="Rimanda a una data che scegli tu"
+                      style={{ padding: '4px 9px', border: 'none', borderLeft: `1px solid ${colore}55`, background: `${colore}22`, color: colore, fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
+                      📅 rimanda
+                    </button>
+                  </span>
                 )
               })}
             </div>
