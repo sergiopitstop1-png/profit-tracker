@@ -45,11 +45,22 @@ async function db(percorso, opz = {}) {
   return r.status === 204 ? null : r.json().catch(() => null)
 }
 
+// 05/10/2026: Supabase restituisce al massimo 1000 righe per richiesta → legge i book a pagine (oltre 1000 conti)
+async function tuttiIBooks(colonne) {
+  const out = []
+  for (let off = 0; ; off += 1000) {
+    const pag = await db(`books?select=${colonne}&order=id.asc&limit=1000&offset=${off}`)
+    out.push(...(pag || []))
+    if (!pag || pag.length < 1000) break
+  }
+  return out
+}
+
 // conto aperto: nomi del telefono ("A|B") + sito o "pkg:app"
 async function trovaConto(intestatario, host) {
   let books
-  try { books = await db('books?select=id,nome,intestatario,saldo,saldo_cambiato_at') }   // colonna di saldo_fermo.sql
-  catch { books = await db('books?select=id,nome,intestatario,saldo') }
+  try { books = await tuttiIBooks('id,nome,intestatario,saldo,saldo_cambiato_at') }   // colonna di saldo_fermo.sql · 05/10/2026: tutti i book
+  catch { books = await tuttiIBooks('id,nome,intestatario,saldo') }
   const nomi = String(intestatario || '').split('|').map(norm).filter(Boolean)
   const cand = books.filter(b => { const k = norm(b.intestatario); return nomi.some(n => k === n || (n.length >= 6 && (k.startsWith(n) || n.startsWith(k)))) })
   const h = String(host || '')
