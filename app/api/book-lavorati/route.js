@@ -27,6 +27,17 @@ async function db(percorso, opz = {}) {
   return r.status === 204 ? null : r.json().catch(() => null)
 }
 
+// 05/10/2026: Supabase restituisce al massimo 1000 righe per richiesta → legge i book a pagine (oltre 1000 conti)
+async function tuttiIBooks(colonne) {
+  const out = []
+  for (let off = 0; ; off += 1000) {
+    const pag = await db(`books?select=${colonne}&order=id.asc&limit=1000&offset=${off}`)
+    out.push(...(pag || []))
+    if (!pag || pag.length < 1000) break
+  }
+  return out
+}
+
 export async function POST(req) {
   if (!process.env.BOOK_LAVORATI_SECRET || req.headers.get('x-pt-segreto') !== process.env.BOOK_LAVORATI_SECRET)
     return Response.json({ error: 'non autorizzato' }, { status: 401 })
@@ -36,7 +47,7 @@ export async function POST(req) {
   const voci = (Array.isArray(body?.voci) ? body.voci : []).slice(0, 500)
   if (!voci.length) return Response.json({ ok: true, registrati: 0 })
 
-  const books = await db('books?select=id,nome,intestatario')
+  const books = await tuttiIBooks('id,nome,intestatario')   // 05/10/2026: tutti, non solo i primi 1000
   const perIntest = new Map()
   for (const b of books || []) { const k = norm(b.intestatario); if (!perIntest.has(k)) perIntest.set(k, []); perIntest.get(k).push(b) }
 
