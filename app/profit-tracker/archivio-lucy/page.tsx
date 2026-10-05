@@ -96,6 +96,24 @@ const matrixColumns = Array.from(
 export default function ArchivioLucyPage() {
   const router = useRouter()
 
+  // 05/10/2026 · 📌 PROMO: apre la tab Promo del Profit Tracker con il modulo già compilato dai dati letti dall'AI
+  function vaiAPromo(item: Comunicazione) {
+    const q = new URLSearchParams({
+      tab: 'promo',
+      canale: item.canale || '',
+      mail_id: String(item.id || ''),
+      cliente: item.cliente_nome || '',
+      book: item.bookmaker || '',
+      tipo: item.tipo_offerta || '',
+      bonus: item.bonus_importo != null ? String(item.bonus_importo) : '',
+      deposito: item.deposito_richiesto != null ? String(item.deposito_richiesto) : '',
+      rollover: item.rollover && !['null', 'none', 'nessuno', 'n/a', '-'].includes(String(item.rollover).trim().toLowerCase()) ? String(item.rollover) : '',
+      scadenza: item.scadenza || '',
+      oggetto: (item.oggetto || '').slice(0, 160),
+    })
+    router.push(`/profit-tracker?${q.toString()}`)
+  }
+
   const [rows, setRows] =
     useState<Comunicazione[]>([])
 
@@ -1899,6 +1917,15 @@ export default function ArchivioLucyPage() {
                           👎
                         </button>
 
+                        {/* 05/10/2026 · 📌 salva come promo da ricordare */}
+                        <button
+                          onClick={() => vaiAPromo(item)}
+                          title="Salva nella tab Promo (dati già compilati)"
+                          className="rounded-md border border-pink-500/50 bg-pink-500/10 px-3 py-1.5 text-xs font-bold text-pink-300 hover:bg-pink-500/20"
+                        >
+                          📌 Promo
+                        </button>
+
                         {vista ===
                         'archiviate' ? (
                           <button
@@ -2469,6 +2496,15 @@ export default function ArchivioLucyPage() {
                   gap-2
                 "
               >
+                {/* 05/10/2026 · 📌 salva come promo da ricordare */}
+                <button
+                  onClick={() => vaiAPromo(comunicazioneAperta)}
+                  title="Salva nella tab Promo (dati già compilati)"
+                  className="rounded-lg border border-pink-500/50 bg-pink-500/10 px-4 py-2 text-sm font-bold text-pink-300 hover:bg-pink-500/20"
+                >
+                  📌 Salva in Promo
+                </button>
+
                 {comunicazioneAperta.archiviata ? (
                   <button
                     disabled={
