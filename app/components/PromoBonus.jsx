@@ -60,15 +60,26 @@ export function PromoScadenze({ onApri }) {
     return () => { vivo = false; clearInterval(t) }
   }, [])
   if (!lista.length) return null
+  const gruppi = Object.values(lista.reduce((acc, p) => {
+    const e = etichettaScadenza(p.scadenza)
+    const g = acc[p.scadenza] || (acc[p.scadenza] = { iso: p.scadenza, testo: e.testo.replace('scade ', '').replace(/^./, c => c.toUpperCase()), colore: e.colore, promo: [] })
+    g.promo.push(p); return acc
+  }, {})).sort((x, y) => String(x.iso).localeCompare(String(y.iso)))
   return (
     <div className="promo-lampeggia" onClick={onApri} title="Apri la tab Promo"
       style={{ cursor: 'pointer', background: 'rgba(239,68,68,.12)', border: '1px solid rgba(248,113,113,.7)', borderRadius: 14, padding: '10px 14px', margin: '0 0 14px', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
       <style>{`@keyframes promoPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(248,113,113,.0); border-color: rgba(248,113,113,.7) } 50% { box-shadow: 0 0 18px 2px rgba(248,113,113,.45); border-color: rgba(254,202,202,1) } } .promo-lampeggia { animation: promoPulse 1.6s ease-in-out infinite }`}</style>
-      <span style={{ fontWeight: 900, color: '#fca5a5', fontSize: 13, marginRight: 4 }}>🎁 Promo in scadenza · {lista.length}</span>
-      {lista.map(p => { const e = etichettaScadenza(p.scadenza); return (
-        <span key={p.id} style={{ padding: '4px 10px', borderRadius: 999, border: `1px solid ${e.colore}88`, background: `${e.colore}1a`, color: e.colore, fontSize: 12, fontWeight: 700 }}>
-          {p.book} · {p.cliente}{p.tipo ? ` · ${p.tipo}` : ''}{p.bonus != null ? ` · ${euro(p.bonus)}` : ''} · <b>{e.testo}</b> ({dataIt(p.scadenza)})
-        </span>) })}
+      <div style={{ width: '100%', fontWeight: 900, color: '#fca5a5', fontSize: 13 }}>🎁 Promo in scadenza · {lista.length}</div>
+      {gruppi.map(g => (
+        <div key={g.iso} style={{ width: '100%', display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+          <span style={{ minWidth: 118, fontSize: 12, fontWeight: 800, color: g.colore }}>
+            {g.testo} <span style={{ fontWeight: 500, opacity: .75 }}>· {dataIt(g.iso)}</span>
+          </span>
+          {g.promo.map(p => (
+            <span key={p.id} style={{ padding: '3px 10px', borderRadius: 999, border: `1px solid ${g.colore}66`, background: `${g.colore}14`, color: '#e2e8f0', fontSize: 12, fontWeight: 600 }}>
+              {p.cliente} <span style={{ color: g.colore, opacity: .8 }}>·</span> {p.book}
+            </span>))}
+        </div>))}
     </div>
   )
 }
