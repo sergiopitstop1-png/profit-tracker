@@ -6,6 +6,7 @@
 // ProfitTrackerClient (getAzioniOggiBase → togliCasinoMirate). Tabelle: profilazioni_mirate, profilazioni_mirate_fatte.
 // 05/10/2026: UNA PERSONA = UN CONTO per gruppo. Al casinò live ci si collega con un solo conto alla volta:
 // la stessa persona con due book nello stesso gruppo viene bloccata (aggiunta, salvataggio) e segnalata nei gruppi salvati.
+// 05/10/2026: 📝 NOTE del gruppo (cosa fare la prossima volta) — colonna profilazioni_mirate.note (profilazioni_mirate_note.sql).
 // ════════════════════════════════════════════════════════════════════
 import React, { useState } from 'react'
 import { supabase } from '../profit-tracker/supabaseClient'
@@ -41,6 +42,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
   const [edit, setEdit] = useState(null)          // { id?, nome, ogni_giorni, conti: [book_id], cerca }
   const [storico, setStorico] = useState(null)    // id gruppo con lo storico aperto
   const [numeri, setNumeri] = useState(null)      // 02/10/2026: id gruppo con la tabella numeri aperta
+  const [nota, setNota] = useState(null)          // 05/10/2026: { id, testo } nota in modifica
   const oggi = oggiISO()
   const bookDi = id => (books || []).find(b => String(b.id) === String(id))
 
@@ -118,6 +120,15 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
     const d = new Date(iso + 'T00:00:00')
     if (Number.isNaN(d.getTime()) || d.getDate() !== Number(m[1])) return null
     return iso < oggi && !m[3] ? `${y + 1}${iso.slice(4)}` : iso
+  }
+  // 05/10/2026 — 📝 note del gruppo: restano finché non le cancelli tu
+  async function salvaNota() {
+    const testo = String(nota?.testo || '').trim()
+    const { error } = await supabase.from('profilazioni_mirate').update({ note: testo || null }).eq('id', nota.id)
+    if (error) { onError('Nota non salvata: lancia profilazioni_mirate_note.sql (' + error.message + ')'); return }
+    setGruppi(prev => prev.map(x => x.id === nota.id ? { ...x, note: testo || null } : x))
+    onMessage(testo ? '📝 Nota salvata' : '📝 Nota cancellata')
+    setNota(null)
   }
   async function scegliProssima(g, proposta) {
     const t = window.prompt(`📅 "${g.nome}": quando fai la prossima?\nScrivi la data (gg/mm/aaaa oppure gg/mm).\nLascia vuoto per la cadenza automatica (ogni ${g.ogni_giorni} giorni).`, proposta ? dataIt(proposta) : '')
@@ -266,6 +277,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
                     <button style={{ ...btn('#a78bfa'), fontWeight: 900 }} title="Quanti numeri gioca ogni conto: copertura della roulette, sestine per Lottomatica/GoldBet" onClick={() => setNumeri(numeri === g.id ? null : g.id)}>🎰 Numeri</button>
                     <button style={btn('#22c55e')} onClick={() => fatta(g)}>✅ Fatta</button>
                     <button style={btn('#94a3b8')} title="Scegli tu la data della prossima" onClick={() => scegliProssima(g, prossima)}>📅</button>
+                    <button style={{ ...btn(g.note ? '#fbbf24' : '#94a3b8'), fontWeight: g.note ? 900 : 700 }} title={g.note ? 'Modifica la nota' : 'Aggiungi una nota (cosa fare la prossima volta)'} onClick={() => setNota(nota?.id === g.id ? null : { id: g.id, testo: g.note || '' })}>📝</button>
                     <button style={btn('#94a3b8')} onClick={() => setStorico(storico === g.id ? null : g.id)}>📜</button>
                     <button style={btn('#facc15')} onClick={() => setEdit({ id: g.id, nome: g.nome, ogni_giorni: g.ogni_giorni, conti: (g.conti || []).map(String), cerca: '' })}>✏️</button>
                     <button style={btn('#f87171')} onClick={() => elimina(g)}>🗑</button>
@@ -274,6 +286,25 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
                 <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: '2px 10px' }}>
                   {conti.map(b => <span key={b.id} onClick={() => apriSuTelefoni([b], `${b.nome} di ${b.intestatario || '—'}`)} title="Clic: apri solo questo book sul suo telefono" style={{ cursor: 'pointer', textDecoration: 'underline dotted', textUnderlineOffset: 3 }}>📱 {b.nome} · {b.intestatario || '—'}</span>)}
                 </div>
+                {/* 05/10/2026 · 📝 nota del gruppo */}
+                {g.note && nota?.id !== g.id && (
+                  <div onClick={() => setNota({ id: g.id, testo: g.note })} title="Clic per modificare"
+                    style={{ marginTop: 6, padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(251,191,36,0.5)', background: 'rgba(251,191,36,0.08)', color: '#fde68a', fontSize: 12.5, whiteSpace: 'pre-wrap', cursor: 'pointer' }}>
+                    📝 {g.note}
+                  </div>
+                )}
+                {nota?.id === g.id && (
+                  <div style={{ marginTop: 6 }}>
+                    <textarea autoFocus rows={3} value={nota.testo} onChange={e => setNota({ ...nota, testo: e.target.value })}
+                      placeholder="Cosa devi fare la prossima volta? (es. alzare la puntata a Paolo, controllare il bonus di Federica…)"
+                      style={{ ...inp, width: '100%', resize: 'vertical', fontFamily: 'inherit' }} />
+                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 4 }}>
+                      {g.note && <button style={btn('#f87171')} onClick={() => setNota({ ...nota, testo: '' })}>Svuota</button>}
+                      <button style={btn('#94a3b8')} onClick={() => setNota(null)}>Annulla</button>
+                      <button style={btn('#fbbf24')} onClick={salvaNota}>💾 Salva nota</button>
+                    </div>
+                  </div>
+                )}
                 {doppie.length > 0 && (
                   <div style={{ fontSize: 12, color: '#fca5a5', fontWeight: 700, marginTop: 4 }}>
                     ⛔ {doppie.map(x => `${x.persona} ha ${x.conti.length} conti in questo gruppo (${x.conti.map(b => b.nome).join(' + ')})`).join(' · ')}: al casinò live solo un conto per persona. Correggi con ✏️.
