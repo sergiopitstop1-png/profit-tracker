@@ -8680,13 +8680,23 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               {[...new Set(books.map(b => b.intestatario).filter(Boolean))].sort().map(nome => <option key={nome} value={nome}>{nome}</option>)}
             </select>
             <select
-              value={credenzialeForm.book_id}
-              onChange={(e) => setCredenzialeForm(prev => ({ ...prev, book_id: e.target.value, bookmaker_manuale: '', intestatario_manuale: '' }))}
+              value={credenzialeForm.book_id || (credenzialeForm.bookmaker_manuale ? `manuale:${credenzialeForm.bookmaker_manuale}` : '')}
+              onChange={(e) => {
+                const valore = e.target.value
+                if (valore.startsWith('manuale:')) {
+                  setCredenzialeForm(prev => ({ ...prev, book_id: '', bookmaker_manuale: valore.slice(8), intestatario_manuale: generatoreCliente }))
+                } else {
+                  setCredenzialeForm(prev => ({ ...prev, book_id: valore, bookmaker_manuale: '', intestatario_manuale: '' }))
+                }
+              }}
               style={input}
               disabled={!generatoreCliente}
             >
               <option value=''>— Seleziona bookmaker —</option>
-              {books.filter(b => b.intestatario === generatoreCliente).map(b => <option key={b.id} value={b.id}>{b.nome}</option>)}
+              {[...new Set(books.map(b => b.nome).filter(Boolean))].sort().map(nome => {
+                const conto = books.find(b => b.nome === nome && b.intestatario === generatoreCliente)
+                return <option key={nome} value={conto ? String(conto.id) : `manuale:${nome}`}>{nome}</option>
+              })}
             </select>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '8px 0' }}>
               <button type='button' style={secondaryButton} onClick={generaLoginCredenziale}>↻ Genera 5 login</button>
