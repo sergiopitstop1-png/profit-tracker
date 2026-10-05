@@ -64,6 +64,19 @@ import {
   modalHeader, modalTitle, modalSubtitle, modalClose, modalActions, loadingScreen,
   loadingCard, hintBox
 } from './styles'
+
+// 05/10/2026: Supabase restituisce al massimo 1000 righe per richiesta: legge a pagine finché ci sono righe.
+// Senza questo, con più di 1000 conti i book più nuovi (id più alti) non comparivano in Books.
+async function tutteLeRighe(crea) {
+  const out = []
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await crea().range(from, from + 999)
+    if (error) return { data: out.length ? out : null, error }
+    out.push(...(data || []))
+    if (!data || data.length < 1000) break
+  }
+  return { data: out, error: null }
+}
 const BASE_CASSA_MESE = 57229.62
 
 // 01/10/2026 — SEZIONE A SCOMPARSA (tab Profilazione, vista Operativa).
@@ -2195,7 +2208,7 @@ async function updateProfiloLivello(bookId, livello, variante = null) {
       postItRes,
       royaltyAccordiRes, royaltyPagamentiRes, recuperiContiRes, avvisiContiRes,
     ] = await Promise.all([
-      supabase.from('books').select('*').order('id', { ascending: true }),
+      tutteLeRighe(() => supabase.from('books').select('*').order('id', { ascending: true })),   // 05/10/2026: oltre 1000 conti
       supabase.from('wallets').select('*').order('id', { ascending: true }),
       supabase.from('transactions').select('*').order('data', { ascending: false }).gte('data', new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()).limit(2000),
       supabase.from('contabilita').select('*').order('data_movimento', { ascending: false }).gte('data_movimento', sei_mesi_fa),
@@ -8945,8 +8958,14 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                       {r.stato === 'DA APRIRE' && (
                         <button onClick={async () => {
                           if (!window.confirm(`Segnare ${r.bookmaker} — ${r.cliente} come APERTO e creare il Book?`)) return
+                          // 05/10/2026: prima crea il book (controllando l'errore), poi segna APERTO, e lo mostra subito in Books
+                          const { data: esistente } = await supabase.from('books').select('id').eq('nome', r.bookmaker).eq('intestatario', r.cliente).maybeSingle()
+                          if (!esistente) {
+                            const { data: nuovoBook, error: errBook } = await supabase.from('books').insert([{ nome: r.bookmaker, intestatario: r.cliente, saldo: 0, note: '' }]).select().single()   // 26/09/2026: niente più nota "Aperto da Matrice"
+                            if (errBook) { setErrorMessage(`Book non creato: ${errBook.message}`); return }
+                            if (nuovoBook) setBooks(prev => [...prev, nuovoBook])
+                          }
                           await supabase.from('matrice_bookmakers').update({ stato: 'APERTO', updated_at: new Date().toISOString() }).eq('id', r.id)
-                          await supabase.from('books').insert([{ nome: r.bookmaker, intestatario: r.cliente, saldo: 0, note: '' }])   // 26/09/2026: niente più nota "Aperto da Matrice"
                           setMatrice(prev => prev.map(m => m.id === r.id ? { ...m, stato: 'APERTO' } : m))
                           setMessage(`✅ ${r.bookmaker} aperto per ${r.cliente}!`)
                           setTimeout(() => setMessage(''), 3000)
