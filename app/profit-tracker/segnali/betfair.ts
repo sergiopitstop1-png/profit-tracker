@@ -18,8 +18,9 @@ export type Pezzo =
   | { k: 'btts'; si: boolean }
   | { k: 'mg'; da: number; a: number }
 
+export type NumBF = { back: number | null; lay: number | null; backSize: number | null; laySize: number | null; fair: number | null }
 export type CellaBF =
-  | { stato: 'ok'; tipo: 'mercato' | 'derivata' | 'stimata'; testo: string; dettaglio: string; vecchiaMin: number | null; vecchia: boolean; iniziata: boolean; deltaBook: number | null }
+  | { stato: 'ok'; tipo: 'mercato' | 'derivata' | 'stimata'; testo: string; dettaglio: string; vecchiaMin: number | null; vecchia: boolean; iniziata: boolean; deltaBook: number | null; num: NumBF }
   | { stato: 'nd'; motivo: string }
 
 // ─── lettura da Supabase ─────────────────────────────────────────────
@@ -143,7 +144,7 @@ export function romaAUtc(data: string | null | undefined, ora: string | null | u
 }
 const MIN = 60000, ORA = 3600000
 
-type Canale = 'scoretrend' | 'pronox' | 'hunter'
+export type Canale = 'scoretrend' | 'pronox' | 'hunter'
 type Finestra = { da: number; a: number }
 function finestraSegnale(canale: Canale, s: any): Finestra | null {
   const msg = s.data_msg ? Date.parse(s.data_msg) : NaN
@@ -387,16 +388,18 @@ export function sogliaVecchiaMin(inizio: number, ora: number): number {
 }
 
 export function quotaPezzi(pezzi: Pezzo[], ev: EventoBF, ora = Date.now(), quotaBook: number | null = null): CellaBF {
-  const ok = (tipo: 'mercato' | 'derivata' | 'stimata', testo: string, dettaglio: string, tipi: string[], rif: number | null): CellaBF => ({
-    stato: 'ok', tipo, testo, dettaglio, vecchiaMin: eta(ev, tipi, ora), vecchia: (eta(ev, tipi, ora) ?? 0) > sogliaVecchiaMin(ev.inizio, ora), iniziata: ev.inizio <= ora,
+  const ok = (tipo: 'mercato' | 'derivata' | 'stimata', testo: string, dettaglio: string, tipi: string[], rif: number | null, num: NumBF): CellaBF => ({
+    stato: 'ok', tipo, testo, dettaglio, num, vecchiaMin: eta(ev, tipi, ora), vecchia: (eta(ev, tipi, ora) ?? 0) > sogliaVecchiaMin(ev.inizio, ora), iniziata: ev.inizio <= ora,
     deltaBook: quotaBook && rif ? (quotaBook / rif - 1) * 100 : null })
   const nd = (motivo: string): CellaBF => ({ stato: 'nd', motivo })
   const diretta = (s: SelBF | undefined, tipo: string): CellaBF | null => {
     if (!s || (s.back == null && s.lay == null)) return null
-    return ok('mercato', `${fmt(s.back)} / ${fmt(s.lay)}`, `Betfair ${tipo}: back ${fmt(s.back)} (disp. ${fmt(s.backSize, 0)} €) · lay ${fmt(s.lay)} (disp. ${fmt(s.laySize, 0)} €)`, [tipo], s.back)
+    return ok('mercato', `${fmt(s.back)} / ${fmt(s.lay)}`, `Betfair ${tipo}: back ${fmt(s.back)} (disp. ${fmt(s.backSize, 0)} €) · lay ${fmt(s.lay)} (disp. ${fmt(s.laySize, 0)} €)`, [tipo], s.back,
+      { back: s.back, lay: s.lay, backSize: s.backSize, laySize: s.laySize, fair: null })
   }
   const derivata = (p: number | null, tipo: string, tipi: string[], come: string): CellaBF | null =>
-    p && p > 0.001 && p < 0.999 ? ok('derivata', `~${fmt(1 / p)}`, `Quota calcolata (${come}): giusta ${fmt(1 / p)} · non è un prezzo giocabile`, tipi, 1 / p) : null
+    p && p > 0.001 && p < 0.999 ? ok('derivata', `~${fmt(1 / p)}`, `Quota calcolata (${come}): giusta ${fmt(1 / p)} · non è un prezzo giocabile`, tipi, 1 / p,
+      { back: null, lay: null, backSize: null, laySize: null, fair: 1 / p }) : null
 
   if (pezzi.length === 1) {
     const z = pezzi[0]
@@ -430,7 +433,8 @@ export function quotaPezzi(pezzi: Pezzo[], ev: EventoBF, ora = Date.now(), quota
   const p = probModello(mod, pezzi)
   if (p == null || p < 0.003) return nd('stima non calcolabile')
   return ok('stimata', `~${fmt(1 / p)}`, `Quota STIMATA dal modello (errore sul mercato ${(mod.err * 100).toFixed(1)}%): ${fmt(1 / p)} · è una stima, non un prezzo giocabile`,
-    ['MATCH_ODDS', 'OVER_UNDER_15', 'OVER_UNDER_25', 'OVER_UNDER_35', 'BOTH_TEAMS_TO_SCORE'], 1 / p)
+    ['MATCH_ODDS', 'OVER_UNDER_15', 'OVER_UNDER_25', 'OVER_UNDER_35', 'BOTH_TEAMS_TO_SCORE'], 1 / p,
+    { back: null, lay: null, backSize: null, laySize: null, fair: 1 / p })
 }
 
 const oraRoma = (ms: number) => new Date(ms).toLocaleString('it-IT', { timeZone: 'Europe/Rome', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
@@ -461,14 +465,37 @@ export function riassuntoBF(canale: Canale, righe: any[], celle: Map<number, Cel
     betfairDal: inizi.length ? oraRoma(Math.min(...inizi)) : '', betfairAl: inizi.length ? oraRoma(Math.max(...inizi)) : '', segnaleRecente: piuRecente ? oraRoma(piuRecente) : '' }
 }
 
-export function quotaPerSegnale(canale: Canale, s: any, eventi: EventoBF[], ora = Date.now()): CellaBF {
-  if (!eventi.length) return { stato: 'nd', motivo: 'nessun dato Betfair (servizio fermo o non leggibile da questo accesso)' }
+export type AnalisiSegnale = { cella: CellaBF; pezzi: Pezzo[] | null; ev: EventoBF | null }
+export function analizzaSegnale(canale: Canale, s: any, eventi: EventoBF[], ora = Date.now()): AnalisiSegnale {
+  const nd = (motivo: string, pezzi: Pezzo[] | null = null): AnalisiSegnale => ({ cella: { stato: 'nd', motivo }, pezzi, ev: null })
+  if (!eventi.length) return nd('nessun dato Betfair (servizio fermo o non leggibile da questo accesso)')
   const pezzi = canale === 'scoretrend' ? pezziScoreTrend(s) : canale === 'pronox' ? pezziPronox(s) : pezziHunter(s)
-  if (!pezzi) return { stato: 'nd', motivo: canale === 'hunter' && /^GOL_/.test(String(s.tipo_segnale || '')) ? 'segnale "gol dopo il segnale": nessun mercato Betfair corrispondente' : 'segnale non traducibile in un mercato Betfair' }
+  if (!pezzi) return nd(canale === 'hunter' && /^GOL_/.test(String(s.tipo_segnale || '')) ? 'segnale "gol dopo il segnale": nessun mercato Betfair corrispondente' : 'segnale non traducibile in un mercato Betfair')
   const fin = finestraSegnale(canale, s)
-  if (!fin) return { stato: 'nd', motivo: 'orario della partita non disponibile' }
+  if (!fin) return nd('orario della partita non disponibile', pezzi)
   const { ev, motivo } = trovaEvento(eventi, s.casa, s.ospite, fin)
-  if (!ev) return { stato: 'nd', motivo }
+  if (!ev) return nd(motivo, pezzi)
   const q = s.quota != null && Number.isFinite(Number(s.quota)) ? Number(s.quota) : null
-  return quotaPezzi(pezzi, ev, ora, q)
+  return { cella: quotaPezzi(pezzi, ev, ora, q), pezzi, ev }
+}
+export function quotaPerSegnale(canale: Canale, s: any, eventi: EventoBF[], ora = Date.now()): CellaBF {
+  return analizzaSegnale(canale, s, eventi, ora).cella
+}
+
+// ─── quote congelate (tabella betfair_segnali_quote) ────────────────
+export type RigaCongelata = {
+  canale: string; msg_id: number; event_id: string | null; evento: string | null; inizio: string | null; quota_book: number | null
+  tipo: 'mercato' | 'derivata' | 'stimata'; testo: string; bf_back: number | null; bf_lay: number | null; bf_back_size: number | null; bf_lay_size: number | null; bf_fair: number | null
+  eta_min: number | null; iniziata: boolean; vecchia: boolean; segnale_il: string | null; congelato_il: string
+  ch_tipo: string | null; ch_back: number | null; ch_lay: number | null; ch_fair: number | null; ch_il: string | null
+}
+export async function caricaCongelati(supabase: any): Promise<Map<string, RigaCongelata>> {
+  const out = new Map<string, RigaCongelata>()
+  for (let da = 0; ; da += 1000) {
+    const { data, error } = await supabase.from('betfair_segnali_quote').select('*').order('canale', { ascending: true }).order('msg_id', { ascending: true }).range(da, da + 999)
+    if (error) throw new Error(error.message)
+    for (const r of data || []) out.set(`${r.canale}|${r.msg_id}`, r as RigaCongelata)
+    if (!data || data.length < 1000) break
+  }
+  return out
 }
