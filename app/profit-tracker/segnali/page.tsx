@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '../supabaseClient'
-import { caricaBetfair, quotaPerSegnale } from './betfair'   // 06/10/2026: quota Betfair accanto ai segnali
+import { caricaBetfair, quotaPerSegnale, riassuntoBF } from './betfair'   // 06/10/2026: quota Betfair accanto ai segnali
 import type { CellaBF, EventoBF } from './betfair'
 
 type Segnale = {
@@ -51,16 +51,30 @@ function CellaBetfair({ c, td }: { c: CellaBF | undefined; td: any }) {
   if (!c) return <td style={td} />
   if (c.stato === 'nd') return <td style={{ ...td, color: '#475569' }} title={c.motivo}>—</td>
   const colore = c.tipo === 'mercato' ? '#e2e8f0' : c.tipo === 'derivata' ? '#c4b5fd' : '#fdba74'
-  const vecchia = c.vecchiaMin != null && c.vecchiaMin > 10
   return (
     <td style={{ ...td, whiteSpace: 'nowrap' }} title={c.dettaglio}>
       <div style={{ fontWeight: 800, color: colore }}>{c.testo}</div>
       <div style={{ fontSize: 10.5, color: '#94a3b8' }}>
         {c.tipo !== 'mercato' ? c.tipo : ''}
         {c.deltaBook != null ? `${c.tipo !== 'mercato' ? ' · ' : ''}book ${c.deltaBook >= 0 ? '+' : ''}${c.deltaBook.toFixed(1).replace('.', ',')}%` : ''}
-        {vecchia ? <span style={{ color: '#fbbf24' }}>{' · ferma da ' + c.vecchiaMin + ' min'}</span> : null}
+        {c.vecchia ? <span style={{ color: '#fbbf24' }}>{c.iniziata ? ' · partita iniziata: prezzo di prima' : ' · ferma da ' + c.vecchiaMin + ' min'}</span> : null}
       </div>
     </td>)
+}
+
+// 06/10/2026 — perché alcuni segnali non hanno la quota Betfair: conteggio dei motivi e partite vicine per orario
+function DiagnosiBF({ canale, righe, celle, eventi }: { canale: 'scoretrend' | 'pronox' | 'hunter'; righe: any[]; celle: Map<number, CellaBF>; eventi: EventoBF[] }) {
+  const r = useMemo(() => riassuntoBF(canale, righe, celle, eventi), [canale, righe, celle, eventi])
+  return (
+    <details style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>
+      <summary style={{ cursor: 'pointer', color: '#7dd3fc', fontWeight: 700 }}>🔎 Betfair: {r.ok} segnali su {r.totale} con quota · perché gli altri no</summary>
+      <div style={{ padding: '6px 4px', lineHeight: 1.6 }}>
+        <div>Partite Betfair caricate: <b>{r.nEventi}</b>{r.nEventi ? ` (dal ${r.betfairDal} al ${r.betfairAl})` : ''} · segnale più recente: <b>{r.segnaleRecente || '—'}</b></div>
+        {Object.entries(r.motivi).sort((a, b) => b[1] - a[1]).map(([m, n]) => <div key={m}><b>{n}</b> × {m}</div>)}
+        {r.esempi.length > 0 && <div style={{ marginTop: 6, color: '#cbd5e1' }}>Segnali recenti con partita non trovata → partite Betfair vicine per orario:</div>}
+        {r.esempi.map((e, i) => <div key={i}>• <b>{e.segnale}</b> <span style={{ color: '#64748b' }}>({e.quando})</span> → {e.vicini.length ? e.vicini.join(' | ') : 'nessuna partita Betfair in quell\'orario'}</div>)}
+      </div>
+    </details>)
 }
 
 const mercatoDi = (s: Segnale) => `${s.mercato || ''}${s.linea != null ? ' ' + String(s.linea).replace('.', ',') : ''}${s.tempo && s.tempo !== 'finale' ? ' ' + s.tempo : ''}`.trim()
@@ -234,6 +248,7 @@ function SchedaPronox({ dati, sel, th, td, tabellaPagella, eventiBF }: { dati: P
 
     <div style={{ background: 'rgba(15,23,42,.6)', border: '1px solid #1e293b', borderRadius: 14, padding: 12, marginBottom: 18, overflowX: 'auto' }}>
       <div style={{ fontWeight: 900, marginBottom: 4 }}>PronoX · {visibili.length}</div>
+      <DiagnosiBF canale="pronox" righe={visibili} celle={cellePx} eventi={eventiBF} />
       <div style={{ fontSize: 11.5, color: '#94a3b8', marginBottom: 8 }}>Ogni esito sopra la soglia di /oggi, preso dalla fotografia del giorno prima (t24h). Tre probabilità: <b>modello</b> (grezza, decide il segnale), <b>/oggi</b> (calibrata, usata per il VALUE), <b>bookmaker</b> (senza margine). Esiti e risultati arrivano da soli.</div>
       <div style={{ maxHeight: 460, overflowY: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', width: '100%' }}>
@@ -390,6 +405,7 @@ export default function SegnaliPage() {
         ) : tab==='hunterbet' ? (
         <div style={{ background:'rgba(15,23,42,.6)', border:'1px solid #1e293b', borderRadius:14, padding:12, overflowX:'auto' }}>
           <div style={{fontWeight:900,marginBottom:4}}>Hunterbet · {hunter.length}</div>
+          <DiagnosiBF canale="hunter" righe={hunter} celle={cellaHT} eventi={eventiBF} />
           <div style={{fontSize:11.5,color:'#94a3b8',marginBottom:8}}>Scrivi il risultato finale (es. 2-1) e, se lo sai, quello del 1° tempo: l'esito si calcola da solo ("auto"). Puoi sceglierlo a mano se il mercato non viene riconosciuto. La quota serve per la pagella; arriverà da Betfair quando sarà collegato.</div>
           <table style={{borderCollapse:'collapse',width:'100%'}}>
             <thead><tr>{['Arrivato','Fase','Partita','Competizione','Segnale','Ris. al segnale','1° tempo','Finale','Quota','Betfair','Esito',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
@@ -430,6 +446,7 @@ export default function SegnaliPage() {
 
         <div style={{ background: 'rgba(15,23,42,.6)', border: '1px solid #1e293b', borderRadius: 14, padding: 12, marginBottom: 18, overflowX: 'auto' }}>
           <div style={{ fontWeight: 900, marginBottom: 8 }}>Segnali · {visibili.length}</div>
+          <DiagnosiBF canale="scoretrend" righe={visibili} celle={cellaST} eventi={eventiBF} />
           <div style={{ maxHeight: 460, overflowY: 'auto' }}>
             <table style={{ borderCollapse: 'collapse', width: '100%' }}>
               <thead><tr>{['Arrivato', 'Partita', 'Competizione', 'Tipo', 'Mercato', 'Giocata', 'Quota', 'Betfair', 'Esito', 'Unità', '', '1° tempo', 'Finale', ''].map((h, i) => <th key={i} style={{ ...th, position: 'sticky', top: 0, background: '#0f172a' }}>{h}</th>)}</tr></thead>
