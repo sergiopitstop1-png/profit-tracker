@@ -19,7 +19,7 @@ export type Pezzo =
   | { k: 'mg'; da: number; a: number }
 
 export type CellaBF =
-  | { stato: 'ok'; tipo: 'mercato' | 'derivata' | 'stimata'; testo: string; dettaglio: string; vecchiaMin: number | null; deltaBook: number | null }
+  | { stato: 'ok'; tipo: 'mercato' | 'derivata' | 'stimata'; testo: string; dettaglio: string; vecchiaMin: number | null; vecchia: boolean; iniziata: boolean; deltaBook: number | null }
   | { stato: 'nd'; motivo: string }
 
 // ─── lettura da Supabase ─────────────────────────────────────────────
@@ -74,6 +74,24 @@ const ALIAS: Record<string, string> = {
   'wolves': 'wolverhampton', 'wolverhampton wanderers': 'wolverhampton', 'newcastle utd': 'newcastle united', 'sheffield utd': 'sheffield united',
   'borussia monchengladbach': 'monchengladbach', 'borussia mgladbach': 'monchengladbach', 'b monchengladbach': 'monchengladbach',
   'rb leipzig': 'leipzig', 'sporting cp': 'sporting lisbon', 'sporting lisboa': 'sporting lisbon', 'south korea': 'korea republic', 'korea republic': 'korea republic',
+  // nazionali: italiano → inglese (come le scrive Betfair)
+  'corea del sud': 'korea republic', 'corea del nord': 'north korea', 'italia': 'italy', 'germania': 'germany', 'francia': 'france', 'spagna': 'spain', 'inghilterra': 'england',
+  'portogallo': 'portugal', 'olanda': 'netherlands', 'paesi bassi': 'netherlands', 'holland': 'netherlands', 'belgio': 'belgium', 'svizzera': 'switzerland', 'croazia': 'croatia',
+  'danimarca': 'denmark', 'svezia': 'sweden', 'norvegia': 'norway', 'polonia': 'poland', 'repubblica ceca': 'czechia', 'czech republic': 'czechia', 'cechia': 'czechia',
+  'slovacchia': 'slovakia', 'ungheria': 'hungary', 'grecia': 'greece', 'turchia': 'turkey', 'turkiye': 'turkey', 'ucraina': 'ukraine', 'scozia': 'scotland', 'galles': 'wales',
+  'irlanda': 'ireland', 'repubblica d irlanda': 'ireland', 'irlanda del nord': 'northern ireland', 'islanda': 'iceland', 'finlandia': 'finland', 'giappone': 'japan', 'cina': 'china',
+  'stati uniti': 'usa', 'united states': 'usa', 'messico': 'mexico', 'brasile': 'brazil', 'marocco': 'morocco', 'egitto': 'egypt', 'camerun': 'cameroon', 'sudafrica': 'south africa',
+  'costa d avorio': 'ivory coast', 'arabia saudita': 'saudi arabia', 'giordania': 'jordan', 'emirati arabi uniti': 'united arab emirates', 'tagikistan': 'tajikistan',
+  'kirghizistan': 'kyrgyzstan', 'kazakistan': 'kazakhstan', 'azerbaigian': 'azerbaijan', 'bielorussia': 'belarus', 'lituania': 'lithuania', 'lettonia': 'latvia', 'moldavia': 'moldova',
+  'macedonia del nord': 'north macedonia', 'bosnia erzegovina': 'bosnia herzegovina', 'bosnia and herzegovina': 'bosnia herzegovina', 'cipro': 'cyprus', 'lussemburgo': 'luxembourg',
+  'israele': 'israel', 'nuova zelanda': 'new zealand', 'perù': 'peru', 'cile': 'chile', 'tunisia': 'tunisia', 'senegal': 'senegal',
+  // club: italiano → inglese
+  'bayern monaco': 'bayern munich', 'siviglia': 'sevilla', 'maiorca': 'mallorca', 'marsiglia': 'marseille', 'lione': 'lyon', 'bruges': 'club brugge', 'anversa': 'royal antwerp',
+  'salisburgo': 'salzburg', 'rb salzburg': 'salzburg', 'red bull salisburgo': 'salzburg', 'lipsia': 'leipzig', 'francoforte': 'eintracht frankfurt', 'colonia': 'koln', 'fc koln': 'koln',
+  'stoccarda': 'stuttgart', 'magonza': 'mainz', 'norimberga': 'nurnberg', 'amburgo': 'hamburg', 'brema': 'werder bremen', 'basilea': 'basel', 'zurigo': 'zurich', 'stella rossa': 'red star belgrade',
+  'dinamo kiev': 'dynamo kyiv', 'dynamo kiev': 'dynamo kyiv', 'spartak mosca': 'spartak moscow', 'lokomotiv mosca': 'lokomotiv moscow', 'cska mosca': 'cska moscow',
+  'bayer leverkusen': 'leverkusen', 'bayer 04 leverkusen': 'leverkusen', 'borussia dortmund': 'dortmund', 'hertha berlino': 'hertha berlin', 'union berlino': 'union berlin',
+  'glasgow rangers': 'rangers', 'real saragozza': 'real zaragoza',
 }
 export function normSquadra(s: string | null | undefined): Nome {
   let t = String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -356,10 +374,22 @@ const eta = (ev: EventoBF, tipi: string[], ora: number): number | null => {
   return max
 }
 const MAX_ERR_MODELLO = 0.035
+// Dopo quanti minuti un prezzo è "vecchio": segue la frequenza con cui il servizio rilegge quella partita
+// (oltre 24 ore → ogni ora · 6-24 ore → ogni 15 min · 2-6 ore → ogni 5 · 1-2 ore → ogni 2 · ultima ora → ogni minuto)
+export function sogliaVecchiaMin(inizio: number, ora: number): number {
+  const min = (inizio - ora) / MIN
+  if (min <= 0) return 4
+  if (min > 1440) return 75
+  if (min > 360) return 25
+  if (min > 120) return 10
+  if (min > 60) return 5
+  return 3
+}
 
 export function quotaPezzi(pezzi: Pezzo[], ev: EventoBF, ora = Date.now(), quotaBook: number | null = null): CellaBF {
   const ok = (tipo: 'mercato' | 'derivata' | 'stimata', testo: string, dettaglio: string, tipi: string[], rif: number | null): CellaBF => ({
-    stato: 'ok', tipo, testo, dettaglio, vecchiaMin: eta(ev, tipi, ora), deltaBook: quotaBook && rif ? (quotaBook / rif - 1) * 100 : null })
+    stato: 'ok', tipo, testo, dettaglio, vecchiaMin: eta(ev, tipi, ora), vecchia: (eta(ev, tipi, ora) ?? 0) > sogliaVecchiaMin(ev.inizio, ora), iniziata: ev.inizio <= ora,
+    deltaBook: quotaBook && rif ? (quotaBook / rif - 1) * 100 : null })
   const nd = (motivo: string): CellaBF => ({ stato: 'nd', motivo })
   const diretta = (s: SelBF | undefined, tipo: string): CellaBF | null => {
     if (!s || (s.back == null && s.lay == null)) return null
@@ -401,6 +431,34 @@ export function quotaPezzi(pezzi: Pezzo[], ev: EventoBF, ora = Date.now(), quota
   if (p == null || p < 0.003) return nd('stima non calcolabile')
   return ok('stimata', `~${fmt(1 / p)}`, `Quota STIMATA dal modello (errore sul mercato ${(mod.err * 100).toFixed(1)}%): ${fmt(1 / p)} · è una stima, non un prezzo giocabile`,
     ['MATCH_ODDS', 'OVER_UNDER_15', 'OVER_UNDER_25', 'OVER_UNDER_35', 'BOTH_TEAMS_TO_SCORE'], 1 / p)
+}
+
+const oraRoma = (ms: number) => new Date(ms).toLocaleString('it-IT', { timeZone: 'Europe/Rome', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+// partite Betfair più vicine, per orario, a un segnale non abbinato (serve a capire le differenze di nome)
+export function eventiVicini(canale: Canale, s: any, eventi: EventoBF[], n = 4): string[] {
+  const fin = finestraSegnale(canale, s)
+  if (!fin) return []
+  const msg = s.data_msg ? Date.parse(s.data_msg) : NaN
+  const rif = canale === 'hunter' && Number.isFinite(msg) ? msg : (fin.da + fin.a) / 2
+  return eventi.filter(e => e.inizio >= fin.da && e.inizio <= fin.a).sort((a, b) => Math.abs(a.inizio - rif) - Math.abs(b.inizio - rif)).slice(0, n)
+    .map(e => `${e.casa} v ${e.ospite} · ${oraRoma(e.inizio)}`)
+}
+export function riassuntoBF(canale: Canale, righe: any[], celle: Map<number, CellaBF>, eventi: EventoBF[], max = 8) {
+  const motivi: Record<string, number> = {}
+  const esempi: { segnale: string; quando: string; vicini: string[] }[] = []
+  let ok = 0, piuRecente = 0
+  for (const s of righe) {
+    const t = s.data_msg ? Date.parse(s.data_msg) : NaN
+    if (Number.isFinite(t) && t > piuRecente) piuRecente = t
+    const c = celle.get(s.msg_id)
+    if (!c) continue
+    if (c.stato === 'ok') { ok++; continue }
+    motivi[c.motivo] = (motivi[c.motivo] || 0) + 1
+    if (c.motivo.startsWith('partita non trovata') && esempi.length < max) esempi.push({ segnale: `${s.casa ?? '?'} v ${s.ospite ?? '?'}`, quando: Number.isFinite(t) ? oraRoma(t) : '', vicini: eventiVicini(canale, s, eventi) })
+  }
+  const inizi = eventi.map(e => e.inizio)
+  return { totale: righe.length, ok, motivi, esempi, nEventi: eventi.length,
+    betfairDal: inizi.length ? oraRoma(Math.min(...inizi)) : '', betfairAl: inizi.length ? oraRoma(Math.max(...inizi)) : '', segnaleRecente: piuRecente ? oraRoma(piuRecente) : '' }
 }
 
 export function quotaPerSegnale(canale: Canale, s: any, eventi: EventoBF[], ora = Date.now()): CellaBF {
