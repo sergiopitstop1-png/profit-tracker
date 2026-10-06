@@ -4,7 +4,7 @@
     { "path": "/api/lucy-mail/analyze", "schedule": "*/5 * * * *" },
     { "path": "/api/cron/daily-digest", "schedule": "0 14 * * *" },
     { "path": "/api/cron/pronox-snapshots", "schedule": "0 9 * * *" },
-    { "path": "/api/cron/pronox-outcomes", "schedule": "0 */6 * * *" }
+    { "path": "/api/cron/pronox-outcomes", "schedule": "0 */6 * * *" },
     { "path": "/api/cron/betfair-segnali", "schedule": "*/5 * * * *" }
   ]
 }
