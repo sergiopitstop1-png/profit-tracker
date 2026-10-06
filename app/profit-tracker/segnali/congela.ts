@@ -72,7 +72,7 @@ export async function eseguiCongelamento(sb: any, ora = Date.now()) {
     const ev = r.event_id ? perId.get(r.event_id) : undefined
     if (!ev || !r.pezzi) continue
     const c = quotaPezzi(r.pezzi as Pezzo[], ev, ora, numero(r.quota_book))
-    if (c.stato !== 'ok') continue
+    if (c.stato !== 'ok' || c.vecchia) continue   // quote ferme (servizio spento, PC in sospensione): meglio nessuna chiusura che una chiusura falsa
     const { error } = await sb.from('betfair_segnali_quote').update({ ch_tipo: c.tipo, ch_back: c.num.back, ch_lay: c.num.lay, ch_fair: c.num.fair, ch_il: iso(ora) }).eq('canale', r.canale).eq('msg_id', r.msg_id)
     if (error) throw new Error(`chiusura: ${error.message}`)
     chiusure++
