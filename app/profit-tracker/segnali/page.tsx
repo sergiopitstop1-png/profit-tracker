@@ -8,6 +8,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '../supabaseClient'
+import { caricaBetfair, quotaPerSegnale } from './betfair'   // 06/10/2026: quota Betfair accanto ai segnali
+import type { CellaBF, EventoBF } from './betfair'
 
 type Segnale = {
   msg_id: number; data_msg: string | null; data_partita: string | null; ora: string | null; competizione: string | null
@@ -44,6 +46,23 @@ function CelleRisultato({ s, td }: { s: Segnale; td: any }) {
 
 const n2 = (x: number) => x.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const quando = (iso: string | null) => iso ? new Date(iso).toLocaleString('it-IT', { timeZone: 'Europe/Rome', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
+// 06/10/2026 — cella "Betfair": prezzo dell'Exchange (back / lay) oppure quota calcolata ("derivata") o stimata dal modello
+function CellaBetfair({ c, td }: { c: CellaBF | undefined; td: any }) {
+  if (!c) return <td style={td} />
+  if (c.stato === 'nd') return <td style={{ ...td, color: '#475569' }} title={c.motivo}>—</td>
+  const colore = c.tipo === 'mercato' ? '#e2e8f0' : c.tipo === 'derivata' ? '#c4b5fd' : '#fdba74'
+  const vecchia = c.vecchiaMin != null && c.vecchiaMin > 10
+  return (
+    <td style={{ ...td, whiteSpace: 'nowrap' }} title={c.dettaglio}>
+      <div style={{ fontWeight: 800, color: colore }}>{c.testo}</div>
+      <div style={{ fontSize: 10.5, color: '#94a3b8' }}>
+        {c.tipo !== 'mercato' ? c.tipo : ''}
+        {c.deltaBook != null ? `${c.tipo !== 'mercato' ? ' · ' : ''}book ${c.deltaBook >= 0 ? '+' : ''}${c.deltaBook.toFixed(1).replace('.', ',')}%` : ''}
+        {vecchia ? <span style={{ color: '#fbbf24' }}>{' · ferma da ' + c.vecchiaMin + ' min'}</span> : null}
+      </div>
+    </td>)
+}
+
 const mercatoDi = (s: Segnale) => `${s.mercato || ''}${s.linea != null ? ' ' + String(s.linea).replace('.', ',') : ''}${s.tempo && s.tempo !== 'finale' ? ' ' + s.tempo : ''}`.trim()
 const fascia = (q: number) => q < 1.4 ? '1,00-1,40' : q < 1.6 ? '1,40-1,60' : q < 1.8 ? '1,60-1,80' : q < 2.1 ? '1,80-2,10' : q < 3 ? '2,10-3,00' : '3,00+'
 
@@ -78,7 +97,7 @@ function valutaHunter(s: Hunter, fc: number, fo: number): 'VINTA' | 'PERSA' | nu
 }
 const leggiRis = (t: string): [number, number] | null => { const m = t.trim().match(/^(\d{1,2})\s*[-–:]\s*(\d{1,2})$/); return m ? [Number(m[1]), Number(m[2])] : null }
 
-function RigaHunter({ s, td, onSalvato }: { s: Hunter; td: any; onSalvato: (r: Hunter) => void }) {
+function RigaHunter({ s, td, bf, onSalvato }: { s: Hunter; td: any; bf?: CellaBF; onSalvato: (r: Hunter) => void }) {
   const fmt = (a?: number | null, b?: number | null) => a != null && b != null ? `${a}-${b}` : ''
   const [ft, setFt] = useState(fmt(s.ft_casa, s.ft_ospite))
   const [ht, setHt] = useState(fmt(s.ht_casa, s.ht_ospite))
@@ -117,6 +136,7 @@ function RigaHunter({ s, td, onSalvato }: { s: Hunter; td: any; onSalvato: (r: H
       <td style={td}><input style={inp} placeholder="1-0" value={ht} onChange={e => setHt(e.target.value)} /></td>
       <td style={td}><input style={{ ...inp, borderColor: rFt || !ft ? '#334155' : '#f87171' }} placeholder="2-1" value={ft} onChange={e => setFt(e.target.value)} /></td>
       <td style={td}><input style={inp} placeholder="1,70" value={quota} onChange={e => setQuota(e.target.value.replace(/[^0-9.,]/g, ''))} /></td>
+      <CellaBetfair c={bf} td={td} />
       <td style={td}>
         <select value={esito} onChange={e => setEsito(e.target.value)} style={{ ...inp, width: 'auto' }}>
           <option value="auto">auto{auto ? ` (${auto === 'VINTA' ? 'vinta' : 'persa'})` : ''}</option><option value="VINTA">vinta</option><option value="PERSA">persa</option><option value="NULLA">nulla</option><option value="">in corso</option>
@@ -157,7 +177,7 @@ function raggruppaPronox(lista: Pronox[], chiave: (s: Pronox) => string): Riga[]
     .sort((a, b) => b.bet - a.bet)
 }
 
-function SchedaPronox({ dati, sel, th, td, tabellaPagella }: { dati: Pronox[]; sel: any; th: any; td: any; tabellaPagella: (r: Riga[]) => any }) {
+function SchedaPronox({ dati, sel, th, td, tabellaPagella, eventiBF }: { dati: Pronox[]; sel: any; th: any; td: any; tabellaPagella: (r: Riga[]) => any; eventiBF: EventoBF[] }) {
   const [etichetta, setEtichetta] = useState('')
   const [stato, setStato] = useState('')
   const [soloValue, setSoloValue] = useState(false)
@@ -171,6 +191,7 @@ function SchedaPronox({ dati, sel, th, td, tabellaPagella }: { dati: Pronox[]; s
       (!soloValue || s.value) && (!soloForti || s.forte) &&
       (!q || `${s.competizione} ${s.casa} ${s.ospite}`.toLowerCase().includes(q)))
   }, [dati, etichetta, stato, soloValue, soloForti, cerca])
+  const cellePx = useMemo(() => { const mp = new Map<number, CellaBF>(); for (const s of visibili) mp.set(s.msg_id, quotaPerSegnale('pronox', s, eventiBF)); return mp }, [visibili, eventiBF])   // 06/10/2026
 
   const chiuse = visibili.filter(s => s.esito === 'VINTA' || s.esito === 'PERSA')
   const vinte = chiuse.filter(s => s.esito === 'VINTA').length
@@ -216,7 +237,7 @@ function SchedaPronox({ dati, sel, th, td, tabellaPagella }: { dati: Pronox[]; s
       <div style={{ fontSize: 11.5, color: '#94a3b8', marginBottom: 8 }}>Ogni esito sopra la soglia di /oggi, preso dalla fotografia del giorno prima (t24h). Tre probabilità: <b>modello</b> (grezza, decide il segnale), <b>/oggi</b> (calibrata, usata per il VALUE), <b>bookmaker</b> (senza margine). Esiti e risultati arrivano da soli.</div>
       <div style={{ maxHeight: 460, overflowY: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-          <thead><tr>{['Partita il', 'Partita', 'Competizione', 'Segnale', 'Modello', '/oggi', 'Bookmaker', 'Quota', 'EV', 'Esito', 'Unità', '1° tempo', 'Finale'].map((h, i) => <th key={i} style={{ ...th, position: 'sticky', top: 0, background: '#0f172a' }}>{h}</th>)}</tr></thead>
+          <thead><tr>{['Partita il', 'Partita', 'Competizione', 'Segnale', 'Modello', '/oggi', 'Bookmaker', 'Quota', 'Betfair', 'EV', 'Esito', 'Unità', '1° tempo', 'Finale'].map((h, i) => <th key={i} style={{ ...th, position: 'sticky', top: 0, background: '#0f172a' }}>{h}</th>)}</tr></thead>
           <tbody>{visibili.map(s => (
             <tr key={s.msg_id}>
               <td style={{ ...td, whiteSpace: 'nowrap' }}>{quando(s.data_partita)}</td>
@@ -227,6 +248,7 @@ function SchedaPronox({ dati, sel, th, td, tabellaPagella }: { dati: Pronox[]; s
               <td style={td}>{pc(s.prob_calibrata)}</td>
               <td style={{ ...td, color: '#94a3b8' }}>{pc(s.prob_mercato)}</td>
               <td style={{ ...td, fontWeight: 800, color: s.quota != null && Number(s.quota) < 1.4 ? '#fbbf24' : '#f8fafc' }} title={s.quota != null && Number(s.quota) < 1.4 ? 'Sotto la regola di 1,40' : ''}>{s.quota != null ? String(s.quota).replace('.', ',') : ''}</td>
+              <CellaBetfair c={cellePx.get(s.msg_id)} td={td} />
               <td style={{ ...td, color: s.ev != null && s.ev > 0.03 ? '#86efac' : '#94a3b8' }}>{s.ev != null ? `${s.ev >= 0 ? '+' : ''}${pc(s.ev)}` : ''}</td>
               <td style={{ ...td, fontWeight: 900, color: s.esito === 'VINTA' ? '#86efac' : s.esito === 'PERSA' ? '#fca5a5' : '#94a3b8' }}>{s.esito ? (s.esito === 'VINTA' ? '🟢 vinta' : s.esito === 'PERSA' ? '🔴 persa' : '⚪ nulla') : '⏳ da giocare'}</td>
               <td style={{ ...td, color: Number(s.profitto) >= 0 ? '#86efac' : '#fca5a5' }}>{s.profitto != null ? `${s.profitto >= 0 ? '+' : ''}${n2(Number(s.profitto))}` : ''}</td>
@@ -296,6 +318,16 @@ export default function SegnaliPage() {
   }, [periodo])
   useEffect(() => { carica(); const t = setInterval(carica, 30000); return () => clearInterval(t) }, [carica])
 
+  // 06/10/2026 — quote Betfair (solo lettura): partite delle ultime 48 ore con i loro mercati, riletto ogni minuto
+  const [eventiBF, setEventiBF] = useState<EventoBF[]>([])
+  const [erroreBF, setErroreBF] = useState('')
+  useEffect(() => {
+    let vivo = true
+    const leggi = async () => { try { const e = await caricaBetfair(supabase); if (vivo) { setEventiBF(e); setErroreBF('') } } catch (x: any) { if (vivo) setErroreBF(String(x?.message || x)) } }
+    leggi(); const t = setInterval(leggi, 60000)
+    return () => { vivo = false; clearInterval(t) }
+  }, [])
+
   const mercati = useMemo(() => [...new Set(dati.map(mercatoDi))].sort(), [dati])
   const visibili = useMemo(() => {
     const q = cerca.trim().toLowerCase()
@@ -305,6 +337,9 @@ export default function SegnaliPage() {
       (!soloSopra140 || Number(s.quota) >= 1.4) &&
       (!q || `${s.competizione} ${s.casa} ${s.ospite} ${s.selezione}`.toLowerCase().includes(q)))
   }, [dati, stato, tipo, mercato, soloSopra140, cerca])
+
+  const cellaST = useMemo(() => { const mp = new Map<number, CellaBF>(); for (const s of visibili) mp.set(s.msg_id, quotaPerSegnale('scoretrend', s, eventiBF)); return mp }, [visibili, eventiBF])
+  const cellaHT = useMemo(() => { const mp = new Map<number, CellaBF>(); for (const s of hunter) mp.set(s.msg_id, quotaPerSegnale('hunter', s, eventiBF)); return mp }, [hunter, eventiBF])
 
   const totale = raggruppa(visibili, () => 'Totale')[0]
   const blocchi: [string, Riga[]][] = [
@@ -346,16 +381,19 @@ export default function SegnaliPage() {
         <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 14 }}>
           Arrivano dal canale in tempo reale · aggiornamento ogni 30 secondi{aggiornato ? ` · ultimo alle ${aggiornato.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
         </div>
+        <div style={{ fontSize: 12, color: erroreBF ? '#fca5a5' : '#64748b', marginBottom: 14 }}>
+          {erroreBF ? `Quote Betfair non leggibili: ${erroreBF}` : eventiBF.length ? `Quote Betfair: ${eventiBF.length} partite caricate · colonna "Betfair" = prezzo ora (back / lay) · "derivata" e "stimata" = calcolate, non giocabili · "—" = partita non trovata o mercato non disponibile` : 'Quote Betfair: nessun dato disponibile'}
+        </div>
 
 {tab==='pronox' ? (
-        <SchedaPronox dati={pronox} sel={sel} th={th} td={td} tabellaPagella={tabellaPagella} />
+        <SchedaPronox dati={pronox} sel={sel} th={th} td={td} tabellaPagella={tabellaPagella} eventiBF={eventiBF} />
         ) : tab==='hunterbet' ? (
         <div style={{ background:'rgba(15,23,42,.6)', border:'1px solid #1e293b', borderRadius:14, padding:12, overflowX:'auto' }}>
           <div style={{fontWeight:900,marginBottom:4}}>Hunterbet · {hunter.length}</div>
           <div style={{fontSize:11.5,color:'#94a3b8',marginBottom:8}}>Scrivi il risultato finale (es. 2-1) e, se lo sai, quello del 1° tempo: l'esito si calcola da solo ("auto"). Puoi sceglierlo a mano se il mercato non viene riconosciuto. La quota serve per la pagella; arriverà da Betfair quando sarà collegato.</div>
           <table style={{borderCollapse:'collapse',width:'100%'}}>
-            <thead><tr>{['Arrivato','Fase','Partita','Competizione','Segnale','Ris. al segnale','1° tempo','Finale','Quota','Esito',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
-            <tbody>{hunter.map(s=><RigaHunter key={s.msg_id} s={s} td={td} onSalvato={r=>setHunter((v:Hunter[])=>v.map(x=>x.msg_id===r.msg_id?r:x))} />)}</tbody>
+            <thead><tr>{['Arrivato','Fase','Partita','Competizione','Segnale','Ris. al segnale','1° tempo','Finale','Quota','Betfair','Esito',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+            <tbody>{hunter.map(s=><RigaHunter key={s.msg_id} s={s} td={td} bf={cellaHT.get(s.msg_id)} onSalvato={r=>setHunter((v:Hunter[])=>v.map(x=>x.msg_id===r.msg_id?r:x))} />)}</tbody>
           </table>
         </div>
         ) : (<>
@@ -394,7 +432,7 @@ export default function SegnaliPage() {
           <div style={{ fontWeight: 900, marginBottom: 8 }}>Segnali · {visibili.length}</div>
           <div style={{ maxHeight: 460, overflowY: 'auto' }}>
             <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-              <thead><tr>{['Arrivato', 'Partita', 'Competizione', 'Tipo', 'Mercato', 'Giocata', 'Quota', 'Esito', 'Unità', '', '1° tempo', 'Finale', ''].map((h, i) => <th key={i} style={{ ...th, position: 'sticky', top: 0, background: '#0f172a' }}>{h}</th>)}</tr></thead>
+              <thead><tr>{['Arrivato', 'Partita', 'Competizione', 'Tipo', 'Mercato', 'Giocata', 'Quota', 'Betfair', 'Esito', 'Unità', '', '1° tempo', 'Finale', ''].map((h, i) => <th key={i} style={{ ...th, position: 'sticky', top: 0, background: '#0f172a' }}>{h}</th>)}</tr></thead>
               <tbody>{visibili.map(s => (
                 <tr key={s.msg_id} style={{ background: recenti(s.data_msg) && !s.esito ? 'rgba(56,189,248,.08)' : undefined }}>
                   <td style={{ ...td, whiteSpace: 'nowrap' }}>{recenti(s.data_msg) && !s.esito ? '🆕 ' : ''}{quando(s.data_msg)}</td>
@@ -404,6 +442,7 @@ export default function SegnaliPage() {
                   <td style={td}>{mercatoDi(s)}</td>
                   <td style={{ ...td, fontWeight: 700 }}>{s.selezione}</td>
                   <td style={{ ...td, fontWeight: 800, color: Number(s.quota) < 1.4 ? '#fbbf24' : '#f8fafc' }} title={Number(s.quota) < 1.4 ? 'Sotto la regola di 1,40' : ''}>{String(s.quota ?? '').replace('.', ',')}</td>
+                  <CellaBetfair c={cellaST.get(s.msg_id)} td={td} />
                   <td style={{ ...td, fontWeight: 900, color: s.esito === 'VINTA' ? '#86efac' : s.esito === 'PERSA' ? '#fca5a5' : '#94a3b8' }}>{s.esito ? (s.esito === 'VINTA' ? '🟢 vinta' : s.esito === 'PERSA' ? '🔴 persa' : '⚪ nulla') : '⏳ in corso'}</td>
                   <td style={{ ...td, color: Number(s.profitto) >= 0 ? '#86efac' : '#fca5a5' }}>{s.profitto != null ? `${s.profitto >= 0 ? '+' : ''}${n2(Number(s.profitto))}` : ''}</td>
                   <td style={td}>{s.link && <a href={s.link} target="_blank" rel="noopener noreferrer" style={{ color: '#7dd3fc', fontSize: 11 }}>apri</a>}</td>
