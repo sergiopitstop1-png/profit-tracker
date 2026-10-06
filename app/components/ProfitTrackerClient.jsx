@@ -85,14 +85,15 @@ const BASE_CASSA_MESE = 57229.62
 // 01/10/2026 — SEZIONE A SCOMPARSA (tab Profilazione, vista Operativa).
 // Il contenuto resta montato anche da chiusa (display: none): i pannelli continuano a lavorare
 // (avvisi, coda recuperi…) anche quando non li guardi. Si ricorda aperta/chiusa.
-function Sezione({ id, titolo, badge, colore = '#38bdf8', aperta: apertaDefault = false, forzaApri, children }) {
+function Sezione({ id, titolo, badge, colore = '#38bdf8', aperta: apertaDefault = false, forzaApri, lampeggia = false, children }) {
   const chiave = `profittracker_sezione_${id}`
   const [aperta, setAperta] = useState(() => { try { const v = localStorage.getItem(chiave); return v == null ? apertaDefault : v === '1' } catch { return apertaDefault } })
   useEffect(() => { if (forzaApri) setAperta(true) }, [forzaApri])
   const cambia = () => setAperta(v => { const n = !v; try { localStorage.setItem(chiave, n ? '1' : '0') } catch {} return n })
   return (
     <div id={`sezione-${id}`} style={{ marginBottom: 12, scrollMarginTop: 12 }}>
-      <div onClick={cambia} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 12, border: `1px solid ${colore}55`, background: `${colore}12`, fontWeight: 800, color: '#e2e8f0', fontSize: 14 }}>
+      {lampeggia && !aperta ? <style>{`@keyframes sezPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(248,113,113,0) } 50% { box-shadow: 0 0 14px 2px rgba(248,113,113,.45) } } .sez-lampeggia { animation: sezPulse 1.6s ease-in-out infinite }`}</style> : null}
+      <div className={lampeggia && !aperta ? 'sez-lampeggia' : undefined} onClick={cambia} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 12, border: `1px solid ${colore}55`, background: `${colore}12`, fontWeight: 800, color: '#e2e8f0', fontSize: 14 }}>
         <span>{titolo}</span>
         {badge ? <span style={{ fontSize: 11, fontWeight: 900, color: colore, background: `${colore}22`, border: `1px solid ${colore}66`, borderRadius: 999, padding: '2px 9px' }}>{badge}</span> : null}
         <span style={{ marginLeft: 'auto', color: '#94a3b8', fontSize: 12 }}>{aperta ? '▲ chiudi' : '▼ apri'}</span>
@@ -7345,8 +7346,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 
        {/* 05/10/2026 · 🎁 PROMO IN SCADENZA (lampeggia entro 2 giorni) */}
        {activeTab === 'dashboard' && <BetfairStato />}
-       {activeTab === 'dashboard' && <LucyTrading />}
-       {activeTab === 'dashboard' && <PromoScadenze onApri={() => handleTabChange('promo')} />}
+       {activeTab === 'dashboard' && <LucyTrading Sezione={Sezione} />}
+       {activeTab === 'dashboard' && <PromoScadenze onApri={() => handleTabChange('promo')} Sezione={Sezione} />}
 
        {/* 05/10/2026 · 🎯 PROFILAZIONI MIRATE IN ARRIVO: scadute, oggi, domani e nei 3 giorni dopo */}
        {activeTab === 'dashboard' && (() => {
@@ -7380,8 +7381,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             .sort((a, b) => a.prossima.localeCompare(b.prossima))
           if (!prossime.length) return null
           return (
-            <div style={{ background: 'rgba(124,58,237,.10)', border: '1px solid rgba(167,139,250,.45)', borderRadius: 14, padding: '10px 14px', margin: '0 0 14px', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-              <span style={{ fontWeight: 900, color: '#c4b5fd', fontSize: 13, marginRight: 4 }}>🎯 Profilazioni mirate in arrivo</span>
+            <Sezione id="dash_mirate" titolo="🎯 Profilazioni mirate in arrivo" badge={`${prossime.length}${prossime.some(r => r.tra <= 0) ? ` · ${prossime.filter(r => r.tra <= 0).length} oggi` : ''}`} colore="#a78bfa" aperta={false}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', padding: '2px 0' }}>
               {prossime.map(({ g, prossima, tra }) => {
                 const nomiBook = [...new Set((g.conti || []).map(id => (books || []).find(b => String(b.id) === String(id))?.nome).filter(Boolean))]
                 const quando = tra < 0 ? `scaduta da ${-tra} gg` : tra === 0 ? 'OGGI' : tra === 1 ? 'domani' : `tra ${tra} gg`
@@ -7400,6 +7401,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 )
               })}
             </div>
+            </Sezione>
           )
         })()}
 
