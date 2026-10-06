@@ -23,6 +23,7 @@ import { pianoAvvisi } from './pianoAvvisi' // 03/10/2026: un avviso al giorno
 import AvvisiContiPanel, { pianoDelGiorno } from './AvvisiConti'
 import PromoBonusPanel, { PromoScadenze } from './PromoBonus'   // 05/10/2026: tab Promo + striscia scadenze
 import BetfairStato from './BetfairStato'   // 06/10/2026: avviso "quote Betfair ferme" in Dashboard
+import LucyTrading from './LucyTrading'   // 06/10/2026: scheda Lucy · trading prematch
 import ProfilazioniMiratePanel, { prossimaMirata } from './ProfilazioniMirate'   // 05/10/2026: prossimaMirata per il banner in Dashboard
 import { impostaPausaRecupero } from './RecuperoConti'
 import CalendarioAperture from './CalendarioAperture'
@@ -7344,6 +7345,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 
        {/* 05/10/2026 · 🎁 PROMO IN SCADENZA (lampeggia entro 2 giorni) */}
        {activeTab === 'dashboard' && <BetfairStato />}
+       {activeTab === 'dashboard' && <LucyTrading />}
        {activeTab === 'dashboard' && <PromoScadenze onApri={() => handleTabChange('promo')} />}
 
        {/* 05/10/2026 · 🎯 PROFILAZIONI MIRATE IN ARRIVO: scadute, oggi, domani e nei 3 giorni dopo */}
