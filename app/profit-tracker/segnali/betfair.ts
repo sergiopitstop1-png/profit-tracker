@@ -10,7 +10,7 @@
 
 export type SelBF = { nome: string; back: number | null; lay: number | null; backSize: number | null; laySize: number | null; ltp: number | null; inGioco: boolean; letto: string | null }
 export type MercatoBF = { marketId: string; tipo: string; sel: SelBF[] }
-export type EventoBF = { eventId: string; evento: string; casa: string; ospite: string; inizio: number; mercati: Record<string, MercatoBF>; _casa?: Nome; _ospite?: Nome }
+export type EventoBF = { eventId: string; evento: string; casa: string; ospite: string; inizio: number; mercati: Record<string, MercatoBF>; battito?: number | null; _casa?: Nome; _ospite?: Nome }
 
 export type Pezzo =
   | { k: 'esito'; v: '1' | 'X' | '2' | '1X' | 'X2' | '12'; tempo: 'ft' | 'ht' }
@@ -37,10 +37,15 @@ export async function caricaBetfair(supabase: any): Promise<EventoBF[]> {
     }
     return out
   }
-  const [mercati, quote] = await Promise.all([
+  const [mercati, quote, stato] = await Promise.all([
     leggi('betfair_mercati', 'market_id,event_id,evento,casa,ospite,tipo,inizio', ['market_id']),
     leggi('betfair_quote_ultime', 'market_id,selection_id,nome,back,back_size,lay,lay_size,ltp,in_gioco,letto', ['market_id', 'selection_id']),
+    supabase.from('betfair_stato').select('ultimo_aggiornamento').limit(1).maybeSingle(),
   ])
+  // Il servizio salva una riga solo quando la quota CAMBIA: la data di una singola quota non dice se è fresca.
+  // Per sapere se i prezzi sono aggiornati si guarda il "battito" del servizio (scritto ogni ~30 secondi).
+  const battitoMs = stato?.data?.ultimo_aggiornamento ? Date.parse(stato.data.ultimo_aggiornamento) : NaN
+  const battito = Number.isFinite(battitoMs) ? battitoMs : null
   const num = (x: any) => (x === null || x === undefined || x === '' || !Number.isFinite(Number(x)) ? null : Number(x))
   const perMercato = new Map<string, SelBF[]>()
   for (const q of quote) {
@@ -55,7 +60,7 @@ export async function caricaBetfair(supabase: any): Promise<EventoBF[]> {
     let ev = eventi.get(m.event_id)
     if (!ev) {
       const pezzi = String(m.evento || '').split(/ v | vs | - /i)
-      ev = { eventId: m.event_id, evento: String(m.evento || ''), casa: String(m.casa || pezzi[0] || '').trim(), ospite: String(m.ospite || pezzi[1] || '').trim(), inizio, mercati: {} }
+      ev = { eventId: m.event_id, evento: String(m.evento || ''), casa: String(m.casa || pezzi[0] || '').trim(), ospite: String(m.ospite || pezzi[1] || '').trim(), inizio, mercati: {}, battito }
       eventi.set(m.event_id, ev)
     }
     ev.mercati[m.tipo] = { marketId: m.market_id, tipo: m.tipo, sel: perMercato.get(m.market_id) || [] }
@@ -366,7 +371,9 @@ export function probModello(m: Modello, pezzi: Pezzo[]): number | null {
 
 // ─── quota di un segnale ─────────────────────────────────────────────
 const fmt = (x: number | null | undefined, d = 2) => (x == null ? '–' : x.toFixed(d).replace('.', ','))
+const SOGLIA_BATTITO_MIN = 3   // il servizio scrive il battito ogni ~30 secondi: oltre 3 minuti è fermo
 const eta = (ev: EventoBF, tipi: string[], ora: number): number | null => {
+  if (ev.battito != null) return Math.max(0, Math.round((ora - ev.battito) / MIN))
   let max: number | null = null
   for (const t of tipi) for (const s of ev.mercati[t]?.sel || []) {
     const x = s.letto ? Date.parse(s.letto) : NaN
@@ -387,9 +394,18 @@ export function sogliaVecchiaMin(inizio: number, ora: number): number {
   return 3
 }
 
+// Un prezzo è "vecchio" se il servizio è fermo (battito scaduto) oppure se la partita è iniziata e il mercato non viene più letto
+// (in gioco si legge solo l'Over/Under 0.5 primo tempo). Senza battito si usa la data dell'ultima quota, con le soglie per fascia.
+function prezzoVecchio(ev: EventoBF, tipi: string[], ora: number): boolean {
+  const e = eta(ev, tipi, ora) ?? 0
+  if (ev.battito == null) return e > sogliaVecchiaMin(ev.inizio, ora)
+  if (e > SOGLIA_BATTITO_MIN) return true
+  return ev.inizio <= ora && !tipi.every(t => t === 'FIRST_HALF_GOALS_05')
+}
+
 export function quotaPezzi(pezzi: Pezzo[], ev: EventoBF, ora = Date.now(), quotaBook: number | null = null): CellaBF {
   const ok = (tipo: 'mercato' | 'derivata' | 'stimata', testo: string, dettaglio: string, tipi: string[], rif: number | null, num: NumBF): CellaBF => ({
-    stato: 'ok', tipo, testo, dettaglio, num, vecchiaMin: eta(ev, tipi, ora), vecchia: (eta(ev, tipi, ora) ?? 0) > sogliaVecchiaMin(ev.inizio, ora), iniziata: ev.inizio <= ora,
+    stato: 'ok', tipo, testo, dettaglio, num, vecchiaMin: eta(ev, tipi, ora), vecchia: prezzoVecchio(ev, tipi, ora), iniziata: ev.inizio <= ora,
     deltaBook: quotaBook && rif ? (quotaBook / rif - 1) * 100 : null })
   const nd = (motivo: string): CellaBF => ({ stato: 'nd', motivo })
   const diretta = (s: SelBF | undefined, tipo: string): CellaBF | null => {
