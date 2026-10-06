@@ -83,6 +83,99 @@ async function chiudiSmsOtp() {
   return (data || []).length
 }
 
+/* =========================================================
+   06/10/2026 · OGGETTI DA IGNORARE (filtro gratuito, prima dell'AI)
+   - Le mail il cui oggetto contiene una di queste frasi vengono
+     classificate IGNORA senza chiamare l'AI.
+   - Vale anche per le mail già in archivio (es. DA_VALUTARE): a ogni
+     analisi vengono riclassificate IGNORA.
+   - Per aggiungere un oggetto basta una riga nell'elenco (minuscole,
+     senza accenti; basta una parte dell'oggetto).
+   ========================================================= */
+
+const OGGETTI_DA_IGNORARE = [
+  'autorizza il dispositivo su', // es. "Autorizza il dispositivo su eplay24 - Chrome Mobile su Android"
+  'accesso da un nuovo dispositivo', // es. PayPal "Accesso da un nuovo dispositivo"
+]
+
+function normOggetto(
+  value: string | null | undefined
+) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function eOggettoDaIgnorare(
+  item: LucyItem
+) {
+  if (item.canale !== 'EMAIL') {
+    return false
+  }
+
+  const oggetto =
+    normOggetto(item.oggetto)
+
+  return OGGETTI_DA_IGNORARE.some(
+    frase =>
+      oggetto.includes(
+        normOggetto(frase)
+      )
+  )
+}
+
+const RISULTATO_OGGETTO = {
+  ...RISULTATO_OTP,
+  motivazione_ai:
+    'Oggetto in elenco "da ignorare" (avviso di accesso o autorizzazione dispositivo): classificato dal filtro gratuito, senza AI.',
+}
+
+/*
+ * Mail già in archivio con uno di questi oggetti (anche se l'AI
+ * le aveva giudicate DA_VALUTARE o UTILE): chiuse in blocco.
+ */
+async function chiudiMailOggettiIgnorati() {
+  const now =
+    new Date().toISOString()
+
+  let chiuse = 0
+
+  for (const frase of OGGETTI_DA_IGNORARE) {
+    const modello =
+      frase.replace(/[%_\\]/g, m => '\\' + m)
+
+    const { data, error } =
+      await supabase
+        .from('lucy_mail_archive')
+        .update({
+          ...RISULTATO_OGGETTO,
+          analizzata_at: now,
+          updated_at: now,
+        })
+        .ilike('oggetto', `%${modello}%`)
+        .or(
+          'giudizio.is.null,giudizio.neq.IGNORA'
+        )
+        .select('id')
+
+    if (error) {
+      console.error(
+        '[Lucy AI] filtro oggetti da ignorare',
+        error
+      )
+
+      continue
+    }
+
+    chiuse += (data || []).length
+  }
+
+  return chiuse
+}
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -1932,6 +2025,13 @@ async function runAnalysis() {
   let otpFiltrati =
     otpChiusi
 
+  // 06/10/2026: oggetti da ignorare già in archivio
+  const oggettiChiusi =
+    await chiudiMailOggettiIgnorati()
+
+  let oggettiIgnorati =
+    oggettiChiusi
+
   const [
     emails,
     sms,
@@ -1982,6 +2082,7 @@ async function runAnalysis() {
       ok: true,
 
       otp_filtrati: otpFiltrati,
+      oggetti_ignorati: oggettiIgnorati,
 
       email_trovate: 0,
       sms_trovati: 0,
@@ -2025,6 +2126,22 @@ async function runAnalysis() {
     }
 
     try {
+      // 06/10/2026: oggetto in elenco "da ignorare" → nessuna chiamata AI
+      if (eOggettoDaIgnorare(item)) {
+        await saveResult(
+          item,
+          RISULTATO_OGGETTO
+        )
+
+        oggettiIgnorati++
+
+        console.log(
+          `[Lucy AI] oggetto ignorato ${item.canale} ${item.id} filtro gratuito`
+        )
+
+        continue
+      }
+
       // 04/10/2026: codice di verifica → nessuna chiamata AI
       if (eOtp(item)) {
         await saveResult(
@@ -2113,6 +2230,7 @@ async function runAnalysis() {
 
     // 04/10/2026: comunicazioni chiuse dal filtro gratuito (senza AI)
     otp_filtrati: otpFiltrati,
+      oggetti_ignorati: oggettiIgnorati,
 
     email_trovate:
       emails.length,
