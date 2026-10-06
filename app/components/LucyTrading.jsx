@@ -40,7 +40,7 @@ function Barra({ valore, massimo, etichetta }) {
     </div>)
 }
 
-export default function LucyTrading() {
+export default function LucyTrading({ Sezione }) {
   const [stato, setStato] = useState(undefined)   // undefined = carico, null = nessuna riga
   const [consigli, setConsigli] = useState([])
   const [, setTick] = useState(0)
@@ -64,12 +64,8 @@ export default function LucyTrading() {
   if (stato === undefined) return null
   const v = valutaLucy(stato, consigli)
   const st = STILI[v.livello]
-  return (
-    <div style={{ margin: '0 0 12px', padding: '10px 14px', borderRadius: 14, border: `1px solid ${st.border}`, background: st.bg }}>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
-        <span style={{ fontWeight: 900, color: '#f8fafc', fontSize: 13 }}>🧠 Lucy · Trading prematch</span>
-        <span style={{ fontSize: 12, color: st.color, fontWeight: 700 }}>{v.testo}</span>
-      </div>
+  const corpo = (
+    <>
       {stato && (
         <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 8 }}>
           <Barra valore={Number(stato.giorni_dati) || 0} massimo={Number(stato.min_giorni) || 1} etichetta={`Giorni di storico: ${f2(stato.giorni_dati)} su ${stato.min_giorni}`} />
@@ -100,5 +96,23 @@ export default function LucyTrading() {
             <div style={{ marginTop: 6, color: '#64748b' }}>Strategie provate: {stato.segmenti_testati} · valide: {stato.segmenti_validi} · soglia di significatività richiesta: z ≥ {f2(stato.z_richiesto)}</div>
           </div>
         </details>)}
+    </>)
+  if (Sezione) {   // 06/10/2026: nella Dashboard è una riga chiusa con un riassunto; si apre da sola se ci sono consigli o l'analisi è ferma
+    const badge = v.livello === 'consigli' ? v.testo : v.livello === 'raccolta' ? `raccolta dati ${f2(stato?.giorni_dati)}/${stato?.min_giorni} gg` : v.livello === 'niente' ? 'nessun vantaggio dimostrato' : v.livello === 'fermo' ? 'analisi ferma' : 'in attesa'
+    return (
+      <Sezione id="dash_lucy_trading" titolo="🧠 Lucy · Trading prematch" badge={badge} colore={v.livello === 'consigli' ? '#22c55e' : v.livello === 'fermo' ? '#ef4444' : '#38bdf8'} aperta={false} forzaApri={v.livello === 'consigli' || v.livello === 'fermo'}>
+        <div style={{ padding: '10px 14px', borderRadius: 14, border: `1px solid ${st.border}`, background: st.bg }}>
+          <div style={{ fontSize: 12, color: st.color, fontWeight: 700 }}>{v.testo}</div>
+          {corpo}
+        </div>
+      </Sezione>)
+  }
+  return (
+    <div style={{ margin: '0 0 12px', padding: '10px 14px', borderRadius: 14, border: `1px solid ${st.border}`, background: st.bg }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
+        <span style={{ fontWeight: 900, color: '#f8fafc', fontSize: 13 }}>🧠 Lucy · Trading prematch</span>
+        <span style={{ fontSize: 12, color: st.color, fontWeight: 700 }}>{v.testo}</span>
+      </div>
+      {corpo}
     </div>)
 }
