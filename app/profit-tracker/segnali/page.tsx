@@ -85,6 +85,7 @@ function CellaCongelata({ r, td }: { r: RigaCongelata | undefined; td: any }) {
         {book != null ? `${r.tipo !== 'mercato' ? ' · ' : ''}book ${pct(book)}` : ''}
         {ch ? ` · chiusura ${f2(ch)}${clv != null ? ` (${pct(clv)})` : ''}` : ''}
         {prepartita ? <span style={{ color: '#fbbf24' }}> · prepartita</span> : null}
+        {r.vecchia && !r.iniziata ? <span style={{ color: '#fbbf24' }}>{' · prezzo già vecchio di ' + r.eta_min + ' min'}</span> : null}
       </div>
     </td>)
 }
