@@ -45,7 +45,7 @@ function etichettaScadenza(iso) {
 }
 
 // ─── STRISCIA IN DASHBOARD: promo da fare che scadono entro 2 giorni (lampeggia) ───
-export function PromoScadenze({ onApri }) {
+export function PromoScadenze({ onApri, Sezione }) {
   const [lista, setLista] = useState([])
   useEffect(() => {
     let vivo = true
@@ -65,6 +65,27 @@ export function PromoScadenze({ onApri }) {
     const g = acc[p.scadenza] || (acc[p.scadenza] = { iso: p.scadenza, testo: e.testo.replace('scade ', '').replace(/^./, c => c.toUpperCase()), colore: e.colore, promo: [] })
     g.promo.push(p); return acc
   }, {})).sort((x, y) => String(x.iso).localeCompare(String(y.iso)))
+  // 06/10/2026 — se la Dashboard passa il componente Sezione, la striscia è una riga chiusa con i numeri (si apre con un clic)
+  const conta = (re) => gruppi.filter(g => re.test(g.testo)).reduce((n, g) => n + g.promo.length, 0)
+  const oggi = conta(/^oggi/i), domani = conta(/^domani/i)   // l'etichetta di oggi è scritta OGGI in maiuscolo
+  if (Sezione) {
+    return (
+      <Sezione id="dash_promo" titolo="🎁 Promo in scadenza" badge={`${lista.length}${oggi ? ` · ${oggi} oggi` : ''}${domani ? ` · ${domani} domani` : ''}`} colore="#f87171" aperta={false} lampeggia={oggi + domani > 0}>
+        <div onClick={onApri} title="Apri la tab Promo"
+          style={{ cursor: 'pointer', background: 'rgba(239,68,68,.08)', border: '1px solid rgba(248,113,113,.5)', borderRadius: 14, padding: '10px 14px', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+          {gruppi.map(g => (
+            <div key={g.iso} style={{ width: '100%', display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+              <span style={{ minWidth: 118, fontSize: 12, fontWeight: 800, color: g.colore }}>
+                {g.testo} <span style={{ fontWeight: 500, opacity: .75 }}>· {dataIt(g.iso)}</span>
+              </span>
+              {g.promo.map(p => (
+                <span key={p.id} style={{ padding: '3px 10px', borderRadius: 999, border: `1px solid ${g.colore}66`, background: `${g.colore}14`, color: '#e2e8f0', fontSize: 12, fontWeight: 600 }}>
+                  {p.cliente} <span style={{ color: g.colore, opacity: .8 }}>·</span> {p.book}
+                </span>))}
+            </div>))}
+        </div>
+      </Sezione>)
+  }
   return (
     <div className="promo-lampeggia" onClick={onApri} title="Apri la tab Promo"
       style={{ cursor: 'pointer', background: 'rgba(239,68,68,.12)', border: '1px solid rgba(248,113,113,.7)', borderRadius: 14, padding: '10px 14px', margin: '0 0 14px', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
