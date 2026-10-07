@@ -1,100 +1,137 @@
 // =====================================================================
-// PronoX · Cron segnali TENNIS (07/10/2026)  →  app/api/cron/pronox-tennis/route.js
-// Come per il calcio, registra da solo ogni segnale tennis in pronox_tennis_segnali:
-// solo 🎆 VALUE e pronostici "X vince" (mai i "sospetti"), una volta sola e senza modifiche.
-// Usa lo stesso calcolo di /oggi e di daily-digest: getTennisMatches (lib/tennisMatches.js), chiamato
-// direttamente (niente richiesta di rete). Le quote OddsPapi hanno una cache di 20 minuti: la corsa che
-// parte subito dopo daily-digest (14:10 UTC, date=domani) riusa quella cache e non consuma richieste.
-// Le partite già iniziate si saltano (le quote non sarebbero più quelle del prepartita).
-//
-// Prova a mano:  curl.exe -H "Authorization: Bearer IL_TUO_CRON_SECRET" "https://sergioapicella.it/api/cron/pronox-tennis?date=oggi"
-// date: oggi | domani | AAAA-MM-GG (data UTC, come in /oggi)
+// PronoX · Cron risultati TENNIS da Betfair (07/10/2026)
+// Legge da Supabase (betfair_mercati + betfair_quote_ultime, riempite dal servizio
+// betfair_quote.py sul PC con tennis = 1) chi ha vinto ogni partita e aggiorna
+// pronox_tennis_segnali: vincitore ed esito (VINTA / PERSA / NULLA).
+//  • NON consuma crediti di nessuna API: legge solo il database;
+//  • non tocca mai i segnali corretti a mano (esito_manuale = true) né quelli già decisi;
+//  • il punteggio non arriva da Betfair: resta da scrivere a mano (facoltativo).
+// Betfair cancella i mercati dopo 48 ore: va lanciato almeno una volta al giorno (meglio 2).
+// Esecuzione manuale (test): /api/cron/pronox-tennis-outcomes
+// Variabili: CRON_SECRET, NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, PT_USER_ID
 // =====================================================================
+
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { getTennisMatches } from "../../../../lib/tennisMatches";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-const isoUTC = (d) => d.toISOString().split("T")[0];
-function risolviData(p) {
-  const v = (p || "").toLowerCase();
-  if (!v || v === "oggi" || v === "today") return isoUTC(new Date());
-  if (v === "domani" || v === "tomorrow") return isoUTC(new Date(Date.now() + 86400000));
-  return p;
-}
-const arrotonda = (x) => (x == null || !Number.isFinite(Number(x)) ? null : Math.round(Number(x) * 10000) / 10000);
-const num = (x) => (x && Number.isFinite(Number(x)) && Number(x) > 1 ? Number(x) : null);
+const GIORNI_INDIETRO = 5;
+const ATTESA_MS = 30 * 60000;          // non guarda partite iniziate da meno di 30 minuti
+const TOLLERANZA_ORE = 30;             // differenza massima tra inizio del segnale e inizio del mercato Betfair
+
+// nome → parole utili (senza accenti, niente iniziali di 1-2 lettere)
+const parole = (s) =>
+  String(s || "")
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .toLowerCase().replace(/[^a-z\s-]/g, " ").replace(/-/g, " ")
+    .split(/\s+/).filter((t) => t.length >= 3);
+
+const comuni = (a, b) => {
+  const set = new Set(b);
+  return a.filter((t) => set.has(t)).length;
+};
 
 export async function GET(request) {
   const secret = process.env.CRON_SECRET;
   if (secret && request.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "non autorizzato" }, { status: 401 });
   }
-  const url = new URL(request.url);
-  const date = risolviData(url.searchParams.get("date"));
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return NextResponse.json({ error: "data non valida" }, { status: 400 });
+  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+  const utente = process.env.PT_USER_ID;
+  const report = { segnali_da_controllare: 0, mercati_tennis: 0, aggiornati: 0, in_attesa: 0, senza_mercato: 0, errors: [] };
 
-  const report = { date, partite: 0, segnali: 0, gia_iniziate: 0, nuovi: 0, gia_presenti: 0, errors: [], debug: {} };
   try {
-    // 1. Stesso calcolo di /oggi e di daily-digest
-    const d = await getTennisMatches(date);
-    if (d?.error) {
-      report.errors.push(`${d.error}${d.details ? ` (${String(d.details).slice(0, 200)})` : ""}`);
-      return NextResponse.json(report, { status: 502 });
-    }
-    report.debug.dalla_cache = !!d.fromCache;
-    const partite = Array.isArray(d?.matches) ? d.matches : [];
-    report.partite = partite.length;
+    const ora = Date.now();
+    const dal = new Date(ora - GIORNI_INDIETRO * 86400000).toISOString().split("T")[0];
 
-    // 2. Stessa regola di /oggi per i segnali
-    const adesso = Date.now();
-    const righe = [];
-    for (const m of partite) {
-      if (!m?.playerA?.name || !m?.playerB?.name) continue;
-      const inizio = m.commenceTime ? new Date(m.commenceTime).getTime() : null;
-      if (inizio && inizio <= adesso) { report.gia_iniziate++; continue; }
-      const sig = [];
-      if (m.isValueA) sig.push({ lato: "A", tipo: "VALUE" });
-      if (m.isValueB) sig.push({ lato: "B", tipo: "VALUE" });
-      if (!sig.length && !m.lowDataPlayer && !m.suspiciousA && !m.suspiciousB) {
-        sig.push({ lato: m.probA >= m.probB ? "A" : "B", tipo: "PRONOSTICO" });
-      }
-      for (const s of sig) {
-        const a = s.lato === "A";
-        righe.push({
-          data_partita: date,
-          inizio: m.commenceTime || null,
-          ora: m.commenceTime ? new Date(m.commenceTime).toLocaleTimeString("it-IT", { timeZone: "Europe/Rome", hour: "2-digit", minute: "2-digit" }) : null,
-          torneo: m.tournament || null,
-          circuito: m.tour || null,
-          giocatore_a: m.playerA.name,
-          giocatore_b: m.playerB.name,
-          selezione: a ? m.playerA.name : m.playerB.name,
-          tipo: s.tipo,
-          prob: arrotonda(a ? m.probA : m.probB),
-          quota: num(a ? m.oddsA : m.oddsB),
-          quota_a: num(m.oddsA),
-          quota_b: num(m.oddsB),
-          ev: s.tipo === "VALUE" ? arrotonda(a ? m.evA : m.evB) : null,
-          esito_manuale: false,
-        });
+    // 1. Segnali ancora senza esito e non corretti a mano
+    const { data: segnali, error: e1 } = await supabase
+      .from("pronox_tennis_segnali")
+      .select("id, data_partita, inizio, giocatore_a, giocatore_b, selezione, esito, vincitore, esito_manuale")
+      .gte("data_partita", dal)
+      .is("esito", null)
+      .or("esito_manuale.is.null,esito_manuale.eq.false")
+      .limit(500);
+    if (e1) throw new Error(`segnali: ${e1.message}`);
+    const da = (segnali || []).filter((s) => !s.vincitore && (!s.inizio || ora - new Date(s.inizio).getTime() > ATTESA_MS));
+    report.segnali_da_controllare = da.length;
+    if (!da.length) return NextResponse.json({ ...report, note: "nessun segnale da aggiornare" });
+
+    // 2. Mercati tennis di Betfair (MATCH_ODDS) degli ultimi giorni
+    const mercati = [];
+    for (let from = 0; ; from += 1000) {
+      let q = supabase.from("betfair_mercati")
+        .select("market_id, casa, ospite, inizio")
+        .eq("sport", "tennis").eq("tipo", "MATCH_ODDS")
+        .gte("inizio", new Date(ora - 4 * 86400000).toISOString())
+        .lte("inizio", new Date(ora).toISOString())
+        .order("market_id").range(from, from + 999);
+      if (utente) q = q.eq("user_id", utente);
+      const { data, error } = await q;
+      if (error) throw new Error(`mercati: ${error.message}`);
+      mercati.push(...(data || []));
+      if (!data || data.length < 1000) break;
+    }
+    report.mercati_tennis = mercati.length;
+
+    // 3. Selezioni dei mercati (nome, stato_sel, stato)
+    const sel = new Map(); // market_id -> [{nome, stato_sel, stato}]
+    for (let i = 0; i < mercati.length; i += 40) {
+      const ids = mercati.slice(i, i + 40).map((m) => m.market_id);
+      let q = supabase.from("betfair_quote_ultime").select("market_id, nome, stato, stato_sel").in("market_id", ids).limit(1000);
+      if (utente) q = q.eq("user_id", utente);
+      const { data, error } = await q;
+      if (error) throw new Error(`selezioni: ${error.message}`);
+      for (const r of data || []) {
+        if (!sel.has(r.market_id)) sel.set(r.market_id, []);
+        sel.get(r.market_id).push(r);
       }
     }
-    report.segnali = righe.length;
 
-    // 3. Scrittura (il primo salvataggio non si riscrive)
-    const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
-    for (let i = 0; i < righe.length; i += 200) {
+    // 4. Abbinamento segnale ↔ mercato per cognome + orario
+    const aggiornati = [];
+    for (const s of da) {
+      const pa = parole(s.giocatore_a), pb = parole(s.giocatore_b);
+      const t0 = s.inizio ? new Date(s.inizio).getTime() : new Date(`${s.data_partita}T12:00:00Z`).getTime();
+      const tol = (s.inizio ? TOLLERANZA_ORE : 40) * 3600000;
+      let migliore = null;
+      for (const m of mercati) {
+        const righe = sel.get(m.market_id) || [];
+        if (righe.length < 2) continue;
+        if (Math.abs(new Date(m.inizio).getTime() - t0) > tol) continue;
+        // ogni giocatore deve corrispondere a una selezione diversa
+        const sa = righe.map((r) => comuni(pa, parole(r.nome)));
+        const sb = righe.map((r) => comuni(pb, parole(r.nome)));
+        const ia = sa.indexOf(Math.max(...sa)), ib = sb.indexOf(Math.max(...sb));
+        if (sa[ia] === 0 || sb[ib] === 0 || ia === ib) continue;
+        const dist = Math.abs(new Date(m.inizio).getTime() - t0);
+        if (!migliore || dist < migliore.dist) migliore = { m, righe, ia, ib, dist };
+      }
+      if (!migliore) { report.senza_mercato++; continue; }
+      const { righe, ia, ib } = migliore;
+      const vincente = righe.findIndex((r) => r.stato_sel === "WINNER");
+      let vincitore = null, esito = null;
+      if (vincente === ia) vincitore = s.giocatore_a;
+      else if (vincente === ib) vincitore = s.giocatore_b;
+      if (vincitore) esito = vincitore === s.selezione ? "VINTA" : "PERSA";
+      else if (righe.every((r) => r.stato === "CLOSED") && vincente === -1) { vincitore = "NULLA"; esito = "NULLA"; } // chiuso senza vincitore: ritiro / annullata
+      else if (vincente >= 0) { esito = null; } // vincitore diverso dai due giocatori: non tocco
+      if (!esito) { report.in_attesa++; continue; }
+      aggiornati.push({ id: s.id, vincitore, esito });
+    }
+
+    // 5. Scrittura (solo su righe ancora non decise e non corrette a mano)
+    for (const a of aggiornati) {
       const { data, error } = await supabase
         .from("pronox_tennis_segnali")
-        .upsert(righe.slice(i, i + 200), { onConflict: "data_partita,giocatore_a,giocatore_b,selezione", ignoreDuplicates: true })
+        .update({ vincitore: a.vincitore, esito: a.esito, aggiornato: new Date().toISOString() })
+        .eq("id", a.id).is("esito", null).or("esito_manuale.is.null,esito_manuale.eq.false")
         .select("id");
-      if (error) report.errors.push(`insert: ${error.message}`);
-      else report.nuovi += data?.length || 0;
+      if (error) report.errors.push(`update ${a.id}: ${error.message}`);
+      else report.aggiornati += data?.length || 0;
     }
-    report.gia_presenti = righe.length - report.nuovi;
   } catch (e) {
     report.errors.push(String(e?.message || e));
     return NextResponse.json(report, { status: 500 });
