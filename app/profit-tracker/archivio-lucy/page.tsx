@@ -195,8 +195,9 @@ export default function ArchivioLucyPage() {
      ======================================================= */
 
   const load = useCallback(
-    async () => {
-      setLoading(true)
+    async (silenzioso: boolean = false) => {
+      // 07/10/2026 — ricarica "silenziosa": niente scritta di caricamento, la pagina non salta
+      if (!silenzioso) setLoading(true)
 
       try {
         const p =
@@ -261,7 +262,7 @@ export default function ArchivioLucyPage() {
           error
         )
       } finally {
-        setLoading(false)
+        if (!silenzioso) setLoading(false)
       }
     },
     [
@@ -293,12 +294,17 @@ export default function ArchivioLucyPage() {
     const precedente = item.feedback_utente
     const notaPrecedente = item.feedback_note
     setRows(prev =>
-      prev.map(r =>
-        r.id === item.id
-          ? { ...r, feedback_utente: value, feedback_note: nota }
-          : r
-      )
+      sposta && vista !== 'tutte'
+        ? prev.filter(r => r.id !== item.id)
+        : prev.map(r =>
+            r.id === item.id
+              ? { ...r, feedback_utente: value, feedback_note: nota }
+              : r
+          )
     )
+    if (sposta && vista !== 'tutte') {
+      setCount(c => Math.max(0, c - 1))
+    }
     if (comunicazioneAperta?.id === item.id) {
       setComunicazioneAperta({ ...comunicazioneAperta, feedback_utente: value, feedback_note: nota })
     }
@@ -335,8 +341,8 @@ export default function ArchivioLucyPage() {
       }
 
       if (sposta) {
-        // la mail cambia vista: ricarica righe e contatori
-        await load()
+        // la mail cambia vista: sparisce subito, poi si sincronizzano i contatori
+        load(true)
       }
 
       mostraAvviso(
@@ -378,6 +384,17 @@ export default function ArchivioLucyPage() {
 
     setSavingId(item.id)
 
+    // 07/10/2026 — la riga sparisce SUBITO (senza ricaricare la pagina) e si chiude il popup
+    setRows(prev => prev.filter(r => r.id !== item.id))
+    setCount(c => Math.max(0, c - 1))
+    setCounters(c => ({
+      ...c,
+      archiviate: Math.max(0, c.archiviate + (nuovoStato ? 1 : -1)),
+    }))
+    if (comunicazioneAperta?.id === item.id) {
+      setComunicazioneAperta(null)
+    }
+
     try {
       const r = await fetch(
         '/api/lucy-mail/archive',
@@ -399,41 +416,19 @@ export default function ArchivioLucyPage() {
         }
       )
 
-      const j = await r.json()
-
       if (!r.ok) {
-        console.error(
-          '[Lucy archivio]',
-          j
-        )
-        return
+        throw new Error('HTTP ' + r.status)
       }
 
-      /*
-       * Se la comunicazione è aperta
-       * nel popup lo chiudiamo.
-       */
-      if (
-        comunicazioneAperta?.id ===
-        item.id
-      ) {
-        setComunicazioneAperta(
-          null
-        )
-      }
-
-      /*
-       * Ricarichiamo:
-       * - riga
-       * - contatori
-       * - vista Archiviate
-       */
-      await load()
+      // allinea i contatori in background, senza muovere la pagina
+      load(true)
     } catch (error) {
       console.error(
         '[Lucy archivio]',
         error
       )
+      mostraAvviso('⚠️ Non archiviata, riprova', false)
+      load(true) // la riga torna al suo posto
     } finally {
       setSavingId(null)
     }
@@ -906,7 +901,7 @@ export default function ArchivioLucyPage() {
             </button>
 
             <button
-              onClick={load}
+              onClick={() => load()}
               className="
                 rounded-lg
                 border
@@ -968,7 +963,7 @@ export default function ArchivioLucyPage() {
           </button>
 
           <button
-            onClick={load}
+            onClick={() => load()}
             className="
               flex-1
               rounded-lg
