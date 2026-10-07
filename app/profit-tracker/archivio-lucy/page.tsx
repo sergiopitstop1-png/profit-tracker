@@ -133,6 +133,28 @@ export default function ArchivioLucyPage() {
   const [loading, setLoading] =
     useState(false)
 
+  // 07/10/2026 — 👎: scelta di dove doveva andare la mail
+  const [pannelloNo, setPannelloNo] = useState<string | null>(null)
+  const [motivoNo, setMotivoNo] = useState('')
+
+  const DESTINAZIONI: Array<{ chiave: string; etichetta: string }> = [
+    { chiave: 'OPPORTUNITA', etichetta: '🔥 Opportunità' },
+    { chiave: 'DA_VALUTARE', etichetta: '⚠️ Da valutare' },
+    { chiave: 'PROBLEMI', etichetta: '🚨 Problemi' },
+    { chiave: 'IGNORA', etichetta: '⚪ Ignora' },
+  ]
+
+  function etichettaDest(nota: string | null | undefined) {
+    const m = String(nota || '').match(/^DOVEVA_ESSERE=([A-Z_]+)/)
+    if (!m) return ''
+    return DESTINAZIONI.find(d => d.chiave === m[1])?.etichetta || m[1]
+  }
+
+  function motivoDaNota(nota: string | null | undefined) {
+    const m = String(nota || '').match(/\|\s*(.+)$/)
+    return m ? m[1] : ''
+  }
+
   const [avviso, setAvviso] = useState<{ testo: string; ok: boolean } | null>(null)
 
   function mostraAvviso(testo: string, ok: boolean) {
@@ -260,19 +282,25 @@ export default function ArchivioLucyPage() {
 
   async function feedback(
     item: Comunicazione,
-    value: string
+    value: string,
+    nota: string | null = null,
+    sposta: string | null = null
   ) {
+    const motivoInviato = motivoNo
+    setPannelloNo(null)
+    setMotivoNo('')
     // 07/10/2026 — il voto si vede subito (aggiornamento immediato) e compare un avviso di conferma
     const precedente = item.feedback_utente
+    const notaPrecedente = item.feedback_note
     setRows(prev =>
       prev.map(r =>
         r.id === item.id
-          ? { ...r, feedback_utente: value }
+          ? { ...r, feedback_utente: value, feedback_note: nota }
           : r
       )
     )
     if (comunicazioneAperta?.id === item.id) {
-      setComunicazioneAperta({ ...comunicazioneAperta, feedback_utente: value })
+      setComunicazioneAperta({ ...comunicazioneAperta, feedback_utente: value, feedback_note: nota })
     }
 
     try {
@@ -292,6 +320,12 @@ export default function ArchivioLucyPage() {
               item.canale,
             feedback_utente:
               value,
+            feedback_note:
+              nota,
+            sposta_in:
+              sposta,
+            motivo:
+              motivoInviato,
           }),
         }
       )
@@ -300,10 +334,17 @@ export default function ArchivioLucyPage() {
         throw new Error('HTTP ' + r.status)
       }
 
+      if (sposta) {
+        // la mail cambia vista: ricarica righe e contatori
+        await load()
+      }
+
       mostraAvviso(
         value === 'UTILE'
           ? '👍 Voto registrato: classificazione corretta'
-          : '👎 Voto registrato: classificazione errata',
+          : nota && nota.startsWith('DOVEVA_ESSERE=')
+            ? '👎 Spostata in ' + etichettaDest(nota) + ' · Lucy ha imparato'
+            : '👎 Voto registrato: classificazione errata',
         true
       )
     } catch (error) {
@@ -315,7 +356,7 @@ export default function ArchivioLucyPage() {
       setRows(prev =>
         prev.map(r =>
           r.id === item.id
-            ? { ...r, feedback_utente: precedente }
+            ? { ...r, feedback_utente: precedente, feedback_note: notaPrecedente }
             : r
         )
       )
@@ -1935,7 +1976,7 @@ export default function ArchivioLucyPage() {
                         </button>
 
                         <button
-                          onClick={() => feedback(item, 'INUTILE')}
+                          onClick={() => { setMotivoNo(''); setPannelloNo(pannelloNo === item.id ? null : item.id) }}
                           className={`rounded-md border px-2 py-1 text-lg hover:opacity-100 ${
                             item.feedback_utente === 'INUTILE'
                               ? 'border-red-400 bg-red-500/30 opacity-100 ring-2 ring-red-400'
@@ -1955,8 +1996,55 @@ export default function ArchivioLucyPage() {
                             }`}
                           >
                             ✓ Voto registrato:{' '}
-                            {item.feedback_utente === 'UTILE' ? 'corretta' : 'errata'}
+                            {item.feedback_utente === 'UTILE'
+                              ? 'corretta'
+                              : etichettaDest(item.feedback_note)
+                                ? 'doveva stare in ' + etichettaDest(item.feedback_note)
+                                : 'errata'}
+                            {item.feedback_utente !== 'UTILE' && motivoDaNota(item.feedback_note)
+                              ? ' — ' + motivoDaNota(item.feedback_note)
+                              : ''}
                           </span>
+                        )}
+
+                        {pannelloNo === item.id && (
+                          <div className="w-full rounded-lg border border-red-500/40 bg-red-950/20 p-3">
+                            <div className="mb-2 text-xs font-bold text-red-300">
+                              Dove doveva andare? La mail verrà spostata lì
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {DESTINAZIONI.map(d => (
+                                <button
+                                  key={d.chiave}
+                                  onClick={() =>
+                                    feedback(
+                                      item,
+                                      'INUTILE',
+                                      'DOVEVA_ESSERE=' + d.chiave +
+                                        (motivoNo.trim() ? ' | ' + motivoNo.trim().replace(/\s+/g, ' ').slice(0, 160) : ''),
+                                      d.chiave
+                                    )
+                                  }
+                                  className="rounded-md border border-red-500/50 bg-black px-2 py-1 text-xs font-bold text-red-200 hover:bg-red-500/20"
+                                >
+                                  {d.etichetta}
+                                </button>
+                              ))}
+                            </div>
+                            <input
+                              className="matrix-input mt-2 !py-1 text-xs"
+                              placeholder="Perché? (facoltativo, aiuta Lucy a imparare)"
+                              value={motivoNo}
+                              maxLength={160}
+                              onChange={e => setMotivoNo(e.target.value)}
+                            />
+                            <button
+                              onClick={() => feedback(item, 'INUTILE', null)}
+                              className="mt-2 text-xs text-slate-400 underline hover:text-slate-200"
+                            >
+                              Solo sbagliata, non so dove
+                            </button>
+                          </div>
                         )}
 
                         {/* 05/10/2026 · 📌 salva come promo da ricordare */}
