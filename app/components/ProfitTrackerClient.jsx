@@ -21,6 +21,7 @@ import AvvisoManuale from './AvvisoManuale' // 03/10/2026: testo scorrevole che 
 import { scadenzaNota } from './noteConti' // 03/10/2026: scadenze scritte nelle note ("ENTRO 27/10")
 import { pianoAvvisi } from './pianoAvvisi' // 03/10/2026: un avviso al giorno
 import AvvisiContiPanel, { pianoDelGiorno } from './AvvisiConti'
+import LucyAvvisoMail from './LucyAvvisoMail'   // 07/10/2026: avviso sottile nuove opportunità / bonus accreditati
 import PromoBonusPanel, { PromoScadenze } from './PromoBonus'   // 05/10/2026: tab Promo + striscia scadenze
 import BetfairStato from './BetfairStato'   // 06/10/2026: avviso "quote Betfair ferme" in Dashboard
 import LucyTrading from './LucyTrading'   // 06/10/2026: scheda Lucy · trading prematch
@@ -7345,6 +7346,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         </nav>
 
        {/* 05/10/2026 · 🎁 PROMO IN SCADENZA (lampeggia entro 2 giorni) */}
+       {activeTab === 'dashboard' && <LucyAvvisoMail />}
        {activeTab === 'dashboard' && <BetfairStato />}
        {activeTab === 'dashboard' && <LucyTrading Sezione={Sezione} />}
        {activeTab === 'dashboard' && <PromoScadenze onApri={() => handleTabChange('promo')} Sezione={Sezione} />}
