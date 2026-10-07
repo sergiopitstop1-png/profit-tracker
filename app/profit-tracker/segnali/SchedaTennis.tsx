@@ -6,6 +6,7 @@
 // ════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabaseClient'
+import { quotaTennis, type EventoBF, type CellaTennis } from './betfair'   // 07/10/2026: quote Betfair
 
 type Tennis = {
   id: number; data_partita: string; inizio: string | null; ora: string | null; torneo: string | null; circuito: string | null
@@ -24,7 +25,19 @@ const profitto = (t: { esito: string | null; quota: number | null }) =>
 const fasciaQuota = (q: number | null) => q == null ? 'senza quota' : q < 1.4 ? '1,00-1,40' : q < 1.6 ? '1,40-1,60' : q < 1.8 ? '1,60-1,80' : q < 2.1 ? '1,80-2,10' : q < 3 ? '2,10-3,00' : '3,00+'
 const fasciaProb = (p: number | null) => p == null ? '—' : p >= 0.8 ? '80%+' : p >= 0.7 ? '70-80%' : p >= 0.6 ? '60-70%' : 'sotto 60%'
 
-function RigaTennis({ t, td, onSalvato }: { t: Tennis; td: any; onSalvato: (r: Tennis) => void }) {
+const fq = (x: number | null | undefined) => (x == null ? '–' : x.toFixed(2).replace('.', ','))
+function CellaBetfairTennis({ c, td }: { c: CellaTennis | undefined; td: any }) {
+  if (!c) return <td style={td}></td>
+  if (c.stato === 'nd') return <td style={{ ...td, color: '#64748b' }} title={c.motivo}>—</td>
+  if (c.iniziata) return <td style={{ ...td, color: '#64748b', fontSize: 11 }} title={`Partita iniziata: ${c.evento}`}>in corso</td>
+  return (
+    <td style={{ ...td, whiteSpace: 'nowrap' }} title={`${c.evento}${c.vecchia ? ' · prezzi non aggiornati: il servizio Betfair non risponde' : ''}`}>
+      <b style={{ color: c.vecchia ? '#fbbf24' : '#f8fafc' }}>{fq(c.back)} / {fq(c.lay)}</b>{c.vecchia ? ' ⚠️' : ''}
+      {c.deltaBook != null && <div style={{ fontSize: 10.5, color: '#94a3b8' }}>book {c.deltaBook >= 0 ? '+' : ''}{(100 * c.deltaBook).toFixed(1).replace('.', ',')}%</div>}
+    </td>)
+}
+
+function RigaTennis({ t, td, bf, onSalvato }: { t: Tennis; td: any; bf: CellaTennis | undefined; onSalvato: (r: Tennis) => void }) {
   const [vinc, setVinc] = useState(t.vincitore || '')
   const [punt, setPunt] = useState(t.punteggio || '')
   const [stato, setStato] = useState('')
@@ -47,6 +60,7 @@ function RigaTennis({ t, td, onSalvato }: { t: Tennis; td: any; onSalvato: (r: T
       <td style={{ ...td, fontWeight: 700, whiteSpace: 'nowrap' }}>{t.tipo === 'VALUE' ? '💎 ' : '→ '}{t.selezione} vince</td>
       <td style={{ ...td, fontWeight: 800 }}>{pc(t.prob, 1)}</td>
       <td style={{ ...td, fontWeight: 800, color: t.quota != null && Number(t.quota) < 1.4 ? '#fbbf24' : '#f8fafc' }} title={t.quota != null && Number(t.quota) < 1.4 ? 'Sotto la regola di 1,40' : ''}>{t.quota != null ? String(t.quota).replace('.', ',') : ''}</td>
+      <CellaBetfairTennis c={bf} td={td} />
       <td style={{ ...td, color: t.ev != null && t.ev > 0.03 ? '#86efac' : '#94a3b8' }}>{t.ev != null ? `${t.ev >= 0 ? '+' : ''}${pc(t.ev, 1)}` : ''}</td>
       <td style={td}>
         <select style={inp} value={vinc} onChange={e => setVinc(e.target.value)}>
@@ -65,7 +79,7 @@ function RigaTennis({ t, td, onSalvato }: { t: Tennis; td: any; onSalvato: (r: T
     </tr>)
 }
 
-export default function SchedaTennis({ sel, th, td }: { sel: any; th: any; td: any }) {
+export default function SchedaTennis({ sel, th, td, eventiBF = [] }: { sel: any; th: any; td: any; eventiBF?: EventoBF[] }) {
   const [righe, setRighe] = useState<Tennis[]>([])
   const [errore, setErrore] = useState('')
   const [tipo, setTipo] = useState('')
@@ -90,6 +104,9 @@ export default function SchedaTennis({ sel, th, td }: { sel: any; th: any; td: a
     return righe.filter(t => (!tipo || t.tipo === tipo) && (!stato || (stato === 'corso' ? !t.esito : t.esito === stato)) &&
       (!sopra140 || (t.quota != null && Number(t.quota) >= 1.4)) && (!q || `${t.torneo} ${t.giocatore_a} ${t.giocatore_b}`.toLowerCase().includes(q)))
   }, [righe, tipo, stato, sopra140, cerca])
+
+  const celleBF = useMemo(() => { const mp = new Map<number, CellaTennis>(); for (const t of visibili) mp.set(t.id, quotaTennis(t, eventiBF)); return mp }, [visibili, eventiBF])
+  const conBF = [...celleBF.values()].filter(c => c.stato === 'ok').length
 
   const chiuse = visibili.filter(t => t.esito === 'VINTA' || t.esito === 'PERSA')
   const vinte = chiuse.filter(t => t.esito === 'VINTA').length
@@ -148,12 +165,12 @@ export default function SchedaTennis({ sel, th, td }: { sel: any; th: any; td: a
     </div>
     <div style={{ background: 'rgba(15,23,42,.6)', border: '1px solid #1e293b', borderRadius: 14, padding: 12, marginBottom: 18, overflowX: 'auto' }}>
       <div style={{ fontWeight: 900, marginBottom: 4 }}>PronoX tennis · {visibili.length}</div>
-      <div style={{ fontSize: 11.5, color: '#94a3b8', marginBottom: 8 }}>I segnali si registrano quando analizzi il tennis in /oggi: solo 💎 VALUE e pronostici "X vince", una volta sola e senza più modifiche (esclusi quelli già iniziati). Finita la partita scegli il vincitore: l'esito e le unità si calcolano da soli.</div>
+      <div style={{ fontSize: 11.5, color: '#94a3b8', marginBottom: 8 }}>I segnali si registrano quando analizzi il tennis in /oggi: solo 💎 VALUE e pronostici "X vince", una volta sola e senza più modifiche (esclusi quelli già iniziati). Quando la partita finisce, il vincitore arriva da solo da Betfair (puoi sempre correggerlo a mano). Colonna Betfair = prezzo ora (back / lay): {conBF} segnali su {visibili.length} abbinati · "—" = partita non trovata su Betfair · "book" = quota PronoX rispetto al back.</div>
       {!errore && !righe.length && <div style={{ fontSize: 12, color: '#fbbf24', marginBottom: 8 }}>Ancora nessun segnale: apri /oggi, spunta 🎾 Tennis e premi Analizza.</div>}
       <div style={{ maxHeight: 520, overflowY: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-          <thead><tr>{['Partita il', 'Partita', 'Torneo', 'Segnale', 'Modello', 'Quota', 'EV', 'Vincitore e punteggio', 'Esito', ''].map((h, i) => <th key={i} style={{ ...th, position: 'sticky', top: 0, background: '#0f172a' }}>{h}</th>)}</tr></thead>
-          <tbody>{visibili.map(t => <RigaTennis key={t.id} t={t} td={td} onSalvato={r => setRighe(v => v.map(x => x.id === r.id ? r : x))} />)}</tbody>
+          <thead><tr>{['Partita il', 'Partita', 'Torneo', 'Segnale', 'Modello', 'Quota', 'Betfair', 'EV', 'Vincitore e punteggio', 'Esito', ''].map((h, i) => <th key={i} style={{ ...th, position: 'sticky', top: 0, background: '#0f172a' }}>{h}</th>)}</tr></thead>
+          <tbody>{visibili.map(t => <RigaTennis key={t.id} t={t} td={td} bf={celleBF.get(t.id)} onSalvato={r => setRighe(v => v.map(x => x.id === r.id ? r : x))} />)}</tbody>
         </table>
       </div>
     </div>
