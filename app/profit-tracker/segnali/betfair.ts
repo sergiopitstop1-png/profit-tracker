@@ -101,6 +101,7 @@ const ALIAS: Record<string, string> = {
   'glasgow rangers': 'rangers', 'real saragozza': 'real zaragoza',
   // 07/10/2026 — Brasileirão: nomi football-data.org → nomi Betfair
   'clube do remo': 'remo', 'rb bragantino': 'red bull bragantino', 'gremio fbpa': 'gremio',
+  'cruzeiro ec': 'cruzeiro mg', 'cruzeiro': 'cruzeiro mg',   // Betfair scrive "Cruzeiro MG" (football-data: "Cruzeiro EC")
 }
 export function normSquadra(s: string | null | undefined): Nome {
   let t = String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -517,4 +518,43 @@ export async function caricaCongelati(supabase: any): Promise<Map<string, RigaCo
     if (!data || data.length < 1000) break
   }
   return out
+}
+
+// ════════════════════════════════════════════════════════════════════
+// TENNIS (07/10/2026): abbina un segnale tennis di PronoX alla partita su Betfair (mercato MATCH_ODDS, due giocatori)
+// L'abbinamento usa i COGNOMI (le parole di almeno 3 lettere: niente iniziali) e l'orario d'inizio (±6 ore).
+// Se i due giocatori non corrispondono a due selezioni diverse, o ci sono più partite possibili, NON si mostra nulla.
+// ════════════════════════════════════════════════════════════════════
+const paroleTennis = (s: string | null | undefined) => testoNorm(s).replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(t => t.length >= 3)
+const comuniTennis = (a: string[], b: string[]) => { const set = new Set(b); return a.filter(t => set.has(t)).length }
+export type CellaTennis =
+  | { stato: 'ok'; back: number | null; lay: number | null; backSize: number | null; laySize: number | null; deltaBook: number | null; iniziata: boolean; vecchia: boolean; evento: string }
+  | { stato: 'nd'; motivo: string }
+export function quotaTennis(s: { inizio?: string | null; data_partita?: string | null; ora?: string | null; giocatore_a: string; giocatore_b: string; selezione: string; quota?: number | null }, eventi: EventoBF[], ora = Date.now()): CellaTennis {
+  const t0 = s.inizio ? Date.parse(s.inizio) : romaAUtc(s.data_partita, s.ora)
+  if (t0 === null || !Number.isFinite(t0)) return { stato: 'nd', motivo: 'orario della partita sconosciuto' }
+  const pa = paroleTennis(s.giocatore_a), pb = paroleTennis(s.giocatore_b), ps = paroleTennis(s.selezione)
+  const buoni: { ev: EventoBF; punti: number; dist: number; ia: number; ib: number; is: number }[] = []
+  for (const ev of eventi) {
+    if (Math.abs(ev.inizio - t0) > 6 * ORA) continue
+    const mk = ev.mercati['MATCH_ODDS']
+    if (!mk || mk.sel.length !== 2) continue                       // il tennis ha due selezioni (il calcio tre)
+    const toks = mk.sel.map(r => paroleTennis(r.nome))
+    const sa = toks.map(t => comuniTennis(pa, t)), sb = toks.map(t => comuniTennis(pb, t))
+    const ia = sa.indexOf(Math.max(...sa)), ib = sb.indexOf(Math.max(...sb))
+    if (sa[ia] === 0 || sb[ib] === 0 || ia === ib) continue
+    const ss = toks.map(t => comuniTennis(ps, t))
+    const is = ss.indexOf(Math.max(...ss))
+    if (ss[is] === 0) continue
+    buoni.push({ ev, punti: sa[ia] + sb[ib], dist: Math.abs(ev.inizio - t0), ia, ib, is })
+  }
+  if (!buoni.length) return { stato: 'nd', motivo: 'partita non trovata su Betfair' }
+  buoni.sort((x, y) => y.punti - x.punti || x.dist - y.dist)
+  if (buoni.length > 1 && buoni[0].punti === buoni[1].punti && Math.abs(buoni[0].dist - buoni[1].dist) < 30 * MIN) return { stato: 'nd', motivo: 'abbinamento ambiguo' }
+  const { ev, is } = buoni[0]
+  const r = ev.mercati['MATCH_ODDS'].sel[is]
+  const iniziata = r.inGioco || ev.inizio <= ora
+  const vecchia = ev.battito != null && ora - ev.battito > 10 * MIN
+  const q = s.quota != null ? Number(s.quota) : null
+  return { stato: 'ok', back: r.back, lay: r.lay, backSize: r.backSize, laySize: r.laySize, deltaBook: q != null && r.back ? q / r.back - 1 : null, iniziata, vecchia, evento: ev.evento }
 }
