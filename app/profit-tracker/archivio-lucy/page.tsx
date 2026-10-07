@@ -110,6 +110,18 @@ function pulisciTesto(originale: string | null | undefined) {
   // indirizzi nudi
   t = t.replace(/https?:\/\/\S+/gi, () => { link++; return '\u0001' })
 
+  // entità HTML (&euro; &ograve; &amp; &#8364; ...)
+  const ENT: Record<string, string> = {
+    euro: '€', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', hellip: '…',
+    ndash: '–', mdash: '—', rsquo: '’', lsquo: '‘', rdquo: '”', ldquo: '“', laquo: '«', raquo: '»',
+    copy: '©', reg: '®', deg: '°', middot: '·', bull: '•', ccedil: 'ç', Ccedil: 'Ç', szlig: 'ß', pound: '£',
+  }
+  const MARCHI: Record<string, string> = { grave: '\u0300', acute: '\u0301', circ: '\u0302', tilde: '\u0303', uml: '\u0308' }
+  t = t.replace(/&#(\d+);/g, (_m, n) => { try { return String.fromCodePoint(Number(n)) } catch { return '' } })
+  t = t.replace(/&#x([0-9a-f]+);/gi, (_m, h) => { try { return String.fromCodePoint(parseInt(h, 16)) } catch { return '' } })
+  t = t.replace(/&([A-Za-z])(grave|acute|circ|tilde|uml);/g, (_m, l, mk) => (l + MARCHI[mk]).normalize('NFC'))
+  t = t.replace(/&([A-Za-z]+);/g, (m, nome) => (ENT[nome] !== undefined ? ENT[nome] : m))
+
   // caratteri invisibili usati nelle newsletter per riempire l'anteprima
   t = t.replace(/[\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2064\u00ad\u034f\u061c\ufeff]/g, '')
   t = t.replace(/&nbsp;/gi, ' ').replace(/\u00a0/g, ' ')
@@ -204,7 +216,7 @@ export default function ArchivioLucyPage() {
 
   function mostraAvviso(testo: string, ok: boolean) {
     setAvviso({ testo, ok })
-    setTimeout(() => setAvviso(null), 2500)
+    setTimeout(() => setAvviso(null), ok ? 2500 : 8000)
   }
 
   const [savingId, setSavingId] =
@@ -371,18 +383,21 @@ export default function ArchivioLucyPage() {
               item.canale,
             feedback_utente:
               value,
-            feedback_note:
-              nota,
-            sposta_in:
-              sposta,
-            motivo:
-              motivoInviato,
+            // i campi extra si mandano solo quando servono (alcune tabelle, es. SMS, potrebbero non avere la colonna note)
+            ...(nota !== null || notaPrecedente
+              ? { feedback_note: nota }
+              : {}),
+            ...(sposta
+              ? { sposta_in: sposta, motivo: motivoInviato }
+              : {}),
           }),
         }
       )
 
       if (!r.ok) {
-        throw new Error('HTTP ' + r.status)
+        let dettaglio = ''
+        try { dettaglio = (await r.json())?.error || '' } catch {}
+        throw new Error('HTTP ' + r.status + (dettaglio ? ' · ' + dettaglio : ''))
       }
 
       if (sposta) {
@@ -411,7 +426,7 @@ export default function ArchivioLucyPage() {
             : r
         )
       )
-      mostraAvviso('⚠️ Voto NON salvato, riprova', false)
+      mostraAvviso('⚠️ Voto NON salvato: ' + String((error as Error)?.message || 'errore').slice(0, 140), false)
     }
   }
 
@@ -1781,6 +1796,16 @@ export default function ArchivioLucyPage() {
                     >
                       {item.cliente_nome ||
                         '-'}
+
+                      {/* 07/10/2026 — se il cliente non è stato riconosciuto si vede almeno il destinatario */}
+                      {!item.cliente_nome && item.destinatario_originale && (
+                        <div
+                          className="mt-1 max-w-[200px] break-all text-xs font-normal text-amber-300/80"
+                          title="Cliente non riconosciuto: questo indirizzo non risulta tra le email dei clienti"
+                        >
+                          ⚠️ {item.destinatario_originale}
+                        </div>
+                      )}
                     </td>
 
                     {/* BOOK */}
