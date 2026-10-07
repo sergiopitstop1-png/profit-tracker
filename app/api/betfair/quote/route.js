@@ -9,6 +9,8 @@
 // Variabili Vercel: BETFAIR_SECRET (nuova, lunga e casuale), PT_USER_ID, SUPABASE_SERVICE_ROLE_KEY,
 //                   NEXT_PUBLIC_SUPABASE_URL  (+ facoltativa BETFAIR_MAX_MERCATI)
 // Riceve: { stato: {...}, mercati: [{market_id,...}], quote: [{market_id, selection_id, ...}] }
+// 07/10/2026: salva anche sport (calcio/tennis) del mercato e stato_sel (WINNER/LOSER/REMOVED...) della selezione.
+//   Servono le colonne: betfair_mercati.sport, betfair_quote_ultime.stato_sel
 // Tabelle: betfair_mercati, betfair_quote_ultime, betfair_stato (betfair_quote.sql)
 // ════════════════════════════════════════════════════════════════════
 const URL_DB = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL
@@ -64,14 +66,14 @@ export async function POST(req) {
       if (!m?.market_id || !m?.tipo) continue
       mercati.set(String(m.market_id), { user_id: UTENTE, market_id: testo(m.market_id, 40), event_id: testo(m.event_id, 40),
         evento: testo(m.evento), casa: testo(m.casa), ospite: testo(m.ospite), competizione: testo(m.competizione),
-        tipo: testo(m.tipo, 60), nome_mercato: testo(m.nome_mercato), inizio: dataIso(m.inizio), aggiornato: new Date().toISOString() })
+        tipo: testo(m.tipo, 60), nome_mercato: testo(m.nome_mercato), inizio: dataIso(m.inizio), sport: testo(m.sport, 20) || 'calcio', aggiornato: new Date().toISOString() })
     }
     const quote = new Map()
     for (const q of (Array.isArray(body?.quote) ? body.quote : []).slice(0, 2000)) {
       if (!q?.market_id || q?.selection_id === undefined || q?.selection_id === null) continue
       quote.set(`${q.market_id}|${q.selection_id}`, { user_id: UTENTE, market_id: testo(q.market_id, 40), selection_id: numero(q.selection_id),
         nome: testo(q.nome, 120), back: numero(q.back), back_size: numero(q.back_size), lay: numero(q.lay), lay_size: numero(q.lay_size),
-        ltp: numero(q.ltp), matched: numero(q.matched), stato: testo(q.stato, 30), in_gioco: !!q.in_gioco, ritardata: !!q.ritardata,
+        ltp: numero(q.ltp), matched: numero(q.matched), stato: testo(q.stato, 30), stato_sel: testo(q.stato_sel, 30), in_gioco: !!q.in_gioco, ritardata: !!q.ritardata,
         letto: dataIso(q.letto) || new Date().toISOString() })
     }
 
