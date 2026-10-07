@@ -39,8 +39,8 @@ function etichettaScadenza(iso) {
   const g = giorniA(iso)
   if (g < 0) return { testo: `scaduta da ${-g} gg`, colore: '#64748b' }
   if (g === 0) return { testo: 'scade OGGI', colore: '#f87171' }
-  if (g === 1) return { testo: 'scade domani', colore: '#f87171' }
-  if (g === 2) return { testo: 'tra 2 gg', colore: '#fbbf24' }
+  if (g === 1) return { testo: 'scade domani', colore: '#facc15' }   // 07/10/2026: giallo (oggi resta rosso)
+  if (g === 2) return { testo: 'tra 2 gg', colore: '#38bdf8' }       // 07/10/2026: azzurro
   return { testo: `tra ${g} gg`, colore: '#94a3b8' }
 }
 
