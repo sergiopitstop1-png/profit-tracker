@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import TradingViewChart from './TradingViewChart'
 import MarketOverviewWidget from './MarketOverviewWidget'
-import LucyDashboardCard from './LucyDashboardCard'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import {
   tabContent, primaryButtonBlue, heroGrid, heroCard, heroLabel, heroValue, heroSub,
@@ -121,10 +120,7 @@ export default function DashboardTab({
   return (
     <div style={tabContent}>
 
-      {/* =====================================================
-          LUCY
-          ===================================================== */}
-      <LucyDashboardCard />
+      {/* 07/10/2026: la card Lucy è stata tolta; l'avviso è la striscia in cima (LucyAvvisoMail) */}
 
       {(() => {
         const oggi = new Date()
