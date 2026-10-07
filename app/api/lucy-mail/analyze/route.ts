@@ -1281,6 +1281,21 @@ Esempio: "Ricarica, per te fino a 15€ di bonus!"
 
 Non vale per newsletter generiche senza importo.
 
+BONUS GIÀ ACCREDITATO
+
+Se la mail dice ESPLICITAMENTE che il bonus è GIÀ stato
+accreditato o attivato (es. "Accredito Fun Bonus",
+"Il tuo bonus è ora attivo", "ti abbiamo accreditato"):
+
+- giudizio = UTILE
+- richiede_azione = false (non c'è niente da fare)
+- nella motivazione usa la parola "accreditato"
+- bonus_importo = importo accreditato, se indicato
+
+Se invece il bonus va ancora richiesto, attivato o sbloccato
+dall'utente (deposito, opt-in, clic), richiede_azione = true
+e NON dire che è accreditato.
+
 ${ESEMPI_FEEDBACK}
 
 ==================================================
