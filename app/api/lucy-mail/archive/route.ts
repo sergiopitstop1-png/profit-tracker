@@ -904,6 +904,8 @@ export async function PATCH(
       feedback_note,
       letta,
       archiviata,
+      sposta_in,
+      motivo,
     } = body
 
     let realId =
@@ -1019,6 +1021,76 @@ export async function PATCH(
       realCanale === 'SMS'
         ? 'sms_clienti'
         : 'lucy_mail_archive'
+
+    /*
+     * 07/10/2026 — 👎 con destinazione: la comunicazione si SPOSTA
+     * davvero nella vista scelta e Lucy ricorda cosa aveva deciso
+     * (ERA=...) e cosa volevi tu (DOVEVA_ESSERE=...).
+     */
+    const DESTINAZIONI_VALIDE = [
+      'OPPORTUNITA',
+      'DA_VALUTARE',
+      'PROBLEMI',
+      'IGNORA',
+    ]
+
+    if (
+      typeof sposta_in === 'string' &&
+      DESTINAZIONI_VALIDE.includes(sposta_in)
+    ) {
+      const { data: attuale } =
+        await adminSupabase
+          .from(table)
+          .select(
+            'giudizio,categoria,feedback_note'
+          )
+          .eq('id', realId)
+          .single()
+
+      // se era già stata corretta prima, "ERA" resta la classificazione originale dell'AI
+      const eraPrima = String(
+        attuale?.feedback_note || ''
+      ).match(/;ERA=([^\s|]+)/)
+
+      const era = eraPrima
+        ? eraPrima[1]
+        : `${attuale?.giudizio || '?'}/${attuale?.categoria || '?'}`
+
+      const motivoPulito = String(
+        motivo || ''
+      )
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 160)
+
+      patch.feedback_utente = 'INUTILE'
+      patch.feedback_note =
+        `DOVEVA_ESSERE=${sposta_in};ERA=${era}` +
+        (motivoPulito
+          ? ` | ${motivoPulito}`
+          : '')
+
+      if (sposta_in === 'OPPORTUNITA') {
+        patch.giudizio = 'UTILE'
+      } else if (sposta_in === 'IGNORA') {
+        patch.giudizio = 'IGNORA'
+        patch.richiede_azione = false
+      } else if (sposta_in === 'DA_VALUTARE') {
+        patch.giudizio = 'DA_VALUTARE'
+        patch.richiede_azione = false
+      } else {
+        // PROBLEMI: DA_VALUTARE + richiede azione + categoria di problema
+        patch.giudizio = 'DA_VALUTARE'
+        patch.richiede_azione = true
+        if (
+          !PROBLEM_CATEGORIES.includes(
+            attuale?.categoria || ''
+          )
+        ) {
+          patch.categoria = 'SICUREZZA'
+        }
+      }
+    }
 
     const {
       data,
