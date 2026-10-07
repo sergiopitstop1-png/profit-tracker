@@ -133,16 +133,15 @@ export default function ArchivioLucyPage() {
   const [loading, setLoading] =
     useState(false)
 
+  const [avviso, setAvviso] = useState<{ testo: string; ok: boolean } | null>(null)
+
+  function mostraAvviso(testo: string, ok: boolean) {
+    setAvviso({ testo, ok })
+    setTimeout(() => setAvviso(null), 2500)
+  }
+
   const [savingId, setSavingId] =
     useState<string | null>(null)
-
-  // 06/10/2026 — archiviazione differita: i click marcano le righe,
-  // poi una sola conferma finale archivia tutto senza ricaricare a ogni click.
-  const [daArchiviare, setDaArchiviare] =
-    useState<Comunicazione[]>([])
-
-  const [savingBulk, setSavingBulk] =
-    useState(false)
 
   const [
     comunicazioneAperta,
@@ -263,8 +262,21 @@ export default function ArchivioLucyPage() {
     item: Comunicazione,
     value: string
   ) {
+    // 07/10/2026 — il voto si vede subito (aggiornamento immediato) e compare un avviso di conferma
+    const precedente = item.feedback_utente
+    setRows(prev =>
+      prev.map(r =>
+        r.id === item.id
+          ? { ...r, feedback_utente: value }
+          : r
+      )
+    )
+    if (comunicazioneAperta?.id === item.id) {
+      setComunicazioneAperta({ ...comunicazioneAperta, feedback_utente: value })
+    }
+
     try {
-      await fetch(
+      const r = await fetch(
         '/api/lucy-mail/archive',
         {
           method: 'PATCH',
@@ -284,12 +296,30 @@ export default function ArchivioLucyPage() {
         }
       )
 
-      await load()
+      if (!r.ok) {
+        throw new Error('HTTP ' + r.status)
+      }
+
+      mostraAvviso(
+        value === 'UTILE'
+          ? '👍 Voto registrato: classificazione corretta'
+          : '👎 Voto registrato: classificazione errata',
+        true
+      )
     } catch (error) {
       console.error(
         '[Lucy feedback]',
         error
       )
+      // ripristina il voto precedente
+      setRows(prev =>
+        prev.map(r =>
+          r.id === item.id
+            ? { ...r, feedback_utente: precedente }
+            : r
+        )
+      )
+      mostraAvviso('⚠️ Voto NON salvato, riprova', false)
     }
   }
 
@@ -365,101 +395,6 @@ export default function ArchivioLucyPage() {
       )
     } finally {
       setSavingId(null)
-    }
-  }
-
-  /* =======================================================
-     ARCHIVIAZIONE DIFFERITA
-     ======================================================= */
-
-  function toggleDaArchiviare(
-    item: Comunicazione
-  ) {
-    setDaArchiviare(current => {
-      const presente = current.some(
-        row => row.id === item.id
-      )
-
-      if (presente) {
-        return current.filter(
-          row => row.id !== item.id
-        )
-      }
-
-      return [...current, item]
-    })
-
-    if (
-      comunicazioneAperta?.id ===
-      item.id
-    ) {
-      setComunicazioneAperta(null)
-    }
-  }
-
-  async function archiviaSelezionate() {
-    if (
-      savingBulk ||
-      daArchiviare.length === 0
-    ) {
-      return
-    }
-
-    setSavingBulk(true)
-
-    try {
-      const risultati = await Promise.all(
-        daArchiviare.map(async item => {
-          const r = await fetch(
-            '/api/lucy-mail/archive',
-            {
-              method: 'PATCH',
-              headers: {
-                'Content-Type':
-                  'application/json',
-              },
-              body: JSON.stringify({
-                id: item.id,
-                source_id:
-                  item.source_id,
-                canale:
-                  item.canale,
-                archiviata: true,
-              }),
-            }
-          )
-
-          if (!r.ok) {
-            const j = await r.json()
-            throw new Error(
-              j?.error ||
-                'Errore archiviazione'
-            )
-          }
-
-          return item.id
-        })
-      )
-
-      const completate =
-        new Set(risultati)
-
-      setRows(current =>
-        current.filter(
-          row =>
-            !completate.has(row.id)
-        )
-      )
-
-      setDaArchiviare([])
-      await load()
-    } catch (error) {
-      console.error(
-        '[Lucy archivio multiplo]',
-        error
-      )
-    } finally {
-      setSavingBulk(false)
     }
   }
 
@@ -1738,9 +1673,24 @@ export default function ArchivioLucyPage() {
                         text-green-300
                       "
                     >
-                      {item.bookmaker ||
-                        item.mittente ||
-                        '-'}
+                      {/* 07/10/2026 — il mittente si vede sempre, sotto il nome del book */}
+                      <div className="font-semibold">
+                        {item.bookmaker ||
+                          item.mittente ||
+                          '-'}
+                      </div>
+
+                      {item.bookmaker &&
+                        item.mittente &&
+                        item.mittente.trim().toLowerCase() !==
+                          item.bookmaker.trim().toLowerCase() && (
+                          <div
+                            className="mt-1 max-w-[220px] truncate text-xs font-normal text-slate-500"
+                            title={item.mittente}
+                          >
+                            ✉️ {item.mittente}
+                          </div>
+                        )}
                     </td>
 
                     {/* COMUNICAZIONE */}
@@ -1973,52 +1923,41 @@ export default function ArchivioLucyPage() {
                         "
                       >
                         <button
-                          onClick={() =>
-                            feedback(
-                              item,
-                              'UTILE'
-                            )
-                          }
-                          className="
-                            rounded-md
-                            border
-                            border-green-900
-                            bg-black
-                            px-2
-                            py-1
-                            text-lg
-                            opacity-80
-                            hover:border-green-500
-                            hover:opacity-100
-                          "
+                          onClick={() => feedback(item, 'UTILE')}
+                          className={`rounded-md border px-2 py-1 text-lg hover:opacity-100 ${
+                            item.feedback_utente === 'UTILE'
+                              ? 'border-green-400 bg-green-500/30 opacity-100 ring-2 ring-green-400'
+                              : 'border-green-900 bg-black opacity-60 hover:border-green-500'
+                          }`}
                           title="Classificazione corretta"
                         >
                           👍
                         </button>
 
                         <button
-                          onClick={() =>
-                            feedback(
-                              item,
-                              'INUTILE'
-                            )
-                          }
-                          className="
-                            rounded-md
-                            border
-                            border-green-900
-                            bg-black
-                            px-2
-                            py-1
-                            text-lg
-                            opacity-80
-                            hover:border-green-500
-                            hover:opacity-100
-                          "
+                          onClick={() => feedback(item, 'INUTILE')}
+                          className={`rounded-md border px-2 py-1 text-lg hover:opacity-100 ${
+                            item.feedback_utente === 'INUTILE'
+                              ? 'border-red-400 bg-red-500/30 opacity-100 ring-2 ring-red-400'
+                              : 'border-green-900 bg-black opacity-60 hover:border-green-500'
+                          }`}
                           title="Classificazione errata"
                         >
                           👎
                         </button>
+
+                        {item.feedback_utente && (
+                          <span
+                            className={`w-full text-xs font-semibold ${
+                              item.feedback_utente === 'UTILE'
+                                ? 'text-green-400'
+                                : 'text-red-400'
+                            }`}
+                          >
+                            ✓ Voto registrato:{' '}
+                            {item.feedback_utente === 'UTILE' ? 'corretta' : 'errata'}
+                          </span>
+                        )}
 
                         {/* 05/10/2026 · 📌 salva come promo da ricordare */}
                         <button
@@ -2063,35 +2002,33 @@ export default function ArchivioLucyPage() {
                           </button>
                         ) : (
                           <button
+                            disabled={
+                              savingId ===
+                              item.id
+                            }
                             onClick={() =>
-                              toggleDaArchiviare(
-                                item
+                              cambiaArchivio(
+                                item,
+                                true
                               )
                             }
-                            className={`
+                            className="
                               rounded-md
                               border
+                              border-green-500/50
+                              bg-green-500/10
                               px-3
                               py-1.5
                               text-xs
                               font-bold
-                              ${
-                                daArchiviare.some(
-                                  row =>
-                                    row.id ===
-                                    item.id
-                                )
-                                  ? 'border-amber-400 bg-amber-500/20 text-amber-200'
-                                  : 'border-green-500/50 bg-green-500/10 text-green-300 hover:bg-green-500/20'
-                              }
-                            `}
+                              text-green-300
+                              hover:bg-green-500/20
+                              disabled:opacity-40
+                            "
                           >
-                            {daArchiviare.some(
-                              row =>
-                                row.id ===
-                                item.id
-                            )
-                              ? '↩ Annulla'
+                            {savingId ===
+                            item.id
+                              ? '...'
                               : '✓ Archivia'}
                           </button>
                         )}
@@ -2123,76 +2060,6 @@ export default function ArchivioLucyPage() {
           </table>
         </div>
       </main>
-
-      {daArchiviare.length > 0 && (
-        <div
-          className="
-            fixed
-            bottom-5
-            right-5
-            z-40
-            flex
-            items-center
-            gap-3
-            rounded-xl
-            border
-            border-amber-400/70
-            bg-[#07100a]
-            p-3
-            shadow-[0_0_28px_rgba(251,191,36,0.22)]
-          "
-        >
-          <span
-            className="
-              font-mono
-              text-sm
-              font-bold
-              text-amber-200
-            "
-          >
-            {daArchiviare.length} da archiviare
-          </span>
-
-          <button
-            onClick={archiviaSelezionate}
-            disabled={savingBulk}
-            className="
-              rounded-lg
-              bg-green-500
-              px-4
-              py-2
-              font-bold
-              text-black
-              hover:bg-green-400
-              disabled:opacity-50
-            "
-          >
-            {savingBulk
-              ? 'Archiviazione...'
-              : `✓ Archivia tutte (${daArchiviare.length})`}
-          </button>
-
-          <button
-            onClick={() =>
-              setDaArchiviare([])
-            }
-            disabled={savingBulk}
-            className="
-              rounded-lg
-              border
-              border-slate-600
-              bg-black
-              px-3
-              py-2
-              text-slate-300
-              hover:border-slate-400
-              disabled:opacity-50
-            "
-          >
-            Annulla
-          </button>
-        </div>
-      )}
 
       {/* ==================================================
           MODAL
@@ -2712,9 +2579,14 @@ export default function ArchivioLucyPage() {
                   </button>
                 ) : (
                   <button
+                    disabled={
+                      savingId ===
+                      comunicazioneAperta.id
+                    }
                     onClick={() =>
-                      toggleDaArchiviare(
-                        comunicazioneAperta
+                      cambiaArchivio(
+                        comunicazioneAperta,
+                        true
                       )
                     }
                     className="
@@ -2727,9 +2599,13 @@ export default function ArchivioLucyPage() {
                       font-bold
                       text-green-300
                       hover:bg-green-500/20
+                      disabled:opacity-40
                     "
                   >
-                    ✓ Archivia
+                    {savingId ===
+                    comunicazioneAperta.id
+                      ? '...'
+                      : '✓ Archivia'}
                   </button>
                 )}
 
@@ -2760,6 +2636,18 @@ export default function ArchivioLucyPage() {
       {/* ==================================================
           STYLE
           ================================================== */}
+
+      {avviso && (
+        <div
+          className={`fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-xl border px-5 py-3 text-sm font-bold shadow-2xl ${
+            avviso.ok
+              ? 'border-green-400 bg-[#04120a] text-green-300'
+              : 'border-red-400 bg-[#1a0606] text-red-300'
+          }`}
+        >
+          {avviso.testo}
+        </div>
+      )}
 
       <style>{`
         @keyframes lucyMatrixRain {
