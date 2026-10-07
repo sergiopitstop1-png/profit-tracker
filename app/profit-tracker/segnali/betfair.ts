@@ -99,6 +99,8 @@ const ALIAS: Record<string, string> = {
   'dinamo kiev': 'dynamo kyiv', 'dynamo kiev': 'dynamo kyiv', 'spartak mosca': 'spartak moscow', 'lokomotiv mosca': 'lokomotiv moscow', 'cska mosca': 'cska moscow',
   'bayer leverkusen': 'leverkusen', 'bayer 04 leverkusen': 'leverkusen', 'borussia dortmund': 'dortmund', 'hertha berlino': 'hertha berlin', 'union berlino': 'union berlin',
   'glasgow rangers': 'rangers', 'real saragozza': 'real zaragoza',
+  // 07/10/2026 — Brasileirão: nomi football-data.org → nomi Betfair
+  'clube do remo': 'remo', 'rb bragantino': 'red bull bragantino', 'gremio fbpa': 'gremio',
 }
 export function normSquadra(s: string | null | undefined): Nome {
   let t = String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
