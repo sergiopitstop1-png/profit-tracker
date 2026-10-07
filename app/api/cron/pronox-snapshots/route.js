@@ -13,6 +13,11 @@
 //   date=oggi, horizon=opening) che fotografa le partite di OGGI non ancora iniziate:
 //   recupera quelle sfuggite alla corsa del giorno prima (aggiunte o spostate tardi).
 //   La vista pronox_segnali preferisce comunque t24h, poi opening: nessun doppione.
+// 07/10/2026: QUOTE DA BETFAIR (tabelle betfair_mercati / betfair_quote_ultime, scritte dal servizio sul PC)
+//   al posto di The Odds API (500 crediti al mese, finiti). Prezzo preso = "back" (quello giocabile).
+//   Dove Betfair non ha la partita o il mercato la fotografia si scrive lo stesso, SENZA quota.
+//   Le righe nuove hanno odds_bookmaker = 'betfair' (le vecchie 'media_eu'): così si distinguono nella pagella.
+//   The Odds API resta spenta; per riattivarla solo dove Betfair non ha la quota: variabile PRONOX_ODDS_FALLBACK=1.
 // =====================================================================
 
 import { NextResponse } from "next/server";
@@ -24,6 +29,7 @@ import {
   parseOddsForDate, matchOdds, computeFixtureModel,
   calibrateFootballProbability,
 } from "../../../../lib/pronox/footballModel";
+import { caricaBetfair, normSquadra, simSquadra, trovaEvento } from "../../../profit-tracker/segnali/betfair";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // i download stagionali possono richiedere tempo
@@ -107,6 +113,26 @@ async function getDayMatches(date, coveredCodes, report) {
   return found;
 }
 
+// ─── quote Betfair → stesso formato di matchOdds (o1, oX, o2, oOver25, oUnder25) ───
+const prezzo = (x) => (x && Number.isFinite(Number(x.back)) && Number(x.back) > 1 ? Number(x.back) : null);
+function oddsDaBetfair(ev) {
+  const mo = ev.mercati?.MATCH_ODDS?.sel || [];
+  const draw = mo.find((x) => /draw/i.test(x.nome));
+  const altri = mo.filter((x) => x !== draw);
+  const nc = normSquadra(ev.casa), no = normSquadra(ev.ospite);
+  const casa = altri.find((x) => simSquadra(normSquadra(x.nome), nc) > 0);
+  const osp = altri.find((x) => simSquadra(normSquadra(x.nome), no) > 0);
+  const ou = ev.mercati?.OVER_UNDER_25?.sel || [];
+  const over = ou.find((x) => /^over/i.test(x.nome));
+  const under = ou.find((x) => /^under/i.test(x.nome));
+  const o = {
+    o1: prezzo(casa), oX: prezzo(draw), o2: prezzo(osp),
+    oOver25: prezzo(over), oUnder25: prezzo(under),
+    homeTeam: ev.casa, awayTeam: ev.ospite, fonte: "betfair",
+  };
+  return Object.values({ a: o.o1, b: o.oX, c: o.o2, d: o.oOver25, e: o.oUnder25 }).some((v) => v != null) ? o : null;
+}
+
 function cleanProb(p) {
   const clamped = Math.min(0.99999, Math.max(0.00001, p));
   return Math.round(clamped * 100000) / 100000;
@@ -162,6 +188,7 @@ function buildSnapshotRows({ fix, code, model, oddsData, horizon }) {
     probs_all: probs,
   };
 
+  const fonteBF = oddsData?.fonte === "betfair";
   const marketOdds = oddsData ? {
     avg_eu: {
       "1": oddsData.o1 ?? null, "X": oddsData.oX ?? null, "2": oddsData.o2 ?? null,
@@ -169,7 +196,7 @@ function buildSnapshotRows({ fix, code, model, oddsData, horizon }) {
     },
     matched_home: oddsData.homeTeam ?? null,
     matched_away: oddsData.awayTeam ?? null,
-    source: "the-odds-api",
+    source: fonteBF ? "betfair-exchange-back" : "the-odds-api",
     captured_at: new Date().toISOString(),
   } : {};
 
@@ -209,7 +236,7 @@ function buildSnapshotRows({ fix, code, model, oddsData, horizon }) {
       model_version: `${MODEL_VERSION}_raw`,
       model_prob: cleanProb(s.prob),
       odds_taken: odds,
-      odds_bookmaker: odds ? "media_eu" : null,
+      odds_bookmaker: odds ? (fonteBF ? "betfair" : "media_eu") : null,
     });
     // Riga 2: probabilità calibrata (quella mostrata in /oggi), solo dove esiste
     if (s.label) {
@@ -221,7 +248,7 @@ function buildSnapshotRows({ fix, code, model, oddsData, horizon }) {
         model_version: `${MODEL_VERSION}_cal`,
         model_prob: cleanProb(calibrateFootballProbability(s.label, s.prob, oddsData)),
         odds_taken: odds,
-        odds_bookmaker: odds ? "media_eu" : null,
+        odds_bookmaker: odds ? (fonteBF ? "betfair" : "media_eu") : null,
       });
     }
   }
@@ -288,12 +315,27 @@ export async function GET(request) {
       allAvgs[code] = { lgAvgHome, lgAvgAway };
     }
 
-    // 3. Quote: chiamata diretta a The Odds API (il proxy del sito richiede login)
-    const oddsKey = process.env.ODDS_API_KEY || process.env.THE_ODDS_API_KEY || process.env.ODDSAPI_KEY;
-    report.debug.odds_key_found = !!oddsKey;
-    report.debug.odds = {};
+    // 3. Quote da Betfair (lette da Supabase, dove le scrive il servizio sul PC). The Odds API solo come riserva opzionale.
+    let eventiBF = [];
+    report.debug.betfair = {};
+    try {
+      eventiBF = await caricaBetfair(supabase);
+      const battito = eventiBF.find((e) => e.battito)?.battito ?? null;
+      report.debug.betfair = { eventi: eventiBF.length, battito: battito ? new Date(battito).toISOString() : null };
+      if (battito && Date.now() - battito > 3 * 3600000) {
+        report.errors.push("il servizio Betfair sul PC non scrive da più di 3 ore: quote ignorate");
+        eventiBF = [];
+      }
+    } catch (e) {
+      report.errors.push(`betfair: ${String(e?.message || e)}`);
+    }
+
     const allOdds = {};
-    if (oddsKey) {
+    const fallback = process.env.PRONOX_ODDS_FALLBACK === "1";
+    const oddsKey = process.env.ODDS_API_KEY || process.env.THE_ODDS_API_KEY || process.env.ODDSAPI_KEY;
+    report.debug.odds_fallback = fallback;
+    if (fallback && oddsKey) {
+      report.debug.odds = {};
       for (const code of playingCodes) {
         const league = LEAGUES.find((l) => l.code === code);
         if (!league?.oddsKey) continue;
@@ -304,21 +346,10 @@ export async function GET(request) {
             { cache: "no-store" }
           );
           const data = await r.json();
-          if (!r.ok || !Array.isArray(data)) {
-            report.debug.odds[code] = `errore ${r.status}: ${data?.message || "risposta non valida"}`;
-            continue;
-          }
+          if (!r.ok || !Array.isArray(data)) { report.debug.odds[code] = `errore ${r.status}`; continue; }
           allOdds[code] = parseOddsForDate(data, date);
-          const times = data.map((g) => g.commence_time).filter(Boolean).sort();
-          report.debug.odds[code] = {
-            eventi_totali: data.length,
-            eventi_nella_data: Object.keys(allOdds[code]).length,
-            ultima_partita_quotata: times[times.length - 1] || null,
-          };
           report.debug.odds_credits_left = r.headers.get("x-requests-remaining");
-        } catch (e) {
-          report.debug.odds[code] = `errore: ${String(e?.message || e)}`;
-        }
+        } catch (e) { report.debug.odds[code] = `errore: ${String(e?.message || e)}`; }
       }
     }
 
@@ -343,8 +374,14 @@ export async function GET(request) {
           seasonMatchesForH2H: allMatches[code] || [],
           recentNews,
         });
-        const oddsData = matchOdds(allOdds[code] || {}, fix.homeTeam.name, fix.awayTeam.name);
-        if (oddsData) report.odds_matched++;
+        // quota: prima Betfair, poi (solo se attivata) The Odds API; altrimenti nessuna quota
+        let oddsData = null;
+        const t0 = new Date(fix.utcDate).getTime();
+        const trovato = trovaEvento(eventiBF, fix.homeTeam.name, fix.awayTeam.name, { da: t0 - 2 * 3600000, a: t0 + 2 * 3600000 });
+        if (trovato.ev) oddsData = oddsDaBetfair(trovato.ev);
+        else if (eventiBF.length) (report.debug.senza_betfair ||= []).push(`${fix.homeTeam.name} – ${fix.awayTeam.name}: ${trovato.motivo}`);
+        if (!oddsData && fallback) oddsData = matchOdds(allOdds[code] || {}, fix.homeTeam.name, fix.awayTeam.name);
+        if (oddsData) { report.odds_matched++; if (oddsData.fonte === "betfair") report.odds_betfair = (report.odds_betfair || 0) + 1; }
         rows.push(...buildSnapshotRows({ fix, code, model, oddsData, horizon }));
         report.fixtures++;
       }
