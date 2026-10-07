@@ -756,6 +756,34 @@ export async function GET(
     const sp =
       req.nextUrl.searchParams
 
+    /*
+     * 07/10/2026 — conteggio leggero per l'avviso in Dashboard:
+     * opportunità, bonus accreditati e problemi NON letti e NON archiviati
+     * (ultimi 15 giorni).
+     */
+    if (sp.get('nuove') === '1') {
+      const inizio = getPeriodoStart('15g')
+      const tutte = await loadAll()
+
+      let opportunita = 0
+      let accreditati = 0
+      let problemi = 0
+
+      for (const row of tutte) {
+        if (row.archiviata || row.letta === true) continue
+
+        const t = toTime(row.data_mail)
+        if (inizio && (!t || t < inizio.getTime())) continue
+
+        const bucket = getBucket(row)
+        if (bucket === 'opportunita') opportunita++
+        else if (bucket === 'accreditati') accreditati++
+        else if (bucket === 'problemi') problemi++
+      }
+
+      return NextResponse.json({ opportunita, accreditati, problemi })
+    }
+
     const page =
       Math.max(
         1,
