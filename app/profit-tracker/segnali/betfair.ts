@@ -73,6 +73,7 @@ export type Nome = { tok: string[]; marc: string }
 const TOGLI = new Set(['fc', 'cf', 'ac', 'afc', 'fk', 'sk', 'ud', 'cd', 'sd', 'club', 'calcio', 'de', 'la', 'le', 'el', 'los', 'las', 'the', 'sv', 'vfb', 'vfl', 'ssc', 'as', 'us', 'rc', 'rcd'])
 const MARC = new Set(['w', 'women', 'femminile', 'feminino', 'femenino', 'u17', 'u18', 'u19', 'u20', 'u21', 'u23', 'ii', 'b', 'reserves', 'res', 'youth'])
 const ALIAS: Record<string, string> = {
+  'fc internazionale milano': 'inter', 'internazionale milano': 'inter',   // nome usato da football-data.org
   'man utd': 'manchester united', 'manchester utd': 'manchester united', 'man united': 'manchester united', 'man city': 'manchester city',
   'spurs': 'tottenham', 'tottenham hotspur': 'tottenham', 'inter milan': 'inter', 'internazionale': 'inter', 'juve': 'juventus',
   'psg': 'paris saint germain', 'paris sg': 'paris saint germain', 'paris saint germain': 'paris saint germain',
