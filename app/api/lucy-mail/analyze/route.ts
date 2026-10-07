@@ -673,6 +673,30 @@ Esempio:
 -> bonus_importo = null
 
 ==================================================
+TORNEI E MONTEPREMI COLLETTIVI
+==================================================
+
+Se la comunicazione promuove un torneo, una classifica,
+una "saga", una gara a premi o un montepremi condiviso
+e NON offre al singolo conto un bonus, freebet, giro
+gratis o cashback personale garantito:
+
+- giudizio = DA_VALUTARE (mai UTILE)
+- bonus_importo = null
+- richiede_azione = false
+- priorita = bassa
+- categoria = PROMO_SLOT se si gioca a slot,
+  PROMO_CASINO se è casinò o tavoli
+
+Se invece insieme al torneo c'è un bonus o dei giri
+gratis personali con importo indicato, vale la regola
+normale delle opportunità.
+
+La stessa comunicazione inviata a clienti diversi
+(stesso testo, solo il nome cambia) DEVE ricevere
+sempre lo stesso giudizio e la stessa categoria.
+
+==================================================
 COERENZA TRA PROMO SIMILI
 ==================================================
 
@@ -1393,6 +1417,9 @@ async function analyzeItem(
   const body = {
     model: MODEL,
     reasoning_effort: 'low',
+    // 07/10/2026: risposte ripetibili. Senza questo, la stessa mail mandata a clienti diversi
+    // veniva classificata in modo diverso (UTILE a uno, DA_VALUTARE agli altri).
+    temperature: 0,
     max_completion_tokens: 700,
 
     messages: [
