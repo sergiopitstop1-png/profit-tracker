@@ -93,6 +93,50 @@ const matrixColumns = Array.from(
   }
 )
 
+
+/* =======================================================
+   07/10/2026 — TESTO PULITO
+   Toglie link di tracciamento, caratteri invisibili e
+   segni di formattazione dalle email. L'originale resta
+   nel database e si rivede col pulsante "Originale".
+   ======================================================= */
+function pulisciTesto(originale: string | null | undefined) {
+  let t = String(originale || '').replace(/\r/g, '')
+  let link = 0
+
+  // [https://....]  e  <https://....>  (anche spezzati su più righe)
+  t = t.replace(/\[\s*https?:\/\/[^\]]*\]/gi, () => { link++; return '\u0001' })
+  t = t.replace(/<\s*https?:\/\/[^>]*>/gi, () => { link++; return '\u0001' })
+  // indirizzi nudi
+  t = t.replace(/https?:\/\/\S+/gi, () => { link++; return '\u0001' })
+
+  // caratteri invisibili usati nelle newsletter per riempire l'anteprima
+  t = t.replace(/[\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2064\u00ad\u034f\u061c\ufeff]/g, '')
+  t = t.replace(/&nbsp;/gi, ' ').replace(/\u00a0/g, ' ')
+
+  // asterischi di formattazione (*testo*)
+  t = t.replace(/(^|\s)\*+(?=\S)/gm, '$1')
+  t = t.replace(/(?<=\S)\*+(?=\s|$|[.,;:!?)])/g, '')
+  t = t.replace(/^[ \t*]+$/gm, '')        // righe fatte solo di asterischi
+  t = t.replace(/[ \t]+\*+[ \t]*$/gm, '')  // asterischi isolati a fine riga
+
+  // spazi in eccesso; righe fatte solo di link o simboli: via (le righe vuote restano)
+  t = t
+    .split('\n')
+    .map(r => r.replace(/[ \t]+/g, ' ').trim())
+    .filter(r => r === '' || !/^[\u0001\s|•·\-–—_=~.]*$/.test(r))
+    .join('\n')
+
+  // link doppi sulla stessa riga -> uno solo
+  t = t.replace(/(\u0001[\s|•·\-–—]*){2,}/g, '\u0001')
+  t = t.replace(/\u0001/g, '🔗')
+
+  // righe vuote multiple
+  t = t.replace(/\n{3,}/g, '\n\n').trim()
+
+  return { testo: t, link }
+}
+
 export default function ArchivioLucyPage() {
   const router = useRouter()
 
@@ -155,6 +199,7 @@ export default function ArchivioLucyPage() {
     return m ? m[1] : ''
   }
 
+  const [mostraOriginale, setMostraOriginale] = useState(false)
   const [avviso, setAvviso] = useState<{ testo: string; ok: boolean } | null>(null)
 
   function mostraAvviso(testo: string, ok: boolean) {
@@ -441,6 +486,7 @@ export default function ArchivioLucyPage() {
   async function apriComunicazione(
     item: Comunicazione
   ) {
+    setMostraOriginale(false)
     setComunicazioneAperta(item)
 
     try {
@@ -2590,39 +2636,55 @@ export default function ArchivioLucyPage() {
               {/* TESTO ORIGINALE */}
 
               <div>
-                <div
-                  className="
-                    mb-3
-                    font-mono
-                    font-bold
-                    text-green-400
-                  "
-                >
-                  &gt;{' '}
-                  {comunicazioneAperta.canale ===
-                  'SMS'
-                    ? 'TESTO SMS'
-                    : 'MESSAGGIO ORIGINALE'}
-                </div>
+                {(() => {
+                  const isSms = comunicazioneAperta.canale === 'SMS'
+                  const originale = comunicazioneAperta.testo_completo || ''
+                  const pulito = isSms ? { testo: originale, link: 0 } : pulisciTesto(originale)
+                  const mostraPulito = !isSms && !mostraOriginale
+                  return (
+                    <>
+                      <div className="mb-3 flex flex-wrap items-center gap-3 font-mono font-bold text-green-400">
+                        <span>
+                          &gt; {isSms ? 'TESTO SMS' : mostraPulito ? 'TESTO DELLA MAIL' : 'MESSAGGIO ORIGINALE'}
+                        </span>
 
-                <div
-                  className="
-                    whitespace-pre-wrap
-                    break-words
-                    rounded-xl
-                    border
-                    border-green-900
-                    bg-black
-                    p-5
-                    font-mono
-                    text-sm
-                    leading-relaxed
-                    text-slate-300
-                  "
-                >
-                  {comunicazioneAperta.testo_completo ||
-                    'Testo non disponibile.'}
-                </div>
+                        {!isSms && (
+                          <button
+                            onClick={() => setMostraOriginale(v => !v)}
+                            className="rounded-md border border-green-800 bg-green-950/30 px-2 py-1 text-xs font-semibold text-green-300 hover:border-green-500"
+                          >
+                            {mostraPulito ? 'Mostra originale' : 'Mostra testo pulito'}
+                          </button>
+                        )}
+
+                        {mostraPulito && pulito.link > 0 && (
+                          <span className="text-xs font-normal text-slate-500">
+                            {pulito.link} link di tracciamento nascosti (🔗) · nell'originale ci sono tutti
+                          </span>
+                        )}
+                      </div>
+
+                      <div
+                        className="
+                          whitespace-pre-wrap
+                          break-words
+                          rounded-xl
+                          border
+                          border-green-900
+                          bg-black
+                          p-5
+                          font-mono
+                          text-sm
+                          leading-relaxed
+                          text-slate-300
+                        "
+                      >
+                        {(mostraPulito ? pulito.testo : originale) ||
+                          'Testo non disponibile.'}
+                      </div>
+                    </>
+                  )
+                })()}
               </div>
             </div>
 
