@@ -949,6 +949,86 @@ export async function PATCH(
     const body =
       await req.json()
 
+    /*
+     * 07/10/2026 — ARCHIVIA TUTTE le comunicazioni della vista
+     * (con gli stessi filtri della lista), in un colpo solo.
+     */
+    if (body?.archivia_vista === true) {
+      const f = body.filtri || {}
+
+      if (f.vista === 'archiviate') {
+        return NextResponse.json(
+          { error: 'Sono già archiviate' },
+          { status: 400 }
+        )
+      }
+
+      const periodoStartBulk =
+        getPeriodoStart(f.periodo || '1m')
+
+      const tutte = await loadAll()
+
+      const daArchiviare = tutte.filter(
+        row =>
+          matchesVista(row, f.vista || null) &&
+          matchesFilters(row, {
+            cliente: f.cliente || null,
+            bookmaker: f.bookmaker || null,
+            giudizio: f.giudizio || null,
+            categoria: f.categoria || null,
+            priorita: f.priorita || null,
+            search: f.q || null,
+            canale: f.canale || null,
+            periodoStart: periodoStartBulk,
+          })
+      )
+
+      const perTabella = {
+        lucy_mail_archive: [] as Array<string | number>,
+        sms_clienti: [] as Array<string | number>,
+      }
+
+      for (const row of daArchiviare) {
+        if (row.canale === 'SMS') {
+          perTabella.sms_clienti.push(row.source_id)
+        } else {
+          perTabella.lucy_mail_archive.push(row.source_id)
+        }
+      }
+
+      const adesso = new Date().toISOString()
+      let archiviate = 0
+
+      for (const [tabella, ids] of Object.entries(perTabella)) {
+        for (let i = 0; i < ids.length; i += 200) {
+          const blocco = ids.slice(i, i + 200)
+
+          const { error } = await adminSupabase
+            .from(tabella)
+            .update({
+              archiviata: true,
+              updated_at: adesso,
+            })
+            .in('id', blocco)
+
+          if (error) {
+            console.error('[Lucy archivia tutte]', error)
+            return NextResponse.json(
+              {
+                error: error.message,
+                archiviate,
+              },
+              { status: 500 }
+            )
+          }
+
+          archiviate += blocco.length
+        }
+      }
+
+      return NextResponse.json({ ok: true, archiviate })
+    }
+
     const {
       id,
       source_id,
