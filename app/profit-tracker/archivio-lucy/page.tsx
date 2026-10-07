@@ -49,6 +49,7 @@ type Comunicazione = {
 type Counters = {
   tutte: number
   opportunita: number
+  accreditati: number
   da_valutare: number
   problemi: number
   ignora: number
@@ -58,6 +59,7 @@ type Counters = {
 
 type Vista =
   | 'opportunita'
+  | 'accreditati'
   | 'da_valutare'
   | 'problemi'
   | 'ignora'
@@ -68,6 +70,7 @@ type Vista =
 const emptyCounters: Counters = {
   tutte: 0,
   opportunita: 0,
+  accreditati: 0,
   da_valutare: 0,
   problemi: 0,
   ignora: 0,
@@ -1086,7 +1089,7 @@ export default function ArchivioLucyPage() {
             grid
             grid-cols-2
             md:grid-cols-4
-            xl:grid-cols-7
+            xl:grid-cols-8
             gap-3
             mb-6
           "
@@ -1115,6 +1118,19 @@ export default function ArchivioLucyPage() {
 
             <div className="mt-1 font-semibold">
               🔥 Opportunità
+            </div>
+          </button>
+
+          <button
+            className={tabClass('accreditati')}
+            onClick={() => cambiaVista('accreditati')}
+          >
+            <div className="text-2xl font-black text-emerald-300">
+              {counters.accreditati}
+            </div>
+
+            <div className="mt-1 font-semibold">
+              💰 Bonus accreditati
             </div>
           </button>
 
