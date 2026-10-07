@@ -8,7 +8,7 @@
 // - Stato: 'da fare' → 'fatta' (finisce in Archivio operazioni) oppure 'rinunciata'. "Scaduta" si calcola.
 // Tabella: promo_bonus (promo_bonus.sql).
 // ════════════════════════════════════════════════════════════════════
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../profit-tracker/supabaseClient'
 
 const TIPI = ['Benvenuto', 'Ricarica', 'Cashback', 'Freebet', 'Giri gratis', 'Quota maggiorata', 'Rimborso', 'Torneo', 'Altro']
@@ -114,6 +114,14 @@ export default function PromoBonusPanel({ books, prefill, onPrefillUsato, onMess
   const [filtro, setFiltro] = useState('da fare') // 'da fare' | 'tutte' | 'fatta' | 'scaduta' | 'rinunciata'
   const [cerca, setCerca] = useState('')
   const [errTabella, setErrTabella] = useState('')
+  const formRef = useRef(null)
+
+  // 07/10/2026 — quando si apre il modulo (matita, nuova promo, arrivo da Lucy Mail) la pagina scorre fin lì
+  useEffect(() => {
+    if (!form) return
+    const t = setTimeout(() => { try { formRef.current && formRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' }) } catch (e) {} }, 60)
+    return () => clearTimeout(t)
+  }, [!!form, form && form.id])   // eslint-disable-line react-hooks/exhaustive-deps
 
   const clienti = useMemo(() => [...new Set((books || []).map(b => String(b.intestatario || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [books])
   const nomiBook = useMemo(() => [...new Set((books || []).map(b => String(b.nome || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [books])
@@ -211,7 +219,8 @@ export default function PromoBonusPanel({ books, prefill, onPrefillUsato, onMess
 
       {/* ─── modulo ─── */}
       {form && (
-        <div style={{ border: '1px solid rgba(244,114,182,.45)', borderRadius: 12, padding: 12, marginBottom: 14, background: 'rgba(2,6,23,.5)' }}>
+        <div ref={formRef} style={{ border: '1px solid rgba(244,114,182,.45)', borderRadius: 12, padding: 12, marginBottom: 14, background: 'rgba(2,6,23,.5)', boxShadow: form.id ? '0 0 0 2px rgba(250,204,21,.45)' : 'none' }}>
+          {form.id && <div style={{ fontSize: 13, fontWeight: 800, color: '#facc15', marginBottom: 8 }}>✏️ Modifica promo: {form.book} · {form.cliente}</div>}
           {form.oggetto && <div style={{ fontSize: 12, color: '#7dd3fc', marginBottom: 8 }}>📬 Dalla {form.mail_canale === 'SMS' ? 'SMS' : 'mail'}: <b>{form.oggetto}</b> — controlla i dati letti dall'AI</div>}
           <datalist id="promo-clienti">{clienti.map(c => <option key={c} value={c} />)}</datalist>
           <datalist id="promo-book">{nomiBook.map(b => <option key={b} value={b} />)}</datalist>
