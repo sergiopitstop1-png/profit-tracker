@@ -27,6 +27,7 @@ export default function Oggi() {
   const [checkingId, setCheckingId] = useState(null);
   const [pianoMap, setPianoMap] = useState({});
   const [sports, setSports] = useState(["calcio"]);
+  const [tennisReg, setTennisReg] = useState(""); // 07/10/2026: esito della registrazione dei segnali tennis
 
   const toggleLeague = (code) => {
     setSelectedLeagues(prev => prev.includes(code) ? prev.filter(x => x !== code) : [...prev, code]);
@@ -36,11 +37,54 @@ export default function Oggi() {
     setSports(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
   };
 
+  // 07/10/2026 — registra i segnali tennis (solo 🎆 VALUE e pronostici "X vince") in pronox_tennis_segnali,
+  // così compaiono nella pagina Segnali. Il primo salvataggio non si riscrive; le partite già iniziate si saltano.
+  const registraTennis = async (lista) => {
+    try {
+      const adesso = Date.now();
+      const righe = [];
+      let iniziate = 0;
+      for (const m of lista) {
+        if (m.commence && new Date(m.commence).getTime() <= adesso) { iniziate++; continue; }
+        for (const s of (m.signals || [])) {
+          if (s.isSuspicious || !(s.isValue || s.isPlain)) continue;
+          righe.push({
+            data_partita: date,
+            inizio: m.commence || null,
+            ora: m.time || null,
+            torneo: m.torneo || null,
+            circuito: m.tour || null,
+            giocatore_a: m.home.name,
+            giocatore_b: m.away.name,
+            selezione: String(s.label || "").replace(/ vince$/, ""),
+            tipo: s.isValue ? "VALUE" : "PRONOSTICO",
+            prob: s.prob != null ? Math.round(s.prob * 10000) / 10000 : null,
+            quota: s.bookOdds ? Number(s.bookOdds) : null,
+            quota_a: m.oddsData?.o1 ? Number(m.oddsData.o1) : null,
+            quota_b: m.oddsData?.o2 ? Number(m.oddsData.o2) : null,
+            ev: s.ev != null ? Math.round(s.ev * 10000) / 10000 : null,
+          });
+        }
+      }
+      if (!righe.length) { setTennisReg(iniziate ? `🎾 Nessun segnale nuovo da registrare (${iniziate} partite già iniziate)` : ""); return; }
+      let nuovi = 0;
+      for (let i = 0; i < righe.length; i += 200) {
+        const { data, error } = await supabase.from("pronox_tennis_segnali")
+          .upsert(righe.slice(i, i + 200), { onConflict: "data_partita,giocatore_a,giocatore_b,selezione", ignoreDuplicates: true })
+          .select("id");
+        if (error) { setTennisReg(`🎾 Registrazione per Segnali NON riuscita: ${error.message} (hai lanciato pronox_tennis_segnali.sql?)`); return; }
+        nuovi += data?.length || 0;
+      }
+      setTennisReg(`🎾 Segnali: ${nuovi} nuovi registrati, ${righe.length - nuovi} già presenti${iniziate ? `, ${iniziate} partite già iniziate saltate` : ""}`);
+    } catch (e) { setTennisReg(`🎾 Registrazione per Segnali NON riuscita: ${e.message || e}`); }
+  };
+
   const load = async () => {
     setLoading(true);
     setMatches([]);
     setSavedMap({});
     setPianoMap({});
+    setTennisReg("");
     const all = [];
     const today = date;
 
@@ -231,6 +275,8 @@ export default function Oggi() {
           isTennis: true,
           id: `tennis_${date}_${i}`,
           tour: m.tour,
+          torneo: m.tournament || null,
+          commence: m.commenceTime || null,
           league: { name: m.tournament ? `🎾 ${m.tournament} · ${m.tour}` : `🎾 Tennis ${m.tour}` },
           time: m.commenceTime ? new Date(m.commenceTime).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }) : "--:--",
           home: { name: m.playerA.name, crest: null },
@@ -251,6 +297,7 @@ export default function Oggi() {
         // neutro (utile per tracciare l'accuratezza), sia quelle mute.
         const tennisMatchesFiltered = tennisMatches.filter(m => m.hasValue || !m.signals.some(s => s.isSuspicious));
         all.push(...tennisMatchesFiltered);
+        await registraTennis(tennisMatchesFiltered);
       } catch (e) {
         console.error("Errore caricamento tennis:", e);
       }
@@ -488,6 +535,12 @@ export default function Oggi() {
           style={{ width: "100%", padding: 14, fontSize: 15, fontWeight: 800, borderRadius: 10, border: "none", cursor: loading || (sports.includes("calcio") && selectedLeagues.length === 0) || sports.length === 0 ? "not-allowed" : "pointer", background: loading || (sports.includes("calcio") && selectedLeagues.length === 0) || sports.length === 0 ? "#2a2f3f" : "#c8f135", color: loading || (sports.includes("calcio") && selectedLeagues.length === 0) || sports.length === 0 ? "#6b7490" : "#0d0f14", marginBottom: 20 }}>
           {loading ? `⏳ ${progress}` : sports.length === 0 ? "Seleziona uno sport" : (sports.includes("calcio") && selectedLeagues.length === 0) ? "Seleziona almeno una lega" : "ANALIZZA PARTITE DEL GIORNO ↗"}
         </button>
+
+        {tennisReg && (
+          <div style={{ fontSize: 12, marginBottom: 12, padding: "8px 12px", borderRadius: 8, background: tennisReg.includes("NON riuscita") ? "rgba(255,92,92,0.1)" : "rgba(74,240,196,0.08)", color: tennisReg.includes("NON riuscita") ? "#ff5c5c" : "#4af0c4", border: `1px solid ${tennisReg.includes("NON riuscita") ? "rgba(255,92,92,0.4)" : "rgba(74,240,196,0.3)"}` }}>
+            {tennisReg} · <a href="/profit-tracker/segnali" style={{ color: "inherit", fontWeight: 700 }}>vai a Segnali</a>
+          </div>
+        )}
 
         {matches.length > 0 && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 16 }}>
