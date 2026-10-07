@@ -10,6 +10,7 @@ import Link from 'next/link'
 import { supabase } from '../supabaseClient'
 import { caricaBetfair, caricaCongelati, quotaPerSegnale, riassuntoBF } from './betfair'   // 06/10/2026: quota Betfair accanto ai segnali
 import type { CellaBF, EventoBF, RigaCongelata } from './betfair'
+import SchedaTennis from './SchedaTennis'   // 07/10/2026: tennis PronoX
 
 type Segnale = {
   msg_id: number; data_msg: string | null; data_partita: string | null; ora: string | null; competizione: string | null
@@ -342,6 +343,7 @@ export default function SegnaliPage() {
   const [mercato, setMercato] = useState('')
   const [soloSopra140, setSoloSopra140] = useState(false)
   const [cerca, setCerca] = useState('')
+  const [sportPronox, setSportPronox] = useState<'calcio' | 'tennis'>('calcio')   // 07/10/2026
 
   const carica = useCallback(async () => {
     const out: Segnale[] = []
@@ -435,7 +437,14 @@ export default function SegnaliPage() {
         </div>
 
 {tab==='pronox' ? (
-        <SchedaPronox dati={pronox} sel={sel} th={th} td={td} tabellaPagella={tabellaPagella} eventiBF={eventiBF} congelati={congelati} />
+        <>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+            <button onClick={() => setSportPronox('calcio')} style={{ ...sel, cursor: 'pointer', fontWeight: 900, borderColor: sportPronox === 'calcio' ? '#38bdf8' : '#334155' }}>⚽ Calcio</button>
+            <button onClick={() => setSportPronox('tennis')} style={{ ...sel, cursor: 'pointer', fontWeight: 900, borderColor: sportPronox === 'tennis' ? '#38bdf8' : '#334155' }}>🎾 Tennis</button>
+          </div>
+          {sportPronox === 'tennis' ? <SchedaTennis sel={sel} th={th} td={td} />
+            : <SchedaPronox dati={pronox} sel={sel} th={th} td={td} tabellaPagella={tabellaPagella} eventiBF={eventiBF} congelati={congelati} />}
+        </>
         ) : tab==='hunterbet' ? (
         <div style={{ background:'rgba(15,23,42,.6)', border:'1px solid #1e293b', borderRadius:14, padding:12, overflowX:'auto' }}>
           <div style={{fontWeight:900,marginBottom:4}}>Hunterbet · {hunter.length}</div>
