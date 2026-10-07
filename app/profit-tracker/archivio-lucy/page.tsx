@@ -901,6 +901,25 @@ export default function ArchivioLucyPage() {
             </button>
 
             <button
+              onClick={() =>
+                router.push('/profit-tracker?tab=promo')
+              }
+              className="
+                rounded-lg
+                border
+                border-pink-500/50
+                bg-pink-500/10
+                px-4
+                py-2
+                font-semibold
+                text-pink-300
+                hover:bg-pink-500/20
+              "
+            >
+              📌 Promo
+            </button>
+
+            <button
               onClick={() => load()}
               className="
                 rounded-lg
@@ -960,6 +979,24 @@ export default function ArchivioLucyPage() {
             "
           >
             🏠 Dashboard
+          </button>
+
+          <button
+            onClick={() =>
+              router.push('/profit-tracker?tab=promo')
+            }
+            className="
+              flex-1
+              rounded-lg
+              border
+              border-pink-500/50
+              bg-[#07100a]
+              px-3
+              py-2
+              text-pink-300
+            "
+          >
+            📌 Promo
           </button>
 
           <button
