@@ -344,6 +344,15 @@ export default function ArchivioLucyPage() {
     ]
   )
 
+  // 07/10/2026 — apertura diretta di una vista dall'avviso in Dashboard (?vista=opportunita / accreditati ...)
+  useEffect(() => {
+    try {
+      const v = new URLSearchParams(window.location.search).get('vista')
+      const valide = ['opportunita', 'accreditati', 'da_valutare', 'problemi', 'ignora', 'da_analizzare', 'tutte', 'archiviate']
+      if (v && valide.includes(v)) setVista(v as Vista)
+    } catch {}
+  }, [])
+
   useEffect(() => {
     load()
   }, [load])
