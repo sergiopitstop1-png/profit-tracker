@@ -334,10 +334,58 @@ function normalizeSms(row: any): UnifiedRow {
 
 type LucyBucket =
   | 'opportunita'
+  | 'accreditati'
   | 'problemi'
   | 'da_valutare'
   | 'ignora'
   | 'da_analizzare'
+
+/* =========================================================
+   07/10/2026 — BONUS ACCREDITATI
+
+   Sottocartella delle opportunità: mail che dicono
+   ESPLICITAMENTE che il bonus è già stato accreditato o
+   attivato (non c'è niente da fare, solo da sapere).
+   Si guarda oggetto + analisi di Lucy + condizioni (non il
+   corpo intero, troppo rumoroso).
+   Se l'utente ha corretto con 👎 -> "Opportunità", resta
+   in Opportunità.
+   ========================================================= */
+
+const sansAccenti = (v: unknown) =>
+  String(v ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[’`´]/g, "'")
+
+const RE_ACCREDITATO =
+  /\baccredit(ato|ati|ata|ate)\b|\baccredito\b|\bgia accreditat|\bti abbiamo accreditat|\babbiamo accreditat|\bbonus (e'? )?ora attiv|\be ora attivo\b|\bora attivo\b|\bbonus attivat|\be stato attivat|\bbonus ricevut|\be stato assegnat|\bti e stato (accreditat|assegnat)/
+
+const RE_NON_ANCORA =
+  /\bverra\b|\bverranno\b|\bsara\b|\bsaranno\b|\bpotrai\b|\bpotresti\b|\bsono previsti\b|\bper ricevere\b|\bper ottenere\b|\bper avere\b|\briceverai\b|\botterrai\b|\baccrediteremo\b|\bimmediat|\bse depositi\b|\bdeposit(a|ando|are) (almeno|min)/
+
+function isBonusAccreditato(row: UnifiedRow) {
+  if (row.richiede_azione === true) return false
+
+  // correzione manuale dell'utente: "doveva stare in Opportunità"
+  if (
+    String(row.feedback_note || '').startsWith(
+      'DOVEVA_ESSERE=OPPORTUNITA'
+    )
+  ) {
+    return false
+  }
+
+  const testo = sansAccenti(
+    `${row.oggetto || ''} . ${row.motivazione_ai || ''} . ${row.condizioni || ''}`
+  )
+
+  return (
+    RE_ACCREDITATO.test(testo) &&
+    !RE_NON_ANCORA.test(testo)
+  )
+}
 
 function getBucket(row: UnifiedRow): LucyBucket {
   if (
@@ -371,7 +419,9 @@ function getBucket(row: UnifiedRow): LucyBucket {
    * Opportunità economica.
    */
   if (row.giudizio === 'UTILE') {
-    return 'opportunita'
+    return isBonusAccreditato(row)
+      ? 'accreditati'
+      : 'opportunita'
   }
 
   /*
@@ -553,6 +603,7 @@ function getCounters(
   const counters = {
     tutte: 0,
     opportunita: 0,
+    accreditati: 0,
     da_valutare: 0,
     problemi: 0,
     ignora: 0,
@@ -573,6 +624,8 @@ function getCounters(
 
     if (bucket === 'opportunita') {
       counters.opportunita++
+    } else if (bucket === 'accreditati') {
+      counters.accreditati++
     } else if (bucket === 'problemi') {
       counters.problemi++
     } else if (bucket === 'da_valutare') {
