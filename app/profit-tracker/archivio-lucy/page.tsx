@@ -215,6 +215,16 @@ export default function ArchivioLucyPage() {
   }
 
   const [mostraOriginale, setMostraOriginale] = useState(false)
+  // 07/10/2026 — freccia "torna su", visibile in tutte le viste dopo un po' di scroll
+  const [mostraSu, setMostraSu] = useState(false)
+
+  useEffect(() => {
+    const onScroll = () => setMostraSu(window.scrollY > 300)
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
   const [avviso, setAvviso] = useState<{ testo: string; ok: boolean } | null>(null)
 
   function mostraAvviso(testo: string, ok: boolean) {
@@ -2859,6 +2869,17 @@ export default function ArchivioLucyPage() {
       {/* ==================================================
           STYLE
           ================================================== */}
+
+      {mostraSu && !comunicazioneAperta && (
+        <button
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          title="Torna in cima"
+          aria-label="Torna in cima"
+          className="fixed bottom-24 right-6 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-green-500 text-2xl font-black text-white shadow-[0_0_22px_rgba(34,197,94,0.55)] transition hover:scale-105 hover:bg-green-400"
+        >
+          ↑
+        </button>
+      )}
 
       {avviso && (
         <div
