@@ -442,7 +442,7 @@ export default function SegnaliPage() {
             <button onClick={() => setSportPronox('calcio')} style={{ ...sel, cursor: 'pointer', fontWeight: 900, borderColor: sportPronox === 'calcio' ? '#38bdf8' : '#334155' }}>⚽ Calcio</button>
             <button onClick={() => setSportPronox('tennis')} style={{ ...sel, cursor: 'pointer', fontWeight: 900, borderColor: sportPronox === 'tennis' ? '#38bdf8' : '#334155' }}>🎾 Tennis</button>
           </div>
-          {sportPronox === 'tennis' ? <SchedaTennis sel={sel} th={th} td={td} />
+          {sportPronox === 'tennis' ? <SchedaTennis sel={sel} th={th} td={td} eventiBF={eventiBF} />
             : <SchedaPronox dati={pronox} sel={sel} th={th} td={td} tabellaPagella={tabellaPagella} eventiBF={eventiBF} congelati={congelati} />}
         </>
         ) : tab==='hunterbet' ? (
