@@ -676,32 +676,63 @@ function getClienti(
    CARICAMENTO EMAIL + SMS
    ========================================================= */
 
-async function loadAll() {
+/*
+ * 07/10/2026 — Supabase restituisce al massimo 1000 righe per richiesta, anche con .limit(5000):
+ * per questo l'archivio vedeva solo 1000 email + 1000 SMS (= il "2000" dei contatori).
+ * Ora si legge a pagine da 1000, fino a MAX_RIGHE per tabella.
+ * "dal" (facoltativo): legge solo le comunicazioni ricevute da quella data (meno dati = meno costi).
+ */
+const PAGINA = 1000
+const MAX_RIGHE = 20000
+
+async function leggiTabella(
+  tabella: string,
+  colonnaData: string,
+  dal: Date | null
+) {
+  const righe: any[] = []
+
+  for (let da = 0; da < MAX_RIGHE; da += PAGINA) {
+    let q = adminSupabase
+      .from(tabella)
+      .select('*')
+      .order(colonnaData, { ascending: false })
+      .order('id', { ascending: false })
+      .range(da, da + PAGINA - 1)
+
+    if (dal) {
+      q = q.gte(colonnaData, dal.toISOString())
+    }
+
+    const { data, error } = await q
+
+    if (error) {
+      return { data: righe, error }
+    }
+
+    righe.push(...(data || []))
+
+    if (!data || data.length < PAGINA) break
+  }
+
+  return { data: righe, error: null }
+}
+
+async function loadAll(dal: Date | null = null) {
   const [
     emailResult,
     smsResult,
   ] = await Promise.all([
-    adminSupabase
-      .from('lucy_mail_archive')
-      .select('*')
-      .order(
-        'data_mail',
-        {
-          ascending: false,
-        }
-      )
-      .limit(5000),
-
-    adminSupabase
-      .from('sms_clienti')
-      .select('*')
-      .order(
-        'data_ricezione',
-        {
-          ascending: false,
-        }
-      )
-      .limit(5000),
+    leggiTabella(
+      'lucy_mail_archive',
+      'data_mail',
+      dal
+    ),
+    leggiTabella(
+      'sms_clienti',
+      'data_ricezione',
+      dal
+    ),
   ])
 
   if (emailResult.error) {
@@ -763,7 +794,7 @@ export async function GET(
      */
     if (sp.get('nuove') === '1') {
       const inizio = getPeriodoStart('15g')
-      const tutte = await loadAll()
+      const tutte = await loadAll(inizio)   // solo gli ultimi 15 giorni
 
       let opportunita = 0
       let accreditati = 0
