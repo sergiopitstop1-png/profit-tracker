@@ -215,6 +215,7 @@ export default function ArchivioLucyPage() {
   }
 
   const [mostraOriginale, setMostraOriginale] = useState(false)
+  const [archiviandoTutte, setArchiviandoTutte] = useState(false)
   // 07/10/2026 — freccia "torna su", visibile in tutte le viste dopo un po' di scroll
   const [mostraSu, setMostraSu] = useState(false)
 
@@ -504,6 +505,64 @@ export default function ArchivioLucyPage() {
       load(true) // la riga torna al suo posto
     } finally {
       setSavingId(null)
+    }
+  }
+
+  async function archiviaTutte() {
+    if (count === 0 || vista === 'archiviate' || archiviandoTutte) {
+      return
+    }
+
+    const conFiltri =
+      Object.values(f).some(Boolean) ||
+      canale !== 'TUTTI'
+
+    if (
+      !window.confirm(
+        `Archiviare tutte le ${count} comunicazioni di questa vista` +
+          (conFiltri ? ' (con i filtri attivi)' : '') +
+          '?\n\nNon si cancella nulla: le ritrovi nella vista Archiviate.'
+      )
+    ) {
+      return
+    }
+
+    setArchiviandoTutte(true)
+
+    try {
+      const r = await fetch('/api/lucy-mail/archive', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          archivia_vista: true,
+          filtri: {
+            vista: vista === 'tutte' ? null : vista,
+            periodo,
+            canale: canale === 'TUTTI' ? null : canale,
+            ...f,
+          },
+        }),
+      })
+
+      const j = await r.json().catch(() => ({}))
+
+      if (!r.ok) {
+        throw new Error(j?.error || 'HTTP ' + r.status)
+      }
+
+      setRows([])
+      setCount(0)
+      mostraAvviso(`📦 Archiviate ${j.archiviate} comunicazioni`, true)
+      load(true)
+    } catch (error) {
+      console.error('[Lucy archivia tutte]', error)
+      mostraAvviso(
+        '⚠️ Non archiviate: ' + String((error as Error)?.message || 'errore').slice(0, 140),
+        false
+      )
+      load(true)
+    } finally {
+      setArchiviandoTutte(false)
     }
   }
 
@@ -1390,6 +1449,17 @@ export default function ArchivioLucyPage() {
                     ? '📱 SMS'
                     : '📨 Email + SMS'}
               </span>
+
+              {vista !== 'archiviate' && count > 0 && (
+                <button
+                  onClick={archiviaTutte}
+                  disabled={archiviandoTutte}
+                  className="rounded-full border border-green-500 bg-green-500/15 px-3 py-1 font-bold text-green-300 hover:bg-green-500/25 disabled:opacity-40"
+                  title="Archivia tutte le comunicazioni di questa vista"
+                >
+                  {archiviandoTutte ? '⏳ Archivio…' : `📦 Archivia tutte (${count})`}
+                </button>
+              )}
 
               {vista ===
                 'archiviate' && (
