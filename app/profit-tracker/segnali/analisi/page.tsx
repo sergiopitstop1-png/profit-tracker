@@ -16,8 +16,8 @@ type Riga = { id: number; data: string; competizione: string; esito: string | nu
   live: string; minuto: number | null; mercato: string; casaOspiti: string | null; risultato: string | null; minutiAlGol: number | null
   tipo: string; ht: [number, number] | null; ft: [number, number] | null; gol: Gol[] | null
   pG?: number | null; pC?: number | null; pM?: number | null; value?: boolean; forte?: boolean }
-type Canale = 'scoretrend' | 'hunterbet' | 'pronox'
-const NOMI: Record<Canale, string> = { scoretrend: 'ScoreTrend', hunterbet: 'Hunterbet', pronox: 'PronoX' }
+type Canale = 'scoretrend' | 'hunterbet' | 'pronox' | 'tennis'
+const NOMI: Record<Canale, string> = { scoretrend: 'ScoreTrend', hunterbet: 'Hunterbet', pronox: 'PronoX', tennis: 'PronoX 🎾 Tennis' }
 
 // ─── 04/10/2026 · DOVE FINISCONO I SEGNALI: mercati verificati sul risultato vero della partita ───
 type Mercato = { id: string; gruppo: string; test: (r: Riga) => boolean | null }
@@ -182,6 +182,21 @@ function normalizza(canale: Canale, x: any): Riga {
     tipo: x.tipo_segnale === 'GOL_CASA' ? 'Gol casa' : x.tipo_segnale === 'GOL_OSPITI' ? 'Gol ospiti' : `Pre-live · ${x.tipo_segnale || '?'}`,
     ht: htR, ft: ftR, gol: Array.isArray(x.gol) ? x.gol : null,
   }
+  // 07/10/2026 — TENNIS PronoX (tabella pronox_tennis_segnali): 1 unità per segnale con quota; nessun risultato partita (ht/ft)
+  if (canale === 'tennis') {
+    const q = x.quota != null ? Number(x.quota) : null
+    const qa = x.quota_a != null ? Number(x.quota_a) : null, qb = x.quota_b != null ? Number(x.quota_b) : null
+    const qSel = x.selezione === x.giocatore_a ? qa : qb, qAlt = x.selezione === x.giocatore_a ? qb : qa
+    const pM = qSel && qAlt ? (1 / qSel) / (1 / qSel + 1 / qAlt) : null      // probabilità del bookmaker senza margine
+    const etichetta = x.tipo === 'VALUE' ? '💎 VALUE' : '→ Pronostico'
+    return {
+      id: x.id, data: x.inizio || x.data_partita, competizione: x.torneo || 'n.d.', esito: x.esito, quota: q,
+      profitto: q != null && x.esito ? (x.esito === 'VINTA' ? q - 1 : x.esito === 'PERSA' ? -1 : 0) : null, unita: q != null ? 1 : 0,
+      live: 'prepartita', minuto: null, mercato: etichetta, casaOspiti: null, risultato: null, minutiAlGol: null, tipo: etichetta,
+      ht: null, ft: null, gol: null,
+      pG: x.prob != null ? Number(x.prob) : null, pC: null, pM, value: x.tipo === 'VALUE', forte: false,
+    }
+  }
   // PronoX: 1 unità solo dove c'è la quota (il BTTS non ha quota: conta nelle % vinte, non nelle unità)
   const q = x.quota != null ? Number(x.quota) : null
   return {
@@ -193,8 +208,8 @@ function normalizza(canale: Canale, x: any): Riga {
   }
 }
 async function caricaCanale(canale: Canale): Promise<{ righe: Riga[]; errore: string }> {
-  const tab = canale === 'scoretrend' ? 'scoretrend_segnali' : canale === 'hunterbet' ? 'hunterbet_segnali' : 'pronox_segnali'
-  const ordine = canale === 'pronox' ? 'data_partita' : 'data_msg'
+  const tab = canale === 'scoretrend' ? 'scoretrend_segnali' : canale === 'hunterbet' ? 'hunterbet_segnali' : canale === 'tennis' ? 'pronox_tennis_segnali' : 'pronox_segnali'
+  const ordine = canale === 'pronox' || canale === 'tennis' ? 'data_partita' : 'data_msg'
   const out: any[] = []
   for (let from = 0; ; from += 1000) {
     const { data, error } = await supabase.from(tab).select('*').order(ordine, { ascending: true }).range(from, from + 999)
@@ -228,7 +243,7 @@ function simula(lista: Riga[], quotaFissa: number | null) {
 
 export default function AnalisiSegnali() {
   const [canale, setCanale] = useState<Canale>('scoretrend')
-  const [dati, setDati] = useState<Record<Canale, Riga[]>>({ scoretrend: [], hunterbet: [], pronox: [] })
+  const [dati, setDati] = useState<Record<Canale, Riga[]>>({ scoretrend: [], hunterbet: [], pronox: [], tennis: [] })
   const [errore, setErrore] = useState('')
   const [quotaIpotesi, setQuotaIpotesi] = useState('1.70')
   const [soloSopra140, setSoloSopra140] = useState(false)
@@ -236,9 +251,9 @@ export default function AnalisiSegnali() {
 
   useEffect(() => {
     (async () => {
-      const canali: Canale[] = ['scoretrend', 'hunterbet', 'pronox']
+      const canali: Canale[] = ['scoretrend', 'hunterbet', 'pronox', 'tennis']
       const ris = await Promise.all(canali.map(caricaCanale))
-      setDati({ scoretrend: ris[0].righe, hunterbet: ris[1].righe, pronox: ris[2].righe })
+      setDati({ scoretrend: ris[0].righe, hunterbet: ris[1].righe, pronox: ris[2].righe, tennis: ris[3].righe })
       setErrore(ris.map(r => r.errore).filter(Boolean).join(' · '))
     })()
   }, [])
@@ -248,6 +263,8 @@ export default function AnalisiSegnali() {
   const chiuse = useMemo(() => tutte.filter(r => r.esito === 'VINTA' || r.esito === 'PERSA'), [tutte])
   const conQuota = canale !== 'hunterbet'
   const isPronox = canale === 'pronox'
+  const isTennis = canale === 'tennis'          // 07/10/2026
+  const conProb = isPronox || isTennis          // canali con probabilità del modello (calibrazione)
   const qIp = Math.max(1.01, Number(quotaIpotesi.replace(',', '.')) || 1.7)
   const sim = simula(chiuse, conQuota ? null : qIp)
   const metà = Math.floor(chiuse.length / 2)
@@ -274,7 +291,13 @@ export default function AnalisiSegnali() {
   const classifica = MERCATI.map(m => ({ m, ...incrocio(listaTipo, m) })).filter(x => x.n > 0).sort((a, b) => b.p - a.p || b.n - a.n)
   const coloreP = (p: number, n: number) => n < 5 ? 'rgba(51,65,85,.4)' : `hsla(${Math.round(p * 120)}, 70%, 40%, ${0.35 + 0.5 * Math.min(1, n / MIN_N)})`
 
-  const blocchi: [string, Seg[]][] = isPronox ? [
+  const blocchi: [string, Seg[]][] = isTennis ? [
+    ['Value o pronostico', segmenta(chiuse, r => r.value ? '💎 VALUE (EV > 3%)' : '→ Pronostico')],
+    ['Per probabilità del modello', segmenta(chiuse, r => fasciaProb(r.pG)).sort((a, b) => a.voce.localeCompare(b.voce))],
+    ['Per fascia di quota', segmenta(chiuse, r => fasciaQuota(r.quota))],
+    ['Per torneo', segmenta(chiuse, r => r.competizione)],
+    ['Per giorno', segmenta(chiuse, r => giorno(r.data))],
+  ] : isPronox ? [
     ['Value bet o no', segmenta(chiuse, r => r.value ? '💎 VALUE (EV > 3%)' : 'Senza value')],
     ['Forte o normale', segmenta(chiuse, r => r.forte ? '🔥 Forte' : '→ Normale')],
     ['Per probabilità del modello', segmenta(chiuse, r => fasciaProb(r.pG)).sort((a, b) => a.voce.localeCompare(b.voce))],
@@ -290,15 +313,16 @@ export default function AnalisiSegnali() {
     ['Per fascia oraria', segmenta(chiuse, r => fasciaOra(r.data))],
   ]
 
-  // 04/10/2026 · calibrazione (solo PronoX): Brier sulle stesse bet per tutte e tre le fonti
-  const serieCal = isPronox ? FONTI.map(f => ({ fonte: f, bins: calibra(chiuse, f.id) })) : []
-  const comuni = isPronox ? chiuse.filter(r => r.pG != null && r.pC != null && r.pM != null) : []
-  const brierComuni = FONTI.map(f => ({ fonte: f, b: brier(comuni, f.id) }))
-  const brierTutte = FONTI.map(f => { const l = chiuse.filter(r => r[f.id] != null); return { fonte: f, n: l.length, b: brier(l, f.id) } })
+  // 04/10/2026 · calibrazione (PronoX e tennis): Brier sulle stesse bet per tutte le fonti disponibili (il tennis non ha la probabilità "calibrata")
+  const FA = isTennis ? FONTI.filter(f => f.id !== 'pC') : FONTI
+  const serieCal = conProb ? FA.map(f => ({ fonte: f, bins: calibra(chiuse, f.id) })) : []
+  const comuni = conProb ? chiuse.filter(r => FA.every(f => r[f.id] != null)) : []
+  const brierComuni = FA.map(f => ({ fonte: f, b: brier(comuni, f.id) }))
+  const brierTutte = FA.map(f => { const l = chiuse.filter(r => r[f.id] != null); return { fonte: f, n: l.length, b: brier(l, f.id) } })
   const migliore = comuni.length ? [...brierComuni].sort((a, b) => (a.b ?? 9) - (b.b ?? 9))[0] : null
 
   // 04/10/2026 · confronto dei tre canali con le stesse regole (rispetta "solo quota ≥ 1,40")
-  const confronto = (['scoretrend', 'hunterbet', 'pronox'] as Canale[]).map(c => {
+  const confronto = (['scoretrend', 'hunterbet', 'pronox', 'tennis'] as Canale[]).map(c => {
     const ch = dati[c].filter(r => !soloSopra140 || r.quota == null || r.quota >= 1.4).filter(r => r.esito === 'VINTA' || r.esito === 'PERSA')
     const v = ch.filter(r => r.esito === 'VINTA').length, [lo, hi] = wilson(v, ch.length)
     const cq = ch.filter(r => r.quota != null && (c !== 'pronox' || r.unita > 0))
@@ -339,7 +363,7 @@ export default function AnalisiSegnali() {
         <Link href="/profit-tracker/segnali" style={{ color: '#7dd3fc', fontSize: 12, textDecoration: 'none', fontWeight: 700 }}>← Torna ai segnali</Link>
         <h1 style={{ fontSize: 28, margin: '8px 0 10px', color: '#f8fafc' }}>📈 Analisi segnali</h1>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
-          {(['scoretrend', 'hunterbet', 'pronox'] as const).map(c => (
+          {(['scoretrend', 'hunterbet', 'pronox', 'tennis'] as const).map(c => (
             <button key={c} onClick={() => setCanale(c)} style={{ background: canale === c ? '#0c4a6e' : '#0f172a', color: '#f8fafc', border: `1px solid ${canale === c ? '#38bdf8' : '#334155'}`, borderRadius: 10, padding: '7px 14px', fontWeight: 900, cursor: 'pointer' }}>{NOMI[c]}</button>))}
           {conQuota && <label style={{ fontSize: 12, color: '#cbd5e1', display: 'flex', gap: 5, alignItems: 'center' }}><input type="checkbox" checked={soloSopra140} onChange={e => setSoloSopra140(e.target.checked)} /> solo quota ≥ 1,40 (la tua regola)</label>}
           {!conQuota && <label style={{ fontSize: 12, color: '#cbd5e1' }}>Quota ipotetica per la simulazione: <input value={quotaIpotesi} onChange={e => setQuotaIpotesi(e.target.value.replace(/[^0-9.,]/g, ''))} style={{ width: 60, background: '#020617', color: '#f8fafc', border: '1px solid #334155', borderRadius: 8, padding: '4px 6px' }} /></label>}
@@ -361,7 +385,7 @@ export default function AnalisiSegnali() {
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 14, marginBottom: 14 }}>
           <Torta titolo="Esiti" fette={esitiTorta} />
-          <Torta titolo={conQuota && !isPronox ? 'Mercati (bet chiuse)' : 'Tipo di segnale (bet chiuse)'} fette={tortaMercati} />
+          <Torta titolo={conQuota && !conProb ? 'Mercati (bet chiuse)' : 'Tipo di segnale (bet chiuse)'} fette={tortaMercati} />
           {!conQuota && golTorta.some(f => f.valore) && <Torta titolo={`Minuti tra segnale e gol (mediana ${gol[Math.floor(gol.length / 2)]}')`} fette={golTorta} />}
         </div>
 
@@ -378,7 +402,7 @@ export default function AnalisiSegnali() {
 
         {/* ─── 04/10/2026 · ⚖️ CONFRONTO DEI TRE CANALI ─── */}
         <div style={{ background: 'rgba(15,23,42,.6)', border: '1px solid #334155', borderRadius: 14, padding: 14, marginBottom: 14, overflowX: 'auto' }}>
-          <div style={{ fontWeight: 900, fontSize: 16, color: '#f8fafc', marginBottom: 4 }}>⚖️ Confronto dei tre canali</div>
+          <div style={{ fontWeight: 900, fontSize: 16, color: '#f8fafc', marginBottom: 4 }}>⚖️ Confronto dei canali</div>
           <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>Stesse regole per tutti: 1 unità a bet, bet chiuse (vinte o perse){soloSopra140 ? ', solo quota ≥ 1,40' : ''}. Unità e rendimento solo sulle bet con quota.</div>
           <table style={{ borderCollapse: 'collapse', width: '100%' }}>
             <thead><tr>{['Canale', 'Bet chiuse', '% vinte', 'Margine (95%)', 'Bet con quota', 'Quota media', 'Unità', 'Rendimento', 'Calo massimo', 'Quota di pareggio'].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
@@ -400,7 +424,7 @@ export default function AnalisiSegnali() {
         </div>
 
         {/* ─── 04/10/2026 · 🎯 CALIBRAZIONE PRONOX ─── */}
-        {isPronox && (
+        {conProb && (
           <div style={{ background: 'rgba(15,23,42,.6)', border: '1px solid #334155', borderRadius: 14, padding: 14, marginBottom: 14 }}>
             <div style={{ fontWeight: 900, fontSize: 16, color: '#f8fafc', marginBottom: 4 }}>🎯 Calibrazione: quando dice 70%, vince il 70%?</div>
             <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>Ogni punto è una fascia di probabilità: in orizzontale quella dichiarata, in verticale quante sono state vinte davvero. Sulla diagonale = previsione onesta; <b>sotto</b> = troppo ottimista; <b>sopra</b> = troppo prudente. La barra verticale è il margine (95%); i punti sbiaditi hanno meno di {MIN_N} bet.</div>
@@ -408,13 +432,13 @@ export default function AnalisiSegnali() {
               <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'flex-start' }}>
                 <div style={{ flex: '1 1 380px', maxWidth: 440 }}>
                   <GraficoCalibrazione serie={serieCal} />
-                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12 }}>{FONTI.map(f => <span key={f.id} style={{ display: 'flex', gap: 5, alignItems: 'center' }}><span style={{ width: 11, height: 11, borderRadius: 6, background: f.colore, display: 'inline-block' }} />{f.nome}</span>)}</div>
+                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12 }}>{FA.map(f => <span key={f.id} style={{ display: 'flex', gap: 5, alignItems: 'center' }}><span style={{ width: 11, height: 11, borderRadius: 6, background: f.colore, display: 'inline-block' }} />{f.nome}</span>)}</div>
                 </div>
                 <div style={{ flex: '1 1 420px', overflowX: 'auto' }}>
                   <div style={{ fontSize: 13, fontWeight: 800, color: '#7dd3fc', marginBottom: 6 }}>Brier score (più basso = più preciso · 0,25 = tirare a indovinare)</div>
                   <table style={{ borderCollapse: 'collapse', width: '100%', marginBottom: 10 }}>
                     <thead><tr>{['Fonte', `Stesse bet (${comuni.length})`, 'Tutte le sue bet'].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
-                    <tbody>{FONTI.map((f, i) => { const bc = brierComuni[i].b, bt = brierTutte[i]; return (
+                    <tbody>{FA.map((f, i) => { const bc = brierComuni[i].b, bt = brierTutte[i]; return (
                       <tr key={f.id}>
                         <td style={{ ...td, fontWeight: 800, color: f.colore }}>{f.nome}{migliore && migliore.fonte.id === f.id && comuni.length >= MIN_N ? ' 🏆' : ''}</td>
                         <td style={{ ...td, fontWeight: 800 }}>{bc != null ? bc.toFixed(3).replace('.', ',') : '—'}</td>
@@ -440,6 +464,7 @@ export default function AnalisiSegnali() {
         )}
 
         {/* ─── 🔀 DOVE FINISCONO I SEGNALI ─── */}
+        {!isTennis && (
         <div style={{ background: 'rgba(15,23,42,.6)', border: '1px solid #334155', borderRadius: 14, padding: 14, marginBottom: 14 }}>
           <div style={{ fontWeight: 900, fontSize: 16, color: '#f8fafc', marginBottom: 4 }}>🔀 Dove finiscono i segnali</div>
           <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>
@@ -487,6 +512,7 @@ export default function AnalisiSegnali() {
             </div>
           </>}
         </div>
+        )}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(520px, 1fr))', gap: 14 }}>
           {[['Per mercato', segMercato] as [string, Seg[]], ...blocchi].map(([t, s]) => (
