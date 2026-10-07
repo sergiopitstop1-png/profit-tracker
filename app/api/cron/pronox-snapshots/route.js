@@ -9,6 +9,10 @@
 //   /api/cron/pronox-snapshots?date=2026-10-04&horizon=manual
 //
 // 04/10/2026: salva anche i nomi delle squadre (home_team, away_team).
+// 07/10/2026: date accetta anche "oggi" e "domani". Seconda corsa giornaliera (06:30 UTC,
+//   date=oggi, horizon=opening) che fotografa le partite di OGGI non ancora iniziate:
+//   recupera quelle sfuggite alla corsa del giorno prima (aggiunte o spostate tardi).
+//   La vista pronox_segnali preferisce comunque t24h, poi opening: nessun doppione.
 // =====================================================================
 
 import { NextResponse } from "next/server";
@@ -54,6 +58,13 @@ function tomorrowUTC() {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() + 1);
   return d.toISOString().split("T")[0];
+}
+
+function resolveDate(p) {
+  const v = (p || "").toLowerCase();
+  if (v === "oggi" || v === "today") return new Date().toISOString().split("T")[0];
+  if (!v || v === "domani" || v === "tomorrow") return tomorrowUTC();
+  return p;
 }
 
 function addDays(dateStr, n) {
@@ -226,7 +237,7 @@ export async function GET(request) {
   }
 
   const url = new URL(request.url);
-  const date = url.searchParams.get("date") || tomorrowUTC();
+  const date = resolveDate(url.searchParams.get("date"));
   const horizon = url.searchParams.get("horizon") || "t24h";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !HORIZONS.includes(horizon)) {
     return NextResponse.json({ error: "parametri non validi" }, { status: 400 });
