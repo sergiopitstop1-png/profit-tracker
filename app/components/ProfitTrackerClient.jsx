@@ -6697,9 +6697,9 @@ const rateMichelaDaPagare = rateMichela.daPagare
 // Servizi software: 22 € al mese ciascuno. L'intero importo è accantonato dal 1° del mese;
 // quando viene segnato Pagato sparisce dagli accantonamenti perché l'uscita reale è già nei wallet.
 const SERVIZI_SCHEDULE = [
+  { day: 9, amount: 22, key: 'anthropic_claude_pagato_mese', label: 'giorno 9', nome: 'Anthropic / Claude' },
   { day: 11, amount: 22, key: 'chatgpt_openai_pagato_mese', label: 'giorno 11', nome: 'ChatGPT / OpenAI' },
   { day: 17, amount: 22, key: 'supabase_database_pagato_mese', label: 'giorno 17', nome: 'Supabase Database' },
-  { day: 27, amount: 22, key: 'anthropic_claude_pagato_mese', label: 'giorno 27', nome: 'Anthropic / Claude' },
   { day: 30, amount: 22, key: 'vercel_deployment_pagato_mese', label: 'giorno 30', nome: 'Vercel Deployment' },
 ]
 const rateServizi = calcolaRateAccantonamento(SERVIZI_SCHEDULE, dashboardSettings)
