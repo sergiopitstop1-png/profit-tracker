@@ -8849,7 +8849,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                   minLength={1}
                 />
               </div>
-            )
+            )}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '8px 0' }}>
               <button type='button' style={secondaryButton} onClick={generaLoginCredenziale}>↻ Genera 5 login</button>
               {loginProposti.map(login => (
