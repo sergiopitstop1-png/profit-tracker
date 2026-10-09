@@ -15,9 +15,14 @@ Prima volta:
   5) python accademia_reader.py            -> parte davvero: recupera gli ultimi giorni e poi resta in ascolto
 
 Altre opzioni:
-  --elenco   mostra tutti i gruppi e, per quelli con i forum, i topic (non cambia niente)
+  --elenco          mostra tutti i gruppi e, per quelli con i forum, i topic (non cambia niente)
+  --prova-immagine  prende l'ultima foto che rientra nelle regole "immagini", la fa leggere al sito
+                    e mostra il testo trovato (costa meno di un centesimo, non salva niente)
+
+Immagini (schede Profiliamo, segnalazioni promo): vedi la sezione "immagini" di accademia_config.json.
 """
 import asyncio
+import base64
 import json
 import os
 import sys
@@ -33,6 +38,7 @@ STATO = os.path.join(QUI, "accademia_stato.json")      # ultimo messaggio inviat
 CODA = os.path.join(QUI, "accademia_coda.jsonl")       # messaggi non ancora consegnati (sito irraggiungibile)
 LOG = os.path.join(QUI, "accademia_reader.log")
 SESSIONE = os.path.join(QUI, "accademia")              # Telethon aggiunge .session
+STATO_IMM = os.path.join(QUI, "accademia_immagini.json")   # foto già lette (chat:messaggio)
 
 MODELLO_CONFIG = {
     "api_id": "",
@@ -41,6 +47,14 @@ MODELLO_CONFIG = {
     "segreto": "",
     "giorni_indietro": 7,
     "gruppi": [],
+    # Lettura delle immagini: solo per i gruppi il cui nome CONTIENE una di queste parole (anche in parte, senza
+    # distinguere maiuscole) e per i topic il cui nome contiene una di queste. Costa circa 0,0004 $ a immagine.
+    "immagini": {
+        "attiva": True,
+        "gruppi_contiene": ["profiliamo"],
+        "topic_contiene": ["segnalazion"],
+        "giorni_storico": 90,
+    },
 }
 
 INVIO_MAX = 200          # messaggi per richiesta (il sito ne accetta al massimo 500)
@@ -282,6 +296,185 @@ class Spedizioniere:
         return True
 
 
+# ───────────────────────── immagini ─────────────────────────
+
+def e_immagine(msg):
+    try:
+        if msg.photo:
+            return True
+        d = msg.document
+        return bool(d and (getattr(d, "mime_type", "") or "").startswith("image/"))
+    except Exception:
+        return False
+
+
+def mime_immagine(msg):
+    try:
+        if msg.photo:
+            return "image/jpeg"
+        m = (getattr(msg.document, "mime_type", "") or "").lower()
+        return m if m.startswith("image/") else "image/jpeg"
+    except Exception:
+        return "image/jpeg"
+
+
+def vuole_immagine(cfg, titolo_gruppo, titolo_topic):
+    c = cfg.get("immagini") or {}
+    if not c.get("attiva", True):
+        return False
+    g = (titolo_gruppo or "").lower()
+    t = (titolo_topic or "").lower()
+    return (any(str(x).lower() in g for x in c.get("gruppi_contiene", []) if x)
+            or any(str(x).lower() in t for x in c.get("topic_contiene", []) if x))
+
+
+def invia_immagine(cfg, corpo):
+    url = cfg["sito_url"].rstrip("/") + "/api/accademia/immagine"
+    req = urllib.request.Request(
+        url, data=json.dumps(corpo).encode("utf-8"), method="POST",
+        headers={"Content-Type": "application/json", "x-pt-segreto": cfg["segreto"], "User-Agent": "accademia-reader"},
+    )
+    with urllib.request.urlopen(req, timeout=90) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+class LettoreImmagini:
+    """Scarica le foto dei gruppi scelti e le manda al sito, che le fa leggere. Le nuove hanno la precedenza sullo storico."""
+
+    LAVORATORI = 3
+
+    def __init__(self, client, cfg):
+        self.client = client
+        self.cfg = cfg
+        self.coda = asyncio.PriorityQueue()
+        self.n = 0
+        self.fatte = set(leggi_json(STATO_IMM, []))
+        self.in_coda = set()
+        self.ferme = False
+        self.lette = 0
+
+    def accoda(self, msg, gr, topic_titolo, priorita, tentativi=0):
+        k = f"{gr.peer_id}:{msg.id}"
+        if k in self.fatte or (k in self.in_coda and tentativi == 0):
+            return
+        self.in_coda.add(k)
+        self.n += 1
+        self.coda.put_nowait((priorita, self.n, tentativi, msg, gr, topic_titolo))
+
+    def _salva(self):
+        try:
+            scrivi_json(STATO_IMM, sorted(self.fatte))
+        except Exception as e:
+            log(f"ATTENZIONE: non riesco a salvare {os.path.basename(STATO_IMM)}: {e}")
+
+    def _riprova(self, priorita, tentativi, msg, gr, topic, dopo):
+        asyncio.get_running_loop().call_later(dopo, self.accoda, msg, gr, topic, priorita, tentativi + 1)
+
+    async def lavora(self):
+        loop = asyncio.get_running_loop()
+        while not self.ferme:
+            priorita, _, tentativi, msg, gr, topic = await self.coda.get()
+            k = f"{gr.peer_id}:{msg.id}"
+            nome = f"{gr.titolo}{' / ' + topic if topic else ''} #{msg.id}"
+            try:
+                dati = await self.client.download_media(msg, file=bytes)
+                if not dati:
+                    raise ValueError("download vuoto")
+                if len(dati) > 3_500_000:
+                    log(f"Immagine troppo grande, la salto: {nome}")
+                    self.fatte.add(k)
+                    self.in_coda.discard(k)
+                    continue
+                corpo = {"chat_id": gr.peer_id, "msg_id": msg.id, "immagine_base64": base64.b64encode(dati).decode("ascii"),
+                         "mime": mime_immagine(msg), "gruppo": gr.titolo, "topic": topic or "",
+                         "didascalia": (getattr(msg, "message", None) or "")[:300]}
+                esito = await loop.run_in_executor(None, invia_immagine, self.cfg, corpo)
+                self.fatte.add(k)
+                self.in_coda.discard(k)
+                self.lette += 1
+                if self.lette % 5 == 0:
+                    self._salva()
+                if esito.get("gia_letta"):
+                    continue
+                log(f"Immagine letta: {nome} ({esito.get('caratteri')} caratteri)")
+            except urllib.error.HTTPError as e:
+                dettaglio = ""
+                try:
+                    dettaglio = e.read().decode("utf-8", "replace")[:200]
+                except Exception:
+                    pass
+                if e.code == 401:
+                    log(f"ERRORE immagini: chiave non accettata dal sito (401). Controlla segreto. Fermo la lettura immagini. {dettaglio}")
+                    self.ferme = True
+                    return
+                if e.code == 500 and "LUCY_ANTHROPIC_API_KEY" in dettaglio:
+                    log("ERRORE immagini: su Vercel manca LUCY_ANTHROPIC_API_KEY (o serve un Redeploy). Fermo la lettura immagini.")
+                    self.ferme = True
+                    return
+                if e.code in (409, 429, 503) or e.code >= 500:
+                    if tentativi < 6:
+                        self._riprova(priorita, tentativi, msg, gr, topic, (15 if e.code == 409 else 60) * (tentativi + 1))
+                        log(f"Immagine rimandata ({e.code}): {nome}")
+                    else:
+                        self.in_coda.discard(k)
+                        log(f"Immagine non letta dopo vari tentativi ({e.code}): {nome}. Ci riprovo alla prossima partenza.")
+                else:
+                    self.in_coda.discard(k)
+                    self.fatte.add(k)
+                    log(f"Immagine rifiutata dal sito ({e.code} {dettaglio}): {nome}")
+            except Exception as e:
+                if tentativi < 3:
+                    self._riprova(priorita, tentativi, msg, gr, topic, 30)
+                else:
+                    self.in_coda.discard(k)
+                log(f"Errore sull'immagine {nome}: {e}")
+            await asyncio.sleep(1)
+
+
+async def accoda_storico_immagini(client, gruppi, lettore, cfg):
+    from telethon.tl.types import InputMessagesFilterPhotos
+    c = cfg.get("immagini") or {}
+    da = datetime.now(timezone.utc) - timedelta(days=int(c.get("giorni_storico") or 90))
+    totale = 0
+    for gr in gruppi:
+        try:
+            async for msg in client.iter_messages(gr.entita, filter=InputMessagesFilterPhotos):
+                if msg.date < da:
+                    break
+                tid = topic_di(msg, gr.e_forum)
+                tit = gr.topic.get(tid) if tid else None
+                if vuole_immagine(cfg, gr.titolo, tit):
+                    lettore.accoda(msg, gr, tit, 1)
+                    totale += 1
+        except Exception as e:
+            log(f"Non riesco a elencare le foto di '{gr.titolo}': {e}")
+    log(f"Immagini da leggere dello storico (ultimi {c.get('giorni_storico', 90)} giorni): {totale}")
+
+
+async def prova_immagine(client, gruppi, cfg):
+    from telethon.tl.types import InputMessagesFilterPhotos
+    for gr in gruppi:
+        async for msg in client.iter_messages(gr.entita, filter=InputMessagesFilterPhotos, limit=40):
+            tid = topic_di(msg, gr.e_forum)
+            tit = gr.topic.get(tid) if tid else None
+            if not vuole_immagine(cfg, gr.titolo, tit):
+                continue
+            dati = await client.download_media(msg, file=bytes)
+            corpo = {"chat_id": gr.peer_id, "msg_id": msg.id, "immagine_base64": base64.b64encode(dati).decode("ascii"),
+                     "mime": mime_immagine(msg), "gruppo": gr.titolo, "topic": tit or "",
+                     "didascalia": (getattr(msg, "message", None) or "")[:300], "solo_prova": True}
+            print(f"\nFoto di prova: {gr.titolo}{' / ' + tit if tit else ''} (messaggio {msg.id}, {len(dati) // 1024} KB)")
+            loop = asyncio.get_running_loop()
+            try:
+                esito = await loop.run_in_executor(None, invia_immagine, cfg, corpo)
+            except urllib.error.HTTPError as e:
+                print(f"ERRORE dal sito: {e.code} {e.read().decode('utf-8', 'replace')[:300]}")
+                return
+            print("\n--- TESTO LETTO ---\n" + esito.get("testo", "") + f"\n--- costo stimato: {esito.get('costo_usd', 0):.5f} $ ---")
+            return
+    print("Non ho trovato nessuna foto che rientri nelle regole 'immagini' (gruppi_contiene / topic_contiene) tra gli ultimi messaggi.")
+
+
 # ───────────────────────── Telegram ─────────────────────────
 
 def importa_telethon():
@@ -400,7 +593,7 @@ async def recupera_arretrati(client, gruppi, sped, cfg, prova):
             await sped.svuota()
 
 
-async def ascolta(client, gruppi, sped):
+async def ascolta(client, gruppi, sped, lettore=None, cfg=None):
     from telethon import events
     per_id = {g.peer_id: g for g in gruppi}
     ids = list(per_id.keys())
@@ -417,6 +610,10 @@ async def ascolta(client, gruppi, sped):
             if topic_id and topic_id not in gr.topic:   # topic nuovo: aggiorno i nomi
                 await carica_topic(client, gr)
             sped.aggiungi(costruisci_record(msg, gr, await nome_di(msg)))
+            if lettore is not None and e_immagine(msg):
+                tit = gr.topic.get(topic_id) if topic_id else None
+                if vuole_immagine(cfg, gr.titolo, tit):
+                    lettore.accoda(msg, gr, tit, 0)   # le nuove passano avanti allo storico
         except Exception:
             log("Errore su un messaggio:\n" + traceback.format_exc())
 
@@ -438,7 +635,7 @@ async def ascolta(client, gruppi, sped):
 async def principale(modo):
     from telethon import TelegramClient
     cfg = carica_config()
-    controlla_config(cfg, serve_sito=(modo == "ascolto"))
+    controlla_config(cfg, serve_sito=(modo in ("ascolto", "prova_img")))
     client = TelegramClient(SESSIONE, int(cfg["api_id"]), cfg["api_hash"])
     await client.start()   # la prima volta chiede numero di telefono e codice
     try:
@@ -447,6 +644,10 @@ async def principale(modo):
             return
         if modo == "scegli":
             await comando_scegli(client, cfg)
+            return
+        if modo == "prova_img":
+            gruppi_p = await risolvi_gruppi(client, cfg)
+            await prova_immagine(client, gruppi_p, cfg)
             return
         if not cfg["gruppi"]:
             print("Nessun gruppo scelto. Lancia:  python accademia_reader.py --scegli")
@@ -461,7 +662,13 @@ async def principale(modo):
             print("\nProva finita: non ho mandato niente al sito.")
             return
         await sped.svuota()
-        await ascolta(client, gruppi, sped)
+        lettore = None
+        if (cfg.get("immagini") or {}).get("attiva", True):
+            lettore = LettoreImmagini(client, cfg)
+            for _ in range(LettoreImmagini.LAVORATORI):
+                asyncio.ensure_future(lettore.lavora())
+            asyncio.ensure_future(accoda_storico_immagini(client, gruppi, lettore, cfg))
+        await ascolta(client, gruppi, sped, lettore, cfg)
     finally:
         await client.disconnect()
 
@@ -473,6 +680,8 @@ def main(argv):
         modo = "elenco"
     elif "--scegli" in argv:
         modo = "scegli"
+    elif "--prova-immagine" in argv:
+        modo = "prova_img"
     elif "--prova" in argv:
         modo = "prova"
     attesa = 10
