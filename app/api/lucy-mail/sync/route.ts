@@ -534,6 +534,115 @@ export async function GET(
       )
     }
 
+    /*
+     * 09/10/2026 — Anche l'email scritta nel form cliente
+     * (colonna clienti.email) vale per il riconoscimento.
+     * clienti_email ha la precedenza; qui si aggiungono
+     * solo gli indirizzi che mancano.
+     */
+
+    const {
+      data: clientiRows,
+    } =
+      await supabase
+        .from('clienti')
+        .select('id, nome, email')
+
+    for (
+      const c of
+        clientiRows || []
+    ) {
+      for (
+        const addr of
+          extractEmails(
+            String(
+              c.email || ''
+            )
+          )
+      ) {
+        if (
+          !clientByEmail.has(
+            addr
+          )
+        ) {
+          clientByEmail.set(
+            addr,
+            {
+              id: c.id,
+              nome: c.nome,
+            }
+          )
+        }
+      }
+    }
+
+    /*
+     * 09/10/2026 — Mail già archiviate ma senza cliente
+     * (indirizzo aggiunto dopo l'arrivo): riprova ad
+     * abbinarle a ogni giro.
+     */
+
+    let riabbinate = 0
+
+    {
+      const {
+        data: orfane,
+      } =
+        await supabase
+          .from(
+            'lucy_mail_archive'
+          )
+          .select(
+            'id, destinatario_originale'
+          )
+          .is(
+            'cliente_id',
+            null
+          )
+          .not(
+            'destinatario_originale',
+            'is',
+            null
+          )
+          .limit(500)
+
+      for (
+        const o of
+          orfane || []
+      ) {
+        const found =
+          clientByEmail.get(
+            String(
+              o.destinatario_originale
+            )
+              .trim()
+              .toLowerCase()
+          )
+
+        if (found?.id) {
+          const {
+            error: relinkError,
+          } =
+            await supabase
+              .from(
+                'lucy_mail_archive'
+              )
+              .update({
+                cliente_id:
+                  found.id,
+
+                cliente_nome:
+                  found.nome,
+              })
+              .eq('id', o.id)
+
+          if (!relinkError) {
+            riabbinate++
+          }
+        }
+      }
+    }
+
     let saved = 0
     let unidentified = 0
 
@@ -806,6 +915,8 @@ export async function GET(
 
       non_identificate:
         unidentified,
+
+      riabbinate,
     })
   } catch (error: any) {
     console.error(
