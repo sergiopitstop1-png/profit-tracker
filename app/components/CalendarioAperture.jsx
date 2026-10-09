@@ -79,6 +79,7 @@ export default function CalendarioAperture({
   const [busy, setBusy] = useState(false)
   const [filtro, setFiltro] = useState('')
   const [loaded, setLoaded] = useState(false)
+  const [calendarioEspanso, setCalendarioEspanso] = useState(true)
   const [aperturaInCorso, setAperturaInCorso] = useState(null)
 
   // =====================================================
@@ -770,9 +771,17 @@ export default function CalendarioAperture({
 
       <div style={box}>
 
-        <strong>
-          📅 Calendario aperture
-        </strong>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <strong>📅 Calendario aperture</strong>
+          <button
+            type="button"
+            style={btn}
+            aria-expanded={calendarioEspanso}
+            onClick={() => setCalendarioEspanso(v => !v)}
+          >
+            {calendarioEspanso ? '▲ Chiudi calendario' : '▼ Apri calendario'}
+          </button>
+        </div>
 
         <p>
           {daAprire.length}
@@ -802,6 +811,7 @@ export default function CalendarioAperture({
 
       </div>
 
+      {calendarioEspanso && <>
       {/* SETTIMANA TIPO */}
 
       <div style={box}>
@@ -1194,6 +1204,7 @@ export default function CalendarioAperture({
         )}
 
       </div>
+      </>}
 
     </div>
   )
