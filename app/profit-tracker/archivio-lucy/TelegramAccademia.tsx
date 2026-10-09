@@ -45,6 +45,55 @@ function Evidenzia({ testo, parole }: { testo: string; parole: string[] }) {
   )
 }
 
+type Diretta = { id: number; titolo: string; inizio: string; link: string | null; gruppo: string | null; topic: string | null }
+const fmtDiretta = (v: string) =>
+  new Intl.DateTimeFormat('it-IT', { timeZone: 'Europe/Rome', weekday: 'long', day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(v))
+
+function CalendarioDirette() {
+  const [lista, setLista] = useState<Diretta[] | null>(null)
+  const [errore, setErrore] = useState('')
+  const [adesso, setAdesso] = useState(0)
+  const [giro, setGiro] = useState(0)   // cambia quando si vuole ricaricare
+  useEffect(() => {
+    let vivo = true
+    fetch('/api/accademia/dirette')
+      .then(async r => ({ ok: r.ok, status: r.status, j: await r.json().catch(() => ({})) }))
+      .then(({ ok, status, j }) => {
+        if (!vivo) return
+        setAdesso(Date.now())
+        if (!ok) { setErrore(j?.error || `Errore ${status}`); setLista([]) } else { setErrore(''); setLista(j.dirette || []) }
+      })
+      .catch(() => { if (vivo) { setErrore('Calendario non raggiungibile'); setLista([]) } })
+    return () => { vivo = false }
+  }, [giro])
+  const togli = async (id: number) => {
+    if (!window.confirm('Togliere questa diretta dal calendario? (non verrà rimessa)')) return
+    await fetch(`/api/accademia/dirette?id=${id}`, { method: 'DELETE' })
+    setGiro(g => g + 1)
+  }
+  return (
+    <div className="mb-5 rounded-xl border border-pink-500/40 bg-[#07100a] p-4">
+      <div className="mb-2 font-bold text-pink-300">&gt; 📅 CALENDARIO DIRETTE</div>
+      {errore && <div className="mb-2 rounded border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-300">{errore}</div>}
+      {lista === null && <div className="text-sm text-slate-500">&gt; carico…</div>}
+      {lista && !lista.length && !errore && <div className="text-sm text-slate-500">&gt; Nessuna diretta in programma trovata. Lucy legge gli annunci ogni 5 minuti.</div>}
+      <ul className="space-y-1.5">
+        {(lista || []).map(d => {
+          const passata = new Date(d.inizio).getTime() < adesso
+          return (
+            <li key={d.id} className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-sm ${passata ? 'border-green-900/50 text-slate-500' : 'border-green-900/70 text-slate-200'}`}>
+              <span className="font-bold capitalize text-green-300">{fmtDiretta(d.inizio)}</span>
+              <span className="min-w-0 flex-1">{d.titolo}{d.gruppo ? <span className="text-slate-500"> · {d.gruppo}</span> : null}</span>
+              {d.link && <a href={d.link} target="_blank" rel="noopener noreferrer" className="text-green-400 hover:underline">↗ apri</a>}
+              <button onClick={() => togli(d.id)} title="Non è una diretta / sbagliata" className="text-xs text-slate-600 hover:text-red-400">✕</button>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
 export default function TelegramAccademia() {
   const [gruppi, setGruppi] = useState<Gruppo[]>([])
   const [erroreGruppi, setErroreGruppi] = useState('')
@@ -128,6 +177,8 @@ export default function TelegramAccademia() {
   const vistiPer = (m: Messaggio) => m.testo || (m.media_tipo ? `[${m.media_tipo}]` : '[senza testo]')
 
   return (
+    <>
+    <CalendarioDirette />
     <div className="grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)] gap-5">
       {/* ================= GRUPPI ================= */}
       <aside className="rounded-xl border border-green-900/70 bg-[#07100a] p-3 lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100vh-2rem)] overflow-y-auto max-h-72">
@@ -244,5 +295,6 @@ export default function TelegramAccademia() {
         )}
       </section>
     </div>
+    </>
   )
 }
