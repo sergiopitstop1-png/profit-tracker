@@ -8806,7 +8806,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               style={input}
             >
               <option value=''>— Seleziona cliente —</option>
-              {[...new Set(books.map(b => b.intestatario).filter(Boolean))].sort().map(nome => <option key={nome} value={nome}>{nome}</option>)}
+              {[...new Set([...books.map(b => b.intestatario), ...wallets.map(w => w.intestatario)].filter(Boolean))].sort((a,b) => a.localeCompare(b, 'it')).map(nome => <option key={nome} value={nome}>{nome}</option>)}
             </select>
             <select
               value={credenzialeForm.book_id || (credenzialeForm.bookmaker_manuale ? `manuale:${credenzialeForm.bookmaker_manuale}` : '')}
@@ -8821,11 +8821,20 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               style={input}
               disabled={!generatoreCliente}
             >
-              <option value=''>— Seleziona bookmaker —</option>
+              <option value=''>— Seleziona bookmaker o wallet —</option>
               {[...new Set(matrice.map(r => r.bookmaker).filter(Boolean))].sort((a,b) => a.localeCompare(b, 'it', { sensitivity: 'base' })).map(nome => {
                 const conto = books.find(b => String(b.nome || '').localeCompare(nome, 'it', { sensitivity: 'base' }) === 0 && b.intestatario === generatoreCliente)
                 return <option key={nome} value={conto ? String(conto.id) : `manuale:${nome}`}>{nome}</option>
               })}
+              <optgroup label="💳 Wallet">
+                {[...new Set(wallets.filter(w => w.intestatario === generatoreCliente).map(w => w.nome).filter(Boolean))]
+                  .sort((a,b) => a.localeCompare(b, 'it', { sensitivity: 'base' }))
+                  .map(nome => (
+                    <option key={`wallet:${nome}`} value={`manuale:Wallet: ${nome}`}>
+                      💳 {nome}
+                    </option>
+                  ))}
+              </optgroup>
             </select>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '8px 0' }}>
               <button type='button' style={secondaryButton} onClick={generaLoginCredenziale}>↻ Genera 5 login</button>
