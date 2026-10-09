@@ -113,6 +113,15 @@ function pulisciTesto(originale: string | null | undefined) {
   // indirizzi nudi
   t = t.replace(/https?:\/\/\S+/gi, () => { link++; return '\u0001' })
 
+  // 09/10/2026 — tag HTML scritti in chiaro nel testo (<ul><li>…<br>): a capo e elenchi al posto dei tag
+  t = t.replace(/<(style|script|head)[^>]*>[\s\S]*?<\/\1>/gi, '')
+  t = t.replace(/<!--[\s\S]*?-->/g, '')
+  t = t.replace(/<br\s*\/?>/gi, '\n')
+  t = t.replace(/<\/(p|div|ul|ol|table|tr|h[1-6]|blockquote)\s*>/gi, '\n')
+  t = t.replace(/<li[^>]*>/gi, '\n• ')
+  t = t.replace(/<\/(td|th)\s*>/gi, ' ')
+  t = t.replace(/<\/?[a-zA-Z][^>]*>/g, '')
+
   // entità HTML (&euro; &ograve; &amp; &#8364; ...)
   const ENT: Record<string, string> = {
     euro: '€', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', hellip: '…',
