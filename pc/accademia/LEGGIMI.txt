@@ -1,0 +1,33 @@
+LETTORE TELEGRAM ACCADEMIA DEL PROFITTO
+=======================================
+Legge i gruppi dell'Accademia con il tuo account Telegram e li manda al Profit Tracker.
+Solo lettura: non scrive nei gruppi e non segna niente come letto.
+
+PRIMA DI TUTTO (una volta sola, sul sito)
+  1. In Supabase > SQL Editor esegui il contenuto di supabase/accademia_messaggi.sql
+  2. Pubblica il sito con la nuova route app/api/accademia/ingest (stessa chiave SEGNALI_SECRET di Hunterbet)
+
+SUL PC FISSO
+  1. Copia questa cartella (pc/accademia) sul PC.  Serve Python e:  pip install telethon
+  2. Doppio clic su accademia_reader.bat  -> crea accademia_config.json
+     Aprilo col Blocco note e compila:
+       api_id e api_hash  = gli stessi che usi per il lettore Hunterbet (my.telegram.org)
+       segreto            = il valore di SEGNALI_SECRET su Vercel
+       sito_url           = https://sergioapicella.it
+  3. Da Prompt dei comandi nella cartella:   python accademia_reader.py --scegli
+     (la prima volta Telegram ti chiede numero di telefono e codice: e' normale)
+     Scrivi i numeri dei gruppi dell'Accademia.
+  4. Prova senza inviare niente:              python accademia_reader.py --prova
+  5. Parte davvero:                            doppio clic su accademia_reader.bat
+     Recupera gli ultimi 7 giorni (cambiabile con giorni_indietro) e poi resta in ascolto.
+
+PER FARLO PARTIRE SENZA FINESTRA NERA
+  Dopo il passo 3 (accesso fatto) usa accademia_reader_nascosto.vbs.
+  Per l'avvio automatico con Windows: Win+R, scrivi shell:startup, metti li' un collegamento al .vbs.
+  Il file accademia_reader.log racconta cosa sta facendo e gli eventuali errori.
+
+NOTE
+  - Se il sito e' spento o irraggiungibile i messaggi restano in accademia_coda.jsonl e vengono inviati dopo.
+  - Un messaggio modificato su Telegram si aggiorna sul sito; mai doppioni.
+  - Per ora si legge il TESTO: foto, video e vocali vengono registrati come tali, senza contenuto.
+  - Non condividere accademia_config.json ne' il file .session: danno accesso al tuo account.
