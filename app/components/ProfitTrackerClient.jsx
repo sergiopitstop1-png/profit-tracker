@@ -24,6 +24,7 @@ import AvvisiContiPanel, { pianoDelGiorno } from './AvvisiConti'
 import LucyAvvisoMail from './LucyAvvisoMail'   // 07/10/2026: avviso sottile nuove opportunità / bonus accreditati
 import PromoBonusPanel, { PromoScadenze } from './PromoBonus'   // 05/10/2026: tab Promo + striscia scadenze
 import BetfairStato from './BetfairStato'   // 06/10/2026: avviso "quote Betfair ferme" in Dashboard
+import DiretteAvviso from './DiretteAvviso'   // 09/10/2026: prossima diretta Accademia (solo admin)
 import LucyTrading from './LucyTrading'   // 06/10/2026: scheda Lucy · trading prematch
 import ProfilazioniMiratePanel, { prossimaMirata } from './ProfilazioniMirate'   // 05/10/2026: prossimaMirata per il banner in Dashboard
 import { impostaPausaRecupero } from './RecuperoConti'
@@ -7348,6 +7349,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
        {/* 05/10/2026 · 🎁 PROMO IN SCADENZA (lampeggia entro 2 giorni) */}
        {activeTab === 'dashboard' && <LucyAvvisoMail />}
        {activeTab === 'dashboard' && <BetfairStato />}
+       {activeTab === 'dashboard' && <DiretteAvviso />}
        {activeTab === 'dashboard' && <LucyTrading Sezione={Sezione} />}
        {activeTab === 'dashboard' && <PromoScadenze onApri={() => handleTabChange('promo')} Sezione={Sezione} />}
 
