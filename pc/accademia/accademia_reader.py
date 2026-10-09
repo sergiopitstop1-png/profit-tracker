@@ -294,9 +294,9 @@ def importa_telethon():
 
 
 async def carica_topic(client, gruppo):
-    from telethon.tl.functions.channels import GetForumTopicsRequest
     try:
-        r = await client(GetForumTopicsRequest(channel=gruppo.entita, offset_date=None, offset_id=0, offset_topic=0, limit=100))
+        from telethon.tl.functions.messages import GetForumTopicsRequest
+        r = await client(GetForumTopicsRequest(peer=gruppo.entita, offset_date=None, offset_id=0, offset_topic=0, limit=100))
         gruppo.topic = {t.id: (getattr(t, "title", None) or str(t.id)) for t in r.topics}
     except Exception as e:
         log(f"Non riesco a leggere i topic di '{gruppo.titolo}': {e}")
