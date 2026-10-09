@@ -8826,7 +8826,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 const conto = books.find(b => String(b.nome || '').localeCompare(nome, 'it', { sensitivity: 'base' }) === 0 && b.intestatario === generatoreCliente)
                 return <option key={nome} value={conto ? String(conto.id) : `manuale:${nome}`}>{nome}</option>
               })}
-              <optgroup label="💳 Wallet">
+              <optgroup label="💳 Wallet esistenti">
                 {[...new Set(wallets.filter(w => w.intestatario === generatoreCliente).map(w => w.nome).filter(Boolean))]
                   .sort((a,b) => a.localeCompare(b, 'it', { sensitivity: 'base' }))
                   .map(nome => (
@@ -8835,7 +8835,21 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                     </option>
                   ))}
               </optgroup>
+              <option value="manuale:Wallet: ">➕ Nuovo wallet (inserisci nome sotto)</option>
             </select>
+            {!credenzialeForm.book_id && credenzialeForm.bookmaker_manuale.startsWith('Wallet: ') && (
+              <div style={{ marginTop: 10 }}>
+                <label style={{ color: '#cbd5e1', fontSize: 12, display: 'block', marginBottom: 5 }}>Nome del wallet *</label>
+                <input
+                  style={input}
+                  placeholder="Es. Skrill, PayPal, Revolut..."
+                  value={credenzialeForm.bookmaker_manuale.slice(8)}
+                  onChange={(e) => setCredenzialeForm(prev => ({ ...prev, bookmaker_manuale: `Wallet: ${e.target.value}` }))}
+                  required
+                  minLength={1}
+                />
+              </div>
+            )
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '8px 0' }}>
               <button type='button' style={secondaryButton} onClick={generaLoginCredenziale}>↻ Genera 5 login</button>
               {loginProposti.map(login => (
