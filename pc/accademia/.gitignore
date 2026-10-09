@@ -1,0 +1,7 @@
+accademia_config.json
+accademia_stato.json
+accademia_coda.jsonl
+accademia_reader.log
+*.session
+*.session-journal
+__pycache__/
