@@ -9,6 +9,7 @@ type Gruppo = { chat_id: number; chat_titolo: string | null; topic_id: number | 
 type Messaggio = {
   id: number; chat_id: number; chat_titolo: string | null; topic_id: number | null; topic_titolo: string | null
   msg_id: number; data_msg: string; mittente: string | null; testo: string | null; media_tipo: string | null; link: string | null
+  testo_immagine: string | null
 }
 type Filtri = { q: string; chat: string; topic: string; autore: string; da: string; a: string }
 
@@ -275,6 +276,19 @@ export default function TelegramAccademia() {
                 <div className={`whitespace-pre-wrap break-words text-sm ${media ? 'italic text-slate-500' : 'text-slate-200'}`}>
                   <Evidenzia testo={lungo ? `${testo.slice(0, TESTO_BREVE)}…` : testo} parole={parole} />
                 </div>
+                {m.testo_immagine && (
+                  <div className="mt-2 rounded-lg border border-pink-500/30 bg-black/30 p-2.5">
+                    <div className="mb-1 text-[11px] font-bold text-pink-300">🖼 Letto da Lucy nell&apos;immagine</div>
+                    <div className="whitespace-pre-wrap break-words text-sm text-slate-300">
+                      <Evidenzia testo={espansi.has(-m.id) || m.testo_immagine.length <= TESTO_BREVE ? m.testo_immagine : `${m.testo_immagine.slice(0, TESTO_BREVE)}…`} parole={parole} />
+                    </div>
+                    {m.testo_immagine.length > TESTO_BREVE && (
+                      <button onClick={() => setEspansi(toggle(espansi, -m.id))} className="mt-1 text-xs text-pink-300 hover:underline">
+                        {espansi.has(-m.id) ? 'mostra meno' : 'mostra tutto'}
+                      </button>
+                    )}
+                  </div>
+                )}
                 {testo.length > TESTO_BREVE && (
                   <button onClick={() => setEspansi(toggle(espansi, m.id))} className="mt-1 text-xs text-green-400 hover:underline">
                     {espansi.has(m.id) ? 'mostra meno' : 'mostra tutto'}

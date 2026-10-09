@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
 
   let q = admin
     .from('accademia_messaggi')
-    .select('id,chat_id,chat_titolo,topic_id,topic_titolo,msg_id,data_msg,mittente,testo,media_tipo,link', { count: 'exact' })
+    .select('id,chat_id,chat_titolo,topic_id,topic_titolo,msg_id,data_msg,mittente,testo,media_tipo,link,testo_immagine', { count: 'exact' })
     .order('data_msg', { ascending: false })
     .order('id', { ascending: false })
     .range(offset, offset + limit - 1)
@@ -64,7 +64,8 @@ export async function GET(req: NextRequest) {
   const a = dataValida(sp.get('a'))
   if (a) q = q.lte('data_msg', a)
   // ricerca: ogni parola deve comparire nel testo (maiuscole/minuscole ininfluenti, anche pezzi di parola e codici)
-  for (const parola of pulisci(sp.get('q') || '').split(' ').filter(Boolean).slice(0, 6)) q = q.ilike('testo', `%${parola}%`)
+  // (cerca anche nel testo letto dalle immagini)
+  for (const parola of pulisci(sp.get('q') || '').split(' ').filter(Boolean).slice(0, 6)) q = q.or(`testo.ilike.%${parola}%,testo_immagine.ilike.%${parola}%`)
 
   const { data, error, count } = await q
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

@@ -29,5 +29,17 @@ PER FARLO PARTIRE SENZA FINESTRA NERA
 NOTE
   - Se il sito e' spento o irraggiungibile i messaggi restano in accademia_coda.jsonl e vengono inviati dopo.
   - Un messaggio modificato su Telegram si aggiorna sul sito; mai doppioni.
-  - Per ora si legge il TESTO: foto, video e vocali vengono registrati come tali, senza contenuto.
+  - Foto, video e vocali vengono registrati come tali. Le FOTO dei gruppi/topic scelti (vedi sotto) vengono lette da Lucy.
   - Non condividere accademia_config.json ne' il file .session: danno accesso al tuo account.
+
+LETTURA DELLE IMMAGINI (schede Profiliamo, segnalazioni promo)
+  Sul sito: eseguire supabase/accademia_immagini.sql e mettere su Vercel LUCY_ANTHROPIC_API_KEY (poi Redeploy).
+  In accademia_config.json, sezione "immagini":
+     gruppi_contiene : parole che devono comparire nel NOME del gruppo (default "profiliamo")
+     topic_contiene  : parole che devono comparire nel NOME del topic, in qualsiasi gruppo (default "segnalazion")
+     giorni_storico  : quanti giorni di foto vecchie leggere (default 90; le nuove si leggono subito)
+     attiva          : false per spegnere
+  Prova con una sola foto (costa meno di un centesimo, non salva niente):
+     accademia_reader.bat --prova-immagine
+  Le foto lette compaiono nella tab Telegram di Archivio Lucy, sotto il messaggio, e la ricerca le trova.
+  Il file accademia_immagini.json ricorda le foto gia' lette: non cancellarlo.
