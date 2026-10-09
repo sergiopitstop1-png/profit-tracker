@@ -9,6 +9,8 @@ import {
 
 import { useRouter } from 'next/navigation'
 
+import TelegramAccademia from './TelegramAccademia'
+
 type Canale = 'EMAIL' | 'SMS'
 
 type Comunicazione = {
@@ -255,6 +257,9 @@ export default function ArchivioLucyPage() {
   const [vista, setVista] =
     useState<Vista>('opportunita')
 
+  // 09/10/2026 · sezione: mail/SMS oppure messaggi Telegram dell'Accademia
+  const [sezione, setSezione] = useState<'mail' | 'telegram'>('mail')
+
   const [periodo, setPeriodo] =
     useState('1m')
 
@@ -357,6 +362,7 @@ export default function ArchivioLucyPage() {
   useEffect(() => {
     try {
       const v = new URLSearchParams(window.location.search).get('vista')
+      if (new URLSearchParams(window.location.search).get('sezione') === 'telegram') setSezione('telegram')
       const valide = ['opportunita', 'accreditati', 'da_valutare', 'problemi', 'ignora', 'da_analizzare', 'tutte', 'archiviate']
       if (v && valide.includes(v)) setVista(v as Vista)
     } catch {}
@@ -1102,6 +1108,26 @@ export default function ArchivioLucyPage() {
           py-6
         "
       >
+        {/* SEZIONI: Mail e SMS | Telegram */}
+        <div className="mb-5 flex gap-2">
+          <button
+            onClick={() => setSezione('mail')}
+            className={`rounded-xl border px-5 py-2.5 font-semibold transition-all ${sezione === 'mail' ? 'border-green-400 bg-green-500/15 text-green-300 shadow-[0_0_22px_rgba(34,197,94,0.25)]' : 'border-green-900/70 bg-[#07100a] text-slate-300 hover:border-green-500'}`}
+          >
+            ✉️ Mail e SMS
+          </button>
+          <button
+            onClick={() => setSezione('telegram')}
+            className={`rounded-xl border px-5 py-2.5 font-semibold transition-all ${sezione === 'telegram' ? 'border-green-400 bg-green-500/15 text-green-300 shadow-[0_0_22px_rgba(34,197,94,0.25)]' : 'border-green-900/70 bg-[#07100a] text-slate-300 hover:border-green-500'}`}
+          >
+            📡 Telegram
+          </button>
+        </div>
+
+        {sezione === 'telegram' ? (
+          <TelegramAccademia />
+        ) : (
+        <>
         {/* MOBILE */}
 
         <div
@@ -2364,6 +2390,8 @@ export default function ArchivioLucyPage() {
             </tbody>
           </table>
         </div>
+        </>
+        )}
       </main>
 
       {/* ==================================================
