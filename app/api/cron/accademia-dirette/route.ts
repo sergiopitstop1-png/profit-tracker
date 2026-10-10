@@ -43,6 +43,14 @@ const fmtRoma = (iso: string) =>
 const fmtMessaggio = (iso: string) =>
   new Intl.DateTimeFormat('it-IT', { timeZone: 'Europe/Rome', weekday: 'long', day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(iso))
 
+/* ---------- da quali gruppi leggere le dirette ----------
+   Solo i gruppi dell'Accademia: il nome del gruppo deve CONTENERE una di queste parole (senza distinguere maiuscole
+   e accenti). Per cambiarle senza toccare il codice: variabile Vercel ACCADEMIA_DIRETTE_GRUPPI, parole separate da virgola. */
+const norm = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+const PAROLE_GRUPPI = (process.env.ACCADEMIA_DIRETTE_GRUPPI || 'elite,accademia,profiliamo,meeting,profit')
+  .split(',').map(x => norm(x.trim())).filter(Boolean)
+const gruppoAccademia = (titolo: string | null) => !!titolo && PAROLE_GRUPPI.some(w => norm(titolo).includes(w))
+
 /* ---------- quali messaggi sembrano annunci ---------- */
 function sembraAnnuncio(t: string | null) {
   if (!t || t.length > 4000) return false
@@ -136,7 +144,7 @@ export async function GET(req: NextRequest) {
       .order('data_msg', { ascending: false })
       .limit(1500)
     if (error) return NextResponse.json({ ok: false, errore: error.message }, { status: 500 })
-    const cand = (rec || []).filter(m => sembraAnnuncio(m.testo)).slice(0, 5)
+    const cand = (rec || []).filter(m => gruppoAccademia(m.chat_titolo) && sembraAnnuncio(m.testo)).slice(0, 5)
     const risultati: unknown[] = []
     for (const m of cand) {
       try {
@@ -163,7 +171,7 @@ export async function GET(req: NextRequest) {
       .order('data_msg', { ascending: false })
       .limit(1500)
     if (error) throw new Error(error.message)
-    const cand = (recenti || []).filter(m => sembraAnnuncio(m.testo)).reverse()
+    const cand = (recenti || []).filter(m => gruppoAccademia(m.chat_titolo) && sembraAnnuncio(m.testo)).reverse()
     if (cand.length) {
       const { data: gia } = await sb.from('accademia_dirette_letti').select('chat_id,msg_id').gte('letto', da)
       const visti = new Set((gia || []).map(x => `${x.chat_id}|${x.msg_id}`))
