@@ -70,6 +70,8 @@ const REGOLE: [string, RegExp][] = [
   ['prelievi', /prelie|prelev|bonifico|pagament|accredit/i],
   ['dirette', /dirett|\blive\b|zoom|webinar|meeting/i],
   ['scadenza', /scadenz|entro il|entro le|fino al|ultimi giorni|ultime ore/i],
+  // i membri che raccontano come è andata davvero una promo: per Sergio sono tra le notizie più utili
+  ['esperienza', /a me (è|e'|ha|non|mi)|mi è (arriv|stat|andat)|mi (hanno|ha) (accredit|dato|pagat|limitat|chius|bloccat|chiest)|ho (ricevut|incassat|fatto|provato|giocat|chiesto|prelevat|ottenut)|mi (arriv|accredit|paga)|è arrivat|e' arrivat|accreditat|non (mi )?(è|e')? ?(arrivat|accreditat|partit|funzion)|sono riuscit|non sono riuscit|confermo|anche a me|a voi (è|e')|per me (funziona|non)/i],
 ]
 const BOOK = [
   'bet365', 'eurobet', 'goldbet', 'lottomatica', 'snai', 'sisal', 'planetwin', 'netbet', 'starcasino', 'admiral', 'betflag', 'quigioco',
@@ -89,7 +91,7 @@ export function seleziona(msgs: Msg[]): { scelti: Scelto[]; letti: number } {
     const book = [...new Set(BOOK.filter(b => tn.includes(b)))]
     const staff = èStaff(m.mittente)
     let score = tags.length * 3 + book.length * 2
-    if (staff) score += 4
+    if (staff) score += 2
     if (m.testo_immagine) score += 5
     if (m.topic_titolo && TOPIC_UTILI.test(m.topic_titolo)) score += 3
     if (t.length >= 200) score += 2
@@ -135,7 +137,8 @@ const promptRiassunto = (da: number, a: number, corpo: string) => `Sei Lucy, ass
 
 Regole:
 - Usa SOLO quello che è scritto nei messaggi: niente invenzioni. Se un dato (importo, scadenza, book, condizione) non c'è, non scriverlo.
-- Distingui lo staff (messaggi marcati "(staff)") dai pareri dei membri: se una cosa è detta solo da membri, scrivi "non confermato dallo staff".
+- I messaggi dei membri sono preziosi: raccontano come vanno davvero le promo (tempi di accredito, importi arrivati, intoppi, trucchi, limitazioni). Riportali con precisione e non scartarli perché non sono dello staff.
+- Distingui comunque la fonte: ciò che dice lo staff (messaggi marcati "(staff)") è informazione ufficiale; ciò che raccontano i membri è esperienza. Se più membri raccontano la stessa cosa, scrivi quanti (es. "3 membri"). Se l'esperienza dei membri contraddice lo staff, segnalalo chiaramente.
 - Importi, quote, date e orari vanno copiati esatti. Nomina sempre il book o la slot.
 - Il testo dopo "IMMAGINE:" è ciò che Lucy ha letto in una foto (schede, promo riservate, segnalazioni): trattalo come contenuto vero.
 - Le parole tra graffe {} sono solo etichette automatiche di aiuto: non citarle.
@@ -146,9 +149,10 @@ Formato (testo semplice, niente tabelle). Usa solo le sezioni che servono:
 ## 🐞 Bug e problemi
 ## 📅 Dirette e comunicazioni
 ## 🧠 Consigli e operatività
+## 👥 Come stanno andando le promo (esperienze dei membri)
 ## ⚠️ Conti, verifiche, limitazioni
 ## ❓ Dubbi aperti
-Ogni punto è una riga breve che comincia con "- " e finisce con (Gruppo / Argomento). Al massimo 25 punti in totale: tieni i più importanti per chi gestisce molti conti e promo. Se nei messaggi non c'è niente di rilevante, rispondi solo: "Niente di rilevante in questa fascia."
+Ogni punto è una riga breve che comincia con "- " e finisce con (Gruppo / Argomento). Al massimo 30 punti in totale: tieni i più importanti per chi gestisce molti conti e promo. Nella sezione delle esperienze dei membri scrivi per ogni punto: book, promo, cosa è successo (accredito, tempi, importi, problemi) e chi lo riporta ("1 membro", "3 membri"). Se nei messaggi non c'è niente di rilevante, rispondi solo: "Niente di rilevante in questa fascia."
 
 MESSAGGI:
 ${corpo}`
