@@ -86,8 +86,9 @@ async function leggiAnnuncio(m: { data_msg: string; chat_titolo: string | null; 
   const prompt = `Sei Lucy, assistente di Sergio. Leggi questo messaggio di un gruppo Telegram italiano e trova le DIRETTE FUTURE annunciate (dirette, live, webinar, meeting, collegamenti Zoom/YouTube con data e ora).
 Regole:
 - Includi solo eventi con data E ora indicate o ricavabili. Se manca l'ora, non includerlo.
+- Includi anche gli avvisi dell'ultimo minuto ("alle 18.30 si va in diretta", "ci vediamo tra 40 minuti in diretta", "tra poco in diretta"): se c'e' solo l'ora, e' lo stesso giorno del messaggio; se c'e' "tra N minuti", l'inizio e' l'ora del messaggio piu' N minuti.
 - Il messaggio è stato scritto: ${fmtMessaggio(m.data_msg)} (ora italiana). Usalo per risolvere "oggi", "domani", "stasera", "martedì 14" e per l'anno mancante (scegli la data futura più vicina al messaggio).
-- Ignora eventi già passati, riassunti, ringraziamenti, registrazioni, promemoria generici senza data.
+- Ignora eventi già passati, riassunti, ringraziamenti, registrazioni, promemoria generici senza ora.
 - "inizio" in ora italiana, formato AAAA-MM-GGTHH:MM. "titolo" breve (max 80 caratteri). "link": URL della diretta (zoom, youtube, t.me...) se presente, altrimenti null.
 - Un messaggio può contenere più dirette (calendario): elencale tutte. Se non ce n'è nessuna, "dirette" è un array vuoto.
 Gruppo: ${m.chat_titolo || ''}${m.topic_titolo ? ' / ' + m.topic_titolo : ''}
