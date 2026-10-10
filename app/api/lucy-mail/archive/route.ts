@@ -48,6 +48,16 @@ type UnifiedRow = {
 
   feedback_utente: string | null
   feedback_note: string | null
+
+  // 10/10/2026 — comunicazioni identiche raggruppate in una riga (stesso mittente, oggetto e promo, qualunque cliente)
+  uguali?: {
+    n: number
+    altri: Array<{ canale: Canale; source_id: string | number }>
+    clienti: string[]
+    n_clienti: number
+    dal: string | null
+    al: string | null
+  }
 }
 
 /* =========================================================
@@ -589,6 +599,88 @@ function matchesFilters(
 }
 
 /* =========================================================
+   10/10/2026 — RAGGRUPPA LE COMUNICAZIONI UGUALI
+
+   Stessa mail ricevuta più volte o da più clienti
+   (stesso mittente, stesso oggetto, stessa categoria,
+   stesso bonus, nella stessa vista) = UNA riga, con
+   scritto a quanti clienti è arrivata.
+   Le azioni (archivia, letta, voto) valgono per tutto
+   il gruppo. Con ?raggruppa=0 si vede tutto separato.
+   ========================================================= */
+
+function chiaveGruppo(row: UnifiedRow) {
+  const mittente = sansAccenti(row.mittente).trim()
+  const oggetto = sansAccenti(row.oggetto).replace(/\s+/g, ' ').trim()
+
+  // senza mittente e oggetto non si può dire che due mail siano uguali
+  if (!mittente && !oggetto) return `solo:${row.id}`
+
+  // gli SMS non hanno oggetto: si confronta l'inizio del testo (numeri e codici esclusi)
+  const testoSms =
+    row.canale === 'SMS'
+      ? sansAccenti(row.testo_completo).replace(/\d+/g, '#').replace(/\s+/g, ' ').trim().slice(0, 80)
+      : ''
+
+  return [
+    row.canale,
+    mittente,
+    oggetto,
+    testoSms,
+    getBucket(row),
+    row.categoria || '',
+    row.bonus_importo ?? '',
+  ].join('|')
+}
+
+function raggruppaUguali(rows: UnifiedRow[]) {
+  const gruppi = new Map<string, UnifiedRow[]>()
+
+  for (const row of rows) {
+    const k = chiaveGruppo(row)
+    const g = gruppi.get(k)
+    if (g) g.push(row)
+    else gruppi.set(k, [row])
+  }
+
+  const out: UnifiedRow[] = []
+
+  for (const membri of gruppi.values()) {
+    const [rappresentante, ...altri] = membri
+
+    if (!altri.length) {
+      out.push(rappresentante)
+      continue
+    }
+
+    const conta = new Map<string, number>()
+    for (const m of membri) {
+      const c = m.cliente_nome?.trim()
+      if (c) conta.set(c, (conta.get(c) || 0) + 1)
+    }
+    const clienti = [...conta.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'it'))
+      .map(([c]) => c)
+
+    const tempi = membri.map(m => toTime(m.data_mail)).filter(Boolean)
+
+    out.push({
+      ...rappresentante,
+      uguali: {
+        n: membri.length,
+        altri: altri.map(a => ({ canale: a.canale, source_id: a.source_id })),
+        clienti: clienti.slice(0, 30),
+        n_clienti: clienti.length,
+        dal: tempi.length ? new Date(Math.min(...tempi)).toISOString() : null,
+        al: tempi.length ? new Date(Math.max(...tempi)).toISOString() : null,
+      },
+    })
+  }
+
+  return out
+}
+
+/* =========================================================
    CONTATORI OPERATIVI
 
    Le comunicazioni archiviate NON entrano
@@ -943,15 +1035,21 @@ export async function GET(
         )
       )
 
+    // 10/10/2026 — comunicazioni uguali = una riga sola (si spegne con ?raggruppa=0)
+    const righeVista =
+      sp.get('raggruppa') === '0'
+        ? filtered
+        : raggruppaUguali(filtered)
+
     const count =
-      filtered.length
+      righeVista.length
 
     const from =
       (page - 1) *
       pageSize
 
     const data =
-      filtered.slice(
+      righeVista.slice(
         from,
         from + pageSize
       )
@@ -959,6 +1057,7 @@ export async function GET(
     return NextResponse.json({
       data,
       count,
+      count_totale: filtered.length,
       counters,
       clienti,
       mittenti,
@@ -1098,6 +1197,7 @@ export async function PATCH(
       archiviata,
       sposta_in,
       motivo,
+      gruppo,
     } = body
 
     let realId =
@@ -1308,6 +1408,42 @@ export async function PATCH(
           status: 500,
         }
       )
+    }
+
+    /*
+     * 10/10/2026 — comunicazioni uguali raggruppate:
+     * la stessa modifica (archivia, letta, voto, spostamento)
+     * vale per tutte le altre del gruppo.
+     */
+    if (Array.isArray(gruppo) && gruppo.length) {
+      const perTabella = {
+        lucy_mail_archive: [] as Array<string | number>,
+        sms_clienti: [] as Array<string | number>,
+      }
+
+      for (const g of gruppo.slice(0, 2000)) {
+        if (g?.source_id === undefined || g?.source_id === null) continue
+        if (g.canale === 'SMS') perTabella.sms_clienti.push(g.source_id)
+        else perTabella.lucy_mail_archive.push(g.source_id)
+      }
+
+      for (const [tabella, ids] of Object.entries(perTabella)) {
+        for (let i = 0; i < ids.length; i += 200) {
+          const { error: erroreGruppo } = await adminSupabase
+            .from(tabella)
+            .update(patch)
+            .in('id', ids.slice(i, i + 200))
+
+          if (erroreGruppo) {
+            console.error('[Lucy Archive PATCH gruppo]', erroreGruppo)
+
+            return NextResponse.json(
+              { error: erroreGruppo.message },
+              { status: 500 }
+            )
+          }
+        }
+      }
     }
 
     return NextResponse.json({
