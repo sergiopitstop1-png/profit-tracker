@@ -3300,7 +3300,7 @@ function bloccoIncrocioLucy(p, pi, numero) {
     'PROFILAZIONE':{t:'Profilazione',bg:'#dcfce7',tx:'#166534'},
     'RECUPERO CONTO':{t:'Recupero conto',bg:'#fee2e2',tx:'#991b1b'},
     'OPERAZIONE SPOT':{t:'Operazione spot',bg:'#fef9c3',tx:'#854d0e'},
-    'RECUPERO PROF.':{t:'Recupero',bg:'#ffedd5',tx:'#9a3412'},
+    'RECUPERO PROF.':{t:'Profilazione arretrata',bg:'#ffedd5',tx:'#9a3412'},   // 10/10/2026: non è un conto limitato, è una bet di profilazione non fatta nei giorni scorsi
     'MANT. PROTOCOLLO':{t:'Mant. protocollo',bg:'#fef3c7',tx:'#92400e'},
     'MANTENIMENTO':{t:'Copertura',bg:'#e0e7ff',tx:'#3730a3'},
     'EXTRA PROF.':{t:'Extra',bg:'#f3e8ff',tx:'#6b21a8'}
@@ -8244,12 +8244,13 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 </div>
                 <div style={{padding:'12px'}}>
                   {visibili.length===0 && <div style={{padding:16,textAlign:'center',color:'#64748b',fontWeight:700}}>Nessun incrocio con questo filtro.</div>}
-                  {[['oggi','mant','🔁 OGGI — INCROCI DI MANTENIMENTO'],['oggi','prof','🧾 OGGI — PROFILAZIONE (bet sport previste oggi)'],['domani',null,'📆 DOMANI — bet piazzate in anticipo']].map(([g,sez,titolo])=>{
-                    const dellGiorno=visibili.filter(({p})=>(p.giorno||'oggi')===g && (sez===null || (sez==='mant')===(p.sezione==='mant')))
+                  {/* 10/10/2026 (Sergio): anche le bet piazzate in anticipo per domani restano divise: incroci di MANTENIMENTO da una parte, PROFILAZIONE a parte */}
+                  {[['oggi','mant','🔁 OGGI — INCROCI DI MANTENIMENTO'],['oggi','prof','🧾 OGGI — PROFILAZIONE (bet sport previste oggi)'],['domani','mant','📆 DOMANI — INCROCI DI MANTENIMENTO (piazzati in anticipo)'],['domani','prof','📆 DOMANI — PROFILAZIONE (piazzate in anticipo)']].map(([g,sez,titolo])=>{
+                    const dellGiorno=visibili.filter(({p})=>(p.giorno||'oggi')===g && (sez==='mant')===(p.sezione==='mant'))
                     if(!dellGiorno.length) return null
                     return (
                       <div key={g+sez}>
-                        <div style={{background:g==='oggi'?(sez==='prof'?'#7c3aed':'#1e293b'):'#475569',color:'#fff',borderRadius:8,padding:'5px 12px',fontWeight:900,fontSize:12,margin:'2px 0 10px'}}>{titolo} · {dellGiorno.length} {dellGiorno.length===1?'incrocio':'incroci'}</div>
+                        <div style={{background:sez==='prof'?(g==='oggi'?'#7c3aed':'#8b5cf6'):(g==='oggi'?'#1e293b':'#475569'),color:'#fff',borderRadius:8,padding:'5px 12px',fontWeight:900,fontSize:12,margin:'2px 0 10px'}}>{titolo} · {dellGiorno.length} {dellGiorno.length===1?'incrocio':'incroci'}</div>
                         {dellGiorno.map(({p,pi})=>{ numero+=1; return bloccoIncrocioLucy(p,pi,numero) })}
                       </div>
                     )
