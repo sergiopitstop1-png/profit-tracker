@@ -47,7 +47,7 @@ const fmtMessaggio = (iso: string) =>
    Solo i gruppi dell'Accademia: il nome del gruppo deve CONTENERE una di queste parole (senza distinguere maiuscole
    e accenti). Per cambiarle senza toccare il codice: variabile Vercel ACCADEMIA_DIRETTE_GRUPPI, parole separate da virgola. */
 const norm = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-const PAROLE_GRUPPI = (process.env.ACCADEMIA_DIRETTE_GRUPPI || 'elite,accademia,profiliamo,meeting,profit')
+const PAROLE_GRUPPI = (process.env.ACCADEMIA_DIRETTE_GRUPPI || 'elite,accademia,profiliamo,meeting,profit,expert,bonus')
   .split(',').map(x => norm(x.trim())).filter(Boolean)
 const gruppoAccademia = (titolo: string | null) => !!titolo && PAROLE_GRUPPI.some(w => norm(titolo).includes(w))
 
