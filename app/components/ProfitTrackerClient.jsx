@@ -913,8 +913,13 @@ function inizioCicloEff(book) {
 function contoSportLimitato(book) {
   return !!book?.sport_bloccato || /limitat[oa]\s+sport/i.test(String(book?.note || ''))
 }
+// 10/10/2026: limitati del gruppo E-play24 (E-play24, Sportium, Betwin360): non permettono nemmeno 0,50 € di sport
+function eplayLimitato(book) {
+  const n = String(book?.nome || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+  return ['eplay24', 'sportium', 'betwin360'].some(k => n.includes(k)) && bookInRecuperoLimitato(book)
+}
 function lucyMaiSport(book) {
-  if (contoSportLimitato(book)) return true
+  if (contoSportLimitato(book) || eplayLimitato(book)) return true
   const n = normBookMaiSportLucy(book?.nome)
   if (!n) return false
   if (LUCY_BOOK_SPORT_CONSENTITI.some(k => n.includes(normBookMaiSportLucy(k)))) return false
@@ -1398,9 +1403,14 @@ function getRecuperoProtocollo(nomeBook, tipo) {
   const stileLotto = (fonte) => ({ disponibile: true, fonte, nota: 'la scheda rimanda al recupero stile Eurobet / Lottomatica', passi: LS, periodica: VOLUME_BLANDO_SETTIMANALE })
   // Bet365 (indicazione di Sergio, 25/09/2026): una volta limitato o chiuso NON si recupera, qualunque limitazione
   if (t === 'bet365') return { disponibile: false, motivo: 'Bet365: una volta limitato o chiuso NON si recupera' }
-  // 10/10/2026 (Sergio): i limitati del gruppo E-play24 (E-play24, Sportium, Betwin360) non fanno scommettere nemmeno 0,50 €:
-  // niente bet di recupero, niente Masaniello, niente copertura. (DaznBet e Totosì restano com'erano.)
-  if (t === 'settimana_mese' && !n.includes('dazn')) return { disponibile: false, motivo: 'Gruppo E-play24 (E-play24, Sportium, Betwin360): il conto limitato non permette di scommettere nemmeno 0,50 €, quindi non si recupera con le bet' }
+  // 10/10/2026 (Sergio): i limitati del gruppo E-play24 (E-play24, Sportium, Betwin360) non fanno scommettere nemmeno 0,50 €.
+  // Il recupero resta quello della scheda (stile Lottomatica: volume blando su varie sezioni) ma SOLO su casinò: slot, virtuali, giochi offline.
+  if (t === 'settimana_mese' && !n.includes('dazn')) return {
+    disponibile: true, fonte: 'Scheda gruppo E-play24 (Profiliamo): recupero stile Lottomatica, solo casinò (sport non possibile)',
+    nota: 'il conto limitato non permette di scommettere nemmeno 0,50 €: niente sport, solo Slot, Virtuali e giochi offline',
+    passi: ['Fai un volume di gioco blando 50-100€ solo su Slot, Virtuali e giochi offline', ...PROTOCOLLO_GRUPPO_LOTTOMATICA.recupero.slice(1)],
+    periodica: { frequenza: 'settimanale', testo: 'volume blando 15-25€ solo su Slot, Virtuali e giochi offline, comportati da giocatore normale (50-100€ nel mese)', sezioni: ['Slot', 'Virtuali', 'giochi offline'] }
+  }
   // 27/09/2026 (Sergio): Betpassion limitato bonus → come Bwin sport (bet da 2€ + richiesta di sblocco)
   if (tipo !== 'sport' && n.includes('betpassion')) return {
     disponibile: true, fonte: 'Regola Bwin sport (indicazione di Sergio)',
