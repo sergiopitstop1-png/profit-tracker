@@ -913,8 +913,14 @@ function inizioCicloEff(book) {
 function contoSportLimitato(book) {
   return !!book?.sport_bloccato || /limitat[oa]\s+sport/i.test(String(book?.note || ''))
 }
+// 10/10/2026 (Sergio): limitati del gruppo E-play24 (E-play24, Sportium, Betwin360): puntata massima 1 €,
+// troppo poco per incroci e copertura; restano nel Masaniello di recupero a 1 € a bet
+function eplayLimitato(book) {
+  const n = String(book?.nome || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+  return ['eplay24', 'sportium', 'betwin360'].some(k => n.includes(k)) && bookInRecuperoLimitato(book)
+}
 function lucyMaiSport(book) {
-  if (contoSportLimitato(book)) return true
+  if (contoSportLimitato(book) || eplayLimitato(book)) return true
   const n = normBookMaiSportLucy(book?.nome)
   if (!n) return false
   if (LUCY_BOOK_SPORT_CONSENTITI.some(k => n.includes(normBookMaiSportLucy(k)))) return false
@@ -1402,7 +1408,7 @@ function getRecuperoProtocollo(nomeBook, tipo) {
   // recupero stile Lottomatica come da scheda, con lo sport a puntate da 1 €.
   if (t === 'settimana_mese' && !n.includes('dazn')) return {
     ...stileLotto('Scheda gruppo E-play24 (Profiliamo): recupero stile Lottomatica'),
-    nota: 'il conto limitato fa scommettere 1 € (non meno): le bet sport sono da 1 €'
+    nota: 'il conto limitato fa puntare al massimo 1 €: bet sport da 1 €'
   }
   // 27/09/2026 (Sergio): Betpassion limitato bonus → come Bwin sport (bet da 2€ + richiesta di sblocco)
   if (tipo !== 'sport' && n.includes('betpassion')) return {
