@@ -1398,6 +1398,9 @@ function getRecuperoProtocollo(nomeBook, tipo) {
   const stileLotto = (fonte) => ({ disponibile: true, fonte, nota: 'la scheda rimanda al recupero stile Eurobet / Lottomatica', passi: LS, periodica: VOLUME_BLANDO_SETTIMANALE })
   // Bet365 (indicazione di Sergio, 25/09/2026): una volta limitato o chiuso NON si recupera, qualunque limitazione
   if (t === 'bet365') return { disponibile: false, motivo: 'Bet365: una volta limitato o chiuso NON si recupera' }
+  // 10/10/2026 (Sergio): i limitati del gruppo E-play24 (E-play24, Sportium, Betwin360) non fanno scommettere nemmeno 0,50 €:
+  // niente bet di recupero, niente Masaniello, niente copertura. (DaznBet e Totosì restano com'erano.)
+  if (t === 'settimana_mese' && !n.includes('dazn')) return { disponibile: false, motivo: 'Gruppo E-play24 (E-play24, Sportium, Betwin360): il conto limitato non permette di scommettere nemmeno 0,50 €, quindi non si recupera con le bet' }
   // 27/09/2026 (Sergio): Betpassion limitato bonus → come Bwin sport (bet da 2€ + richiesta di sblocco)
   if (tipo !== 'sport' && n.includes('betpassion')) return {
     disponibile: true, fonte: 'Regola Bwin sport (indicazione di Sergio)',
