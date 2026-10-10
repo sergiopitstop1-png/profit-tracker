@@ -3977,6 +3977,40 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
     })
   })
 
+  // 10/10/2026 (Sergio) — ROTAZIONE DEL MANTENIMENTO: ogni giorno 1 incrocio con 3 conti base presi a rotazione tra TUTTI i conti di
+  // mantenimento (si arriva a toccarli tutti in circa 60 giorni), anche se oggi non sono "dovuti" in agenda. Si parte da quelli con
+  // la scadenza più vecchia (o mai usati); un conto usato da meno di `riposo_giorni` giorni non rientra.
+  if (Number(lucyIncrociMantMax) > 0) {
+    const gruppoBase = 3
+    const giaMant = sportItems.filter(s => s.tipoConto === 'mantenimento').length
+    const daAggiungere = Math.max(0, gruppoBase - giaMant)
+    if (daAggiungere > 0) {
+      const oggiRot = lucyOggi()
+      const inUso = new Set(sportItems.map(s => String(s.book.id)))
+      const rotazione = books
+        .filter(b => b.profilo_livello && String(b.profilo_livello).startsWith('mantenimento') && b.profilo_livello !== 'dormiente')
+        .filter(b => !inUso.has(String(b.id)))
+        .filter(b => !bookInRecuperoLimitato(b) && !lucyMaiSport(b) && !bookSoloCasinoProfilazioneLucy(b))
+        .filter(b => !decisiOggiLucy.has(String(b.id)) && !bookInPausaOggi(b))
+        .filter(b => { const r = regolaMant(b); return r.gioco !== 'casino' && !(r.gioco === 'auto' && isSoloCasino(b.nome)) })
+        .filter(b => { const u = ultimoMovimentoBookLucy(b.id); return !u || (u < oggiRot && giorniTraLucy(u, oggiRot) >= regolaMant(b).riposo_giorni) })
+        .sort((a, b) => String(prossimaMantLucy(a)).localeCompare(String(prossimaMantLucy(b))) || String(a.id).localeCompare(String(b.id)))
+        .slice(0, daAggiungere)
+      rotazione.forEach(book => {
+        const regola = regolaMant(book)
+        const azione = `${regola.numero_bet} bet sportiv${regola.numero_bet > 1 ? 'e' : 'a'} da ${regola.stake_min}-${regola.stake_max}€`
+        const betRichieste = getNumeroBetRichieste(azione)
+        const budgetBase = stakeMantenimentoProtocolloLucy(book) * betRichieste
+        sportItems.push({
+          book, azione, betRichieste, budgetBase, budgetTotale: budgetBase, daRicarica: false,
+          tipoConto: 'mantenimento', spot: false,
+          stakeVariabili: distribuisciStakeVariabili(book, betRichieste, budgetBase),
+          quotaMin: getQuotaMinSport(book, azione)
+        })
+      })
+    }
+  }
+
   generaLucyLive(agendaItems)
 
   if (!sportItems.length) {
