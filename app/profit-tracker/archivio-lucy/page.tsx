@@ -1872,7 +1872,7 @@ export default function ArchivioLucyPage() {
                   Analisi
                 </th>
 
-                <th className="p-3">
+                <th className="sticky right-0 z-10 bg-[#08140c] p-3 shadow-[-8px_0_12px_rgba(0,0,0,0.45)]">
                   Azioni
                 </th>
               </tr>
@@ -1954,7 +1954,7 @@ export default function ArchivioLucyPage() {
                     <td
                       className="
                         p-3
-                        whitespace-nowrap
+                        min-w-[96px]
                         text-slate-400
                       "
                     >
@@ -1978,7 +1978,7 @@ export default function ArchivioLucyPage() {
                       {/* 10/10/2026 — comunicazione identica arrivata più volte o a più clienti: una riga sola */}
                       {item.uguali && (
                         <div
-                          className="mt-1 max-w-[220px] text-xs font-normal text-pink-300"
+                          className="mt-1 max-w-[170px] text-xs font-normal text-pink-300"
                           title={item.uguali.clienti.join(', ')}
                         >
                           🔁{' '}
@@ -2010,7 +2010,8 @@ export default function ArchivioLucyPage() {
                     <td
                       className="
                         p-3
-                        whitespace-nowrap
+                        max-w-[210px]
+                        break-words
                         text-green-300
                       "
                     >
@@ -2026,7 +2027,7 @@ export default function ArchivioLucyPage() {
                         item.mittente.trim().toLowerCase() !==
                           item.bookmaker.trim().toLowerCase() && (
                           <div
-                            className="mt-1 max-w-[220px] truncate text-xs font-normal text-slate-500"
+                            className="mt-1 max-w-[190px] truncate text-xs font-normal text-slate-500"
                             title={item.mittente}
                           >
                             ✉️ {item.mittente}
@@ -2039,7 +2040,7 @@ export default function ArchivioLucyPage() {
                     <td
                       className="
                         p-3
-                        min-w-[280px]
+                        min-w-[230px]
                       "
                     >
                       <button
@@ -2101,7 +2102,7 @@ export default function ArchivioLucyPage() {
                     <td
                       className="
                         p-3
-                        min-w-[150px]
+                        min-w-[125px]
                       "
                     >
                       <div
@@ -2144,7 +2145,7 @@ export default function ArchivioLucyPage() {
                     <td
                       className="
                         p-3
-                        min-w-[150px]
+                        min-w-[120px]
                       "
                     >
                       {item.bonus_importo !=
@@ -2213,7 +2214,7 @@ export default function ArchivioLucyPage() {
                     <td
                       className="
                         p-3
-                        min-w-[330px]
+                        min-w-[260px]
                         text-slate-300
                       "
                     >
@@ -2251,8 +2252,14 @@ export default function ArchivioLucyPage() {
 
                     <td
                       className="
+                        sticky
+                        right-0
+                        z-10
+                        w-[210px]
+                        min-w-[210px]
+                        bg-[#040a06]
                         p-3
-                        min-w-[180px]
+                        shadow-[-8px_0_12px_rgba(0,0,0,0.45)]
                       "
                     >
                       <div
