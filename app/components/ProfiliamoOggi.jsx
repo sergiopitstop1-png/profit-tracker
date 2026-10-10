@@ -6,6 +6,10 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
 const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
 const quando = (iso) => new Date(iso).toLocaleString('it-IT', { timeZone: 'Europe/Rome', weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+// Topic di discussione dei membri (domande, chiacchiere): qui contano solo i messaggi dello staff, le domande dei membri no.
+const TOPIC_MEMBRI = /domand|chiacchier|general|off.?topic/i
+const STAFF = ['frioni', 'lentini', 'fotia', 'amurri', 'willy', 'accademia del profitto']
+const èStaff = (m) => STAFF.some(n => String(m.mittente || '').toLowerCase().includes(n))
 const btn = { background: '#334155', color: 'white', border: 0, borderRadius: 8, padding: '4px 10px', fontWeight: 800, fontSize: 12, cursor: 'pointer' }
 
 export default function ProfiliamoOggi({ books = [], agendaOggi = [] }) {
@@ -13,6 +17,7 @@ export default function ProfiliamoOggi({ books = [], agendaOggi = [] }) {
   const [errore, setErrore] = useState('')
   const [ore, setOre] = useState(36)
   const [aperti, setAperti] = useState({})
+  const [tuttiIMembri, setTuttiIMembri] = useState(false)
 
   const carica = useCallback(async () => {
     setErrore('')
@@ -43,6 +48,9 @@ export default function ProfiliamoOggi({ books = [], agendaOggi = [] }) {
     return m
   }, [agendaOggi])
 
+  // di default solo i segnali ufficiali: nei topic di discussione restano i soli messaggi dello staff
+  const utili = useMemo(() => (messaggi || []).filter(m => tuttiIMembri || !TOPIC_MEMBRI.test(m.topic_titolo || '') || èStaff(m)), [messaggi, tuttiIMembri])
+
   // messaggi -> bookmaker PRINCIPALE della scheda. Si cerca prima la riga "Bookmaker: X" (schede lette dalle immagini),
   // poi il titolo del topic. Gli altri book nominati (es. "COPERTURA: GoldBet") NON sono il book della scheda.
   // Solo se non c'è un book principale chiaro si ripiega sui nomi citati, segnandoli come "citato".
@@ -58,7 +66,7 @@ export default function ProfiliamoOggi({ books = [], agendaOggi = [] }) {
       g.msgs.push({ ...msg, _copertura: copertura })
       if (!citato) g.citato = false
     }
-    for (const msg of messaggi || []) {
+    for (const msg of utili) {
       const tutto = `${msg.testo || ''}\n${msg.testo_immagine || ''}`
       const riga = tutto.match(/bookmaker\s*[:\-]\s*([^\n(;)]+)/i)
       const cop = tutto.match(/copertura\s*[:\-]\s*([^\n(;)]+)/i)
@@ -73,9 +81,9 @@ export default function ProfiliamoOggi({ books = [], agendaOggi = [] }) {
       }
     }
     return [...out.values()].sort((a, b) => String(b.msgs[0].data_msg).localeCompare(String(a.msgs[0].data_msg)))
-  }, [messaggi, perNome])
+  }, [utili, perNome])
 
-  const nonAssegnati = (messaggi || []).length - new Set(gruppi.flatMap(g => g.msgs.map(m => m.id))).size
+  const nonAssegnati = utili.length - new Set(gruppi.flatMap(g => g.msgs.map(m => m.id))).size
 
   return (
     <div>
@@ -85,7 +93,8 @@ export default function ProfiliamoOggi({ books = [], agendaOggi = [] }) {
           <option value={12}>12 ore</option><option value={36}>36 ore</option><option value={72}>3 giorni</option><option value={168}>7 giorni</option>
         </select>
         <button onClick={carica} style={btn}>↻ Aggiorna</button>
-        {messaggi && <span style={{ color: '#94a3b8' }}>{messaggi.length} messaggi · {gruppi.length} book nominati{nonAssegnati > 0 ? ` · ${nonAssegnati} senza book riconosciuto` : ''}</span>}
+        <label style={{ color: '#94a3b8', cursor: 'pointer' }}><input type="checkbox" checked={tuttiIMembri} onChange={e => setTuttiIMembri(e.target.checked)} /> includi domande dei membri</label>
+        {messaggi && <span style={{ color: '#94a3b8' }}>{utili.length} messaggi · {gruppi.length} book nominati{nonAssegnati > 0 ? ` · ${nonAssegnati} senza book riconosciuto` : ''}</span>}
       </div>
       {errore && <div style={{ color: '#fca5a5', fontSize: 12 }}>⚠️ {errore}</div>}
       {messaggi && messaggi.length === 0 && !errore && (
