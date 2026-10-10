@@ -129,10 +129,13 @@ export async function GET(req: NextRequest) {
       .select('chat_id,msg_id,chat_titolo,topic_titolo,data_msg,testo')
       .gte('data_msg', da)
       .not('testo', 'is', null)
-      .order('data_msg', { ascending: true })
+      // filtro grossolano gia' nel database (le parole chiave), poi i piu' recenti per primi:
+      // cosi' i messaggi nuovi non restano fuori quando in 14 giorni ce ne sono migliaia
+      .or('testo.ilike.%dirett%,testo.ilike.%live%,testo.ilike.%zoom%,testo.ilike.%webinar%,testo.ilike.%meeting%,testo.ilike.%streaming%,testo.ilike.%collegamento%,testo.ilike.%appuntamento%,testo.ilike.%incontro%,testo.ilike.%evento%')
+      .order('data_msg', { ascending: false })
       .limit(1500)
     if (error) throw new Error(error.message)
-    const cand = (recenti || []).filter(m => sembraAnnuncio(m.testo))
+    const cand = (recenti || []).filter(m => sembraAnnuncio(m.testo)).reverse()
     if (cand.length) {
       const { data: gia } = await sb.from('accademia_dirette_letti').select('chat_id,msg_id').gte('letto', da)
       const visti = new Set((gia || []).map(x => `${x.chat_id}|${x.msg_id}`))
