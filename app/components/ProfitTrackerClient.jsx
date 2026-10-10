@@ -11,6 +11,7 @@ import MemoTab from './MemoTab'
 import { calcolaRoyalty, RoyaltyRiepilogo, RoyaltyBadge, RoyaltyModal, inserisciPagamento } from './RoyaltyPanel'
 import { RisparmiCard, calcolaRisparmi, maturaInteressi, normalizza as normalizzaRisparmi } from './RisparmiPanel'
 import SlotConsigliate, { PulsanteSlot, parlaDiSlot } from './SlotConsigliate'
+import ProfiliamoOggi from './ProfiliamoOggi'
 import RecuperoContiPanel, { contiInRecupero, azioniRecuperoOggi, limitazioniDaNota, daPromuovere, recuperoSport } from './RecuperoConti'
 import RecuperiPronoxPanel from './RecuperiPronox'
 import PagellaPronox from './PagellaPronox'
@@ -7859,6 +7860,9 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           onMessage={setMessage}
           onError={setErrorMessage}
         />
+      ))}
+      {conSezione({ id: 'profiliamo-oggi', titolo: '📣 Profiliamo oggi · cosa dice e per quali clienti', colore: '#a78bfa', aperta: true }, (
+        <ProfiliamoOggi books={books} agendaOggi={agendaOggi} />
       ))}
       {conSezione({ id: 'agenda', titolo: '📋 Agenda di oggi · mantenimento e profilazione', badge: agendaOggi.length ? `${agendaOggi.length} conti` : '', colore: '#60a5fa', aperta: true }, (
         <div style={{ display: 'grid', gridTemplateColumns: lucyVista === 'completa' ? '1fr 1fr' : '1fr', gap: 16, marginBottom: 16 }}>
