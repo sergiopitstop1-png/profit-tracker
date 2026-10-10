@@ -4386,8 +4386,15 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
     confermateOggiLucy().forEach(x=>totaleSportPerBook.set(x.bookId,(totaleSportPerBook.get(x.bookId)||0)+Number(x.stake||0)))
     const budgetTargetPerBook = new Map(sportItems.map(x=>[x.book.id,x.budgetTotale]))
     let giro = 0
+    // 10/10/2026: due passate. 1) incroci di MANTENIMENTO (solo conti di mantenimento, tetto giornaliero);
+    // 2) profilazione / recupero come da protocollo, in una sezione a parte (esiste solo se oggi ci sono bet sport di profilazione).
+    let classe = 'mant'
 
-    while (slot.length && proposte.length < 20 && giro < candidati.length * 4) {
+    while (true) {
+      if (!(slot.some(s=>(classe==='mant')===!!eMantBase(s)) && proposte.length < 20 && giro < candidati.length * 4)) {
+        if (classe==='mant') { classe='altro'; giro=0; continue }
+        break
+      }
       const c = candidati[giro % candidati.length]
       giro++
       const nEsiti = c.esiti.length
@@ -4399,6 +4406,7 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
       const eventoKey = `${c.home}|${c.away}`
       for (let i=0; i<slot.length && gruppo.length<nEsiti; i++) {
         const s = slot[i]
+        if ((classe==='mant') !== !!eMantBase(s)) continue
         const key = s.book.id
         const gia = eventiUsatiPerBook.get(key) || new Set()
         if (gia.has(eventoKey)) continue
@@ -4577,7 +4585,7 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
         return {esito,netto:vp+vm+vx-giocato}
       })
 
-      proposte.push({ ...c, orario:(c.giorno==='domani'?'dom ':'')+getOrarioPartitaLucy(c), assegnazioni, integrazioni, extraProfilazione, scenari, coperturaMancante })
+      proposte.push({ ...c, orario:(c.giorno==='domani'?'dom ':'')+getOrarioPartitaLucy(c), assegnazioni, integrazioni, extraProfilazione, scenari, coperturaMancante, sezione:classe })
       chiudiMantSeTetto(gruppo)
     }
 
@@ -4588,8 +4596,9 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
     let costoUsato=0
     ordinate.forEach(p=>{
       const costo=costoPeggioreIncrocioLucy(p)
-      if(costoUsato+costo <= Number(lucyCostoMax||0)+0.001){
-        accettate.push(p); costoUsato+=costo
+      // il tetto di costo vale per il mantenimento; la profilazione segue il protocollo e non viene rinviata
+      if(p.sezione==='altro' || costoUsato+costo <= Number(lucyCostoMax||0)+0.001){
+        accettate.push(p); if(p.sezione!=='altro') costoUsato+=costo
       } else rinviate.push({...p,costoStimato:costo})
     })
 
@@ -4610,6 +4619,7 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
         const gruppo=[]; const contiNelGruppo=new Set()
         for(let i=0;i<slot.length && gruppo.length<nEsiti;i++){
           const s=slot[i]; const key=s.book.id
+          if(gruppo.length && !!eMantBase(s)!==!!eMantBase(gruppo[0])) continue   // mai mantenimento e profilazione nello stesso incrocio
           const gia=eventiUsatiPerBook.get(key)||new Set()
           if(gia.has(eventoKey)) continue
           if(contiNelGruppo.has(key)) continue
@@ -4661,7 +4671,7 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
           contiProfilo.add(cand.id)
           esitoPerBookmakerEvento.set(`${bookNomeKeyLucy(cand)}|${eventoKey}`,esito)
         })
-        manProposte.push({...c,orario:(c.giorno==='domani'?'dom ':'')+getOrarioPartitaLucy(c),assegnazioni,integrazioni,extraProfilazione:[],scenari:[],manuale:true,pronoxManuale:pref||null,ancora})
+        manProposte.push({...c,orario:(c.giorno==='domani'?'dom ':'')+getOrarioPartitaLucy(c),assegnazioni,integrazioni,extraProfilazione:[],scenari:[],manuale:true,sezione:gruppo.some(eMantBase)?'mant':'altro',pronoxManuale:pref||null,ancora})
       }
     }
 
@@ -8212,12 +8222,12 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 </div>
                 <div style={{padding:'12px'}}>
                   {visibili.length===0 && <div style={{padding:16,textAlign:'center',color:'#64748b',fontWeight:700}}>Nessun incrocio con questo filtro.</div>}
-                  {[['oggi','📅 OGGI'],['domani','📆 DOMANI — bet piazzate in anticipo']].map(([g,titolo])=>{
-                    const dellGiorno=visibili.filter(({p})=>(p.giorno||'oggi')===g)
+                  {[['oggi','mant','🔁 OGGI — INCROCI DI MANTENIMENTO'],['oggi','prof','🧾 OGGI — PROFILAZIONE (bet sport previste oggi)'],['domani',null,'📆 DOMANI — bet piazzate in anticipo']].map(([g,sez,titolo])=>{
+                    const dellGiorno=visibili.filter(({p})=>(p.giorno||'oggi')===g && (sez===null || (sez==='mant')===(p.sezione==='mant')))
                     if(!dellGiorno.length) return null
                     return (
-                      <div key={g}>
-                        <div style={{background:g==='oggi'?'#1e293b':'#475569',color:'#fff',borderRadius:8,padding:'5px 12px',fontWeight:900,fontSize:12,margin:'2px 0 10px'}}>{titolo} · {dellGiorno.length} {dellGiorno.length===1?'incrocio':'incroci'}</div>
+                      <div key={g+sez}>
+                        <div style={{background:g==='oggi'?(sez==='prof'?'#7c3aed':'#1e293b'):'#475569',color:'#fff',borderRadius:8,padding:'5px 12px',fontWeight:900,fontSize:12,margin:'2px 0 10px'}}>{titolo} · {dellGiorno.length} {dellGiorno.length===1?'incrocio':'incroci'}</div>
                         {dellGiorno.map(({p,pi})=>{ numero+=1; return bloccoIncrocioLucy(p,pi,numero) })}
                       </div>
                     )
