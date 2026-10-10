@@ -144,7 +144,8 @@ Regole:
 - Le parole tra graffe {} sono solo etichette automatiche di aiuto: non citarle.
 - Salta chiacchiere, saluti, ringraziamenti, battute. Se una sezione non ha nulla di utile, non scriverla.
 
-Formato (testo semplice, niente tabelle). Usa solo le sezioni che servono:
+Formato (testo semplice, niente tabelle). Usa solo le sezioni che servono, in questo ordine:
+## ⭐ Da non perdere
 ## 🎯 Promo e riservate
 ## 🐞 Bug e problemi
 ## 📅 Dirette e comunicazioni
@@ -152,7 +153,12 @@ Formato (testo semplice, niente tabelle). Usa solo le sezioni che servono:
 ## 👥 Come stanno andando le promo (esperienze dei membri)
 ## ⚠️ Conti, verifiche, limitazioni
 ## ❓ Dubbi aperti
-Ogni punto è una riga breve che comincia con "- " e finisce con (Gruppo / Argomento). Al massimo 30 punti in totale: tieni i più importanti per chi gestisce molti conti e promo. Nella sezione delle esperienze dei membri scrivi per ogni punto: book, promo, cosa è successo (accredito, tempi, importi, problemi) e chi lo riporta ("1 membro", "3 membri"). Se nei messaggi non c'è niente di rilevante, rispondi solo: "Niente di rilevante in questa fascia."
+Regole di lunghezza (importanti, il riassunto deve essere veloce da leggere):
+- "Da non perdere": al massimo 5 righe, solo ciò che scade oggi o domani, che richiede un'azione subito o che mette a rischio i conti. Queste righe NON si ripetono nelle altre sezioni.
+- Nelle altre sezioni al massimo 20 punti in totale, uniti per argomento: se la stessa promo o lo stesso bug compare in più messaggi, scrivilo una volta sola.
+- Ogni punto è UNA frase breve (circa 25 parole) che comincia con "- " e finisce con (Gruppo / Argomento). Niente dettagli che si trovano già nella scheda originale: tieni book, cosa fare, importo o quota chiave, scadenza.
+- Nella sezione delle esperienze dei membri al massimo 6 punti: book, promo, cosa è successo e chi lo riporta ("1 membro", "3 membri").
+Se nei messaggi non c'è niente di rilevante, rispondi solo: "Niente di rilevante in questa fascia."
 
 MESSAGGI:
 ${corpo}`

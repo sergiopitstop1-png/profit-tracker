@@ -103,14 +103,37 @@ const fmtGiornoRiassunto = (giorno: string) =>
   new Intl.DateTimeFormat('it-IT', { weekday: 'short', day: '2-digit', month: 'short' }).format(new Date(`${giorno}T12:00:00`))
 
 function TestoRiassunto({ testo }: { testo: string }) {
+  // la sezione "Da non perdere" va in un riquadro evidenziato, il resto sotto come elenco
+  const blocchi: { titolo: string; righe: string[] }[] = [{ titolo: '', righe: [] }]
+  for (const r of testo.split('\n')) {
+    const t = r.trim()
+    if (!t) continue
+    if (t.startsWith('## ')) blocchi.push({ titolo: t.slice(3), righe: [] })
+    else blocchi[blocchi.length - 1].righe.push(t)
+  }
+  const riga = (t: string, i: number) =>
+    t.startsWith('- ')
+      ? <div key={i} className="flex gap-2 text-slate-200"><span className="text-green-500">›</span><span className="min-w-0 break-words">{t.slice(2)}</span></div>
+      : <div key={i} className="text-slate-300">{t}</div>
   return (
     <div className="space-y-1 text-sm">
-      {testo.split('\n').map((r, i) => {
-        const t = r.trim()
-        if (!t) return null
-        if (t.startsWith('## ')) return <div key={i} className="mt-3 font-bold text-green-300">{t.slice(3)}</div>
-        if (t.startsWith('- ')) return <div key={i} className="flex gap-2 text-slate-200"><span className="text-green-500">›</span><span className="min-w-0 break-words">{t.slice(2)}</span></div>
-        return <div key={i} className="text-slate-300">{t}</div>
+      {blocchi.map((b, k) => {
+        if (!b.titolo && !b.righe.length) return null
+        const urgente = /da non perdere/i.test(b.titolo)
+        if (urgente) {
+          return (
+            <div key={k} className="mb-3 rounded-lg border border-pink-500/60 bg-pink-500/10 p-3">
+              <div className="mb-1 font-bold text-pink-300">{b.titolo}</div>
+              <div className="space-y-1">{b.righe.map(riga)}</div>
+            </div>
+          )
+        }
+        return (
+          <div key={k} className="space-y-1">
+            {b.titolo && <div className="mt-3 font-bold text-green-300">{b.titolo}</div>}
+            {b.righe.map(riga)}
+          </div>
+        )
       })}
     </div>
   )
