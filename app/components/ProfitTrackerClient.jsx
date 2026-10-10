@@ -5346,7 +5346,13 @@ async function toggleAccantonamentoPagato(fieldKey) {
   const meseKey = `${oggi.getFullYear()}-${String(oggi.getMonth() + 1).padStart(2, '0')}`
   const giaPagato = dashboardSettings[fieldKey] === meseKey
   const nuovoValore = giaPagato ? null : meseKey
-  await supabase.from('dashboard_settings').update({ [fieldKey]: nuovoValore }).eq('id', 1)
+  // 10/10/2026: prima l'errore veniva ignorato e il "Pagato" tornava dopo il ricaricamento. Ora lo vedi subito.
+  const { data, error } = await supabase.from('dashboard_settings').update({ [fieldKey]: nuovoValore }).eq('id', 1).select(fieldKey)
+  if (error || !data || data.length === 0) {
+    const motivo = error?.message || 'nessuna riga aggiornata'
+    setErrorMessage(`Pagato NON salvato (${motivo}). Se la colonna "${fieldKey}" non esiste, esegui supabase_accantonamenti_servizi.sql nel SQL Editor di Supabase.`)
+    return
+  }
   setDashboardSettings(prev => ({ ...prev, [fieldKey]: nuovoValore }))
 }
 
