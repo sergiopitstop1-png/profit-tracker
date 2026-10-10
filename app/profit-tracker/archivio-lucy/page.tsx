@@ -1156,7 +1156,7 @@ export default function ArchivioLucyPage() {
         <RiassuntiAccademia
           api="/api/lucy-mail/riassunti"
           titolo="✉️ RIASSUNTO MAIL E SMS · 12:00 e 19:00"
-          conteggio={r => `${r.n_selezionati} comunicazioni importanti su ${r.n_messaggi} ricevute${r.costo_usd ? ` · costo ${Number(r.costo_usd).toFixed(4)} $` : ''}`}
+          conteggio={r => `${r.n_selezionati} comunicazioni importanti su ${r.n_messaggi} ricevute`}
         />
         {/* MOBILE */}
 

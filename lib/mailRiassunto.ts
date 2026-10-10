@@ -70,7 +70,7 @@ function raggruppa(righe: Riga[], fineFascia: number) {
   const gruppi: Gruppo[] = [...mappa.values()].map(({ _clienti, ...g }) => {
     const nomi = [..._clienti]
     const ms = g.scadenza ? new Date(g.scadenza).getTime() : NaN
-    return { ...g, clienti: nomi.slice(0, g.tipo === 'problema' ? 15 : 0), n_clienti: nomi.length || g.n, entro_24h: Number.isFinite(ms) && ms >= fineFascia - 3600000 && ms <= fineFascia + 24 * 3600000 }
+    return { ...g, clienti: nomi.slice(0, 40), n_clienti: nomi.length || g.n, entro_24h: Number.isFinite(ms) && ms >= fineFascia - 3600000 && ms <= fineFascia + 24 * 3600000 }
   })
   const ordTipo = { problema: 0, opportunita: 1, accreditato: 2 }
   gruppi.sort((a, b) =>
@@ -82,7 +82,11 @@ function raggruppa(righe: Riga[], fineFascia: number) {
 }
 
 const euro = (v: number | null) => (v == null ? '' : `${Number.isInteger(v) ? v : v.toFixed(2)}€`)
-const quanti = (g: Gruppo) => (g.n_clienti > 1 ? `${g.n_clienti} clienti` : '1 cliente')
+const quanti = (g: Gruppo) => {
+  if (!g.clienti.length) return g.n_clienti > 1 ? `${g.n_clienti} clienti` : '1 cliente'
+  const resto = g.n_clienti - 12
+  return `Clienti: ${g.clienti.slice(0, 12).join(', ')}${resto > 0 ? ` e altri ${resto}` : ''}`
+}
 
 /** formato fisso, usato se Claude non risponde */
 function testoDiBase(gruppi: Gruppo[]) {
@@ -91,7 +95,7 @@ function testoDiBase(gruppi: Gruppo[]) {
     return l.length ? `## ${titolo}\n${l.join('\n')}` : ''
   }
   return [
-    sez('🚨 Problemi sui conti', 'problema', g => `- ${g.bookmaker}: ${g.categoria.toLowerCase()}${g.oggetto ? ` (${g.oggetto})` : ''} · ${g.clienti.join(', ') || quanti(g)}`, 30),
+    sez('🚨 Problemi sui conti', 'problema', g => `- ${g.bookmaker}: ${g.categoria.toLowerCase()}${g.oggetto ? ` (${g.oggetto})` : ''} · ${quanti(g)}`, 30),
     sez('🎯 Opportunità', 'opportunita', g => `- ${g.bookmaker}: ${g.condizioni || g.oggetto || g.categoria}${g.bonus ? ` · fino a ${euro(g.bonus)}` : ''}${g.scadenza ? ` · scade ${fmtScadenza(g.scadenza)}` : ''} · ${quanti(g)}`, 25),
     sez('✅ Già accreditati', 'accreditato', g => `- ${g.bookmaker}${g.bonus ? ` ${euro(g.bonus)}` : ''} · ${quanti(g)}`, 8),
   ].filter(Boolean).join('\n\n')
@@ -101,18 +105,19 @@ const promptMail = (da: number, a: number, gruppi: Gruppo[]) => `Sei Lucy, assis
 
 Regole:
 - Usa solo i dati sotto, non inventare. Importi, percentuali e date vanno copiati esattamente (le scadenze sono già in ora italiana).
-- "entro_24h: sì" significa scadenza urgente. "n_clienti" è su quanti clienti è arrivata. Per i problemi i nomi dei clienti sono nel campo "clienti": scrivili sempre.
+- "entro_24h: sì" significa scadenza urgente. "n_clienti" è su quanti clienti è arrivata.
+- Per OGNI punto scrivi SEMPRE i nomi dei clienti (campo "clienti"), copiati esattamente e separati da virgola, in fondo alla riga dopo "Clienti:". Se sono più di 12 scrivi i primi 12 e poi "e altri N" (N = n_clienti - 12). Non scrivere solo il numero.
 - Il testo deve essere BREVE: Sergio riceve centinaia di mail e vuole solo sapere cosa fare.
 
 Formato (testo semplice; ogni punto su una riga che inizia con "- "; ometti le sezioni vuote):
 ## ⭐ Da non perdere
 (massimo 5 righe: problemi gravi sui conti, opportunità con entro_24h sì o di valore alto. Quello che scrivi qui NON va ripetuto sotto.)
 ## 🚨 Problemi sui conti
-(un punto per gruppo: bookmaker, cosa è successo, nomi dei clienti)
+(un punto per gruppo: bookmaker, cosa è successo · Clienti: nomi)
 ## 🎯 Opportunità
-(un punto per bookmaker/promo, dalle più utili: "- Bookmaker: promo in breve, bonus fino a X€, deposito Y€ se richiesto, scade ..., N clienti". Massimo 15 punti, unisci quelle simili.)
+(un punto per bookmaker/promo, dalle più utili: "- Bookmaker: promo in breve, bonus fino a X€, deposito Y€ se richiesto, scade ... · Clienti: Nome1, Nome2". Massimo 15 punti. Unisci solo promo identiche dello stesso bookmaker, sommando i clienti.)
 ## ✅ Già accreditati
-(una o due righe in tutto, solo se ci sono)
+(poche righe, solo se ci sono: "- Bookmaker 10€ · Clienti: Nome1, Nome2")
 Ogni punto è UNA frase breve (circa 25 parole). Non aggiungere altre sezioni, introduzioni o conclusioni.
 
 GRUPPI (uno per riga, JSON):
