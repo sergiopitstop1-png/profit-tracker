@@ -27,7 +27,7 @@ const PAROLE_GRUPPI = (process.env.ACCADEMIA_RIASSUNTI_GRUPPI || 'elite,accademi
   .split(',').map(x => norm(x.trim())).filter(Boolean)
 export const gruppoAccademia = (titolo: string | null) => !!titolo && PAROLE_GRUPPI.some(w => norm(titolo).includes(w))
 
-const STAFF = (process.env.ACCADEMIA_STAFF || 'frioni').split(',').map(x => norm(x.trim())).filter(Boolean)
+const STAFF = (process.env.ACCADEMIA_STAFF || 'frioni,lentini,fotia,amurri,willy').split(',').map(x => norm(x.trim())).filter(Boolean)
 const èStaff = (m: string | null) => !!m && STAFF.some(s => norm(m).includes(s))
 
 /* ---------- ora italiana <-> UTC ---------- */
