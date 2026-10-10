@@ -121,6 +121,34 @@ export async function GET(req: NextRequest) {
   }
   const rep = { letti: 0, annunci: 0, nuove: 0, avvisi: 0, errori: [] as string[] }
 
+  /* PROVA A SECCO: ?prova=1&giorni=60 -> fa leggere a Lucy gli ultimi 5 annunci della finestra e mostra cosa capisce.
+     Non scrive niente nel database e non manda avvisi. Serve solo a controllare che la lettura funzioni. */
+  const q = new URL(req.url).searchParams
+  if (q.get('prova') === '1') {
+    const giorni = Math.min(900, Math.max(1, Number(q.get('giorni')) || 60))
+    const da = new Date(Date.now() - giorni * 86400000).toISOString()
+    const { data: rec, error } = await sb
+      .from('accademia_messaggi')
+      .select('chat_titolo,topic_titolo,data_msg,testo')
+      .gte('data_msg', da)
+      .not('testo', 'is', null)
+      .or('testo.ilike.%dirett%,testo.ilike.%live%,testo.ilike.%zoom%,testo.ilike.%webinar%,testo.ilike.%meeting%,testo.ilike.%streaming%,testo.ilike.%collegamento%,testo.ilike.%appuntamento%,testo.ilike.%incontro%,testo.ilike.%evento%')
+      .order('data_msg', { ascending: false })
+      .limit(1500)
+    if (error) return NextResponse.json({ ok: false, errore: error.message }, { status: 500 })
+    const cand = (rec || []).filter(m => sembraAnnuncio(m.testo)).slice(0, 5)
+    const risultati: unknown[] = []
+    for (const m of cand) {
+      try {
+        const trovate = await leggiAnnuncio({ data_msg: m.data_msg, chat_titolo: m.chat_titolo, topic_titolo: m.topic_titolo, testo: m.testo })
+        risultati.push({ messaggio: m.data_msg, gruppo: m.chat_titolo, topic: m.topic_titolo, testo: String(m.testo).slice(0, 160), trovate })
+      } catch (e) {
+        risultati.push({ messaggio: m.data_msg, errore: msg(e).slice(0, 150) })
+      }
+    }
+    return NextResponse.json({ ok: true, prova: true, giorni, candidati_trovati: cand.length, risultati })
+  }
+
   /* 1) nuovi annunci */
   try {
     const da = new Date(Date.now() - FINESTRA_GIORNI * 86400000).toISOString()
