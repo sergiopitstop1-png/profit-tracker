@@ -164,12 +164,15 @@ async function chiediAClaude(prompt: string) {
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': chiave, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({ model: MODELLO, max_tokens: 2200, messages: [{ role: 'user', content: prompt }] }),
+    body: JSON.stringify({ model: MODELLO, max_tokens: 8000, messages: [{ role: 'user', content: prompt }] }),
   })
   if (!r.ok) throw new Error(`Anthropic ${r.status}: ${(await r.text()).slice(0, 300)}`)
   const j = await r.json()
   const testo = (Array.isArray(j?.content) ? j.content.filter((b: { type?: string }) => b?.type === 'text').map((b: { text: string }) => b.text).join('\n') : '').trim()
-  if (!testo) throw new Error('risposta vuota')
+  if (!testo) {
+    const tipi = Array.isArray(j?.content) ? j.content.map((b: { type?: string }) => b?.type || '?').join(',') : ''
+    throw new Error(`risposta vuota (stop: ${j?.stop_reason || '?'}, blocchi: ${tipi || 'nessuno'}, token in/out: ${j?.usage?.input_tokens ?? '?'}/${j?.usage?.output_tokens ?? '?'})`)
+  }
   const costo = ((j?.usage?.input_tokens || 0) * PREZZO_IN + (j?.usage?.output_tokens || 0) * PREZZO_OUT) / 1_000_000
   return { testo, costo }
 }
