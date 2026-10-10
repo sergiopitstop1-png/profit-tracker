@@ -164,7 +164,7 @@ MESSAGGI:
 ${corpo}`
 
 /* ---------- Anthropic ---------- */
-async function chiediAClaude(prompt: string) {
+export async function chiediAClaude(prompt: string) {
   const chiave = process.env.LUCY_ANTHROPIC_API_KEY
   if (!chiave) throw new Error('LUCY_ANTHROPIC_API_KEY mancante su Vercel')
   const chiama = (conSforzoBasso: boolean) => fetch('https://api.anthropic.com/v1/messages', {
