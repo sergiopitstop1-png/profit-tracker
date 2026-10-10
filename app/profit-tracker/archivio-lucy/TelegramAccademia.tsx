@@ -146,6 +146,17 @@ export function RiassuntiAccademia({ api = '/api/accademia/riassunti', titolo = 
   const [errore, setErrore] = useState('')
   const [sel, setSel] = useState<number | null>(null)
   const [aperto, setAperto] = useState(true)
+  // 10/10/2026 · la scelta aperto/chiuso resta ricordata in questo browser (separata per mail e Accademia)
+  const chiaveAperto = `riassunto-aperto:${api}`
+  useEffect(() => {
+    try { if (localStorage.getItem(chiaveAperto) === '0') setAperto(false) } catch {}
+  }, [chiaveAperto])
+  const cambiaAperto = () => {
+    setAperto(a => {
+      try { localStorage.setItem(chiaveAperto, a ? '0' : '1') } catch {}
+      return !a
+    })
+  }
   const [lavoro, setLavoro] = useState(0)   // fascia in preparazione (0 = nessuna)
   const [giro, setGiro] = useState(0)
   useEffect(() => {
@@ -173,7 +184,15 @@ export function RiassuntiAccademia({ api = '/api/accademia/riassunti', titolo = 
   return (
     <div className="mb-5 rounded-xl border border-green-500/40 bg-[#07100a] p-4">
       <div className="mb-2 flex flex-wrap items-center gap-2">
-        <button onClick={() => setAperto(a => !a)} className="font-bold text-green-300">&gt; {titolo} {aperto ? '▾' : '▸'}</button>
+        <button onClick={cambiaAperto} className="font-bold text-green-300">&gt; {titolo}</button>
+        <button
+          onClick={cambiaAperto}
+          aria-pressed={aperto}
+          title={aperto ? 'Chiudi il riassunto' : 'Apri il riassunto'}
+          className={`rounded-full border px-3 py-1 text-xs font-bold ${aperto ? 'border-green-400 bg-green-500/15 text-green-300' : 'border-slate-600 bg-black text-slate-400 hover:border-green-600'}`}
+        >
+          {aperto ? '▾ Aperto' : '▸ Chiuso'}
+        </button>
         <div className="ml-auto flex flex-wrap gap-2">
           {[12, 19].map(f => (
             <button key={f} disabled={lavoro !== 0} onClick={() => genera(f as 12 | 19)} title="Rifà il riassunto di oggi per questa fascia (non lo manda su Telegram)"
