@@ -46,6 +46,16 @@ type Comunicazione = {
 
   feedback_utente: string | null
   feedback_note: string | null
+
+  // 10/10/2026 · comunicazioni identiche raggruppate in questa riga
+  uguali?: {
+    n: number
+    altri: Array<{ canale: Canale; source_id: string | number }>
+    clienti: string[]
+    n_clienti: number
+    dal: string | null
+    al: string | null
+  }
 }
 
 type Counters = {
@@ -190,6 +200,10 @@ export default function ArchivioLucyPage() {
   const [count, setCount] =
     useState(0)
 
+  // 10/10/2026 · comunicazioni uguali = una riga sola (interruttore) e totale delle singole comunicazioni
+  const [raggruppa, setRaggruppa] = useState(true)
+  const [countTotale, setCountTotale] = useState(0)
+
   const [counters, setCounters] =
     useState<Counters>(emptyCounters)
 
@@ -308,6 +322,10 @@ export default function ArchivioLucyPage() {
 
         p.set('page_size', '100')
 
+        if (!raggruppa) {
+          p.set('raggruppa', '0')
+        }
+
         const r = await fetch(
           '/api/lucy-mail/archive?' +
             p.toString(),
@@ -328,6 +346,7 @@ export default function ArchivioLucyPage() {
 
         setRows(j.data || [])
         setCount(j.count || 0)
+        setCountTotale(j.count_totale ?? j.count ?? 0)
 
         setCounters(
           j.counters ||
@@ -355,6 +374,7 @@ export default function ArchivioLucyPage() {
       vista,
       periodo,
       canale,
+      raggruppa,
     ]
   )
 
@@ -421,6 +441,7 @@ export default function ArchivioLucyPage() {
               item.canale,
             feedback_utente:
               value,
+            ...(item.uguali ? { gruppo: item.uguali.altri } : {}),
             // i campi extra si mandano solo quando servono (alcune tabelle, es. SMS, potrebbero non avere la colonna note)
             ...(nota !== null || notaPrecedente
               ? { feedback_note: nota }
@@ -487,7 +508,7 @@ export default function ArchivioLucyPage() {
     setCount(c => Math.max(0, c - 1))
     setCounters(c => ({
       ...c,
-      archiviate: Math.max(0, c.archiviate + (nuovoStato ? 1 : -1)),
+      archiviate: Math.max(0, c.archiviate + (nuovoStato ? 1 : -1) * (item.uguali?.n || 1)),
     }))
     if (comunicazioneAperta?.id === item.id) {
       setComunicazioneAperta(null)
@@ -510,6 +531,7 @@ export default function ArchivioLucyPage() {
               item.canale,
             archiviata:
               nuovoStato,
+            ...(item.uguali ? { gruppo: item.uguali.altri } : {}),
           }),
         }
       )
@@ -543,7 +565,8 @@ export default function ArchivioLucyPage() {
 
     if (
       !window.confirm(
-        `Archiviare tutte le ${count} comunicazioni di questa vista` +
+        `Archiviare tutte le ${countTotale} comunicazioni di questa vista` +
+          (countTotale !== count ? ` (${count} righe, le uguali sono raggruppate)` : '') +
           (conFiltri ? ' (con i filtri attivi)' : '') +
           '?\n\nNon si cancella nulla: le ritrovi nella vista Archiviate.'
       )
@@ -616,6 +639,7 @@ export default function ArchivioLucyPage() {
             canale:
               item.canale,
             letta: true,
+            ...(item.uguali ? { gruppo: item.uguali.altri } : {}),
           }),
         }
       )
@@ -1500,6 +1524,14 @@ export default function ArchivioLucyPage() {
                     : '📨 Email + SMS'}
               </span>
 
+              <button
+                onClick={() => setRaggruppa(r => !r)}
+                className={`rounded-full border px-3 py-1 font-bold ${raggruppa ? 'border-pink-500/60 bg-pink-500/15 text-pink-300' : 'border-green-800 bg-black text-slate-400'}`}
+                title="Se attivo, le comunicazioni identiche (stesso mittente, oggetto e promo, anche a clienti diversi) compaiono in una riga sola"
+              >
+                🔁 Raggruppa uguali: {raggruppa ? 'sì' : 'no'}
+              </button>
+
               {vista !== 'archiviate' && count > 0 && (
                 <button
                   onClick={archiviaTutte}
@@ -1507,7 +1539,7 @@ export default function ArchivioLucyPage() {
                   className="rounded-full border border-green-500 bg-green-500/15 px-3 py-1 font-bold text-green-300 hover:bg-green-500/25 disabled:opacity-40"
                   title="Archivia tutte le comunicazioni di questa vista"
                 >
-                  {archiviandoTutte ? '⏳ Archivio…' : `📦 Archivia tutte (${count})`}
+                  {archiviandoTutte ? '⏳ Archivio…' : `📦 Archivia tutte (${countTotale})`}
                 </button>
               )}
 
@@ -1942,6 +1974,25 @@ export default function ArchivioLucyPage() {
                     >
                       {item.cliente_nome ||
                         '-'}
+
+                      {/* 10/10/2026 — comunicazione identica arrivata più volte o a più clienti: una riga sola */}
+                      {item.uguali && (
+                        <div
+                          className="mt-1 max-w-[220px] text-xs font-normal text-pink-300"
+                          title={item.uguali.clienti.join(', ')}
+                        >
+                          🔁{' '}
+                          {item.uguali.n_clienti > 1
+                            ? `Arrivata uguale a ${item.uguali.n_clienti} clienti (${item.uguali.n} mail): `
+                            : `Arrivata ${item.uguali.n} volte: `}
+                          <span className="text-slate-400">
+                            {item.uguali.n_clienti > 1
+                              ? item.uguali.clienti.slice(0, 8).join(', ') +
+                                (item.uguali.n_clienti > 8 ? ` e altri ${item.uguali.n_clienti - 8}` : '')
+                              : 'stesso cliente'}
+                          </span>
+                        </div>
+                      )}
 
                       {/* 07/10/2026 — se il cliente non è stato riconosciuto si vede almeno il destinatario */}
                       {!item.cliente_nome && item.destinatario_originale && (
