@@ -161,11 +161,21 @@ ${corpo}`
 async function chiediAClaude(prompt: string) {
   const chiave = process.env.LUCY_ANTHROPIC_API_KEY
   if (!chiave) throw new Error('LUCY_ANTHROPIC_API_KEY mancante su Vercel')
-  const r = await fetch('https://api.anthropic.com/v1/messages', {
+  const chiama = (conSforzoBasso: boolean) => fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': chiave, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({ model: MODELLO, max_tokens: 8000, messages: [{ role: 'user', content: prompt }] }),
+    // Haiku 5.5 ragiona da solo (livello "medium"): per un riassunto basta poco, e deve restare spazio per scrivere
+    body: JSON.stringify({
+      model: MODELLO, max_tokens: 16000, messages: [{ role: 'user', content: prompt }],
+      ...(conSforzoBasso ? { thinking: { type: 'adaptive' }, output_config: { effort: 'low' } } : {}),
+    }),
   })
+  let r = await chiama(true)
+  if (r.status === 400) {
+    const t = await r.text()
+    if (/thinking|effort|output_config/i.test(t)) r = await chiama(false)   // se il modello non accetta queste opzioni, riprova senza
+    else throw new Error(`Anthropic 400: ${t.slice(0, 300)}`)
+  }
   if (!r.ok) throw new Error(`Anthropic ${r.status}: ${(await r.text()).slice(0, 300)}`)
   const j = await r.json()
   const testo = (Array.isArray(j?.content) ? j.content.filter((b: { type?: string }) => b?.type === 'text').map((b: { text: string }) => b.text).join('\n') : '').trim()
