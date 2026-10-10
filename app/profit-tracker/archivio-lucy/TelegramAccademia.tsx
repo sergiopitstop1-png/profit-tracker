@@ -139,7 +139,9 @@ function TestoRiassunto({ testo }: { testo: string }) {
   )
 }
 
-function RiassuntiAccademia() {
+export function RiassuntiAccademia({ api = '/api/accademia/riassunti', titolo = '📋 RIASSUNTI · 12:00 e 19:00', conteggio }: {
+  api?: string; titolo?: string; conteggio?: (r: Riassunto) => string
+}) {
   const [lista, setLista] = useState<Riassunto[] | null>(null)
   const [errore, setErrore] = useState('')
   const [sel, setSel] = useState<number | null>(null)
@@ -148,7 +150,7 @@ function RiassuntiAccademia() {
   const [giro, setGiro] = useState(0)
   useEffect(() => {
     let vivo = true
-    fetch('/api/accademia/riassunti')
+    fetch(api)
       .then(async r => ({ ok: r.ok, status: r.status, j: await r.json().catch(() => ({})) }))
       .then(({ ok, status, j }) => {
         if (!vivo) return
@@ -156,12 +158,12 @@ function RiassuntiAccademia() {
       })
       .catch(() => { if (vivo) { setErrore('Riassunti non raggiungibili'); setLista([]) } })
     return () => { vivo = false }
-  }, [giro])
+  }, [giro, api])
   const genera = async (fascia: 12 | 19) => {
     setLavoro(fascia)
     setErrore('')
     try {
-      const r = await fetch('/api/accademia/riassunti', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fascia }) })
+      const r = await fetch(api, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fascia }) })
       const j = await r.json().catch(() => ({}))
       if (!r.ok) setErrore(j?.error || `Errore ${r.status}`)
       else { setSel(null); setGiro(g => g + 1) }
@@ -171,7 +173,7 @@ function RiassuntiAccademia() {
   return (
     <div className="mb-5 rounded-xl border border-green-500/40 bg-[#07100a] p-4">
       <div className="mb-2 flex flex-wrap items-center gap-2">
-        <button onClick={() => setAperto(a => !a)} className="font-bold text-green-300">&gt; 📋 RIASSUNTI · 12:00 e 19:00 {aperto ? '▾' : '▸'}</button>
+        <button onClick={() => setAperto(a => !a)} className="font-bold text-green-300">&gt; {titolo} {aperto ? '▾' : '▸'}</button>
         <div className="ml-auto flex flex-wrap gap-2">
           {[12, 19].map(f => (
             <button key={f} disabled={lavoro !== 0} onClick={() => genera(f as 12 | 19)} title="Rifà il riassunto di oggi per questa fascia (non lo manda su Telegram)"
@@ -200,7 +202,7 @@ function RiassuntiAccademia() {
                 <div className="rounded-lg border border-green-900/60 bg-black/30 p-3">
                   <TestoRiassunto testo={corrente.testo} />
                   <div className="mt-3 text-[11px] text-slate-600">
-                    {corrente.n_selezionati} messaggi scelti su {corrente.n_messaggi} dei gruppi dell&apos;Accademia
+                    {conteggio ? conteggio(corrente) : `${corrente.n_selezionati} messaggi scelti su ${corrente.n_messaggi} dei gruppi dell'Accademia`}
                     {corrente.costo_usd ? ` · costo ${Number(corrente.costo_usd).toFixed(4)} $` : ''}
                     {corrente.inviato_telegram ? ' · inviato su Telegram' : ''}
                   </div>

@@ -9,7 +9,7 @@ import {
 
 import { useRouter } from 'next/navigation'
 
-import TelegramAccademia from './TelegramAccademia'
+import TelegramAccademia, { RiassuntiAccademia } from './TelegramAccademia'
 
 type Canale = 'EMAIL' | 'SMS'
 
@@ -1128,6 +1128,12 @@ export default function ArchivioLucyPage() {
           <TelegramAccademia />
         ) : (
         <>
+        {/* 10/10/2026 · riassunto di mail e SMS alle 12:00 e alle 19:00 */}
+        <RiassuntiAccademia
+          api="/api/lucy-mail/riassunti"
+          titolo="✉️ RIASSUNTO MAIL E SMS · 12:00 e 19:00"
+          conteggio={r => `${r.n_selezionati} comunicazioni importanti su ${r.n_messaggi} ricevute${r.costo_usd ? ` · costo ${Number(r.costo_usd).toFixed(4)} $` : ''}`}
+        />
         {/* MOBILE */}
 
         <div
