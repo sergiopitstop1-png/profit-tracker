@@ -310,6 +310,8 @@ const [lucySportNonCollocate, setLucySportNonCollocate] = useState([])
 const [lucyTabellaAperta, setLucyTabellaAperta] = useState(false)
 const [lucyLiveTabellaAperta, setLucyLiveTabellaAperta] = useState(false)
 const [lucyCostoMax, setLucyCostoMax] = useState(() => Number(localStorage.getItem('profittracker_lucy_costo_max') || 50))
+  // 10/10/2026: massimo di incroci di MANTENIMENTO al giorno (rotazione: prima i conti fermi da più tempo)
+  const [lucyIncrociMantMax, setLucyIncrociMantMax] = useState(() => { const n = Number(localStorage.getItem('profittracker_lucy_incroci_mant_max')); return Number.isFinite(n) && n >= 0 && localStorage.getItem('profittracker_lucy_incroci_mant_max') !== null ? n : 1 })
 const [lucyCopMin, setLucyCopMin] = useState(() => { const v = Number(localStorage.getItem('profittracker_lucy_cop_min')); return v >= 50 && v <= 100 ? v : 85 })
 const [lucyRinviate, setLucyRinviate] = useState([])
 const [lucyOddsCrediti, setLucyOddsCrediti] = useState(() => {
@@ -3877,6 +3879,17 @@ function riepilogoManualeLucy(p, pi, righe) {
   return {completo,costo:Math.max(0,-Math.min(...nets)),nets,warn}
 }
 
+// 10/10/2026: data in cui un conto di Mantenimento è "dovuto" (stessa formula dell'agenda). Più è vecchia, più il conto è in coda da tempo.
+function prossimaMantLucy(book) {
+  const oggiStr = lucyOggi()
+  const regola = regolaMant(book)
+  const offset = hashBook(book.id, 6060) % regola.ogni_giorni
+  const dovutoIniziale = aggiungiGiorniLucy(MANT_GIORNO_ZERO, offset)
+  const ultimo = ultimoMovimentoBookLucy(book.id)
+  const pausa = ultimo ? giorniPausaBook(book, ultimo, oggiStr) : giorniPausaBook(book, dovutoIniziale, oggiStr)
+  return ultimo ? aggiungiGiorniLucy(ultimo, regola.ogni_giorni - regola.anticipo_giorni + pausa) : aggiungiGiorniLucy(dovutoIniziale, pausa)
+}
+
 async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
   // 26/09/2026: le azioni di RECUPERO dei conti limitati (anche dormienti) entrano negli incroci con il ruolo
   // "Recupero conto" e una puntata piccola (15-25€), non come Profilazione. Per il resto i dormienti restano fuori.
@@ -4265,6 +4278,28 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
       }
     })
 
+    // 10/10/2026 — ROTAZIONE MANTENIMENTO: al massimo `lucyIncrociMantMax` incroci al giorno con i conti di mantenimento,
+    // scegliendo quelli con la scadenza più vecchia (= fermi da più tempo). Le partite già confermate oggi contano.
+    const eMantBase = s => s.tipoConto==='mantenimento' && !s.recupero
+    const partiteMantFatte = new Set(giaFatte.filter(x=>x.tipo==='mantenimento' && !x.recupero).map(x=>x.partita)).size
+    const idsMantScartate = new Set()  // conti di mantenimento dovuti oggi ma fuori dal tetto: restano disponibili come copertura
+    let incrociMantResidui = Math.max(0, Number(lucyIncrociMantMax) - partiteMantFatte)
+    const prossimaDi = new Map()
+    slot.forEach(s => { if(eMantBase(s) && !prossimaDi.has(s.book.id)) prossimaDi.set(s.book.id, prossimaMantLucy(s.book)) })
+    {
+      const ordinati = slot.filter(eMantBase).sort((a,b)=>String(prossimaDi.get(a.book.id)).localeCompare(String(prossimaDi.get(b.book.id))))
+      let k = 0
+      for (let i=0;i<slot.length;i++) if(eMantBase(slot[i])) slot[i] = ordinati[k++]
+      // niente mantenimento oltre il tetto: servono al più 3 conti base per incrocio
+      const tenuti = new Set(ordinati.slice(0, incrociMantResidui * 3))
+      for (let i=slot.length-1;i>=0;i--) if(eMantBase(slot[i]) && !tenuti.has(slot[i])) { idsMantScartate.add(slot[i].book.id); slot.splice(i,1) }
+    }
+    const chiudiMantSeTetto = (gruppoFatto) => {
+      if(!gruppoFatto.some(eMantBase)) return
+      incrociMantResidui = Math.max(0, incrociMantResidui - 1)
+      if(incrociMantResidui === 0) for (let i=slot.length-1;i>=0;i--) if(eMantBase(slot[i])) { idsMantScartate.add(slot[i].book.id); slot.splice(i,1) }
+    }
+
     // V33: 1) salva le bet di profilazione attese oggi; 2) riprende quelle arretrate dei giorni scorsi.
     // Se la tabella non esiste o Supabase non risponde Lucy va avanti senza recuperi.
     let recuperi=[]
@@ -4299,7 +4334,7 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
     const idsMantOggi = new Set(
       agendaItems.filter(x => String(x.agenda?.tipo || '').toLowerCase().includes('manten')).map(x => x.book.id)
     )
-    const idsProfilazioneOggiLucy = new Set(sportItems.map(x=>x.book.id))
+    const idsProfilazioneOggiLucy = new Set(sportItems.filter(x=>!idsMantScartate.has(x.book.id)).map(x=>x.book.id))
     // V29: rotazione. Ultimo uso di ogni conto = ultima bet di mantenimento CONFERMATA in Lucy.
     // Un conto usato meno di LUCY_MANT_RIPOSO_GG giorni fa non viene riproposto; tra i disponibili
     // passano prima quelli in agenda oggi, poi quelli fermi da più tempo. I dormienti non entrano mai
@@ -4323,7 +4358,8 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
       .filter(b => giorniDaUsoMant(b) > 0)             // già usato oggi: mai due volte
       .filter(b => idsMantOggi.has(b.id) || giorniDaUsoMant(b) >= regolaMant(b).riposo_giorni) // riposo del suo bookmaker
       .filter(b => regolaMant(b).gioco !== 'casino')   // regola "sempre casinò": niente coperture sport
-      .sort((a,b) => (Number(idsMantOggi.has(b.id)) - Number(idsMantOggi.has(a.id))) || (giorniDaUsoMant(b) - giorniDaUsoMant(a)))
+      // 10/10/2026: per la copertura prima i conti di mantenimento con la scadenza più vecchia (ruotano tutti), non a caso
+      .sort((a,b) => (Number(idsMantOggi.has(b.id)) - Number(idsMantOggi.has(a.id))) || String(prossimaMantLucy(a)).localeCompare(String(prossimaMantLucy(b))) || (giorniDaUsoMant(b) - giorniDaUsoMant(a)))
     const usoMant = new Set()
     const usatiMantOggiLucy = new Set() // un conto di mantenimento = una sola bet al giorno
     // 02/10/2026 — se non c'è un conto di mantenimento libero, la copertura la fa un conto IN RECUPERO
@@ -4542,6 +4578,7 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
       })
 
       proposte.push({ ...c, orario:(c.giorno==='domani'?'dom ':'')+getOrarioPartitaLucy(c), assegnazioni, integrazioni, extraProfilazione, scenari, coperturaMancante })
+      chiudiMantSeTetto(gruppo)
     }
 
     // Applica il budget massimo di COSTO della giornata.
@@ -4583,6 +4620,7 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
         }
         if(gruppo.length<nEsiti) continue
         gruppo.forEach(g=>{ const idx=slot.indexOf(g); if(idx>=0) slot.splice(idx,1) })
+        chiudiMantSeTetto(gruppo)
 
         const pm=(pronoxFeed?.matches||[]).find(x=>x.sport==='calcio' && teamMatchLucy(x.home,c.home) && teamMatchLucy(x.away,c.away))
         const pref=preferitoPronoxManualeLucy(pm,c.mercato)
@@ -7720,6 +7758,12 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                       style={{ ...inputNum, width: 70 }} />
                     <span style={{ fontSize: 11, color: '#cbd5e1' }}>€</span>
                   </div>
+                  <div style={campo} title="Quanti incroci al giorno Lucy costruisce con i conti in Mantenimento (prima quelli fermi da più tempo). Gli incroci di Profilazione non sono limitati da questo valore.">
+                    <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 800 }}>🔁 INCROCI MANT./GIORNO</span>
+                    <input type="number" min="0" max="5" step="1" value={lucyIncrociMantMax}
+                      onChange={e => { const v = Math.min(5, Math.max(0, Math.floor(Number(e.target.value) || 0))); setLucyIncrociMantMax(v); try { localStorage.setItem('profittracker_lucy_incroci_mant_max', String(v)) } catch {} }}
+                      style={{ ...inputNum, width: 50 }} />
+                  </div>
                   <div style={campo} title="Livello minimo di copertura quando PronoX è molto sicuro (probabilità ≥ 85%). 100 = copertura sempre completa, PronoX non riduce nulla.">
                     <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 800 }}>🛡️ COPERTURA MIN</span>
                     <input type="number" min="50" max="100" step="5" value={lucyCopMin}
@@ -7975,6 +8019,13 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 onChange={e=>{const v=Math.max(0,Number(e.target.value)||0);setLucyCostoMax(v);try{localStorage.setItem('profittracker_lucy_costo_max',String(v))}catch{}}}
                 style={{width:70,background:'#020617',color:'#f8fafc',border:'1px solid #475569',borderRadius:6,padding:'5px 6px',fontWeight:900,textAlign:'right'}} />
               <span style={{fontSize:11,color:'#cbd5e1'}}>€</span>
+            </div>
+            <div title="Quanti incroci al giorno Lucy costruisce con i conti in Mantenimento (prima quelli fermi da più tempo)."
+              style={{display:'flex',alignItems:'center',gap:6,background:'rgba(15,23,42,.75)',border:'1px solid #334155',borderRadius:9,padding:'5px 8px'}}>
+              <span style={{fontSize:10,color:'#94a3b8',fontWeight:800}}>🔁 INCROCI MANT./GIORNO</span>
+              <input type="number" min="0" max="5" step="1" value={lucyIncrociMantMax}
+                onChange={e=>{const v=Math.min(5,Math.max(0,Math.floor(Number(e.target.value)||0)));setLucyIncrociMantMax(v);try{localStorage.setItem('profittracker_lucy_incroci_mant_max',String(v))}catch{}}}
+                style={{width:50,background:'#020617',color:'#f8fafc',border:'1px solid #475569',borderRadius:6,padding:'5px 6px',fontWeight:900,textAlign:'right'}} />
             </div>
             <div title="Livello minimo di copertura quando PronoX è molto sicuro (probabilità ≥ 85%). 100 = copertura sempre completa, PronoX non riduce nulla."
               style={{display:'flex',alignItems:'center',gap:6,background:'rgba(15,23,42,.75)',border:'1px solid #334155',borderRadius:9,padding:'5px 8px'}}>

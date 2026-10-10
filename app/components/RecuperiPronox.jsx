@@ -206,6 +206,24 @@ export default function RecuperiPronoxPanel({ books, recuperi, getRecuperoProtoc
   const perPartita = (lista) => { const m = new Map(); for (const b of lista) { if (!m.has(b.event_id)) m.set(b.event_id, []); m.get(b.event_id).push(b) } return [...m.values()] }
   const conclusi = eventi.filter(e => e.esito !== 'attesa').slice(-20).reverse()
   const nomePartita = (id) => bets.find(b => b.event_id === id)
+  // 10/10/2026 — sviluppo del Masaniello: una riga per partita, senza conti. Capitale cumulato, quota media reale, esito.
+  const sviluppo = (() => {
+    let cap = Number(stato?.capitaleIniziale ?? piano?.capitale ?? 0)
+    const righeSv = eventi.map(e => {
+      const b0 = nomePartita(e.event_id)
+      const piazz = bets.filter(b => b.event_id === e.event_id && b.stato === 'piazzata')
+      const tot = piazz.reduce((a, b) => a + Number(b.importo), 0)
+      const quota = tot > 0 ? piazz.reduce((a, b) => a + Number(b.importo) * Number(b.quota_reale || 0), 0) / tot : null
+      const chiusa = e.esito !== 'attesa'
+      const diff = chiusa ? e.incasso - e.puntata : null
+      if (chiusa && e.esito !== 'nulla') cap += diff
+      return { e, b0, quota, diff, cap: chiusa ? cap : null, prob: Number(b0?.prob) || null }
+    })
+    const chiuse = righeSv.filter(r => r.e.esito === 'vinta' || r.e.esito === 'persa')
+    const probMedia = chiuse.length ? chiuse.reduce((a, r) => a + (r.prob || 0), 0) / chiuse.length : null
+    const vinteN = chiuse.filter(r => r.e.esito === 'vinta').length
+    return { righeSv, chiuse: chiuse.length, vinteN, probMedia, realeMedia: chiuse.length ? vinteN / chiuse.length : null }
+  })()
   const box = { background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(148,163,184,0.25)', borderRadius: 12, padding: '10px 12px', marginBottom: 10 }
   const btn = (bg) => ({ background: bg, color: 'white', border: 0, borderRadius: 8, padding: '4px 9px', fontWeight: 800, fontSize: 12, cursor: 'pointer', marginLeft: 4 })
 
@@ -277,6 +295,40 @@ export default function RecuperiPronoxPanel({ books, recuperi, getRecuperoProtoc
             </div>
           ))}
           {scadute.length > 0 && <div style={{ ...box, color: '#94a3b8', fontSize: 12 }}>⏱️ {scadute.length} bet non piazzate prima del fischio d'inizio: non contano nel piano.</div>}
+
+          {/* sviluppo del Masaniello: tutte le partite del piano, senza conti */}
+          {!tabella && sviluppo.righeSv.length > 0 && (
+            <details style={box}>
+              <summary style={{ fontWeight: 800, color: '#cbd5e1', cursor: 'pointer' }}>
+                📈 Sviluppo del Masaniello · {sviluppo.righeSv.length} partite · {stato ? `${stato.vinte}V ${stato.perse}P${stato.nulle ? ` ${stato.nulle}N` : ''} · capitale ${euro(stato.capitale)}` : ''}
+              </summary>
+              <div style={{ fontSize: 12, color: '#cbd5e1', margin: '6px 0' }}>
+                {stato && <>Obiettivo: {stato.vinciteMancanti} vincite ancora da fare su {stato.eventiRimasti} partite · perdita attuale {euro(stato.perdita)} · in gioco {euro(stato.impegnato)}. </>}
+                {sviluppo.chiuse > 0 && <>Vincite reali {(sviluppo.realeMedia * 100).toFixed(0)}% ({sviluppo.vinteN}/{sviluppo.chiuse}) contro {sviluppo.probMedia != null ? (sviluppo.probMedia * 100).toFixed(0) + '%' : '—'} previsto da PronoX.</>}
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, color: '#e2e8f0' }}>
+                  <thead><tr style={{ color: '#94a3b8', textAlign: 'left' }}>
+                    {['Data', 'Partita', 'Bet', 'Quota', 'Importo', 'Esito', '+/−', 'Capitale'].map(h => <th key={h} style={{ padding: '3px 6px', borderBottom: '1px solid #334155', whiteSpace: 'nowrap' }}>{h}</th>)}
+                  </tr></thead>
+                  <tbody>
+                    {sviluppo.righeSv.map(({ e, b0, quota, diff, cap }) => (
+                      <tr key={e.event_id}>
+                        <td style={{ padding: '3px 6px', whiteSpace: 'nowrap' }}>{quando(e.event_start)}</td>
+                        <td style={{ padding: '3px 6px' }}>{b0?.partita}</td>
+                        <td style={{ padding: '3px 6px' }}>{b0?.esito_label}</td>
+                        <td style={{ padding: '3px 6px' }}>{quota ? quota.toFixed(2).replace('.', ',') : '—'}</td>
+                        <td style={{ padding: '3px 6px', whiteSpace: 'nowrap' }}>{euro(e.puntata)}</td>
+                        <td style={{ padding: '3px 6px' }}>{e.esito === 'vinta' ? '✅ vinta' : e.esito === 'persa' ? '❌ persa' : e.esito === 'nulla' ? '➖ rimborsata' : '⏳ in attesa'}</td>
+                        <td style={{ padding: '3px 6px', whiteSpace: 'nowrap', color: diff == null ? '#94a3b8' : diff >= 0 ? '#6ee7b7' : '#fca5a5', fontWeight: 800 }}>{diff == null ? '—' : `${diff >= 0 ? '+' : ''}${euro(diff)}`}</td>
+                        <td style={{ padding: '3px 6px', whiteSpace: 'nowrap' }}>{cap == null ? '—' : euro(cap)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
 
           {/* ultimi esiti */}
           {!tabella && conclusi.length > 0 && (
