@@ -95,6 +95,102 @@ function CalendarioDirette() {
   )
 }
 
+type Riassunto = {
+  id: number; giorno: string; fascia: number; testo: string; n_messaggi: number; n_selezionati: number
+  costo_usd: number | null; inviato_telegram: boolean; creato: string
+}
+const fmtGiornoRiassunto = (giorno: string) =>
+  new Intl.DateTimeFormat('it-IT', { weekday: 'short', day: '2-digit', month: 'short' }).format(new Date(`${giorno}T12:00:00`))
+
+function TestoRiassunto({ testo }: { testo: string }) {
+  return (
+    <div className="space-y-1 text-sm">
+      {testo.split('\n').map((r, i) => {
+        const t = r.trim()
+        if (!t) return null
+        if (t.startsWith('## ')) return <div key={i} className="mt-3 font-bold text-green-300">{t.slice(3)}</div>
+        if (t.startsWith('- ')) return <div key={i} className="flex gap-2 text-slate-200"><span className="text-green-500">›</span><span className="min-w-0 break-words">{t.slice(2)}</span></div>
+        return <div key={i} className="text-slate-300">{t}</div>
+      })}
+    </div>
+  )
+}
+
+function RiassuntiAccademia() {
+  const [lista, setLista] = useState<Riassunto[] | null>(null)
+  const [errore, setErrore] = useState('')
+  const [sel, setSel] = useState<number | null>(null)
+  const [aperto, setAperto] = useState(true)
+  const [lavoro, setLavoro] = useState(0)   // fascia in preparazione (0 = nessuna)
+  const [giro, setGiro] = useState(0)
+  useEffect(() => {
+    let vivo = true
+    fetch('/api/accademia/riassunti')
+      .then(async r => ({ ok: r.ok, status: r.status, j: await r.json().catch(() => ({})) }))
+      .then(({ ok, status, j }) => {
+        if (!vivo) return
+        if (!ok) { setErrore(j?.error || `Errore ${status}`); setLista([]) } else { setErrore(''); setLista(j.riassunti || []) }
+      })
+      .catch(() => { if (vivo) { setErrore('Riassunti non raggiungibili'); setLista([]) } })
+    return () => { vivo = false }
+  }, [giro])
+  const genera = async (fascia: 12 | 19) => {
+    setLavoro(fascia)
+    setErrore('')
+    try {
+      const r = await fetch('/api/accademia/riassunti', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fascia }) })
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok) setErrore(j?.error || `Errore ${r.status}`)
+      else { setSel(null); setGiro(g => g + 1) }
+    } catch { setErrore('Server non raggiungibile') } finally { setLavoro(0) }
+  }
+  const corrente = lista?.find(r => r.id === sel) ?? lista?.[0]
+  return (
+    <div className="mb-5 rounded-xl border border-green-500/40 bg-[#07100a] p-4">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <button onClick={() => setAperto(a => !a)} className="font-bold text-green-300">&gt; 📋 RIASSUNTI · 12:00 e 19:00 {aperto ? '▾' : '▸'}</button>
+        <div className="ml-auto flex flex-wrap gap-2">
+          {[12, 19].map(f => (
+            <button key={f} disabled={lavoro !== 0} onClick={() => genera(f as 12 | 19)} title="Rifà il riassunto di oggi per questa fascia (non lo manda su Telegram)"
+              className="rounded-lg border border-green-900/70 px-3 py-1 text-xs text-slate-300 hover:border-green-500 disabled:opacity-50">
+              {lavoro === f ? '> preparo…' : `↻ Prepara ora le ${f}:00`}
+            </button>
+          ))}
+        </div>
+      </div>
+      {aperto && (
+        <>
+          {errore && <div className="mb-2 rounded border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-300">{errore}</div>}
+          {lista === null && <div className="text-sm text-slate-500">&gt; carico…</div>}
+          {lista && !lista.length && !errore && <div className="text-sm text-slate-500">&gt; Ancora nessun riassunto. Arrivano da soli alle 12:00 e alle 19:00, oppure premi uno dei pulsanti qui sopra.</div>}
+          {lista && lista.length > 0 && (
+            <>
+              <div className="mb-3 flex flex-wrap gap-1.5">
+                {lista.slice(0, 14).map(r => (
+                  <button key={r.id} onClick={() => setSel(r.id)}
+                    className={`rounded-lg border px-2.5 py-1 text-xs ${corrente?.id === r.id ? 'border-green-400 bg-green-500/15 text-green-300' : 'border-green-900/70 text-slate-400 hover:border-green-600'}`}>
+                    <span className="capitalize">{fmtGiornoRiassunto(r.giorno)}</span> · {r.fascia}:00
+                  </button>
+                ))}
+              </div>
+              {corrente && (
+                <div className="rounded-lg border border-green-900/60 bg-black/30 p-3">
+                  <TestoRiassunto testo={corrente.testo} />
+                  <div className="mt-3 text-[11px] text-slate-600">
+                    {corrente.n_selezionati} messaggi scelti su {corrente.n_messaggi} dei gruppi dell&apos;Accademia
+                    {corrente.costo_usd ? ` · costo ${Number(corrente.costo_usd).toFixed(4)} $` : ''}
+                    {corrente.inviato_telegram ? ' · inviato su Telegram' : ''}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function TelegramAccademia() {
   const [gruppi, setGruppi] = useState<Gruppo[]>([])
   const [erroreGruppi, setErroreGruppi] = useState('')
@@ -179,6 +275,7 @@ export default function TelegramAccademia() {
 
   return (
     <>
+    <RiassuntiAccademia />
     <CalendarioDirette />
     <div className="grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)] gap-5">
       {/* ================= GRUPPI ================= */}
