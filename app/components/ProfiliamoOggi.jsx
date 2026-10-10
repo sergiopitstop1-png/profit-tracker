@@ -60,8 +60,8 @@ export default function ProfiliamoOggi({ books = [], agendaOggi = [] }) {
     }
     for (const msg of messaggi || []) {
       const tutto = `${msg.testo || ''}\n${msg.testo_immagine || ''}`
-      const riga = tutto.match(/bookmaker\s*[:\-]\s*([^\n(]+)/i)
-      const cop = tutto.match(/copertura\s*[:\-]\s*([^\n(]+)/i)
+      const riga = tutto.match(/bookmaker\s*[:\-]\s*([^\n(;)]+)/i)
+      const cop = tutto.match(/copertura\s*[:\-]\s*([^\n(;)]+)/i)
       const copertura = cop ? cop[1].trim() : ''
       let principale = riga ? trova(norm(riga[1])) : null
       if (!principale && msg.topic_titolo) principale = trova(norm(msg.topic_titolo))
