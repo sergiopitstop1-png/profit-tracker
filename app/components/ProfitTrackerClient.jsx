@@ -35,8 +35,13 @@ import CalendarioAperture from './CalendarioAperture'
 const MANT_LIMITE_GG = 60        // limite massimo tra due movimentazioni dello stesso conto
 const MANT_ANTICIPO_GG = 15      // si comincia a proporre il conto dopo (60 - 15) = 45 giorni dall'ultimo movimento
 const MANT_GIORNO_ZERO = '2026-09-19' // partenza del protocollo: prima scadenza dei conti senza storico = giorno zero + offset stabile (0-59)
-const giorniTraLucy = (a, b) => Math.floor((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000)
-const aggiungiGiorniLucy = (d, n) => new Date(new Date(d + 'T00:00:00').getTime() + n * 86400000).toLocaleDateString('sv-SE')
+// 10/10/2026 (Sergio) — AZZERAMENTO DELL'ARRETRATO, solo PROFILAZIONE e MANTENIMENTO (il recupero dei conti limitati non cambia):
+// niente bet di profilazione arretrate né avvisi 🎯 per giorni prima di questa data; nessun conto di mantenimento risulta in ritardo
+// o scaduto: tutti ripartono da qui, con le prime scadenze scaglionate nei 60 giorni successivi (stesso offset stabile di prima).
+const LUCY_AZZERAMENTO = '2026-10-10'
+// 10/10/2026: con il cambio dell'ora (25/10 e marzo) 24 ore non sono sempre un giorno: si arrotonda e si somma per data di calendario
+const giorniTraLucy = (a, b) => Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000)
+const aggiungiGiorniLucy = (d, n) => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + n); return x.toLocaleDateString('sv-SE') }
 // 27/09/2026 — PAUSA PROFILAZIONE (es. sosta per le nazionali). Periodi dalla tabella profilazione_pause:
 // { inizio, fine (null = in corso), ripresa_prevista, modo: 'sport' | 'totale' }. Letti dalle funzioni di agenda.
 let PAUSE_PROF = []
@@ -803,7 +808,7 @@ useEffect(() => {
       const oggiL = lucyOggi()
       const uid = await lucyUserIdSync()
       const { data: righe } = await supabase.from('lucy_bet_attese').select('*').eq('user_id', uid)
-        .gte('data', aggiungiGiorniLucy(oggiL, -365)).lt('data', aggiungiGiorniLucy(oggiL, -LUCY_RECUPERO_MAX_GG))
+        .gte('data', LUCY_AZZERAMENTO > aggiungiGiorniLucy(oggiL, -365) ? LUCY_AZZERAMENTO : aggiungiGiorniLucy(oggiL, -365)).lt('data', aggiungiGiorniLucy(oggiL, -LUCY_RECUPERO_MAX_GG))   // 10/10/2026: niente arretrati prima dell'azzeramento
       const nuove = []
       for (const r of righe || []) {
         const book = books.find(b => String(b.id) === String(r.book_id))
@@ -824,6 +829,17 @@ useEffect(() => {
     } catch (e) { console.warn('[Lucy] rete di sicurezza bet arretrate:', e?.message || e) }
   })()
 }, [lucySync, avvisiConti, books, lucyConfermate])
+
+// 10/10/2026 — AZZERAMENTO: gli avvisi 🎯 "Bet di profilazione non fatta" nati da giorni precedenti si chiudono una volta sola.
+const azzeraAvvisiRef = React.useRef(false)
+useEffect(() => {
+  if (azzeraAvvisiRef.current || !Array.isArray(avvisiConti) || !avvisiConti.length) return
+  azzeraAvvisiRef.current = true
+  const ids = avvisiConti.filter(a => a.stato === 'aperto' && a.tipo === 'lucy' && a.meta?.origine === 'lucy' && String(a.meta?.key || '').slice(0, 10) < LUCY_AZZERAMENTO).map(a => a.id)
+  if (!ids.length) return
+  supabase.from('avvisi_conti').update({ stato: 'fatto', fatto_il: new Date().toLocaleDateString('sv-SE'), esito: 'arretrato azzerato il 10/10/2026' }).in('id', ids).select()
+    .then(({ data }) => { if (data && data.length) setAvvisiConti(prev => (prev || []).map(a => data.find(d => d.id === a.id) || a)) })
+}, [avvisiConti])
 
   // V55: il messaggio "Transazione eseguita correttamente" sparisce da solo dopo pochi secondi
   useEffect(() => { if (!message) return; const t = setTimeout(() => setMessage(''), 4500); return () => clearTimeout(t) }, [message])
@@ -2176,7 +2192,7 @@ function getAzioniOggiBase(book) {
     const regola = regolaMant(book)   // 02/10/2026: regole dinamiche (generale o del bookmaker)
     const offset = hashBook(book.id, 6060) % regola.ogni_giorni
     const dovutoIniziale = aggiungiGiorniLucy(MANT_GIORNO_ZERO, offset)
-    const ultimo = ultimoMovimentoBookLucy(book.id)
+    const ultimo = ultimoMantEffettivoLucy(book, regola)   // 10/10/2026: azzeramento dell'arretrato
     if (bookInPausaOggi(book)) return null   // 27/09/2026: profilazione in pausa
     const pausaDaUltimo = ultimo ? giorniPausaBook(book, ultimo, oggiStr) : giorniPausaBook(book, dovutoIniziale, oggiStr)
     const prossima = ultimo ? aggiungiGiorniLucy(ultimo, regola.ogni_giorni - regola.anticipo_giorni + pausaDaUltimo) : aggiungiGiorniLucy(dovutoIniziale, pausaDaUltimo)
@@ -3121,6 +3137,16 @@ function ultimoMovimentoBookLucy(bookId) {
   return ultimo||null
 }
 
+// 10/10/2026 — ultimo movimento "efficace" di un conto di mantenimento, dopo l'azzeramento dell'arretrato:
+// se l'ultimo movimento vero è più vecchio del punto di ripartenza, il conto riparte da LUCY_AZZERAMENTO + il suo offset stabile
+// (prima scadenza = 10/10 + offset, quindi scaglionata); se ha un movimento più recente vale quello vero.
+function ultimoMantEffettivoLucy(book, regola) {
+  const reale = ultimoMovimentoBookLucy(book.id)
+  const offset = hashBook(book.id, 6060) % regola.ogni_giorni
+  const partenza = aggiungiGiorniLucy(LUCY_AZZERAMENTO, offset - (regola.ogni_giorni - regola.anticipo_giorni))
+  return reale && reale > partenza ? reale : partenza
+}
+
 // 27/09/2026 — REGISTRO DI PROFILAZIONE MANUALE: operazioni profilative fatte a mano su un conto.
 // Il conto passa in Profilazione (qualunque stato avesse) ed entra nel giro con gli altri; se "copre la giornata",
 // le bet di profilazione di quel giorno risultano fatte (niente doppioni negli incroci, niente arretrate).
@@ -3174,6 +3200,7 @@ function calcolaRecuperiLucy(righe, dataOggi) {
   const out=[]
   ;(righe||[]).forEach(r=>{
     if(!r || r.data>=dataOggi) return
+    if(r.data<LUCY_AZZERAMENTO) return   // 10/10/2026: arretrato azzerato, si riparte da oggi
     if(giorniTraLucy(r.data,dataOggi)>LUCY_RECUPERO_MAX_GG) return
     const book=books.find(b=>String(b.id)===String(r.book_id))
     if(!book || book.profilo_livello!=='attivo' || lucyMaiSport(book) || lucyNoSportInProfilazione(book)) return          // ciclo finito, conto cambiato di stato o solo-casinò
@@ -3898,7 +3925,7 @@ function prossimaMantLucy(book) {
   const regola = regolaMant(book)
   const offset = hashBook(book.id, 6060) % regola.ogni_giorni
   const dovutoIniziale = aggiungiGiorniLucy(MANT_GIORNO_ZERO, offset)
-  const ultimo = ultimoMovimentoBookLucy(book.id)
+  const ultimo = ultimoMantEffettivoLucy(book, regola)   // 10/10/2026: azzeramento dell'arretrato
   const pausa = ultimo ? giorniPausaBook(book, ultimo, oggiStr) : giorniPausaBook(book, dovutoIniziale, oggiStr)
   return ultimo ? aggiungiGiorniLucy(ultimo, regola.ogni_giorni - regola.anticipo_giorni + pausa) : aggiungiGiorniLucy(dovutoIniziale, pausa)
 }
