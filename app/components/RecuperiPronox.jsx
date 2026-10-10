@@ -17,7 +17,8 @@ import { MODEL_VERSION } from '../../lib/pronox/footballModel'
 import { PIANO_PILOTA, statoPiano, schedaDelGiorno, dividiTraConti } from '../../lib/recupero/masanielloRecupero'
 
 // book dove il recupero NON passa dalle scommesse sport
-const ESCLUSI = ['bet365', 'betfair', 'admiral']
+// 10/10/2026: i limitati del gruppo E-play24 non fanno scommettere nemmeno 0,50 € (eplay24, sportium, betwin360)
+const ESCLUSI = ['bet365', 'betfair', 'admiral', 'eplay24', 'sportium', 'betwin360']
 const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '')
 const euro = (n) => (Number(n) || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
 const quando = (iso) => new Date(iso).toLocaleString('it-IT', { timeZone: 'Europe/Rome', weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
