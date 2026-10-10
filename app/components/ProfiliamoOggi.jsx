@@ -43,15 +43,33 @@ export default function ProfiliamoOggi({ books = [], agendaOggi = [] }) {
     return m
   }, [agendaOggi])
 
-  // messaggi -> per ogni bookmaker nominato
+  // messaggi -> bookmaker PRINCIPALE della scheda. Si cerca prima la riga "Bookmaker: X" (schede lette dalle immagini),
+  // poi il titolo del topic. Gli altri book nominati (es. "COPERTURA: GoldBet") NON sono il book della scheda.
+  // Solo se non c'è un book principale chiaro si ripiega sui nomi citati, segnandoli come "citato".
   const gruppi = useMemo(() => {
     const out = new Map()
+    const trova = (testoNorm) => {
+      for (const [nome, conti] of perNome) if ((` ${testoNorm} `).includes(` ${nome} `)) return { nome, conti }
+      return null
+    }
+    const aggiungi = (nome, conti, msg, copertura, citato) => {
+      if (!out.has(nome)) out.set(nome, { nome: conti[0].nome, conti, msgs: [], citato })
+      const g = out.get(nome)
+      g.msgs.push({ ...msg, _copertura: copertura })
+      if (!citato) g.citato = false
+    }
     for (const msg of messaggi || []) {
-      const testo = norm(`${msg.testo || ''} ${msg.testo_immagine || ''}`)
+      const tutto = `${msg.testo || ''}\n${msg.testo_immagine || ''}`
+      const riga = tutto.match(/bookmaker\s*[:\-]\s*([^\n(]+)/i)
+      const cop = tutto.match(/copertura\s*[:\-]\s*([^\n(]+)/i)
+      const copertura = cop ? cop[1].trim() : ''
+      let principale = riga ? trova(norm(riga[1])) : null
+      if (!principale && msg.topic_titolo) principale = trova(norm(msg.topic_titolo))
+      if (principale) { aggiungi(principale.nome, principale.conti, msg, copertura, false); continue }
+      const copNorm = norm(copertura)
       for (const [nome, conti] of perNome) {
-        if (!(` ${testo} `).includes(` ${nome} `)) continue
-        if (!out.has(nome)) out.set(nome, { nome: conti[0].nome, conti, msgs: [] })
-        out.get(nome).msgs.push(msg)
+        if (copNorm && (` ${copNorm} `).includes(` ${nome} `)) continue
+        if ((` ${norm(tutto)} `).includes(` ${nome} `)) aggiungi(nome, conti, msg, copertura, true)
       }
     }
     return [...out.values()].sort((a, b) => String(b.msgs[0].data_msg).localeCompare(String(a.msgs[0].data_msg)))
@@ -79,7 +97,7 @@ export default function ProfiliamoOggi({ books = [], agendaOggi = [] }) {
         return (
           <div key={g.nome} style={{ background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(148,163,184,0.25)', borderRadius: 12, padding: '9px 12px', marginBottom: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-              <b style={{ color: '#f8fafc' }}>{g.nome} <span style={{ color: '#94a3b8', fontWeight: 600, fontSize: 12 }}>· {g.msgs.length} {g.msgs.length === 1 ? 'messaggio' : 'messaggi'} · ultimo {quando(g.msgs[0].data_msg)}</span></b>
+              <b style={{ color: '#f8fafc' }}>{g.nome} <span style={{ color: '#94a3b8', fontWeight: 600, fontSize: 12 }}>· {g.msgs.length} {g.msgs.length === 1 ? 'messaggio' : 'messaggi'} · ultimo {quando(g.msgs[0].data_msg)}{g.citato ? ' · solo citato nel testo' : ''}</span></b>
               <button onClick={() => setAperti(p => ({ ...p, [g.nome]: !aperto }))} style={btn}>{aperto ? '▾ Nascondi testo' : '▸ Leggi il messaggio'}</button>
             </div>
             <div style={{ fontSize: 12, margin: '5px 0', color: '#cbd5e1' }}>
@@ -94,6 +112,7 @@ export default function ProfiliamoOggi({ books = [], agendaOggi = [] }) {
             </div>
             {aperto && g.msgs.map(m => (
               <div key={m.id} style={{ borderTop: '1px solid #334155', padding: '6px 0', fontSize: 12, color: '#e2e8f0', whiteSpace: 'pre-wrap' }}>
+                {m._copertura ? <div style={{ color: '#a78bfa', fontWeight: 700 }}>🛡️ Copertura indicata da Profiliamo: {m._copertura}</div> : null}
                 <div style={{ color: '#94a3b8', marginBottom: 2 }}>{quando(m.data_msg)}{m.mittente ? ` · ${m.mittente}` : ''}{m.topic_titolo ? ` · ${m.topic_titolo}` : ''}</div>
                 {m.testo}{m.testo_immagine ? `\n🖼️ ${m.testo_immagine}` : ''}
               </div>
