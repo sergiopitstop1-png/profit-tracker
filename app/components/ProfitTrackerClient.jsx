@@ -8953,7 +8953,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               style={input}
             >
               <option value=''>— Seleziona cliente —</option>
-              {[...new Set([...books.map(b => b.intestatario), ...wallets.map(w => w.intestatario)].filter(Boolean))].sort((a,b) => a.localeCompare(b, 'it')).map(nome => <option key={nome} value={nome}>{nome}</option>)}
+              {/* 11/10/2026 (Sergio): mancavano i clienti senza ancora conti o wallet. Ora l'elenco unisce tabella Clienti, conti, wallet e matrice. */}
+              {[...new Set([...clienti.map(c => c.nome), ...books.map(b => b.intestatario), ...wallets.map(w => w.intestatario), ...matrice.map(r => r.cliente)].filter(Boolean))].sort((a,b) => a.localeCompare(b, 'it')).map(nome => <option key={nome} value={nome}>{nome}</option>)}
             </select>
             <select
               value={credenzialeForm.book_id || (credenzialeForm.bookmaker_manuale ? `manuale:${credenzialeForm.bookmaker_manuale}` : '')}
