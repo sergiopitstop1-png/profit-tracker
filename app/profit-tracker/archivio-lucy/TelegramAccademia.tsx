@@ -4,6 +4,7 @@
 // Legge da /api/accademia/messaggi (solo admin). Stile matrix come il resto di Archivio Lucy.
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import ConsigliAccademia from './ConsigliAccademia'
 
 type Gruppo = { chat_id: number; chat_titolo: string | null; topic_id: number | null; topic_titolo: string | null; n: number; ultimo: string | null }
 type Messaggio = {
@@ -236,6 +237,7 @@ export function RiassuntiAccademia({ api = '/api/accademia/riassunti', titolo = 
 }
 
 export default function TelegramAccademia() {
+  const [vista, setVista] = useState<'consigli' | 'messaggi'>('consigli')   // 11/10/2026: si apre sui consigli raccolti da Lucy
   const [gruppi, setGruppi] = useState<Gruppo[]>([])
   const [erroreGruppi, setErroreGruppi] = useState('')
   const [bozza, setBozza] = useState<Filtri>(VUOTI)     // quello che scrivi
@@ -321,6 +323,13 @@ export default function TelegramAccademia() {
     <>
     <RiassuntiAccademia />
     <CalendarioDirette />
+    <div className="mb-4 flex gap-2">
+      {([['consigli', '💡 Consigli di Lucy'], ['messaggi', '💬 Tutti i messaggi']] as const).map(([k, nome]) => (
+        <button key={k} onClick={() => setVista(k)} className={`rounded-lg border px-4 py-1.5 text-sm font-semibold ${vista === k ? 'border-green-400 bg-green-500/20 text-green-200' : 'border-green-900/70 text-slate-400 hover:border-green-700'}`}>{nome}</button>
+      ))}
+    </div>
+    {vista === 'consigli' && <ConsigliAccademia />}
+    {vista === 'messaggi' && (
     <div className="grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)] gap-5">
       {/* ================= GRUPPI ================= */}
       <aside className="rounded-xl border border-green-900/70 bg-[#07100a] p-3 lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100vh-2rem)] overflow-y-auto max-h-72">
@@ -450,6 +459,7 @@ export default function TelegramAccademia() {
         )}
       </section>
     </div>
+    )}
     </>
   )
 }
