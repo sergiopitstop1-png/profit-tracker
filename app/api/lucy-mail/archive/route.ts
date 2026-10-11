@@ -611,7 +611,13 @@ function matchesFilters(
 
 function chiaveGruppo(row: UnifiedRow) {
   const mittente = sansAccenti(row.mittente).trim()
-  const oggetto = sansAccenti(row.oggetto).replace(/\s+/g, ' ').trim()
+  let oggetto = sansAccenti(row.oggetto).replace(/\s+/g, ' ').trim()
+
+  // 11/10/2026: molti book personalizzano l'oggetto col nome del cliente ("Laura, La Race Pragmatic entra nel rush finale!").
+  // Si toglie il nome e il cognome del destinatario, altrimenti la stessa mail sembra diversa per ogni cliente.
+  for (const parte of sansAccenti(row.cliente_nome).split(/[^a-z']+/).filter(p => p.length >= 3)) {
+    oggetto = oggetto.replace(new RegExp(`\\b${parte.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g'), '#')
+  }
 
   // senza mittente e oggetto non si può dire che due mail siano uguali
   if (!mittente && !oggetto) return `solo:${row.id}`
