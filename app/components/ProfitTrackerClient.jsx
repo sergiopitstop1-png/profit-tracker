@@ -7744,7 +7744,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
     const matchInt = !profilazioneFilter.intestatario || (b.intestatario || '').toLowerCase().includes(profilazioneFilter.intestatario.toLowerCase())
     const matchBook = !profilazioneFilter.book || (b.nome || '').toLowerCase().includes(profilazioneFilter.book.toLowerCase())
     const limitatoRec = bookInRecuperoLimitato(b)
-    const matchLiv = !profilazioneFilter.livello || (profilazioneFilter.livello === 'recupero' ? limitatoRec : (!limitatoRec && (b.profilo_livello === profilazioneFilter.livello || (profilazioneFilter.livello === 'mantenimento' && b.profilo_livello && b.profilo_livello.startsWith('mantenimento')))))
+    // 11/10/2026 (Sergio): filtro anche per i "Non impostati" (stesso criterio del contatore: nessun livello e non in recupero)
+    const matchLiv = !profilazioneFilter.livello || (profilazioneFilter.livello === 'nessuno' ? (!b.profilo_livello && !limitatoRec) : profilazioneFilter.livello === 'recupero' ? limitatoRec : (!limitatoRec && (b.profilo_livello === profilazioneFilter.livello || (profilazioneFilter.livello === 'mantenimento' && b.profilo_livello && b.profilo_livello.startsWith('mantenimento')))))
     const matchSearch = !profilazioneSearch || (b.nome || '').toLowerCase().includes(profilazioneSearch.toLowerCase()) || (b.intestatario || '').toLowerCase().includes(profilazioneSearch.toLowerCase())
     return matchInt && matchBook && matchLiv && matchSearch
   })
@@ -8493,6 +8494,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           <option value="mantenimento">🟡 Mantenimento</option>
           <option value="dormiente">⚫ Dormienti</option>
           <option value="recupero">🔧 Limitati · in recupero</option>
+          <option value="nessuno">⚪ Non impostati</option>
         </select>
         <select style={filterInput} value={profilazioneFilter.intestatario} onChange={e => setProfilazioneFilter(p => ({ ...p, intestatario: e.target.value }))}>
           <option value="">Tutti gli intestatari</option>
