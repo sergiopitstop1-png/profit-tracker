@@ -628,7 +628,9 @@ function chiaveGruppo(row: UnifiedRow) {
     oggetto,
     testoSms,
     getBucket(row),
-    row.categoria || '',
+    // 11/10/2026: la categoria NON entra nella chiave. L'IA la assegna mail per mail e per lo stesso testo può scrivere
+    // PROMO_SLOT o FREEBET: la stessa mail restava spezzata in due righe (8 clienti + 3 clienti). Il bonus invece resta,
+    // perché oggetti generici ("Hai ottenuto dei Freespin!") possono nascondere offerte diverse.
     row.bonus_importo ?? '',
   ].join('|')
 }
