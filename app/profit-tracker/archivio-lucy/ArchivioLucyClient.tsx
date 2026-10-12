@@ -176,8 +176,8 @@ function pulisciTesto(originale: string | null | undefined) {
 
 // 12/10/2026 · incorporato = dentro la barra del Profit Tracker (tab Lucy Mail): niente banner e niente pulsanti di ritorno, le pagine restano collegate.
 // La pagina /profit-tracker/archivio-lucy continua a funzionare da sola (incorporato = false).
-export default function ArchivioLucyClient({ incorporato = false, onVaiAPromo, vistaIniziale, sezioneIniziale }: {
-  incorporato?: boolean; onVaiAPromo?: (p: Record<string, string>) => void; vistaIniziale?: string; sezioneIniziale?: string
+export default function ArchivioLucyClient({ incorporato = false, onVaiAPromo, vistaIniziale, sezioneIniziale, canaleIniziale }: {
+  incorporato?: boolean; onVaiAPromo?: (p: Record<string, string>) => void; vistaIniziale?: string; sezioneIniziale?: string; canaleIniziale?: string
 } = {}) {
   const router = useRouter()
 
@@ -284,7 +284,7 @@ export default function ArchivioLucyClient({ incorporato = false, onVaiAPromo, v
     useState('1m')
 
   const [canale, setCanale] =
-    useState('TUTTI')
+    useState(canaleIniziale === 'SMS' || canaleIniziale === 'EMAIL' ? canaleIniziale : 'TUTTI')
 
   const [f, setF] = useState({
     q: '',
