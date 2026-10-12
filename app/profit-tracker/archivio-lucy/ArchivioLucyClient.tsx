@@ -10,6 +10,7 @@ import {
 import { useRouter } from 'next/navigation'
 
 import TelegramAccademia, { RiassuntiAccademia } from './TelegramAccademia'
+import CervelloBinario from './CervelloBinario'
 
 type Canale = 'EMAIL' | 'SMS'
 
@@ -769,16 +770,14 @@ export default function ArchivioLucyClient({ incorporato = false, onVaiAPromo, v
           MATRIX HERO
           ================================================== */}
 
-      {!incorporato && (
       <header
-        className="
+        className={`
           relative
-          h-[230px]
+          ${incorporato ? 'h-[210px] rounded-2xl border mb-5' : 'h-[230px] border-b'}
           overflow-hidden
-          border-b
           border-green-500/30
           bg-black
-        "
+        `}
       >
         <div
           className="
@@ -934,6 +933,10 @@ export default function ArchivioLucyClient({ incorporato = false, onVaiAPromo, v
           />
         </div>
 
+        {/* 12/10/2026 · cervello di Lucy fatto di 0 e 1 */}
+        <div className="pointer-events-none absolute left-[46%] top-1/2 z-[5] hidden -translate-y-1/2 opacity-95 lg:block" aria-hidden="true">
+          <CervelloBinario altezza={incorporato ? 190 : 210} />
+        </div>
         {/* HEADER CONTENT */}
 
         <div
@@ -1065,6 +1068,8 @@ export default function ArchivioLucyClient({ incorporato = false, onVaiAPromo, v
               gap-2
             "
           >
+            {!incorporato && (
+            <>
             <button
               onClick={() =>
                 router.push(
@@ -1105,6 +1110,8 @@ export default function ArchivioLucyClient({ incorporato = false, onVaiAPromo, v
             >
               📌 Promo
             </button>
+            </>
+            )}
 
             <button
               onClick={() => load()}
@@ -1125,7 +1132,6 @@ export default function ArchivioLucyClient({ incorporato = false, onVaiAPromo, v
           </div>
         </div>
       </header>
-      )}
 
       {/* ==================================================
           CONTENUTO
@@ -1154,7 +1160,7 @@ export default function ArchivioLucyClient({ incorporato = false, onVaiAPromo, v
             📡 Telegram
           </button>
           {incorporato && (
-            <button onClick={() => load()} className="ml-auto rounded-xl border border-green-500/50 bg-green-500/10 px-4 py-2 font-semibold text-green-300 hover:bg-green-500/20">↻ Aggiorna</button>
+            <button onClick={() => load()} className="ml-auto rounded-xl border border-green-500/50 bg-green-500/10 px-4 py-2 font-semibold text-green-300 hover:bg-green-500/20 sm:hidden">↻ Aggiorna</button>
           )}
         </div>
 
