@@ -3005,14 +3005,16 @@ function generaLucyLive(agendaItems = []) {
     const stessoGruppoLotto = BOOK_GRUPPO_LOTTOMATICA.some(k => nome.includes(k))
     let pool = attivi.filter(b => b.id !== book.id && !usati.has(b.id))
 
-    // Per Lottomatica/GoldBet/Planetwin privilegia prima gli altri conti dello stesso gruppo.
-    if (stessoGruppoLotto) {
-      pool.sort((a,b) => {
-        const aa = BOOK_GRUPPO_LOTTOMATICA.some(k => getNomeNormalizzato(a.nome).includes(k)) ? 0 : 1
-        const bb = BOOK_GRUPPO_LOTTOMATICA.some(k => getNomeNormalizzato(b.nome).includes(k)) ? 0 : 1
-        return aa - bb
-      })
-    }
+    // 13/10/2026: come amici si prendono PRIMA gli altri conti che oggi devono fare il Live (hanno Casinò Live in agenda): così fanno il loro Live dentro
+    // questo gruppo e non restano fuori dalla tabella perché non ci sono abbastanza amici liberi (caso Laura Corà · Goldbet).
+    const idTargetLive = new Set(target.map(t => t.book.id))
+    const èGruppoLotto = b => BOOK_GRUPPO_LOTTOMATICA.some(k => getNomeNormalizzato(b.nome).includes(k))
+    pool.sort((a,b) => {
+      const ta = idTargetLive.has(a.id) ? 0 : 1, tb = idTargetLive.has(b.id) ? 0 : 1
+      if (ta !== tb) return ta - tb
+      // Per Lottomatica/GoldBet/Planetwin privilegia poi gli altri conti dello stesso gruppo.
+      return stessoGruppoLotto ? (èGruppoLotto(a) ? 0 : 1) - (èGruppoLotto(b) ? 0 : 1) : 0
+    })
 
     // 13/10/2026: le sestine coprono al massimo 36 numeri: nel gruppo di 6 deve esserci almeno UN conto non Lottomatica/Goldbet
     // (a lui vanno lo 0 e i numeri che restano). Prima con 6 conti Lottomatica/Goldbet l'ultimo restava senza sestina e spariva dalla tabella.
@@ -8626,6 +8628,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               </tbody>
             </table>
             <div style={{padding:'11px 12px',background:'#ede9fe',borderTop:'2px solid #8b5cf6',fontSize:11}}>
+              {lucyLiveProposte.filter(p=>p.insufficiente).map((p,i)=>(
+                <div key={`ins-${i}`} style={{marginBottom:6,color:'#92400e',background:'#fef3c7',border:'1px solid #fcd34d',borderRadius:6,padding:'4px 8px',fontWeight:800}}>⚠️ {p.target.nome} · {p.target.intestatario}: Live NON in tabella, trovati solo {p.amici.length} amici liberi su {p.amiciRichiesti||5} (servono conti in Profilazione non già usati oggi).</div>))}
               {(() => { const incompleti=lucyLiveProposte.map((p,pi)=>({pi,m:p.insufficiente||p.starcasino?[]:numeriScopertiLive(p)})).filter(x=>x.m.length); return incompleti.length ? (
                 <div style={{marginBottom:6,color:'#991b1b',background:'#fee2e2',border:'1px solid #fca5a5',borderRadius:6,padding:'4px 8px',fontWeight:800}}>⚠️ {incompleti.map(x=>`Gruppo ${x.pi+1}: numeri scoperti ${x.m.join(', ')}`).join(' · ')} — il tavolo non è coperto del tutto, il costo qui sotto non vale. Ripreparare gli incroci.</div>) : null })()}
               <b>Costo teorico Live: {costoZeroLiveOggi().toFixed(2)} €</b>
