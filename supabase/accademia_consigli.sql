@@ -45,3 +45,6 @@ alter table public.accademia_consigli_stato enable row level security;
 -- 12/10/2026 · aggiunto il tipo 'file' (condivisione file). Per chi ha gia' creato la tabella:
 alter table public.accademia_consigli drop constraint if exists accademia_consigli_tipo_check;
 alter table public.accademia_consigli add constraint accademia_consigli_tipo_check check (tipo in ('slot','promo','bug','pattern','file'));
+
+-- 12/10/2026 · elenco strutturato delle slot nominate in un consiglio (per alimentare la lista Slot consigliate del Profit)
+alter table public.accademia_consigli add column if not exists slot jsonb not null default '[]'::jsonb;

@@ -50,19 +50,21 @@ export async function GET(req: NextRequest) {
     perBook[b] = (perBook[b] || 0) + 1
   }
 
-  let query = admin.from('accademia_consigli')
-    .select('id,tipo,book,promo,argomento,titolo,consiglio,dettagli,scopo,da_staff,autori,n_fonti,fonti,chat_titolo,topic_titolo,prima_data,ultima_data,stato')
-    .eq('stato', statoF)
-    .order('ultima_data', { ascending: false })
-    .range(offset, offset + limit - 1)
   const tipo = q.get('tipo')
-  if (tipo && (TIPI as readonly string[]).includes(tipo)) query = query.eq('tipo', tipo)
   const book = q.get('book')
-  if (book === '__generale') query = query.is('book', null)
-  else if (book) query = query.eq('book', book)
   const testo = (q.get('q') || '').trim().replace(/[,()%*]/g, ' ')
-  if (testo) query = query.or(['titolo', 'consiglio', 'dettagli', 'promo', 'argomento', 'book'].map(c => `${c}.ilike.%${testo}%`).join(','))
-  const { data, error } = await query
+  const COLONNE = 'id,tipo,book,promo,argomento,titolo,consiglio,dettagli,scopo,da_staff,autori,n_fonti,fonti,chat_titolo,topic_titolo,prima_data,ultima_data,stato'
+  const cerca = (colonne: string) => {
+    let query = admin.from('accademia_consigli').select(colonne).eq('stato', statoF).order('ultima_data', { ascending: false }).range(offset, offset + limit - 1)
+    if (tipo && (TIPI as readonly string[]).includes(tipo)) query = query.eq('tipo', tipo)
+    if (book === '__generale') query = query.is('book', null)
+    else if (book) query = query.eq('book', book)
+    if (testo) query = query.or(['titolo', 'consiglio', 'dettagli', 'promo', 'argomento', 'book'].map(c => `${c}.ilike.%${testo}%`).join(','))
+    return query
+  }
+  let { data, error } = await cerca(`${COLONNE},slot`)
+  // colonna "slot" non ancora creata (SQL non eseguito): si legge senza
+  if (error && /slot/i.test(error.message)) ({ data, error } = await cerca(COLONNE))
   if (error) return NextResponse.json({ error: `${error.message}. ${AIUTO}` }, { status: 500 })
 
   const st = await statoConsigli().catch(() => null)
