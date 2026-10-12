@@ -3014,7 +3014,15 @@ function generaLucyLive(agendaItems = []) {
       })
     }
 
-    const amici = pool.slice(0, 5)
+    // 13/10/2026: le sestine coprono al massimo 36 numeri: nel gruppo di 6 deve esserci almeno UN conto non Lottomatica/Goldbet
+    // (a lui vanno lo 0 e i numeri che restano). Prima con 6 conti Lottomatica/Goldbet l'ultimo restava senza sestina e spariva dalla tabella.
+    const amici = []
+    let speciali0 = isLiveSoloSestine(book) ? 1 : 0
+    for (const c of pool) {
+      if (amici.length >= 5) break
+      if (isLiveSoloSestine(c)) { if (speciali0 >= 5) continue; speciali0++ }
+      amici.push(c)
+    }
     if (amici.length < 5) {
       proposte.push({
         target: book, azione: agenda.azioni.find(a => liveRegex.test(a)),
@@ -3052,8 +3060,21 @@ function generaLucyLive(agendaItems = []) {
     const sestineMix=[...SESTINE_ROULETTE]
     for(let i=sestineMix.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[sestineMix[i],sestineMix[j]]=[sestineMix[j],sestineMix[i]]}
     const occupati=new Set(), assegnazioniLive=[]
-    speciali.forEach(b=>{
-      const s=sestineMix.find(x=>x.every(n=>!occupati.has(n)))
+    // 13/10/2026: le sestine si scelgono tutte insieme senza numeri in comune (con 5 conti è sempre possibile); prima la scelta una alla volta
+    // poteva bloccarsi (es. 4-9, 10-15, 16-21, 22-27, 31-36 non lasciano posto a una sesta) e un conto restava fuori
+    const sestineScelte=(()=>{
+      const sol=[]
+      const prova=()=>{
+        if(sol.length===speciali.length) return true
+        for(const x of sestineMix){
+          if(sol.every(t=>t.every(n=>!x.includes(n)))){ sol.push(x); if(prova()) return true; sol.pop() }
+        }
+        return false
+      }
+      return prova()?sol:[]
+    })()
+    speciali.forEach((b,i)=>{
+      const s=sestineScelte[i]
       if(s){s.forEach(n=>occupati.add(n));assegnazioniLive.push({book:b,tipo:'Sestina',numeri:[...s]})}
     })
     const residui=numeri.filter(n=>!occupati.has(n))
@@ -3672,6 +3693,11 @@ function costoTeoricoSportOggi() {
   },0)
 }
 
+// 13/10/2026: numeri della roulette (0-36) che nessuna riga del gruppo copre: se non è vuoto il costo "teorico" non vale
+function numeriScopertiLive(p) {
+  const coperti=new Set((p?.gruppo||[]).flatMap(g=>g.numeri||[]))
+  return Array.from({length:37},(_,i)=>i).filter(n=>!coperti.has(n))
+}
 function costoZeroLiveOggi() {
   // V54: con 10€ su ogni numero (60€ a sestina) tutto il tavolo è coperto: puntata 370€, rientro 360€ qualunque numero esca,
   // quindi il costo teorico è 10€ a giro; per ogni incrocio completo si moltiplica per le ripetizioni.
@@ -8600,6 +8626,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               </tbody>
             </table>
             <div style={{padding:'11px 12px',background:'#ede9fe',borderTop:'2px solid #8b5cf6',fontSize:11}}>
+              {(() => { const incompleti=lucyLiveProposte.map((p,pi)=>({pi,m:p.insufficiente||p.starcasino?[]:numeriScopertiLive(p)})).filter(x=>x.m.length); return incompleti.length ? (
+                <div style={{marginBottom:6,color:'#991b1b',background:'#fee2e2',border:'1px solid #fca5a5',borderRadius:6,padding:'4px 8px',fontWeight:800}}>⚠️ {incompleti.map(x=>`Gruppo ${x.pi+1}: numeri scoperti ${x.m.join(', ')}`).join(' · ')} — il tavolo non è coperto del tutto, il costo qui sotto non vale. Ripreparare gli incroci.</div>) : null })()}
               <b>Costo teorico Live: {costoZeroLiveOggi().toFixed(2)} €</b>
               <span style={{marginLeft:12,color:'#6b7280'}}>10€ a numero e 60€ a sestina coprono tutto il tavolo: puntati 370€, rientro 360€ qualunque numero esca (costo teorico 10€ a giro), da ripetere almeno {LUCY_LIVE_RIPETIZIONI} volte.</span>
             </div>
