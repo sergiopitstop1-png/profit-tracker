@@ -1,11 +1,11 @@
 // 11/10/2026 · Consigli dell'Accademia estratti da Lucy, per il tab "Telegram" di Archivio Lucy. Solo admin.
 // GET  ?tipo=&book=&q=&stato=attivo|archiviato&limit=&offset=  -> consigli + conteggi + stato della lettura
 // PATCH {id, stato}                                            -> archivia / ripristina un consiglio
-// POST {azione:'prova'|'avvia'}                                -> 'prova': cosa leggerebbe e quanto costa · 'avvia': legge adesso
+// POST {azione:'prova'|'avvia'|'slot_mancanti'}                -> 'prova': cosa leggerebbe e quanto costa · 'avvia': legge adesso · 'slot_mancanti': compila i nomi delle slot nei consigli vecchi
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@supabase/ssr'
-import { anteprima, eseguiPassata, statoConsigli, TIPI } from '@/lib/accademiaConsigli'
+import { anteprima, eseguiPassata, riempiNomiSlot, statoConsigli, TIPI } from '@/lib/accademiaConsigli'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -87,6 +87,7 @@ export async function POST(req: NextRequest) {
   const corpo = await req.json().catch(() => ({}))
   try {
     if (corpo?.azione === 'prova') return NextResponse.json({ ok: true, ...(await anteprima()) })
+    if (corpo?.azione === 'slot_mancanti') return NextResponse.json(await riempiNomiSlot({ budgetMs: 200_000 }))
     if (corpo?.azione === 'avvia') return NextResponse.json(await eseguiPassata({ forza: true, budgetMs: 200_000 }))
     return NextResponse.json({ error: 'azione non valida' }, { status: 400 })
   } catch (e) {

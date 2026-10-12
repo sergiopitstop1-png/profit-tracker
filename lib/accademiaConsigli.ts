@@ -372,3 +372,60 @@ export async function anteprima() {
 }
 
 export { stato as statoConsigli }
+
+
+/* ---------- 12/10/2026 · nomi delle slot per i consigli già raccolti ----------
+   I consigli letti prima che Lucy imparasse a elencare le slot hanno l'elenco vuoto. Qui si rilegge solo il loro testo
+   (titolo, consiglio, dettagli e i messaggi citati) e si compila l'elenco: costa pochi centesimi, non rilegge Telegram. */
+const BLOCCO_SLOT = 25
+export async function riempiNomiSlot(opz: { budgetMs?: number } = {}) {
+  const db = sb()
+  const t0 = Date.now(), budget = opz.budgetMs ?? 200_000
+  const { data, error } = await db.from('accademia_consigli').select('id,titolo,consiglio,dettagli,scopo,fonti,slot').eq('tipo', 'slot').eq('stato', 'attivo').order('id').limit(1500)
+  if (error) throw new Error(/slot/i.test(error.message) ? `colonna "slot" mancante (${error.message})` : error.message)
+  const daFare = (data || []).filter(r => !Array.isArray(r.slot) || r.slot.length === 0)
+  if (!daFare.length) return { ok: true, lavorati: 0, conNomi: 0, senzaNomi: 0, rimasti: 0, costo: 0 }
+  const blocchi: (typeof daFare)[] = []
+  for (let i = 0; i < daFare.length; i += BLOCCO_SLOT) blocchi.push(daFare.slice(i, i + BLOCCO_SLOT))
+  let conNomi = 0, senzaNomi = 0, costo = 0, lavorati = 0, erroreUltimo = ''
+  const lavora = async (b: typeof daFare) => {
+    const testo = b.map(r => {
+      const msgs = ((r.fonti as Fonte[]) || []).slice(0, 4).map(f => `    - ${(f.x || '').slice(0, 400).replace(/\s+/g, ' ')}`).join('\n')
+      return `#${r.id} | ${r.titolo}\n  consiglio: ${r.consiglio}\n  dettagli: ${r.dettagli || '-'}${msgs ? `\n  messaggi:\n${msgs}` : ''}`
+    }).join('\n\n')
+    const q = `Sei Lucy, assistente di Sergio (bonus dei bookmaker italiani e casinò). Per ogni consiglio sotto devi elencare le SLOT (i giochi di slot) nominate nel testo.
+
+Regole:
+- Usa SOLO i nomi scritti nel testo, copiati esatti (es. "Moon Princess", "Big Bass Bonanza"). Niente invenzioni, niente slot "tipiche".
+- Il provider (NetEnt, Pragmatic, Playtech, ecc.) solo se è scritto o ovvio dal nome del gioco, altrimenti "".
+- Se nel testo non c'è nessuna slot con un nome preciso (parla solo in generale: "slot ad alto RTP"), l'elenco è [].
+- scopo: "rollover" se serve per smaltire il wagering, "margine" se è per fare profitto, "altro" altrimenti; "" se non lo capisci.
+
+Rispondi SOLO con un array JSON, senza testo prima o dopo e senza blocchi di codice: [{"id":123,"scopo":"rollover","slot":[{"nome":"Starburst","provider":"NetEnt"}]}]
+
+CONSIGLI:
+${testo}`
+    const { testo: out, costo: c } = await chiediAClaude(q, { senzaPensiero: true, maxTokens: 8000 })
+    costo += c
+    const arr = leggiJson(out) as unknown as { id?: unknown; scopo?: unknown; slot?: unknown }[]
+    const perId = new Map(arr.map(a => [Number(a.id), a]))
+    for (const r of b) {
+      const a = perId.get(Number(r.id))
+      lavorati++
+      const nomi = a ? leggiSlot(a.slot) : []
+      if (!nomi.length) { senzaNomi++; continue }
+      const scopo = str(a?.scopo)
+      const campi: Record<string, unknown> = { slot: nomi, aggiornato: new Date().toISOString() }
+      if (!r.scopo && ['rollover', 'margine', 'altro'].includes(scopo)) campi.scopo = scopo
+      const { error: e } = await db.from('accademia_consigli').update(campi).eq('id', r.id)
+      if (e) throw new Error(`salvataggio: ${e.message}`)
+      conNomi++
+    }
+  }
+  for (let i = 0; i < blocchi.length; i += PARALLELI) {
+    if (Date.now() - t0 > budget) break
+    const r = await Promise.allSettled(blocchi.slice(i, i + PARALLELI).map(lavora))
+    for (const x of r) if (x.status === 'rejected') erroreUltimo = x.reason instanceof Error ? x.reason.message : String(x.reason)
+  }
+  return { ok: !erroreUltimo, errore: erroreUltimo || undefined, lavorati, conNomi, senzaNomi, rimasti: daFare.length - lavorati, costo }
+}
