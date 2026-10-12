@@ -125,13 +125,13 @@ export default function ProfitTrackerClient() {
   // 05/10/2026 · 🎁 arrivo da Lucy Mail (/profit-tracker?tab=promo&...): apre la tab Promo con il modulo già compilato
   const [promoPrefill, setPromoPrefill] = useState(null)
   // 12/10/2026 · ?tab=lucy-mail&vista=...&sezione=telegram e ?tab=segnali aprono le due tab (arrivo da avvisi e link)
-  const [lucyMailDeep, setLucyMailDeep] = useState({ vista: '', sezione: '' })
+  const [lucyMailDeep, setLucyMailDeep] = useState({ vista: '', sezione: '', canale: '' })
   useEffect(() => {
     try {
       const q = new URLSearchParams(window.location.search)
       const t = q.get('tab')
       if (t === 'lucy-mail' || t === 'segnali') {
-        if (t === 'lucy-mail') setLucyMailDeep({ vista: q.get('vista') || '', sezione: q.get('sezione') || '' })
+        if (t === 'lucy-mail') setLucyMailDeep({ vista: q.get('vista') || '', sezione: q.get('sezione') || '', canale: '' })
         setActiveTab(t)
         window.history.replaceState(null, '', window.location.pathname)
         return
@@ -7464,7 +7464,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
   <button style={activeTab === 'matrice' ? activeTabButton : tabButton} onClick={() => handleTabChange('matrice')}>Matrice</button>
           <button style={activeTab === 'punti-monete' ? activeTabButton : tabButton} onClick={() => handleTabChange('punti-monete')}>🏆 Punti &amp; Monete</button>
           <button style={activeTab === 'credenziali' ? activeTabButton : tabButton} onClick={() => handleTabChange('credenziali')}>🔑 Credenziali</button>
-          <button style={activeTab === 'sms' ? activeTabButton : tabButton} onClick={() => handleTabChange('sms')}>📱 SMS</button>
+          {/* 12/10/2026 — la tab SMS è stata tolta dalla barra: gli SMS stanno in Lucy Mail (Mail e SMS). Il codice SmsTab resta. */}
           <button style={activeTab === 'team' ? activeTabButton : tabButton} onClick={() => handleTabChange('team')}>👥 Team</button>
           <button style={activeTab === 'prop-hedge' ? activeTabButton : tabButton} onClick={() => handleTabChange('prop-hedge')}>📈 Prop Hedge</button>
           <button style={activeTab === 'masaniello' ? activeTabButton : tabButton} onClick={() => handleTabChange('masaniello')}>🎲 Masaniello</button>
@@ -7657,6 +7657,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             incorporato
             vistaIniziale={lucyMailDeep.vista}
             sezioneIniziale={lucyMailDeep.sezione}
+            canaleIniziale={lucyMailDeep.canale}
             onVaiAPromo={(p) => { setPromoPrefill(p); setActiveTab('promo') }}
           />
         )}
@@ -10478,7 +10479,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
                 <button style={{ padding: '10px 18px', borderRadius: 12, border: 'none', background: '#1D4ED8', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}
-                  onClick={() => { setShowSmsPopup(false); localStorage.setItem('smsUltimaVista', String(Date.now())); handleTabChange('sms') }}>Vai ad Archivio SMS →</button>
+                  onClick={() => { setShowSmsPopup(false); localStorage.setItem('smsUltimaVista', String(Date.now())); setLucyMailDeep({ vista: '', sezione: '', canale: 'SMS' }); handleTabChange('lucy-mail') }}>Vai agli SMS →</button>
                 <button style={{ padding: '10px 18px', borderRadius: 12, border: '1px solid rgba(51,65,85,0.95)', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontSize: 13 }}
                   onClick={() => { setShowSmsPopup(false); localStorage.setItem('smsUltimaVista', String(Date.now())) }}>Chiudi</button>
               </div>
