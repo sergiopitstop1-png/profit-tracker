@@ -110,13 +110,14 @@ export default function ProfiliamoOggi({ books = [], agendaOggi = [], voci = [] 
               <button onClick={() => setAperti(p => ({ ...p, [g.nome]: !aperto }))} style={btn}>{aperto ? '▾ Nascondi testo' : '▸ Leggi il messaggio'}</button>
             </div>
             {(() => {
-              const v = voci.find(x => norm(x.book) === norm(g.nome))
-              return v ? (
-                <div style={{ margin: '5px 0', fontSize: 12.5, color: '#e2e8f0' }}>
-                  <div style={{ whiteSpace: 'pre-wrap' }}>📣 <b>Oggi secondo Profiliamo:</b> {v.azione}</div>
+              const vv = voci.filter(x => norm(x.book) === norm(g.nome))
+              return vv.length ? vv.map(v => (
+                <div key={v.id || v.variante} style={{ margin: '5px 0', fontSize: 12.5, color: '#e2e8f0' }}>
+                  <div style={{ whiteSpace: 'pre-wrap' }}>📣 <b>Oggi secondo Profiliamo{v.variante ? ` (clienti «${v.variante}»)` : ''}:</b> {v.azione}</div>
+                  {v.altraVariante && <div style={{ marginTop: 3, color: '#bfdbfe', background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.5)', borderRadius: 8, padding: '3px 8px' }}>ℹ️ Profiliamo parla della variante «{v.altraVariante}», non di «{v.variante}»: non è uno scostamento.</div>}
                   {v.scostamento && <div style={{ marginTop: 3, color: '#fecaca', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.5)', borderRadius: 8, padding: '3px 8px' }}>⚠️ Si discosta dal protocollo: {v.scostamento}</div>}
                 </div>
-              ) : null
+              )) : null
             })()}
             <div style={{ fontSize: 12, margin: '5px 0', color: '#cbd5e1' }}>
               {inProf.length === 0
