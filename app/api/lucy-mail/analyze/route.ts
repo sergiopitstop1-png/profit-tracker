@@ -514,6 +514,14 @@ una reale opportunità economica legata a:
 - promozioni personalizzate
 - offerte riservate al conto
 
+REGOLA IMPORTANTE (13/10/2026): una promozione di un bookmaker o casinò che
+nell'oggetto o nel testo annuncia un bonus, una percentuale (es. "Bonus Slot del 25%"),
+cashback, freebet, giri gratis o un rimborso è SEMPRE UTILE, anche se i dettagli
+(importo massimo, condizioni) stanno nella pagina web e non nella mail.
+"Pubblicità generica" significa SOLO newsletter senza alcuna offerta concreta.
+Nel dubbio tra UTILE e IGNORA per una mail di un operatore di gioco con un'offerta,
+scegli UTILE (o DA_VALUTARE): perdere una promo costa più che guardarne una inutile.
+
 Esempi UTILE:
 
 "Deposita 50€ e ricevi 20€ bonus"
@@ -1402,6 +1410,76 @@ lo schema JSON richiesto.
 /* =========================================================
    CHIAMATA GROQ
    ========================================================= */
+
+/* =========================================================
+   13/10/2026 · RETE DI SICUREZZA PROMO GAMING
+   Una mail di gioco con un'offerta (bonus, %, cashback, freebet,
+   giri gratis...) non può restare IGNORA, qualunque cosa risponda l'AI.
+   Offerta nell'OGGETTO -> UTILE; solo nel testo -> DA_VALUTARE.
+   ========================================================= */
+
+const RE_GIOCO =
+  /\bslot\b|\bcasino\b|scommess|scommett|bookmaker|\bpoker\b|\bbingo\b|freebet|giri gratuit|giri gratis|\bpuntat/
+
+const RE_OFFERTA =
+  /\bbonus\b|cashback|freebet|giri gratuit|giri gratis|rimborso|\b\d{1,3} ?%|\bpromo(zione|zioni)?\b|moltiplicator|quota (maggiorata|boost)|superquot|\bregalo\b|\bomaggio\b/
+
+function reteSicurezzaPromo(
+  item: LucyItem,
+  result: any
+) {
+  if (!result || result.giudizio !== 'IGNORA') return result
+  if (
+    !['PUBBLICITA', 'NEWSLETTER', 'ALTRO'].includes(
+      String(result.categoria)
+    )
+  ) {
+    return result
+  }
+
+  const oggetto = sansAccentiLucy(item.oggetto)
+  const corpo = sansAccentiLucy(
+    String(item.testo_completo || '').slice(0, 3000)
+  )
+
+  const inOggetto =
+    RE_OFFERTA.test(oggetto) &&
+    RE_GIOCO.test(`${oggetto} ${corpo}`)
+  const inTesto =
+    RE_OFFERTA.test(corpo) && RE_GIOCO.test(`${oggetto} ${corpo}`)
+
+  if (!inOggetto && !inTesto) return result
+
+  const tutto = `${oggetto} ${corpo}`
+  const categoria = /freebet/.test(oggetto)
+    ? 'FREEBET'
+    : /cashback/.test(oggetto)
+      ? 'CASHBACK'
+      : /\bslot\b|giri gratuit|giri gratis/.test(oggetto)
+        ? 'PROMO_SLOT'
+        : /\bcasino\b/.test(oggetto)
+          ? 'PROMO_CASINO'
+          : /freebet/.test(tutto)
+            ? 'FREEBET'
+            : 'BONUS'
+
+  return {
+    ...result,
+    giudizio: inOggetto ? 'UTILE' : 'DA_VALUTARE',
+    categoria,
+    priorita: 'media',
+    richiede_azione: false,
+    motivazione_ai:
+      `${result.motivazione_ai || ''} [Controllo di sicurezza: promo di gioco con offerta, non può essere ignorata]`.trim(),
+  }
+}
+
+function sansAccentiLucy(value: unknown) {
+  return String(value ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+}
 
 async function analyzeItem(
   item: LucyItem
@@ -2342,8 +2420,11 @@ async function runAnalysis() {
       }
 
       const result =
-        await analyzeItem(
-          item
+        reteSicurezzaPromo(
+          item,
+          await analyzeItem(
+            item
+          )
         )
 
       await saveResult(
