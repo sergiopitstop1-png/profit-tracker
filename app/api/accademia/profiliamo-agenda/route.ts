@@ -99,7 +99,8 @@ Regole:
 - "id": l'identificativo tra parentesi quadre dell'elenco (es. "e3"). Se Profiliamo parla di un book con più righe nell'elenco (varianti diverse dei clienti), scrivi una voce per ogni riga. "azione": 1-3 frasi chiare e operative (cosa fare oggi). "msg": i numeri dei messaggi da cui viene.
 - Alcuni book hanno più VARIANTI di protocollo (es. Goldbet: Casinò normale, VIP Live, VIP senza promo). Capisci di quale variante parla il messaggio di Profiliamo. Se parla di una variante DIVERSA da quella che il cliente segue, NON è uno scostamento: metti il nome esatto di quella variante in "altraVariante" e lascia "scostamento" vuoto. Se parla della stessa variante del cliente (o il book non ha varianti), "altraVariante" è "".
 - "scostamento": stringa vuota "" se Profiliamo e protocollo sono compatibili, se parlano di varianti diverse, o se il protocollo non dice nulla di confrontabile. Scrivi un testo SOLO quando riguarda la STESSA variante e si discostano in modo palese (numero di bet o importo di ricarica diversi, tipo di gioco diverso, il protocollo prevede una cosa e Profiliamo dice di non farla): una frase con la differenza e i numeri, es. "Profiliamo: 5 bet e ricarica 50 €; il protocollo: 4 bet".
-- Rispondi SOLO con un array JSON, senza altro testo: [{"id":"","azione":"","scostamento":"","altraVariante":"","msg":[1]}]
+- "sport": SOLO se Profiliamo indica in modo ESPLICITO per oggi le bet sportive di questo book, scrivi {"n_bet":numero di bet,"importo_totale":importo totale in € da puntare oggi,"quota_min":quota minima}; ogni campo che non è scritto chiaramente va null (non calcolare e non dedurre). Se non indica bet sportive per oggi (es. solo casinò o solo ricarica), "sport" è null. Vale per la stessa variante del cliente; se parla di un'altra variante, "sport" è null.
+- Rispondi SOLO con un array JSON, senza altro testo: [{"id":"","azione":"","scostamento":"","altraVariante":"","sport":null,"msg":[1]}]
 
 LIBRI DEI CLIENTI:
 ${testoLibri}
@@ -112,7 +113,7 @@ ${testoMsg}`
     let grezzo: unknown[] = []
     try { grezzo = JSON.parse(r.testo.slice(a, b + 1)) } catch { return NextResponse.json({ error: 'Lucy ha risposto in un formato che non riesco a leggere, riprova' }, { status: 502 }) }
     const perId = new Map(libri.map(l => [l.id, l]))
-    const voci: { id: string; book: string; variante: string; azione: string; scostamento: string; altraVariante: string; link: string | null; data: string | null }[] = []
+    const voci: { id: string; book: string; variante: string; azione: string; scostamento: string; altraVariante: string; sport: { n_bet: number | null; importo_totale: number | null; quota_min: number | null } | null; link: string | null; data: string | null }[] = []
     for (const x of Array.isArray(grezzo) ? grezzo : []) {
       const o = (x || {}) as Record<string, unknown>
       const libro = perId.get(String(o.id || ''))
@@ -123,7 +124,12 @@ ${testoMsg}`
       const scost = alt ? '' : String(o.scostamento || '').trim()
       const numeri = (Array.isArray(o.msg) ? o.msg : []).map(n => Number(n)).filter(n => n >= 1 && n <= tenuti.length)
       const m0 = numeri.length ? tenuti[Math.max(...numeri) - 1] : null
-      voci.push({ id: libro.id, book: libro.nome, variante: libro.variante, azione, scostamento: scost, altraVariante: alt ? alt.label : '', link: m0?.link || null, data: m0?.data_msg || null })
+      // parametri sport: solo se espliciti e dentro limiti sensati (altrimenti si ignorano e vale il protocollo)
+      const sp = (o.sport && typeof o.sport === 'object' ? o.sport : null) as Record<string, unknown> | null
+      const num = (v: unknown, min: number, max: number) => { const n = Number(v); return v != null && v !== '' && Number.isFinite(n) && n >= min && n <= max ? n : null }
+      const sport = !alt && sp ? { n_bet: (() => { const n = num(sp.n_bet, 1, 10); return n == null ? null : Math.round(n) })(), importo_totale: num(sp.importo_totale, 5, 1000), quota_min: num(sp.quota_min, 1.01, 3) } : null
+      const sportValido = sport && (sport.n_bet != null || sport.importo_totale != null || sport.quota_min != null) ? sport : null
+      voci.push({ id: libro.id, book: libro.nome, variante: libro.variante, azione, scostamento: scost, altraVariante: alt ? alt.label : '', sport: sportValido, link: m0?.link || null, data: m0?.data_msg || null })
     }
     return NextResponse.json({ voci, messaggi: tenuti.length, costo: r.costo })
   } catch (e) {

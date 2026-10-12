@@ -338,6 +338,7 @@ const [lucyTabellaAperta, setLucyTabellaAperta] = useState(false)
 const [lucyLiveTabellaAperta, setLucyLiveTabellaAperta] = useState(false)
 const [lucyCostoMax, setLucyCostoMax] = useState(() => Number(localStorage.getItem('profittracker_lucy_costo_max') || 50))
   // 10/10/2026: massimo di incroci di MANTENIMENTO al giorno (rotazione: prima i conti fermi da più tempo)
+  const [seguiProfiliamo, setSeguiProfiliamo] = useState(() => { try { return localStorage.getItem('profittracker_segui_profiliamo') !== '0' } catch { return true } })   // 13/10/2026: le bet di profilazione seguono i numeri di Profiliamo (se chiari)
   const [lucyIncrociMantMax, setLucyIncrociMantMax] = useState(() => { const n = Number(localStorage.getItem('profittracker_lucy_incroci_mant_max')); return Number.isFinite(n) && n >= 0 && localStorage.getItem('profittracker_lucy_incroci_mant_max') !== null ? n : 1 })
 const [lucyCopMin, setLucyCopMin] = useState(() => { const v = Number(localStorage.getItem('profittracker_lucy_cop_min')); return v >= 50 && v <= 100 ? v : 85 })
 const [lucyRinviate, setLucyRinviate] = useState([])
@@ -3474,6 +3475,7 @@ function bloccoIncrocioLucy(p, pi, numero) {
               a.recupero&&a.dataOrigine?`dal ${String(a.dataOrigine).slice(5).split('-').reverse().join('/')}`:null,
               a.giaInAgenda?'in agenda oggi':null,
               a.daRicarica?'dopo ricarica':null,
+              a.daProfiliamo?'📣 numeri da Profiliamo':null,
               (a.stakeOriginale!=null && Number(a.stakeOriginale)!==Number(a.stake))?`stake ridotta da ${Number(a.stakeOriginale).toFixed(0)}€ per coprire con un conto da 5€ senza sovra-coprire`:null
             ].filter(Boolean).join(' · ')
             const ridotta=a.coperturaSuggeritaTotale!=null && a.copertura100Totale!=null && Math.abs(Number(a.coperturaSuggeritaTotale)-Number(a.copertura100Totale))>0.005
@@ -4064,14 +4066,28 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
     // recupero conto: una bet piccola tra 15 e 25€ (volume blando), multipli di 5, stabile nella giornata
     const budgetBase = isRecuperoLucy ? [15, 20, 25][hashStrLucy(`${lucyOggi()}|recupero|${book.id}`) % 3]
       : isMantenimentoLucy ? stakeMantenimentoProtocolloLucy(book) * betRichieste : getBudgetSportTotale(book, azione)
-    const budgetTotale = (isMantenimentoLucy || isRecuperoLucy) ? budgetBase : variaBudgetGiornaliero(book, budgetBase)
+    let budgetTotale = (isMantenimentoLucy || isRecuperoLucy) ? budgetBase : variaBudgetGiornaliero(book, budgetBase)
+    // 13/10/2026 · PROFILIAMO ALLA GUIDA: per le bet di PROFILAZIONE già dovute oggi, se Profiliamo ha scritto in modo chiaro
+    // n. di bet / importo totale / quota minima per lo STESSO book e la STESSA variante del cliente, valgono i suoi numeri al posto del protocollo.
+    // Cosa manca nel messaggio resta come da protocollo. Non cambia i giorni, non tocca mantenimento, recupero e spot.
+    let betR = betRichieste, quotaMinP = null, daProfiliamo = false
+    if (seguiProfiliamo && !isRecuperoLucy && !isMantenimentoLucy && !agenda?.spot) {
+      const varCliente = (getVariantiProfilazione(book.nome) || []).length ? (getVarianteProfilazione(book)?.label || '') : ''
+      const voce = (profiliamoVoci || []).find(v => v.book === book.nome && (v.variante || '') === varCliente && !v.altraVariante && v.sport)
+      if (voce) {
+        const sp = voce.sport
+        if (sp.n_bet) { betR = sp.n_bet; daProfiliamo = true }
+        if (sp.importo_totale) { budgetTotale = sp.importo_totale; daProfiliamo = true } else if (sp.n_bet && betRichieste > 0) { budgetTotale = Math.round(budgetTotale / betRichieste * betR) }
+        if (sp.quota_min) { quotaMinP = sp.quota_min; daProfiliamo = true }
+      }
+    }
     sportItems.push({
-      book, azione, betRichieste, budgetBase, budgetTotale, daRicarica,
+      book, azione, betRichieste: betR, budgetBase: daProfiliamo ? budgetTotale : budgetBase, budgetTotale, daRicarica, daProfiliamo,
       // V31: un conto in MANTENIMENTO con bet di protocollo oggi resta mantenimento (prima finiva etichettato PROFILAZIONE)
       tipoConto: agenda?.tipo==='mantenimento' ? 'mantenimento' : isRecuperoLucy ? 'recupero' : 'profilazione',
       spot: !!agenda?.spot,   // 28/09/2026: operazione spot (saldo fermo) — stessa gestione del recupero conto
-      stakeVariabili: distribuisciStakeVariabili(book, betRichieste, budgetTotale),
-      quotaMin: getQuotaMinSport(book, azione)
+      stakeVariabili: distribuisciStakeVariabili(book, betR, budgetTotale),
+      quotaMin: quotaMinP != null ? quotaMinP : getQuotaMinSport(book, azione)
     })
   })
 
@@ -8035,6 +8051,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                       style={{ ...inputNum, width: 70 }} />
                     <span style={{ fontSize: 11, color: '#cbd5e1' }}>€</span>
                   </div>
+                  <div style={campo} title="Se attivo, per le bet di profilazione Lucy usa n. di bet, importo e quota minima scritti da Profiliamo (quando sono chiari); altrimenti segue il protocollo. Dopo averlo cambiato premi di nuovo «Prepara bet».">
+                    <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 800 }}>📣 SEGUI PROFILIAMO</span>
+                    <input type="checkbox" checked={seguiProfiliamo} onChange={e => { setSeguiProfiliamo(e.target.checked); try { localStorage.setItem('profittracker_segui_profiliamo', e.target.checked ? '1' : '0') } catch {} }} />
+                  </div>
                   <div style={campo} title="Quanti incroci al giorno Lucy costruisce con i conti in Mantenimento (prima quelli fermi da più tempo). Gli incroci di Profilazione non sono limitati da questo valore.">
                     <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 800 }}>🔁 INCROCI MANT./GIORNO</span>
                     <input type="number" min="0" max="5" step="1" value={lucyIncrociMantMax}
@@ -8299,6 +8319,11 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 onChange={e=>{const v=Math.max(0,Number(e.target.value)||0);setLucyCostoMax(v);try{localStorage.setItem('profittracker_lucy_costo_max',String(v))}catch{}}}
                 style={{width:70,background:'#020617',color:'#f8fafc',border:'1px solid #475569',borderRadius:6,padding:'5px 6px',fontWeight:900,textAlign:'right'}} />
               <span style={{fontSize:11,color:'#cbd5e1'}}>€</span>
+            </div>
+            <div title="Se attivo, per le bet di profilazione Lucy usa n. di bet, importo e quota minima scritti da Profiliamo (quando sono chiari); altrimenti segue il protocollo. Dopo averlo cambiato premi di nuovo «Prepara bet»."
+              style={{display:'flex',alignItems:'center',gap:6,background:'rgba(15,23,42,.75)',border:'1px solid #334155',borderRadius:9,padding:'5px 8px'}}>
+              <span style={{fontSize:10,color:'#94a3b8',fontWeight:800}}>📣 SEGUI PROFILIAMO</span>
+              <input type="checkbox" checked={seguiProfiliamo} onChange={e=>{setSeguiProfiliamo(e.target.checked);try{localStorage.setItem('profittracker_segui_profiliamo',e.target.checked?'1':'0')}catch{}}} />
             </div>
             <div title="Quanti incroci al giorno Lucy costruisce con i conti in Mantenimento (prima quelli fermi da più tempo)."
               style={{display:'flex',alignItems:'center',gap:6,background:'rgba(15,23,42,.75)',border:'1px solid #334155',borderRadius:9,padding:'5px 8px'}}>
