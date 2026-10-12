@@ -82,14 +82,19 @@ export default function ConsigliAccademia() {
   }, [tipo, book, q, archiviati, vista])
   useEffect(() => { carica() }, [carica, giro])
 
-  const chiama = async (azione: 'prova' | 'avvia') => {
+  const chiama = async (azione: 'prova' | 'avvia' | 'slot_mancanti') => {
     setLavoro(azione); setEsito('')
     try {
       const r = await fetch('/api/accademia/consigli', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ azione }) })
       const j = await r.json()
       if (!r.ok) throw new Error(j?.error || `errore ${r.status}`)
       if (azione === 'prova') setProva(j as Prova)
-      else {
+      else if (azione === 'slot_mancanti') {
+        setEsito(j.ok === false
+          ? `⚠️ Elenco slot interrotto: ${j.errore || 'errore'} · compilati ${j.conNomi} consigli`
+          : `✅ Letti ${j.lavorati} consigli: ${j.conNomi} con i nomi delle slot, ${j.senzaNomi} senza nessun nome nel testo${j.rimasti > 0 ? ` · ne restano ${j.rimasti}, premi di nuovo` : ''} · costo ${Number(j.costo || 0).toFixed(3)} $`)
+        setGiro(g => g + 1)
+      } else {
         setEsito(j.ok === false
           ? `⚠️ Lettura interrotta: ${j.errore || 'errore'}`
           : j.saltato
@@ -269,6 +274,11 @@ export default function ConsigliAccademia() {
           {elenco.senzaNomi > 0 && (
             <div className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-300">
               {elenco.senzaNomi} {elenco.senzaNomi === 1 ? 'consiglio sulle slot non ha' : 'consigli sulle slot non hanno'} ancora l&apos;elenco dei nomi: erano stati letti prima che Lucy imparasse a estrarli. Restano visibili nella vista «Consigli».
+              <button
+                disabled={!!lavoro}
+                onClick={() => { if (confirm('Lucy rilegge solo il testo dei consigli già raccolti (non Telegram) per scriverne i nomi delle slot. Costa pochi centesimi. Procedo?')) chiama('slot_mancanti') }}
+                className="ml-2 rounded border border-green-400 bg-green-500/15 px-2 py-1 font-semibold text-green-200 hover:bg-green-500/25 disabled:opacity-50"
+              >{lavoro === 'slot_mancanti' ? '> leggo…' : '🔧 Estrai i nomi con Lucy'}</button>
             </div>
           )}
           {!elenco.righe.length && !errore && <div className="rounded border border-green-900/70 p-4 text-center text-sm text-slate-500">&gt; Nessuna slot nominata ancora{elenco.senzaNomi ? ' (vedi avviso sotto)' : ''}.</div>}
