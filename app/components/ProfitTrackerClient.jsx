@@ -100,13 +100,13 @@ const BASE_CASSA_MESE = 57229.62
 // 01/10/2026 — SEZIONE A SCOMPARSA (tab Profilazione, vista Operativa).
 // Il contenuto resta montato anche da chiusa (display: none): i pannelli continuano a lavorare
 // (avvisi, coda recuperi…) anche quando non li guardi. Si ricorda aperta/chiusa.
-function Sezione({ id, titolo, badge, colore = '#38bdf8', aperta: apertaDefault = false, forzaApri, lampeggia = false, children }) {
+function Sezione({ id, titolo, badge, colore = '#38bdf8', aperta: apertaDefault = false, forzaApri, lampeggia = false, daFare = false, children }) {
   const chiave = `profittracker_sezione_${id}`
   const [aperta, setAperta] = useState(() => { try { const v = localStorage.getItem(chiave); return v == null ? apertaDefault : v === '1' } catch { return apertaDefault } })
   useEffect(() => { if (forzaApri) setAperta(true) }, [forzaApri])
   const cambia = () => setAperta(v => { const n = !v; try { localStorage.setItem(chiave, n ? '1' : '0') } catch {} return n })
   return (
-    <div id={`sezione-${id}`} style={{ marginBottom: 12, scrollMarginTop: 12 }}>
+    <div id={`sezione-${id}`} data-da-fare={daFare ? '1' : undefined} style={{ marginBottom: 12, scrollMarginTop: 12 }}>
       {lampeggia && !aperta ? <style>{`@keyframes sezPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(248,113,113,0) } 50% { box-shadow: 0 0 14px 2px rgba(248,113,113,.45) } } .sez-lampeggia { animation: sezPulse 1.6s ease-in-out infinite }`}</style> : null}
       <div className={lampeggia && !aperta ? 'sez-lampeggia' : undefined} onClick={cambia} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 12, border: `1px solid ${colore}55`, background: `${colore}12`, fontWeight: 800, color: '#e2e8f0', fontSize: 14 }}>
         <span>{titolo}</span>
@@ -7699,7 +7699,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             .sort((a, b) => a.prossima.localeCompare(b.prossima))
           if (!prossime.length) return null
           return (
-            <Sezione id="dash_mirate" titolo="🎯 Profilazioni mirate in arrivo" badge={`${prossime.length}${prossime.some(r => r.tra <= 0) ? ` · ${prossime.filter(r => r.tra <= 0).length} oggi` : ''}`} colore="#a78bfa" aperta={false}>
+            <Sezione id="dash_mirate" titolo="🎯 Profilazioni mirate in arrivo" badge={`${prossime.length}${prossime.some(r => r.tra <= 0) ? ` · ${prossime.filter(r => r.tra <= 0).length} oggi` : ''}`} colore="#a78bfa" aperta={false} daFare={prossime.some(r => r.tra <= 0)}>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', padding: '2px 0' }}>
               {prossime.map(({ g, prossima, tra }) => {
                 const nomiBook = [...new Set((g.conti || []).map(id => (books || []).find(b => String(b.id) === String(id))?.nome).filter(Boolean))]

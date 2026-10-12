@@ -14,7 +14,7 @@ const CHIAVE = 'profittracker_aspetto_v1'
 export const ASPETTO_PREDEFINITO = { numeriSu: true, oggiUnico: true, rossoCompatto: true, pulsantiGruppi: true, headerCompatto: true }
 const VOCI = [
   ['numeriSu', '💶 Numeri in alto', 'Panoramica, Cassa e Accantonamenti subito sotto la barra; gli avvisi vanno sotto'],
-  ['oggiUnico', '📋 Strisce in una scheda "Oggi"', 'Quote, Lucy Trading, promo in scadenza e profilazioni mirate raccolte in un riquadro che si chiude'],
+  ['oggiUnico', '📋 Bottone "Oggi" accanto a Salva Periodo', 'Lucy Trading, promo in scadenza e profilazioni mirate in una finestra mobile; il bottone lampeggia in giallo se c\'è qualcosa da fare oggi'],
   ['rossoCompatto', '🔔 Riquadro rosso corto', 'Mostra 3 avvisi e un tasto per vederli tutti'],
   ['pulsantiGruppi', '🗂 Pulsanti in gruppi', 'I più usati restano in vista, gli altri stanno in 3 menu'],
   ['headerCompatto', '🏠 Intestazione compatta', 'Home, Esito manuale, Iscritti e © in un menu'],
@@ -147,22 +147,86 @@ export function MenuIntestazione({ stile, testoCopyright }) {
   )
 }
 
-/* ---------- scheda "Oggi" che raccoglie le strisce ---------- */
+/* ---------- scheda "Oggi": bottone accanto a "Salva Periodo" + finestra mobile ----------
+   13/10/2026: da chiusa è solo un bottone; al clic si apre un popup che si trascina col mouse (dall'intestazione) e si richiude con ✕ o Esc.
+   Il bottone lampeggia in giallo finché dentro c'è qualcosa da fare oggi: le sezioni segnalano "da fare" con l'attributo data-da-fare="1"
+   (promo che scadono oggi, profilazioni mirate di oggi o scadute) e il segnale sparisce da solo quando le cose sono state fatte.
+   Il contenuto resta montato anche da chiuso, così i pannelli continuano a caricarsi. */
 export function OggiCard({ children, attiva }) {
-  const [aperta, setAperta] = useState(true)
-  useEffect(() => { try { const v = localStorage.getItem('profittracker_oggi_card'); if (v != null) setAperta(v === '1') } catch {} }, [])
-  const cambia = () => setAperta(v => { const n = !v; try { localStorage.setItem('profittracker_oggi_card', n ? '1' : '0') } catch {} return n })
+  const [aperta, setAperta] = useState(false)
+  const [daFare, setDaFare] = useState(false)
+  const [pos, setPos] = useState(null)
+  const finestra = useRef(null)
+  const trascina = useRef(null)
+
+  // posizione iniziale (o l'ultima scelta), sempre dentro lo schermo
+  useEffect(() => {
+    let p = null
+    try { p = JSON.parse(localStorage.getItem('profittracker_oggi_pos') || 'null') } catch {}
+    const w = typeof window !== 'undefined' ? window.innerWidth : 1200
+    setPos(p && Number.isFinite(p.x) && Number.isFinite(p.y) ? { x: Math.min(Math.max(0, p.x), Math.max(0, w - 120)), y: Math.max(0, p.y) } : { x: Math.max(12, Math.round(w / 2 - 320)), y: 90 })
+  }, [])
+
+  // controlla se c'è qualcosa da fare (le sezioni dentro si aggiornano da sole: promo, mirate...)
+  useEffect(() => {
+    const el = finestra.current
+    if (!el) return
+    const controlla = () => setDaFare(!!el.querySelector('[data-da-fare="1"]'))
+    controlla()
+    let obs = null
+    if (typeof MutationObserver !== 'undefined') { obs = new MutationObserver(controlla); obs.observe(el, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-da-fare'] }) }
+    const t = setInterval(controlla, 30000)
+    return () => { if (obs) obs.disconnect(); clearInterval(t) }
+  }, [attiva])
+
+  useEffect(() => {
+    if (!aperta) return
+    const esc = e => { if (e.key === 'Escape') setAperta(false) }
+    window.addEventListener('keydown', esc)
+    return () => window.removeEventListener('keydown', esc)
+  }, [aperta])
+
   if (!attiva) return <>{children}</>
+
+  const inizia = e => {
+    if (e.target.closest && e.target.closest('button')) return   // il ✕ non avvia il trascinamento
+    const p = pos || { x: 0, y: 0 }
+    trascina.current = { dx: e.clientX - p.x, dy: e.clientY - p.y }
+    try { e.currentTarget.setPointerCapture(e.pointerId) } catch {}
+    e.preventDefault()
+  }
+  const muovi = e => {
+    const t = trascina.current
+    if (!t) return
+    const w = window.innerWidth, h = window.innerHeight
+    setPos({ x: Math.min(Math.max(-200, e.clientX - t.dx), w - 120), y: Math.min(Math.max(0, e.clientY - t.dy), h - 50) })
+  }
+  const fine = e => {
+    if (!trascina.current) return
+    trascina.current = null
+    try { e.currentTarget.releasePointerCapture(e.pointerId) } catch {}
+    try { if (pos) localStorage.setItem('profittracker_oggi_pos', JSON.stringify(pos)) } catch {}
+  }
+
   return (
-    <div style={{ border: '1px solid rgba(71,85,105,0.7)', borderRadius: 14, background: 'rgba(15,23,42,0.55)', padding: '8px 12px', marginBottom: 12 }}>
-      <div onClick={cambia} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, color: '#e2e8f0', fontWeight: 900, fontSize: 13 }}>
-        <span>📋 Oggi</span>
-        <span style={{ color: '#64748b', fontWeight: 600, fontSize: 11.5 }}>Lucy Trading · promo in scadenza · profilazioni mirate</span>
-        <span style={{ marginLeft: 'auto', color: '#94a3b8', fontSize: 12 }}>{aperta ? '▲ chiudi' : '▼ apri'}</span>
+    <>
+      <style>{`@keyframes oggiGiallo { 0%,100% { background: rgba(250,204,21,.18); box-shadow: 0 0 0 0 rgba(250,204,21,0); border-color: rgba(250,204,21,.7); color: #fde68a } 50% { background: rgba(250,204,21,.95); box-shadow: 0 0 16px 3px rgba(250,204,21,.6); border-color: #fde047; color: #1c1917 } } .oggi-lampeggia { animation: oggiGiallo 1.1s ease-in-out infinite }`}</style>
+      <button type="button" onClick={() => setAperta(v => !v)} className={daFare ? 'oggi-lampeggia' : undefined}
+        title={daFare ? 'Ci sono cose da fare oggi: apri' : 'Quote, Lucy Trading, promo in scadenza e profilazioni mirate'}
+        style={{ padding: '10px 16px', borderRadius: 12, border: '1px solid rgba(71,85,105,0.9)', background: aperta ? 'rgba(56,189,248,.18)' : 'rgba(15,23,42,0.75)', color: '#e2e8f0', fontWeight: 900, fontSize: 14, cursor: 'pointer' }}>
+        📋 Oggi{daFare ? ' · da fare' : ''}
+      </button>
+      <div ref={finestra} style={{ display: aperta ? 'block' : 'none', position: 'fixed', left: pos ? pos.x : 20, top: pos ? pos.y : 90, zIndex: 9000, width: 'min(680px, 96vw)', maxHeight: '78vh', overflow: 'hidden', borderRadius: 14, border: '1px solid rgba(100,116,139,0.8)', background: 'rgba(8,13,28,0.98)', boxShadow: '0 18px 50px rgba(0,0,0,.65)' }}>
+        <div onPointerDown={inizia} onPointerMove={muovi} onPointerUp={fine} onPointerCancel={fine}
+          style={{ cursor: 'move', touchAction: 'none', userSelect: 'none', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', background: 'rgba(30,41,59,0.95)', borderBottom: '1px solid rgba(71,85,105,0.8)', color: '#e2e8f0', fontWeight: 900, fontSize: 13 }}>
+          <span>📋 Oggi</span>
+          <span style={{ color: '#64748b', fontWeight: 600, fontSize: 11.5 }}>Lucy Trading · promo in scadenza · profilazioni mirate</span>
+          <span style={{ marginLeft: 'auto', color: '#64748b', fontSize: 11, fontWeight: 600 }}>trascina per spostare</span>
+          <button type="button" onClick={() => setAperta(false)} title="Chiudi" style={{ border: '1px solid rgba(148,163,184,.5)', background: 'rgba(15,23,42,.8)', color: '#e2e8f0', borderRadius: 8, padding: '2px 10px', fontWeight: 900, cursor: 'pointer' }}>✕</button>
+        </div>
+        <div style={{ padding: 12, overflowY: 'auto', maxHeight: 'calc(78vh - 48px)' }}>{children}</div>
       </div>
-      {/* resta montata anche da chiusa: i pannelli continuano a caricarsi e a lampeggiare dentro le loro sezioni */}
-      <div style={{ display: aperta ? 'block' : 'none', marginTop: 8 }}>{children}</div>
-    </div>
+    </>
   )
 }
 

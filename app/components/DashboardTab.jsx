@@ -128,7 +128,8 @@ export default function DashboardTab({
       {/* 12/10/2026: in alto SEMPRE diretta/avviso mail e avvisi scadenze · poi numeri e scheda Oggi (numeriSu); com'era = scheda Oggi (strisce) prima di tutto */}
       <div style={{ display: 'flex', flexDirection: 'column' }}>
       <div style={{ order: 1 }}>{striscePrima}</div>
-      <div style={{ order: aspetto.numeriSu ? 4 : 0 }}><OggiCard attiva={!!aspetto.oggiUnico}>{strisceOggi}</OggiCard></div>
+      {/* 13/10/2026: con "scheda Oggi" acceso, le strisce stanno nel popup aperto dal bottone accanto a Salva Periodo */}
+      {!aspetto.oggiUnico && <div style={{ order: aspetto.numeriSu ? 4 : 0 }}>{strisceOggi}</div>}
       <div style={{ order: 2 }}>
       {(() => {
         const oggi = new Date()
@@ -412,13 +413,14 @@ export default function DashboardTab({
       </div>
 
       <div style={{ order: 3 }}>
-      <div style={{ marginBottom: '15px' }}>
+      <div style={{ marginBottom: '15px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <button
           style={primaryButtonBlue}
           onClick={saveWeeklySnapshot}
         >
           Salva Periodo
         </button>
+        <OggiCard attiva={!!aspetto.oggiUnico}>{strisceOggi}</OggiCard>
       </div>
 
       <div style={heroGrid}>

@@ -70,7 +70,7 @@ export function PromoScadenze({ onApri, Sezione }) {
   const oggi = conta(/^oggi/i), domani = conta(/^domani/i)   // l'etichetta di oggi è scritta OGGI in maiuscolo
   if (Sezione) {
     return (
-      <Sezione id="dash_promo" titolo="🎁 Promo in scadenza" badge={`${lista.length}${oggi ? ` · ${oggi} oggi` : ''}${domani ? ` · ${domani} domani` : ''}`} colore="#f87171" aperta={false} lampeggia={oggi + domani > 0}>
+      <Sezione id="dash_promo" titolo="🎁 Promo in scadenza" badge={`${lista.length}${oggi ? ` · ${oggi} oggi` : ''}${domani ? ` · ${domani} domani` : ''}`} colore="#f87171" aperta={false} lampeggia={oggi + domani > 0} daFare={oggi > 0}>
         <div onClick={onApri} title="Apri la tab Promo"
           style={{ cursor: 'pointer', background: 'rgba(239,68,68,.08)', border: '1px solid rgba(248,113,113,.5)', borderRadius: 14, padding: '10px 14px', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
           {gruppi.map(g => (
