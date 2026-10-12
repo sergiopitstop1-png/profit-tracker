@@ -7525,9 +7525,9 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           <DashboardTab
             aspetto={aspetto}
             striscePrima={<><LucyAvvisoMail />
+<BetfairStato />
 <DiretteAvviso /></>}
             strisceOggi={<>
-<BetfairStato />
 <LucyTrading Sezione={Sezione} />
 <PromoScadenze onApri={() => handleTabChange('promo')} Sezione={Sezione} />
        {/* 05/10/2026 · 🎯 PROFILAZIONI MIRATE IN ARRIVO: scadute, oggi, domani e nei 3 giorni dopo */}

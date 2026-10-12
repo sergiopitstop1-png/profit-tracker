@@ -157,7 +157,7 @@ export function OggiCard({ children, attiva }) {
     <div style={{ border: '1px solid rgba(71,85,105,0.7)', borderRadius: 14, background: 'rgba(15,23,42,0.55)', padding: '8px 12px', marginBottom: 12 }}>
       <div onClick={cambia} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, color: '#e2e8f0', fontWeight: 900, fontSize: 13 }}>
         <span>📋 Oggi</span>
-        <span style={{ color: '#64748b', fontWeight: 600, fontSize: 11.5 }}>quote · Lucy Trading · promo in scadenza · profilazioni mirate</span>
+        <span style={{ color: '#64748b', fontWeight: 600, fontSize: 11.5 }}>Lucy Trading · promo in scadenza · profilazioni mirate</span>
         <span style={{ marginLeft: 'auto', color: '#94a3b8', fontSize: 12 }}>{aperta ? '▲ chiudi' : '▼ apri'}</span>
       </div>
       {/* resta montata anche da chiusa: i pannelli continuano a caricarsi e a lampeggiare dentro le loro sezioni */}
