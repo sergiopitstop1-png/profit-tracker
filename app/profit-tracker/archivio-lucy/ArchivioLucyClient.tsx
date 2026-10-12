@@ -229,6 +229,7 @@ export default function ArchivioLucyClient({ incorporato = false, onVaiAPromo, v
 
   const DESTINAZIONI: Array<{ chiave: string; etichetta: string }> = [
     { chiave: 'OPPORTUNITA', etichetta: '🔥 Opportunità' },
+    { chiave: 'ACCREDITATI', etichetta: '💰 Bonus accreditati' },
     { chiave: 'DA_VALUTARE', etichetta: '⚠️ Da valutare' },
     { chiave: 'PROBLEMI', etichetta: '🚨 Problemi' },
     { chiave: 'IGNORA', etichetta: '⚪ Ignora' },

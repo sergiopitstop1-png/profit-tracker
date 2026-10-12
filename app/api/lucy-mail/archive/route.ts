@@ -378,6 +378,15 @@ const RE_NON_ANCORA =
 function isBonusAccreditato(row: UnifiedRow) {
   if (row.richiede_azione === true) return false
 
+  // correzione manuale dell'utente: "doveva stare in Bonus accreditati"
+  if (
+    String(row.feedback_note || '').startsWith(
+      'DOVEVA_ESSERE=ACCREDITATI'
+    )
+  ) {
+    return true
+  }
+
   // correzione manuale dell'utente: "doveva stare in Opportunità"
   if (
     String(row.feedback_note || '').startsWith(
@@ -1329,6 +1338,7 @@ export async function PATCH(
      */
     const DESTINAZIONI_VALIDE = [
       'OPPORTUNITA',
+      'ACCREDITATI',
       'DA_VALUTARE',
       'PROBLEMI',
       'IGNORA',
@@ -1370,8 +1380,10 @@ export async function PATCH(
           ? ` | ${motivoPulito}`
           : '')
 
-      if (sposta_in === 'OPPORTUNITA') {
+      if (sposta_in === 'OPPORTUNITA' || sposta_in === 'ACCREDITATI') {
         patch.giudizio = 'UTILE'
+        // ACCREDITATI = opportunità già incassata: niente da fare (la regola bucket guarda la nota)
+        if (sposta_in === 'ACCREDITATI') patch.richiede_azione = false
       } else if (sposta_in === 'IGNORA') {
         patch.giudizio = 'IGNORA'
         patch.richiede_azione = false

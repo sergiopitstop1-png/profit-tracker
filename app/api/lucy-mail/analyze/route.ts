@@ -207,6 +207,7 @@ function dominioMittente(v: unknown) {
 
 const NOMI_DEST: Record<string, string> = {
   OPPORTUNITA: 'Opportunità (UTILE)',
+  ACCREDITATI: 'Bonus accreditati (UTILE: bonus già accreditato/attivo, niente da fare)',
   DA_VALUTARE: 'Da valutare (DA_VALUTARE)',
   PROBLEMI: 'Problemi (account/KYC/limitazioni)',
   IGNORA: 'Ignora (IGNORA)',
