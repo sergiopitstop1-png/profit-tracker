@@ -31,6 +31,7 @@ import LucyTrading from './LucyTrading'   // 06/10/2026: scheda Lucy · trading 
 import ProfilazioniMiratePanel, { prossimaMirata } from './ProfilazioniMirate'   // 05/10/2026: prossimaMirata per il banner in Dashboard
 import { impostaPausaRecupero } from './RecuperoConti'
 import CalendarioAperture from './CalendarioAperture'
+import { useAspetto, PannelloAspetto, NavRaggruppata, MenuIntestazione } from './AspettoDashboard'   // 12/10/2026: Dashboard meno affollata, con interruttori
 // 12/10/2026 — Lucy Mail e Segnali ora si aprono dentro il Profit Tracker (barra sempre in alto), caricati solo quando servono
 const LucyMailTab = dynamic(() => import('../profit-tracker/archivio-lucy/ArchivioLucyClient'), { ssr: false, loading: () => <div style={{ color: '#94a3b8', padding: 20 }}>Carico Lucy Mail…</div> })
 const SegnaliTab = dynamic(() => import('../profit-tracker/segnali/SegnaliClient'), { ssr: false, loading: () => <div style={{ color: '#94a3b8', padding: 20 }}>Carico i segnali…</div> })
@@ -122,6 +123,7 @@ export default function ProfitTrackerClient() {
     return `${y}-${m}`
   }
   const [activeTab, setActiveTab] = useState('dashboard')
+  const [aspetto, setAspetto] = useAspetto()   // 12/10/2026: ⚙ Aspetto (ogni modifica si spegne da sola)
   // 05/10/2026 · 🎁 arrivo da Lucy Mail (/profit-tracker?tab=promo&...): apre la tab Promo con il modulo già compilato
   const [promoPrefill, setPromoPrefill] = useState(null)
   // 12/10/2026 · ?tab=lucy-mail&vista=...&sezione=telegram e ?tab=segnali aprono le due tab (arrivo da avvisi e link)
@@ -6999,6 +7001,18 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         }
       `}</style>
       <div style={pageWrap}>
+        {aspetto.headerCompatto ? (
+        <header style={header}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <img src="/WhatsApp Image 2026-05-23 at 22.05.05.jpeg" alt="SGM Logo" style={{ width: 52, height: 52, borderRadius: 12, objectFit: 'cover' }} />
+            <div>
+              <h1 style={title}>Profit Tracker - La scalata al SUCCESSO</h1>
+              <p style={subtitle}>books · wallets · transactions</p>
+            </div>
+          </div>
+          <MenuIntestazione stile={tabButton} testoCopyright="© Sergio Apicella — Tutti i diritti riservati" />
+        </header>
+        ) : (
         <header style={header}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <img src="/WhatsApp Image 2026-05-23 at 22.05.05.jpeg" alt="SGM Logo" style={{ width: 80, height: 80, borderRadius: 14, objectFit: 'cover' }} />
@@ -7029,6 +7043,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             <div style={copyrightBox}>© Sergio Apicella — Tutti i diritti riservati</div>
           </div>
         </header>
+        )}
 
         <div style={{ display: 'flex', alignItems: 'stretch', gap: 10, marginBottom: 12 }}>
           {guadagnoCorrente >= mediaMensileResidua && mediaMensileResidua > 0 && (
@@ -7446,6 +7461,22 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             </div>
           )
         })()}
+        {aspetto.pulsantiGruppi ? (
+          <NavRaggruppata
+            activeTab={activeTab}
+            tabButton={tabButton}
+            activeTabButton={activeTabButton}
+            tabsBar={tabsBar}
+            onTab={(t) => {
+              if (t === 'stime-cassa') {
+                if (!canViewStimeCassa) { setAccessDenied('⛔ Accesso non consentito'); setTimeout(() => setAccessDenied(''), 2500); return }
+                setActiveTab('stime-cassa'); return
+              }
+              handleTabChange(t)
+            }}
+            extra={<PannelloAspetto aspetto={aspetto} setAspetto={setAspetto} stile={tabButton} />}
+          />
+        ) : (
         <nav style={tabsBar}>
           <button style={activeTab === 'dashboard' ? activeTabButton : tabButton} onClick={() => handleTabChange('dashboard')}>Dashboard</button>
           <button style={activeTab === 'accantonamenti' ? activeTabButton : tabButton} onClick={() => handleTabChange('accantonamenti')}>💰 Accantonamenti</button>
@@ -7485,17 +7516,22 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 >
   Contabilità
 </button>       
+          <PannelloAspetto aspetto={aspetto} setAspetto={setAspetto} stile={tabButton} />
         </nav>
+        )}
 
        {/* 05/10/2026 · 🎁 PROMO IN SCADENZA (lampeggia entro 2 giorni) */}
-       {activeTab === 'dashboard' && <LucyAvvisoMail />}
-       {activeTab === 'dashboard' && <BetfairStato />}
-       {activeTab === 'dashboard' && <DiretteAvviso />}
-       {activeTab === 'dashboard' && <LucyTrading Sezione={Sezione} />}
-       {activeTab === 'dashboard' && <PromoScadenze onApri={() => handleTabChange('promo')} Sezione={Sezione} />}
-
+       {activeTab === 'dashboard' && (
+          <DashboardTab
+            aspetto={aspetto}
+            striscePrima={<><LucyAvvisoMail />
+<DiretteAvviso /></>}
+            strisceOggi={<>
+<BetfairStato />
+<LucyTrading Sezione={Sezione} />
+<PromoScadenze onApri={() => handleTabChange('promo')} Sezione={Sezione} />
        {/* 05/10/2026 · 🎯 PROFILAZIONI MIRATE IN ARRIVO: scadute, oggi, domani e nei 3 giorni dopo */}
-       {activeTab === 'dashboard' && (() => {
+       {(() => {
           const oggiM = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' })
           const traGiorni = (iso) => Math.round((new Date(iso + 'T12:00:00') - new Date(oggiM + 'T12:00:00')) / 86400000)
           const dataIt = (iso) => iso.split('-').reverse().join('/')
@@ -7550,8 +7586,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           )
         })()}
 
-       {activeTab === 'dashboard' && (
-          <DashboardTab
+
+            </>}
             memoFutureNotes={memoFutureNotes}
             stimeCassa={stimeCassa}
             clienti={clienti}
