@@ -51,7 +51,7 @@ export default function LucyAvvisoMail() {
   const conProblemi = mostraProb
   const colore = conProblemi ? '245,158,11' : '34,197,94'   // ambra con problemi, verde altrimenti
 
-  const vai = (vista) => { window.location.href = '/profit-tracker/archivio-lucy?vista=' + vista }
+  const vai = (vista) => { window.location.href = '/profit-tracker?tab=lucy-mail&vista=' + vista }
   const chip = { cursor: 'pointer', background: 'transparent', border: 'none', color: '#e2e8f0', fontSize: 13, fontWeight: 700, padding: 0, whiteSpace: 'nowrap' }
 
   return (

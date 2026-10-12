@@ -44,7 +44,7 @@ export default function DiretteAvviso() {
       📡 Diretta Accademia {tra(manca)} · {fmt(d.inizio)} · {d.titolo}
       {d.link && <> · <a href={d.link} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'underline' }}>apri</a></>}
       {prossime.length > 1 && <span style={{ fontWeight: 600, opacity: 0.8 }}> (+{prossime.length - 1} nelle prossime 48 ore)</span>}
-      {' · '}<a href="/profit-tracker/archivio-lucy?sezione=telegram" style={{ textDecoration: 'underline', fontWeight: 600 }}>calendario</a>
+      {' · '}<a href="/profit-tracker?tab=lucy-mail&sezione=telegram" style={{ textDecoration: 'underline', fontWeight: 600 }}>calendario</a>
     </div>
   )
 }

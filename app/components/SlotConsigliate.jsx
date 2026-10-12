@@ -89,7 +89,17 @@ export default function SlotConsigliate({ onClose, contesto }) {
   const tipsFiltrati = tips
     .filter(t => !q || norma([t.titolo, t.consiglio, t.dettagli, t.book, t.promo, ...(t.slot || []).map(x => x.nome)].join(' ')).includes(norma(q)))
     .map(t => ({ t, perQuesto: !!(contesto && t.book && norma(contesto).includes(norma(t.book))) }))
-    .sort((a, b) => Number(b.perQuesto) - Number(a.perQuesto))
+    .sort((a, b) => String(b.t.ultima_data || '').localeCompare(String(a.t.ultima_data || '')))   // più recenti per primi
+  // raggruppati per book: sopra il book del contesto, poi quello con il messaggio più recente
+  const gruppiTips = []
+  tipsFiltrati.forEach(x => {
+    const book = x.t.book || 'generale'
+    let g = gruppiTips.find(y => y.book === book)
+    if (!g) { g = { book, voci: [], perQuesto: false, ultima: x.t.ultima_data || '' }; gruppiTips.push(g) }
+    g.voci.push(x)
+    if (x.perQuesto) g.perQuesto = true
+  })
+  gruppiTips.sort((a, b) => Number(b.perQuesto) - Number(a.perQuesto) || String(b.ultima).localeCompare(String(a.ultima)))
   async function aggiorna(s, campo, valore) {
     if ((s[campo] || '') === valore) return
     const { error } = await supabase.from('slot_consigliate').update({ [campo]: valore }).eq('id', s.id)
@@ -153,11 +163,15 @@ export default function SlotConsigliate({ onClose, contesto }) {
             <div style={{ marginTop: 10 }}>
               {erroreTips && <div style={{ color: '#fbbf24', fontSize: 12 }}>Consigli Accademia non disponibili: {erroreTips}</div>}
               {!erroreTips && tipsFiltrati.length === 0 && <div style={{ color: '#94a3b8', fontSize: 12 }}>Nessun consiglio sulle slot {q ? 'con questa ricerca' : 'raccolto ancora'}.</div>}
-              {tipsFiltrati.map(({ t, perQuesto }) => (
+              {gruppiTips.map(g => (
+                <details key={g.book} open={g.perQuesto || gruppiTips.length <= 3 || !!q} style={{ marginBottom: 10 }}>
+                  <summary style={{ cursor: 'pointer', color: '#fbbf24', fontWeight: 900, fontSize: 12, letterSpacing: 0.5, textTransform: 'uppercase', padding: '4px 0' }}>
+                    {g.book} <span style={{ color: '#94a3b8', fontWeight: 600 }}>· {g.voci.length}{g.perQuesto ? ' · per questo book' : ''}</span>
+                  </summary>
+                  {g.voci.map(({ t, perQuesto }) => (
                 <div key={t.id} style={{ border: `1px solid ${perQuesto ? 'rgba(251,191,36,0.6)' : 'rgba(51,65,85,0.8)'}`, borderRadius: 10, padding: '8px 10px', marginBottom: 8, background: 'rgba(2,6,23,0.5)' }}>
                   <div style={{ fontSize: 11, color: '#94a3b8', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     {perQuesto && <span style={{ color: '#fbbf24', fontWeight: 800 }}>per questo book</span>}
-                    <span style={{ color: '#fbbf24', fontWeight: 800, textTransform: 'uppercase' }}>{t.book || 'generale'}</span>
                     {t.promo && <span>{t.promo}</span>}
                     {t.scopo && <span style={{ color: '#38bdf8' }}>{t.scopo}</span>}
                     {t.da_staff && <span style={{ color: '#fbbf24' }}>⭐ staff</span>}
@@ -175,6 +189,8 @@ export default function SlotConsigliate({ onClose, contesto }) {
                   )}
                   {(t.fonti || []).find(f => f.l) && <a href={t.fonti.find(f => f.l).l} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: '#4ade80', marginTop: 4, display: 'inline-block' }}>↗ Telegram</a>}
                 </div>
+                  ))}
+                </details>
               ))}
             </div>
           )}
