@@ -11,7 +11,7 @@ import { PostItTab, PostItFloatingWidget } from './PostItWidget'
 import MemoTab from './MemoTab'
 import { calcolaRoyalty, RoyaltyRiepilogo, RoyaltyBadge, RoyaltyModal, inserisciPagamento } from './RoyaltyPanel'
 import { RisparmiCard, calcolaRisparmi, maturaInteressi, normalizza as normalizzaRisparmi } from './RisparmiPanel'
-import SlotConsigliate, { PulsanteSlot, parlaDiSlot } from './SlotConsigliate'
+import SlotConsigliate, { PulsanteSlot, parlaDiSlot, ListaSlotUnica } from './SlotConsigliate'
 import ProfiliamoOggi from './ProfiliamoOggi'
 import RecuperoContiPanel, { contiInRecupero, azioniRecuperoOggi, limitazioniDaNota, daPromuovere, recuperoSport } from './RecuperoConti'
 import RecuperiPronoxPanel from './RecuperiPronox'
@@ -7506,6 +7506,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           {/* 12/10/2026 — Segnali e Lucy Mail sono tab come le altre: la barra resta sempre in alto */}
           <button style={activeTab === 'segnali' ? activeTabButton : { ...tabButton, borderColor: 'rgba(56,189,248,0.6)' }} title="Segnali del canale ScoreTrend in tempo reale, con la pagella" onClick={() => handleTabChange('segnali')}>📡 Segnali</button>
           <button style={activeTab === 'lucy-mail' ? activeTabButton : { ...tabButton, borderColor: 'rgba(34,197,94,0.6)' }} title="Email e SMS dei bookmaker analizzati da Lucy" onClick={() => handleTabChange('lucy-mail')}>📬 Lucy Mail</button>
+          {/* 13/10/2026 — Strumenti: per ora la lista slot unica (Profilazione + Accademia) */}
+          <button style={activeTab === 'strumenti' ? activeTabButton : tabButton} title="Strumenti: lista slot unica (Profilazione + Accademia)" onClick={() => handleTabChange('strumenti')}>🧰 Strumenti</button>
 <button
   style={activeTab === 'stime-cassa' ? activeTabButton : tabButton}
   onClick={() => {
@@ -7701,6 +7703,12 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           />
         )}
         {activeTab === 'segnali' && <SegnaliTab incorporato />}
+        {activeTab === 'strumenti' && (
+          <div>
+            <div style={{ fontSize: 19, fontWeight: 900, color: '#f8fafc', marginBottom: 10 }}>🎰 Lista slot</div>
+            <ListaSlotUnica incorporato />
+          </div>
+        )}
         {activeTab === 'masaniello' && <Masaniello />}
         {activeTab === 'periodi' && (() => {
           const annoCorrente = new Date().getFullYear()

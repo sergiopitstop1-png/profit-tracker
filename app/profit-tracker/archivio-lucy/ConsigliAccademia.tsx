@@ -3,7 +3,7 @@
 // 11/10/2026 · Raccoglitore dei consigli dell'Accademia (tab Telegram di Archivio Lucy).
 // Lucy legge i messaggi dei topic scelti e ne estrae slot consigliate, consigli sulle promo, bug e schemi: qui si consultano per book e tipo.
 // Legge da /api/accademia/consigli (solo admin). Stile matrix come il resto di Archivio Lucy.
-// 12/10/2026 · vista "📋 Elenco slot": per ogni book, la lista delle slot divise per scopo (margine / rollover / altro), senza leggere i singoli consigli.
+// 13/10/2026 · l'elenco delle slot non è più qui: è unico nella tab 🧰 Strumenti del Profit Tracker (fuso con la lista di Profilazione).
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
@@ -56,8 +56,6 @@ export default function ConsigliAccademia() {
   const [lavoro, setLavoro] = useState('')
   const [esito, setEsito] = useState('')
   const [aperti, setAperti] = useState<Set<number>>(new Set())
-  const [vista, setVista] = useState<'consigli' | 'elenco'>('consigli')
-  const [copiato, setCopiato] = useState(false)
 
   useEffect(() => { const t = setTimeout(() => setQ(ricerca), 350); return () => clearTimeout(t) }, [ricerca])
 
@@ -69,7 +67,6 @@ export default function ConsigliAccademia() {
       if (book) p.set('book', book)
       if (q) p.set('q', q)
       if (archiviati) p.set('stato', 'archiviato')
-      if (vista === 'elenco') p.set('limit', '500')
       const r = await fetch(`/api/accademia/consigli?${p}`, { cache: 'no-store' })
       const j = await r.json()
       if (!r.ok) throw new Error(j?.error || `errore ${r.status}`)
@@ -79,22 +76,17 @@ export default function ConsigliAccademia() {
     } finally {
       setCarico(false)
     }
-  }, [tipo, book, q, archiviati, vista])
+  }, [tipo, book, q, archiviati])
   useEffect(() => { carica() }, [carica, giro])
 
-  const chiama = async (azione: 'prova' | 'avvia' | 'slot_mancanti') => {
+  const chiama = async (azione: 'prova' | 'avvia') => {
     setLavoro(azione); setEsito('')
     try {
       const r = await fetch('/api/accademia/consigli', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ azione }) })
       const j = await r.json()
       if (!r.ok) throw new Error(j?.error || `errore ${r.status}`)
       if (azione === 'prova') setProva(j as Prova)
-      else if (azione === 'slot_mancanti') {
-        setEsito(j.ok === false
-          ? `⚠️ Elenco slot interrotto: ${j.errore || 'errore'} · compilati ${j.conNomi} consigli`
-          : `✅ Letti ${j.lavorati} consigli: ${j.conNomi} con i nomi delle slot, ${j.senzaNomi} senza nessun nome nel testo${j.rimasti > 0 ? ` · ne restano ${j.rimasti}, premi di nuovo` : ''} · costo ${Number(j.costo || 0).toFixed(3)} $`)
-        setGiro(g => g + 1)
-      } else {
+      else {
         setEsito(j.ok === false
           ? `⚠️ Lettura interrotta: ${j.errore || 'errore'}`
           : j.saltato
@@ -123,41 +115,6 @@ export default function ConsigliAccademia() {
     for (const c of lista) { const k = c.book || ''; m.set(k, [...(m.get(k) || []), c]) }
     return [...m.entries()].sort((a, b) => (a[0] === '' ? -1 : b[0] === '' ? 1 : a[0].localeCompare(b[0])))
   }, [lista])
-
-  // vista elenco: book → scopo → slot (nome esatto, quante volte consigliata, ultima data)
-  const SCOPI: { k: string; nome: string }[] = [{ k: 'margine', nome: '💰 Margine' }, { k: 'rollover', nome: '🔄 Rollover' }, { k: 'altro', nome: '🎰 Altro' }]
-  const elenco = useMemo(() => {
-    type Voce = { nome: string; provider: string; n: number; ultima: string; staff: boolean }
-    const libri = new Map<string, Map<string, Map<string, Voce>>>()
-    let senzaNomi = 0
-    for (const c of lista) {
-      if (c.tipo !== 'slot') continue
-      if (!c.slot?.length) { senzaNomi++; continue }
-      const b = c.book || '', sc = c.scopo && ['margine', 'rollover'].includes(c.scopo) ? c.scopo : 'altro'
-      if (!libri.has(b)) libri.set(b, new Map())
-      const perScopo = libri.get(b)!
-      if (!perScopo.has(sc)) perScopo.set(sc, new Map())
-      const slots = perScopo.get(sc)!
-      for (const x of c.slot) {
-        const k = x.nome.trim().toLowerCase()
-        if (!k) continue
-        const v = slots.get(k) || { nome: x.nome.trim(), provider: x.provider || '', n: 0, ultima: '', staff: false }
-        v.n += 1; v.staff ||= c.da_staff; if (!v.provider && x.provider) v.provider = x.provider
-        if ((c.ultima_data || '') > v.ultima) v.ultima = c.ultima_data || ''
-        slots.set(k, v)
-      }
-    }
-    const righe = [...libri.entries()].sort((a, b) => (a[0] === '' ? 1 : b[0] === '' ? -1 : a[0].localeCompare(b[0]))).map(([b, perScopo]) => ({
-      book: b,
-      scopi: SCOPI.map(sc => ({ ...sc, voci: [...(perScopo.get(sc.k)?.values() || [])].sort((x, y) => y.n - x.n || x.nome.localeCompare(y.nome)) })).filter(sc => sc.voci.length),
-    }))
-    return { righe, senzaNomi }
-  }, [lista]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const testoElenco = () => elenco.righe.flatMap(r => r.scopi.map(sc => `${r.book ? maiuscola(r.book) : 'Generale'} ${sc.k}: ${sc.voci.map(v => v.nome).join(', ')}`)).join('\n')
-  const copiaElenco = async () => {
-    try { await navigator.clipboard.writeText(testoElenco()); setCopiato(true); setTimeout(() => setCopiato(false), 2000) } catch { /* niente */ }
-  }
 
   const chip = (attivo: boolean) => `rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${attivo ? 'border-green-400 bg-green-500/20 text-green-200' : 'border-green-900/70 text-slate-400 hover:border-green-700'}`
 
@@ -220,8 +177,7 @@ export default function ConsigliAccademia() {
       {errore && <div className="mb-3 rounded border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-300">{errore}</div>}
 
       <div className="mb-2 flex flex-wrap items-center gap-2">
-        <button onClick={() => { setVista('consigli') }} className={chip(vista === 'consigli')}>💡 Consigli</button>
-        <button onClick={() => { setVista('elenco'); setTipo('slot') }} className={chip(vista === 'elenco')}>📋 Elenco slot</button>
+        <span className="text-xs text-slate-500">L&apos;elenco delle slot è nella tab 🧰 Strumenti del Profit Tracker.</span>
         <span className="text-slate-700">|</span>
         <button onClick={() => setTipo('')} className={chip(!tipo)}>Tutti ({totale})</button>
         {TIPI.map(t => <button key={t.k} onClick={() => setTipo(tipo === t.k ? '' : t.k)} className={chip(tipo === t.k)}>{t.nome} ({perTipo[t.k] || 0})</button>)}
@@ -244,48 +200,7 @@ export default function ConsigliAccademia() {
         </div>
       )}
 
-      {vista === 'elenco' && !carico && (
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
-            <span>Slot consigliate dall&apos;Accademia, per book e scopo. Tocca una slot per leggere i consigli che la nominano.</span>
-            {elenco.righe.length > 0 && <button onClick={copiaElenco} className="rounded border border-green-700 px-2 py-1 font-semibold text-green-300 hover:bg-green-950/50">{copiato ? '✓ Copiato' : '📋 Copia elenco'}</button>}
-          </div>
-          {elenco.righe.map(r => (
-            <details key={r.book || '__generale'} open className="rounded-lg border border-green-900/50 bg-black/20">
-              <summary className="cursor-pointer select-none px-3 py-2 text-sm font-bold text-green-300">{r.book ? maiuscola(r.book) : 'Generale'}</summary>
-              <div className="space-y-2 p-3">
-                {r.scopi.map(sc => (
-                  <div key={sc.k} className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                    <span className="w-24 shrink-0 text-xs font-bold text-sky-300">{sc.nome}</span>
-                    <div className="flex flex-1 flex-wrap gap-1.5">
-                      {sc.voci.map(v => (
-                        <button key={v.nome} onClick={() => { setRicerca(v.nome); setBook(r.book || ''); setVista('consigli') }}
-                          title={`${v.n} ${v.n === 1 ? 'consiglio' : 'consigli'}${v.provider ? ` · ${v.provider}` : ''}${v.ultima ? ` · ultimo ${fmtGiorno(v.ultima)}` : ''}`}
-                          className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-100 hover:border-amber-300">
-                          {v.nome}{v.n > 1 && <span className="ml-1 text-amber-300/70">×{v.n}</span>}{v.staff && <span className="ml-1">⭐</span>}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </details>
-          ))}
-          {elenco.senzaNomi > 0 && (
-            <div className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-300">
-              {elenco.senzaNomi} {elenco.senzaNomi === 1 ? 'consiglio sulle slot non ha' : 'consigli sulle slot non hanno'} ancora l&apos;elenco dei nomi: erano stati letti prima che Lucy imparasse a estrarli. Restano visibili nella vista «Consigli».
-              <button
-                disabled={!!lavoro}
-                onClick={() => { if (confirm('Lucy rilegge solo il testo dei consigli già raccolti (non Telegram) per scriverne i nomi delle slot. Costa pochi centesimi. Procedo?')) chiama('slot_mancanti') }}
-                className="ml-2 rounded border border-green-400 bg-green-500/15 px-2 py-1 font-semibold text-green-200 hover:bg-green-500/25 disabled:opacity-50"
-              >{lavoro === 'slot_mancanti' ? '> leggo…' : '🔧 Estrai i nomi con Lucy'}</button>
-            </div>
-          )}
-          {!elenco.righe.length && !errore && <div className="rounded border border-green-900/70 p-4 text-center text-sm text-slate-500">&gt; Nessuna slot nominata ancora{elenco.senzaNomi ? ' (vedi avviso sotto)' : ''}.</div>}
-        </div>
-      )}
-
-      <div className={vista === 'elenco' ? 'hidden' : 'space-y-3'}>
+      <div className="space-y-3">
         {perGruppo.map(([b, cons]) => (
           <details key={b || '__generale'} open={perGruppo.length <= 3 || !!book || !!q} className="rounded-lg border border-green-900/50 bg-black/20">
             <summary className="cursor-pointer select-none px-3 py-2 text-sm font-bold text-green-300">
