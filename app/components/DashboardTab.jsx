@@ -125,11 +125,11 @@ export default function DashboardTab({
     <div style={tabContent}>
 
       {/* 07/10/2026: la card Lucy è stata tolta; l'avviso è la striscia in cima (LucyAvvisoMail) */}
-      {/* 12/10/2026: ordine com'era = strisce, avvisi, numeri · ordine nuovo (numeriSu) = numeri, strisce urgenti, avvisi, scheda Oggi */}
+      {/* 12/10/2026: in alto SEMPRE diretta/avviso mail e avvisi scadenze · poi numeri e scheda Oggi (numeriSu); com'era = scheda Oggi (strisce) prima di tutto */}
       <div style={{ display: 'flex', flexDirection: 'column' }}>
-      <div style={{ order: aspetto.numeriSu ? 2 : 1 }}>{striscePrima}</div>
-      <div style={{ order: aspetto.numeriSu ? 4 : 2 }}><OggiCard attiva={!!aspetto.oggiUnico}>{strisceOggi}</OggiCard></div>
-      <div style={{ order: aspetto.numeriSu ? 3 : 3 }}>
+      <div style={{ order: 1 }}>{striscePrima}</div>
+      <div style={{ order: aspetto.numeriSu ? 4 : 0 }}><OggiCard attiva={!!aspetto.oggiUnico}>{strisceOggi}</OggiCard></div>
+      <div style={{ order: 2 }}>
       {(() => {
         const oggi = new Date()
         const annoCorrente = oggi.getFullYear()
@@ -251,12 +251,12 @@ export default function DashboardTab({
             background: '#1e0a0a',
             border: '2px solid #ef4444',
             borderRadius: 12,
-            padding: '14px 20px',
-            marginBottom: 16,
+            padding: aspetto.rossoCompatto ? '8px 16px' : '14px 20px',
+            marginBottom: aspetto.rossoCompatto ? 10 : 16,
             animation: 'blinkBorder 1s step-start infinite',
             fontWeight: 700,
-            fontSize: 14,
-            lineHeight: 2
+            fontSize: aspetto.rossoCompatto ? 13 : 14,
+            lineHeight: aspetto.rossoCompatto ? 1.65 : 2
           }}>
 
             <div style={{
@@ -411,7 +411,7 @@ export default function DashboardTab({
       })()}
       </div>
 
-      <div style={{ order: aspetto.numeriSu ? 1 : 4 }}>
+      <div style={{ order: 3 }}>
       <div style={{ marginBottom: '15px' }}>
         <button
           style={primaryButtonBlue}
