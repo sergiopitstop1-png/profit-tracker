@@ -115,6 +115,7 @@ export function seleziona(msgs: Msg[]): { scelti: Scelto[]; letti: number } {
 }
 
 function testoPerModello(scelti: Scelto[]) {
+  const numero = new Map<Scelto, number>(scelti.map((m, i) => [m, i + 1]))   // 13/10: ogni messaggio ha un numero #N, così il riassunto può rimandare al messaggio
   const gruppi = new Map<string, Scelto[]>()
   for (const m of scelti) {
     const k = `${m.chat_titolo || m.chat_id}${m.topic_titolo ? ` / ${m.topic_titolo}` : ''}`
@@ -126,11 +127,19 @@ function testoPerModello(scelti: Scelto[]) {
       const et = [...m.tags, ...m.book].join(',')
       const corpo = (m.testo || '').slice(0, MAX_PER_MESSAGGIO).replace(/\n{3,}/g, '\n\n')
       const img = m.testo_immagine ? `\n  IMMAGINE: ${m.testo_immagine.slice(0, MAX_PER_MESSAGGIO).replace(/\n{2,}/g, '\n')}` : ''
-      return `[${oraMsg(m.data_msg)}] ${m.mittente || '?'}${m.staff ? ' (staff)' : ''}${et ? ` {${et}}` : ''}: ${corpo}${img}`
+      return `#${numero.get(m)} [${oraMsg(m.data_msg)}] ${m.mittente || '?'}${m.staff ? ' (staff)' : ''}${et ? ` {${et}}` : ''}: ${corpo}${img}`
     })
     blocchi.push(`=== ${k} ===\n${righe.join('\n')}`)
   }
   return blocchi.join('\n\n')
+}
+
+// sostituisce i riferimenti [#12] o [#12, #15] scritti da Lucy con il link al messaggio Telegram (↗); se il messaggio non ha link il riferimento sparisce
+function collegaMessaggi(testo: string, scelti: Scelto[]) {
+  return testo.replace(/[ \t]*\[((?:#?\d+[\s,;e]*)+)\]/g, (_, lista: string) => {
+    const link = [...new Set((lista.match(/\d+/g) || []).map(n => scelti[Number(n) - 1]?.link).filter((l): l is string => !!l))].slice(0, 2)
+    return link.length ? ' ' + link.map(l => `↗ ${l}`).join(' ') : ''
+  })
 }
 
 const promptRiassunto = (da: number, a: number, corpo: string) => `Sei Lucy, assistente di Sergio (matched betting, bonus dei bookmaker italiani e casinò). Sotto trovi i messaggi dei gruppi Telegram dell'Accademia del Profitto scritti tra ${etichettaFinestra(da)} e ${etichettaFinestra(a)} (ora italiana). Prepara il riassunto per Sergio.
@@ -142,6 +151,7 @@ Regole:
 - Importi, quote, date e orari vanno copiati esatti. Nomina sempre il book o la slot.
 - Il testo dopo "IMMAGINE:" è ciò che Lucy ha letto in una foto (schede, promo riservate, segnalazioni): trattalo come contenuto vero.
 - Le parole tra graffe {} sono solo etichette automatiche di aiuto: non citarle.
+- Ogni messaggio comincia con un numero (#1, #2…). Alla fine dei punti di "⭐ Da non perdere", "⚠️ Da fare", "🔴 Problema" e di "❓ DUBBI APERTI" scrivi i numeri dei messaggi da cui viene l'informazione, tra parentesi quadre (es. [#12] oppure [#12, #15]): servono a Sergio per aprire il messaggio originale, soprattutto quando non si capisce di che book si parla. Non scrivere altri numeri e non citarli nel testo.
 - Salta chiacchiere, saluti, ringraziamenti, battute. Se una sezione non ha nulla di utile, non scriverla.
 
 Formato (testo semplice, niente tabelle). 13/10: il riassunto è ORDINATO PER BOOK, così Sergio trova subito tutto ciò che riguarda un bookmaker.
@@ -243,7 +253,7 @@ export async function generaRiassunto(opz: { giorno: string; fascia: Fascia; sal
   let costo = 0
   if (scelti.length) {
     const r = await chiediAClaude(promptRiassunto(da, a, testoPerModello(scelti)))
-    testo = r.testo
+    testo = collegaMessaggi(r.testo, scelti)
     costo = r.costo
   }
 
