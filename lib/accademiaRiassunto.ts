@@ -164,16 +164,17 @@ MESSAGGI:
 ${corpo}`
 
 /* ---------- Anthropic ---------- */
-export async function chiediAClaude(prompt: string) {
+export async function chiediAClaude(prompt: string, opz: { senzaPensiero?: boolean; maxTokens?: number } = {}) {
   const chiave = process.env.LUCY_ANTHROPIC_API_KEY
   if (!chiave) throw new Error('LUCY_ANTHROPIC_API_KEY mancante su Vercel')
+  // senzaPensiero: per estrarre dati in JSON il ragionamento non serve e rischia di consumare tutti i token di risposta
   const chiama = (conSforzoBasso: boolean) => fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': chiave, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
     // Haiku 5.5 ragiona da solo (livello "medium"): per un riassunto basta poco, e deve restare spazio per scrivere
     body: JSON.stringify({
-      model: MODELLO, max_tokens: 16000, messages: [{ role: 'user', content: prompt }],
-      ...(conSforzoBasso ? { thinking: { type: 'adaptive' }, output_config: { effort: 'low' } } : {}),
+      model: MODELLO, max_tokens: opz.maxTokens || 16000, messages: [{ role: 'user', content: prompt }],
+      ...(conSforzoBasso ? (opz.senzaPensiero ? { thinking: { type: 'disabled' } } : { thinking: { type: 'adaptive' }, output_config: { effort: 'low' } }) : {}),
     }),
   })
   let r = await chiama(true)

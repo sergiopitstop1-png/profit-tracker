@@ -10,7 +10,8 @@ import { chiediAClaude, èStaff, norm } from '@/lib/accademiaRiassunto'
 export const AMBITO = 'pilota'
 const PREZZO_IN = 0.1   // USD per milione di token (Haiku 5.5)
 const PREZZO_OUT = 0.5
-const CARATTERI_BLOCCO = 100_000
+const CARATTERI_BLOCCO = 70_000
+const PARALLELI = 3   // blocchi mandati a Claude insieme
 const MAX_PER_MESSAGGIO = 1200
 const MIN_CARATTERI = 12
 const ATTESA_MIN_CARATTERI = 60_000   // sotto questa quantità di testo nuovo, il cron aspetta (a meno che sia passata un'ora lunga)
@@ -231,6 +232,7 @@ async function giàNoti() {
 }
 
 /* ---------- passata completa ---------- */
+type Esito = { nuovi: Nuovo[]; spesa: number }
 export async function eseguiPassata(opz: { forza?: boolean; budgetMs?: number } = {}) {
   const inizio = Date.now()
   const budget = opz.budgetMs ?? 150_000
@@ -240,30 +242,42 @@ export async function eseguiPassata(opz: { forza?: boolean; budgetMs?: number } 
   let st = await stato()
   let marca = st?.ultimo_msg && st.ultimo_id != null ? { t: new Date(st.ultimo_msg).toISOString(), id: Number(st.ultimo_id) } : null
   let blocchi = 0, messaggi = 0, consigli = 0, costo = 0
+  let primo = true
 
   while (Date.now() - inizio < budget || blocchi === 0) {
-    const b = await leggiBlocco(coppie, marca)
-    if (!b.righe.length) {
-      if (b.ultimo && (!marca || b.ultimo.t !== marca.t || b.ultimo.id !== marca.id)) {
-        await db.from('accademia_consigli_stato').upsert({ ambito: AMBITO, ultimo_msg: b.ultimo.t, ultimo_id: b.ultimo.id }, { onConflict: 'ambito' })
-      }
-      break
+    // 1) legge fino a PARALLELI blocchi di fila (veloce: solo database)
+    const lotto: { b: Awaited<ReturnType<typeof leggiBlocco>>; da: typeof marca }[] = []
+    let m = marca
+    let fine = false
+    for (let i = 0; i < PARALLELI; i++) {
+      const b = await leggiBlocco(coppie, m)
+      if (!b.righe.length) { if (b.ultimo && (!m || b.ultimo.t !== m.t || b.ultimo.id !== m.id)) lotto.push({ b, da: m }); fine = true; break }
+      lotto.push({ b, da: m })
+      m = b.ultimo
+      if (b.esaurito) { fine = true; break }
     }
-    if (!opz.forza && blocchi === 0 && b.esaurito && b.caratteri < ATTESA_MIN_CARATTERI) {
+    if (!lotto.length) break
+    if (primo && !opz.forza && lotto.length === 1 && lotto[0].b.righe.length && lotto[0].b.esaurito && lotto[0].b.caratteri < ATTESA_MIN_CARATTERI) {
       const ult = st?.ultima_esecuzione ? new Date(st.ultima_esecuzione).getTime() : 0
       if (Date.now() - ult < ATTESA_ORE * 3_600_000) return { ok: true, saltato: 'pochi messaggi nuovi: aspetto', blocchi, messaggi, consigli, costo }
     }
-    const utili = b.righe.filter(r => (r.testo || '').trim().length >= MIN_CARATTERI || (r.testo_immagine || '').trim().length >= MIN_CARATTERI || !!r.media_tipo)
-    let nTrovati = 0
-    let spesa = 0
-    if (utili.length) {
-      try {
-        const ctx = await contesto(coppie, marca)
-        const r = await chiediAClaude(prompt(utili, ctx, await giàNoti()))
-        spesa = r.costo
-        nTrovati = await salvaConsigli(costruisci(leggiJson(r.testo), utili))
-      } catch (e) {
-        const err = (e instanceof Error ? e.message : String(e)).slice(0, 300)
+    primo = false
+
+    // 2) chiede a Claude tutti i blocchi del lotto insieme
+    const noti = await giàNoti()
+    const esiti = await Promise.allSettled(lotto.map(async ({ b, da }): Promise<Esito> => {
+      const utili = b.righe.filter(r => (r.testo || '').trim().length >= MIN_CARATTERI || (r.testo_immagine || '').trim().length >= MIN_CARATTERI || !!r.media_tipo)
+      if (!utili.length) return { nuovi: [], spesa: 0 }
+      const r = await chiediAClaude(prompt(utili, await contesto(coppie, da), noti), { senzaPensiero: true, maxTokens: 12000 })
+      try { return { nuovi: costruisci(leggiJson(r.testo), utili), spesa: r.costo } } catch (e) { throw new Error(`${e instanceof Error ? e.message : String(e)} (costo ${r.costo.toFixed(4)} $)`) }
+    }))
+
+    // 3) salva in ordine; al primo errore si ferma e il segnalibro resta prima del blocco che ha fallito
+    for (let i = 0; i < lotto.length; i++) {
+      const { b } = lotto[i]
+      const es = esiti[i]
+      if (es.status === 'rejected') {
+        const err = (es.reason instanceof Error ? es.reason.message : String(es.reason)).slice(0, 300)
         const errori = (st?.errori_consecutivi || 0) + 1
         if (errori >= MAX_ERRORI) {
           // il blocco fa sempre errore: lo si salta per non restare bloccati per sempre
@@ -276,15 +290,21 @@ export async function eseguiPassata(opz: { forza?: boolean; budgetMs?: number } 
         }
         return { ok: false, errore: err, blocchi, messaggi, consigli, costo }
       }
+      const nTrovati = await salvaConsigli(es.value.nuovi)
+      marca = b.ultimo
+      blocchi++; messaggi += b.righe.length; consigli += nTrovati; costo += es.value.spesa
+      st = {
+        ultimo_msg: marca!.t, ultimo_id: marca!.id, ultima_esecuzione: new Date().toISOString(), messaggi_letti: (st?.messaggi_letti || 0) + b.righe.length,
+        consigli_trovati: (st?.consigli_trovati || 0) + nTrovati, costo_usd: Number(st?.costo_usd || 0) + es.value.spesa, errori_consecutivi: 0, ultimo_errore: null, batch_saltati: st?.batch_saltati || 0,
+      }
+      await db.from('accademia_consigli_stato').upsert({ ambito: AMBITO, ...st }, { onConflict: 'ambito' })
     }
-    marca = b.ultimo
-    blocchi++; messaggi += b.righe.length; consigli += nTrovati; costo += spesa
-    st = {
-      ultimo_msg: marca!.t, ultimo_id: marca!.id, ultima_esecuzione: new Date().toISOString(), messaggi_letti: (st?.messaggi_letti || 0) + b.righe.length,
-      consigli_trovati: (st?.consigli_trovati || 0) + nTrovati, costo_usd: Number(st?.costo_usd || 0) + spesa, errori_consecutivi: 0, ultimo_errore: null, batch_saltati: st?.batch_saltati || 0,
+    if (fine) {
+      // se l'ultimo giro non ha messaggi utili, il segnalibro va comunque avanti
+      const u = lotto[lotto.length - 1].b
+      if (!u.righe.length && u.ultimo) await db.from('accademia_consigli_stato').upsert({ ambito: AMBITO, ultimo_msg: u.ultimo.t, ultimo_id: u.ultimo.id }, { onConflict: 'ambito' })
+      break
     }
-    await db.from('accademia_consigli_stato').upsert({ ambito: AMBITO, ...st }, { onConflict: 'ambito' })
-    if (b.esaurito) break
   }
   return { ok: true, blocchi, messaggi, consigli, costo }
 }
