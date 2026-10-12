@@ -5882,6 +5882,8 @@ setMessage('Wallet salvato correttamente')
   async function handleSalvaBookSaldi() {
     const entries = Object.entries(pendingBookSaldi)
     if (entries.length === 0) return
+    // 12/10/2026: conferma prima di salvare (segna anche come verificati i saldi, quindi li toglie da "Saldi da aggiornare")
+    if (!window.confirm(`Salvo ${entries.length} ${entries.length === 1 ? 'saldo' : 'saldi'}?\n\nI conti salvati risultano anche verificati e spariscono da "Saldi da aggiornare".`)) return
     let errori = []
     const nuoveTransazioni = []
     const saldiAggiornati = {}
@@ -5912,7 +5914,8 @@ setMessage('Wallet salvato correttamente')
     }
     if (nuoveTransazioni.length) setTransactions(prev => [...nuoveTransazioni, ...prev])
     // 27/09/2026: anche i saldi riscritti uguali contano come verificati
-    await segnaSaldoVerificato(entries.map(([id]) => id))
+    // solo i conti con un valore valido (prima venivano segnati verificati anche quelli scartati)
+    await segnaSaldoVerificato(entries.filter(([, v]) => { const n = Number(String(v).replace(',', '.')); return !Number.isNaN(n) && n >= 0 }).map(([id]) => id))
     setPendingBookSaldi({})
     if (errori.length > 0) setErrorMessage(`Errori: ${errori.join(', ')}`)
     else setMessage(`✅ ${entries.length} saldo/i aggiornati e transazioni registrate`)
