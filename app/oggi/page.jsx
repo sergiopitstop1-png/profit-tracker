@@ -538,7 +538,7 @@ export default function Oggi() {
 
         {tennisReg && (
           <div style={{ fontSize: 12, marginBottom: 12, padding: "8px 12px", borderRadius: 8, background: tennisReg.includes("NON riuscita") ? "rgba(255,92,92,0.1)" : "rgba(74,240,196,0.08)", color: tennisReg.includes("NON riuscita") ? "#ff5c5c" : "#4af0c4", border: `1px solid ${tennisReg.includes("NON riuscita") ? "rgba(255,92,92,0.4)" : "rgba(74,240,196,0.3)"}` }}>
-            {tennisReg} · <a href="/profit-tracker/segnali" style={{ color: "inherit", fontWeight: 700 }}>vai a Segnali</a>
+            {tennisReg} · <a href="/profit-tracker?tab=segnali" style={{ color: "inherit", fontWeight: 700 }}>vai a Segnali</a>
           </div>
         )}
 

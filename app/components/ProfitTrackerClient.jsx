@@ -1,5 +1,6 @@
 "use client";
 import React, { useEffect, useMemo, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { supabase } from '../profit-tracker/supabaseClient'
 import PromoScreenshotsPanel from './PromoScreenshotsPanel'
@@ -30,6 +31,9 @@ import LucyTrading from './LucyTrading'   // 06/10/2026: scheda Lucy · trading 
 import ProfilazioniMiratePanel, { prossimaMirata } from './ProfilazioniMirate'   // 05/10/2026: prossimaMirata per il banner in Dashboard
 import { impostaPausaRecupero } from './RecuperoConti'
 import CalendarioAperture from './CalendarioAperture'
+// 12/10/2026 — Lucy Mail e Segnali ora si aprono dentro il Profit Tracker (barra sempre in alto), caricati solo quando servono
+const LucyMailTab = dynamic(() => import('../profit-tracker/archivio-lucy/ArchivioLucyClient'), { ssr: false, loading: () => <div style={{ color: '#94a3b8', padding: 20 }}>Carico Lucy Mail…</div> })
+const SegnaliTab = dynamic(() => import('../profit-tracker/segnali/SegnaliClient'), { ssr: false, loading: () => <div style={{ color: '#94a3b8', padding: 20 }}>Carico i segnali…</div> })
 
 // V32 — rete di sicurezza 60 giorni sui conti in MANTENIMENTO
 const MANT_LIMITE_GG = 60        // limite massimo tra due movimentazioni dello stesso conto
@@ -120,10 +124,19 @@ export default function ProfitTrackerClient() {
   const [activeTab, setActiveTab] = useState('dashboard')
   // 05/10/2026 · 🎁 arrivo da Lucy Mail (/profit-tracker?tab=promo&...): apre la tab Promo con il modulo già compilato
   const [promoPrefill, setPromoPrefill] = useState(null)
+  // 12/10/2026 · ?tab=lucy-mail&vista=...&sezione=telegram e ?tab=segnali aprono le due tab (arrivo da avvisi e link)
+  const [lucyMailDeep, setLucyMailDeep] = useState({ vista: '', sezione: '' })
   useEffect(() => {
     try {
       const q = new URLSearchParams(window.location.search)
-      if (q.get('tab') !== 'promo') return
+      const t = q.get('tab')
+      if (t === 'lucy-mail' || t === 'segnali') {
+        if (t === 'lucy-mail') setLucyMailDeep({ vista: q.get('vista') || '', sezione: q.get('sezione') || '' })
+        setActiveTab(t)
+        window.history.replaceState(null, '', window.location.pathname)
+        return
+      }
+      if (t !== 'promo') return
       if (q.get('mail_id')) setPromoPrefill(Object.fromEntries(q.entries()))
       setActiveTab('promo')
       window.history.replaceState(null, '', window.location.pathname)
@@ -7456,9 +7469,9 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           <button style={activeTab === 'prop-hedge' ? activeTabButton : tabButton} onClick={() => handleTabChange('prop-hedge')}>📈 Prop Hedge</button>
           <button style={activeTab === 'masaniello' ? activeTabButton : tabButton} onClick={() => handleTabChange('masaniello')}>🎲 Masaniello</button>
           <button style={activeTab === 'promo' ? activeTabButton : tabButton} onClick={() => handleTabChange('promo')}>🎁 Promo</button>
-          {/* 03/10/2026 — pagine a sé: segnali ScoreTrend e archivio Lucy Mail */}
-          <button style={{ ...tabButton, borderColor: 'rgba(56,189,248,0.6)' }} title="Segnali del canale ScoreTrend in tempo reale, con la pagella" onClick={() => { window.location.href = '/profit-tracker/segnali' }}>📡 Segnali</button>
-          <button style={{ ...tabButton, borderColor: 'rgba(34,197,94,0.6)' }} title="Email e SMS dei bookmaker analizzati da Lucy" onClick={() => { window.location.href = '/profit-tracker/archivio-lucy' }}>📬 Lucy Mail</button>
+          {/* 12/10/2026 — Segnali e Lucy Mail sono tab come le altre: la barra resta sempre in alto */}
+          <button style={activeTab === 'segnali' ? activeTabButton : { ...tabButton, borderColor: 'rgba(56,189,248,0.6)' }} title="Segnali del canale ScoreTrend in tempo reale, con la pagella" onClick={() => handleTabChange('segnali')}>📡 Segnali</button>
+          <button style={activeTab === 'lucy-mail' ? activeTabButton : { ...tabButton, borderColor: 'rgba(34,197,94,0.6)' }} title="Email e SMS dei bookmaker analizzati da Lucy" onClick={() => handleTabChange('lucy-mail')}>📬 Lucy Mail</button>
 <button
   style={activeTab === 'stime-cassa' ? activeTabButton : tabButton}
   onClick={() => {
@@ -7639,6 +7652,15 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           />
         )}
         {activeTab === 'prop-hedge' && <PropHedgeTab />}
+        {activeTab === 'lucy-mail' && (
+          <LucyMailTab
+            incorporato
+            vistaIniziale={lucyMailDeep.vista}
+            sezioneIniziale={lucyMailDeep.sezione}
+            onVaiAPromo={(p) => { setPromoPrefill(p); setActiveTab('promo') }}
+          />
+        )}
+        {activeTab === 'segnali' && <SegnaliTab incorporato />}
         {activeTab === 'masaniello' && <Masaniello />}
         {activeTab === 'periodi' && (() => {
           const annoCorrente = new Date().getFullYear()

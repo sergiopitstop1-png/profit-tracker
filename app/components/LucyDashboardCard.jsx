@@ -617,7 +617,7 @@ export default function LucyDashboardCard() {
             >
 
               <a
-                href="/profit-tracker/archivio-lucy"
+                href="/profit-tracker?tab=lucy-mail"
                 style={
                   styles.archiveButton
                 }
@@ -961,7 +961,7 @@ export default function LucyDashboardCard() {
             >
 
               <a
-                href="/profit-tracker/archivio-lucy"
+                href="/profit-tracker?tab=lucy-mail"
                 style={
                   styles.archiveButton
                 }
