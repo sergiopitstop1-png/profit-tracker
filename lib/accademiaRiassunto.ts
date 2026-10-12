@@ -144,20 +144,22 @@ Regole:
 - Le parole tra graffe {} sono solo etichette automatiche di aiuto: non citarle.
 - Salta chiacchiere, saluti, ringraziamenti, battute. Se una sezione non ha nulla di utile, non scriverla.
 
-Formato (testo semplice, niente tabelle). Usa solo le sezioni che servono, in questo ordine:
-## ⭐ Da non perdere
-## 🎯 Promo e riservate
-## 🐞 Bug e problemi
-## 📅 Dirette e comunicazioni
-## 🧠 Consigli e operatività
-## 👥 Come stanno andando le promo (esperienze dei membri)
-## ⚠️ Conti, verifiche, limitazioni
-## ❓ Dubbi aperti
-Regole di lunghezza (importanti, il riassunto deve essere veloce da leggere):
-- "Da non perdere": al massimo 5 righe, solo ciò che scade oggi o domani, che richiede un'azione subito o che mette a rischio i conti. Queste righe NON si ripetono nelle altre sezioni.
-- Nelle altre sezioni al massimo 20 punti in totale, uniti per argomento: se la stessa promo o lo stesso bug compare in più messaggi, scrivilo una volta sola.
-- Ogni punto è UNA frase breve (circa 25 parole) che comincia con "- " e finisce con (Gruppo / Argomento). Niente dettagli che si trovano già nella scheda originale: tieni book, cosa fare, importo o quota chiave, scadenza.
-- Nella sezione delle esperienze dei membri al massimo 6 punti: book, promo, cosa è successo e chi lo riporta ("1 membro", "3 membri").
+Formato (testo semplice, niente tabelle). 13/10: il riassunto è ORDINATO PER BOOK, così Sergio trova subito tutto ciò che riguarda un bookmaker.
+1) Se serve, per prima la sezione "## ⭐ Da non perdere": al massimo 5 righe, solo ciò che scade oggi o domani, richiede un'azione subito o mette a rischio i conti. Queste righe NON si ripetono sotto.
+2) Poi UNA sezione per ogni book citato, con il titolo "## NOME DEL BOOK" in maiuscolo (es. "## SISAL"). Dentro, un punto per ogni informazione, ognuno comincia con "- " e con UNA di queste etichette:
+   - "⚠️ Da fare:" cosa Sergio deve fare o evitare (azioni, scadenze, limitazioni, rischi per i conti).
+   - "🔴 Problema:" bug, prelievi fermi, ritardi, errori; scrivi da quando e a chi succede.
+   - "🎯 Promo:" promo, riservate, bonus nuovi: importo, condizione chiave, scadenza.
+   - "💡 Slot:" slot o giochi consigliati e perché (RTP, rollover, margine).
+   - "💡 Consiglio:" altri consigli pratici (profilazione, schemi, importi da ricaricare).
+   - "👥 Esperienza:" cosa raccontano i membri, con quanti ("1 membro", "3 membri"); se contraddice lo staff, scrivilo.
+   - "ℹ️ Staff:" informazione ufficiale dello staff che non è un'azione.
+3) Per ultime, se servono: "## GENERALE" (dirette, comunicazioni, cose senza un book preciso) e "## ❓ DUBBI APERTI".
+Regole di scrittura (importanti):
+- Ogni punto si capisce da solo, anche letto da solo: dice a quale book o promo si riferisce, cosa succede e cosa cambia per Sergio. Frase chiara di 15-40 parole, senza abbreviazioni oscure.
+- NON aggiungere in fondo il nome del gruppo o dell'argomento tra parentesi. Scrivi la fonte solo se serve a valutare l'informazione: "(staff)" per ufficiale, "(1 membro)" per esperienze.
+- Se la stessa cosa compare in più messaggi, scrivila una volta sola. Dentro ogni book metti prima "⚠️ Da fare" e "🔴 Problema", poi il resto.
+- Al massimo 30 punti in totale: tieni quelli che servono a decidere o agire, scarta il resto.
 Se nei messaggi non c'è niente di rilevante, rispondi solo: "Niente di rilevante in questa fascia."
 
 MESSAGGI:
