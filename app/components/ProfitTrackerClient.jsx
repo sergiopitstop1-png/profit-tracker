@@ -40,10 +40,12 @@ const SegnaliTab = dynamic(() => import('../profit-tracker/segnali/SegnaliClient
 const MANT_LIMITE_GG = 60        // limite massimo tra due movimentazioni dello stesso conto
 const MANT_ANTICIPO_GG = 15      // si comincia a proporre il conto dopo (60 - 15) = 45 giorni dall'ultimo movimento
 const MANT_GIORNO_ZERO = '2026-09-19' // partenza del protocollo: prima scadenza dei conti senza storico = giorno zero + offset stabile (0-59)
-// 10/10/2026 (Sergio) — AZZERAMENTO DELL'ARRETRATO, solo PROFILAZIONE e MANTENIMENTO (il recupero dei conti limitati non cambia):
+// 12/10/2026 (Sergio) — NUOVO AZZERAMENTO da oggi, ora vale anche per il RECUPERO dei conti limitati (vedi AZZERAMENTO_RECUPERO in RecuperoConti.jsx, stessa data).
+// Per tornare indietro basta rimettere qui la data precedente (i dati non vengono toccati, solo gli avvisi vecchi risultano chiusi).
+// 10/10/2026 (Sergio) — AZZERAMENTO DELL'ARRETRATO, PROFILAZIONE e MANTENIMENTO:
 // niente bet di profilazione arretrate né avvisi 🎯 per giorni prima di questa data; nessun conto di mantenimento risulta in ritardo
 // o scaduto: tutti ripartono da qui, con le prime scadenze scaglionate nei 60 giorni successivi (stesso offset stabile di prima).
-const LUCY_AZZERAMENTO = '2026-10-10'
+const LUCY_AZZERAMENTO = '2026-10-12'
 // 10/10/2026: con il cambio dell'ora (25/10 e marzo) 24 ore non sono sempre un giorno: si arrotonda e si somma per data di calendario
 const giorniTraLucy = (a, b) => Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000)
 const aggiungiGiorniLucy = (d, n) => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + n); return x.toLocaleDateString('sv-SE') }
@@ -851,9 +853,14 @@ useEffect(() => {
   if (azzeraAvvisiRef.current || !Array.isArray(avvisiConti) || !avvisiConti.length) return
   azzeraAvvisiRef.current = true
   const ids = avvisiConti.filter(a => a.stato === 'aperto' && a.tipo === 'lucy' && a.meta?.origine === 'lucy' && String(a.meta?.key || '').slice(0, 10) < LUCY_AZZERAMENTO).map(a => a.id)
-  if (!ids.length) return
-  supabase.from('avvisi_conti').update({ stato: 'fatto', fatto_il: new Date().toLocaleDateString('sv-SE'), esito: 'arretrato azzerato il 10/10/2026' }).in('id', ids).select()
+  // 12/10/2026: anche gli avvisi di recupero (contatti col supporto, verifiche, bet di recupero) con data precedente all'azzeramento
+  const dataAvviso = (a) => String(a.data_prevista || '').slice(0, 10) || ((String(a.chiave || '').match(/\d{4}-\d{2}-\d{2}/) || [''])[0])
+  const idsRec = avvisiConti.filter(a => a.stato === 'aperto' && a.tipo === 'recupero' && dataAvviso(a) && dataAvviso(a) < LUCY_AZZERAMENTO).map(a => a.id)
+  const quando = LUCY_AZZERAMENTO.split('-').reverse().join('/')
+  const chiudi = (lista, campi) => lista.length && supabase.from('avvisi_conti').update(campi).in('id', lista).select()
     .then(({ data }) => { if (data && data.length) setAvvisiConti(prev => (prev || []).map(a => data.find(d => d.id === a.id) || a)) })
+  chiudi(ids, { stato: 'fatto', fatto_il: new Date().toLocaleDateString('sv-SE'), esito: `arretrato azzerato il ${quando}` })
+  chiudi(idsRec, { stato: 'annullato', esito: `arretrato azzerato il ${quando}` })
 }, [avvisiConti])
 
   // V55: il messaggio "Transazione eseguita correttamente" sparisce da solo dopo pochi secondi

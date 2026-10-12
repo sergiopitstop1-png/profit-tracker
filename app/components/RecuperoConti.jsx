@@ -20,6 +20,10 @@ export const GIORNI_VERIFICA_SPORT = 30   // 27/09/2026: ogni 30 giorni verifica
 // Priorità: livello del conto (profilazione → mantenimento → dormiente), poi classe del book (A → B → C),
 // poi la limitazione più vecchia. Colonne recupero_conti.attivo_dal / in_attesa_manuale (vedi recupero_attivi.sql).
 export const MAX_RECUPERI_ATTIVI = 20
+// 12/10/2026 (Sergio) — AZZERAMENTO DEL RECUPERO: i conteggi ripartono da questa data (stessa di LUCY_AZZERAMENTO nel client).
+// Passi fatti e tentativi col supporto restano salvati: cambiano solo le scadenze (primo contatto, nuovo tentativo, verifica sport).
+// Per tornare indietro: rimetti qui una data precedente.
+export const AZZERAMENTO_RECUPERO = '2026-10-12'
 
 // 27/09/2026 — PAUSA PROFILAZIONE: impostata da ProfitTrackerClient. I giorni di pausa non contano per i 14 giorni
 // prima del contatto col supporto; in pausa "totale" il recupero non genera azioni.
@@ -95,7 +99,8 @@ export async function registraEsitoRecupero(book, tipo, stato, esito) {
 
 // Prossimo contatto col supporto: { data, motivo } — i giorni contano da quando il recupero è ATTIVO
 export function prossimoContatto(item, oggi = oggiISO()) {
-  const inizio0 = item.stato?.attivo_dal || item.stato?.iniziato || oggi
+  const inizio00 = item.stato?.attivo_dal || item.stato?.iniziato || oggi
+  const inizio0 = inizio00 < AZZERAMENTO_RECUPERO ? AZZERAMENTO_RECUPERO : inizio00   // 12/10/2026: si riparte da zero
   const inizio = addGiorniISO(inizio0, PAUSA_REC.giorni(inizio0, oggi))   // + giorni di pausa
   const tentativi = item.stato?.tentativi || []
   const primo = item.proto?.primoContattoGiorni ?? GIORNI_PRIMO_CONTATTO
@@ -106,6 +111,8 @@ export function prossimoContatto(item, oggi = oggiISO()) {
   const ultimo = [...tentativi].sort((a, b) => String(a.data).localeCompare(String(b.data))).slice(-1)[0]
   if (ultimo.esito === 'attesa') return { data: null, motivo: 'in attesa di risposta' }
   const d = new Date(new Date(ultimo.data + 'T00:00:00').getTime() + GIORNI_TRA_TENTATIVI * 86400000).toLocaleDateString('sv-SE')
+  // 12/10/2026: un nuovo tentativo che sarebbe scaduto prima dell'azzeramento riparte come un primo contatto
+  if (d < AZZERAMENTO_RECUPERO) return { data: new Date(new Date(AZZERAMENTO_RECUPERO + 'T00:00:00').getTime() + primo * 86400000).toLocaleDateString('sv-SE'), motivo: 'nuovo tentativo' }
   return { data: d, motivo: 'nuovo tentativo' }
 }
 
@@ -162,7 +169,8 @@ export function avvisiRecupero(item, oggi = oggiISO()) {
   periodiche.forEach((testo, i) => out.push({ chiave: `${base}|per|${oggi}|${i}`, tipo: 'recupero', titolo: testo.replace(/^🔧 Recupero \([^)]*\): /, ''), sottotitolo: `🔧 Recupero ${lbl}`, meta: { ...meta, azione: 'periodica' } }))
   const pc = prossimoContatto(item, oggi)
   if (pc.data && oggi >= pc.data) out.push({ chiave: `${base}|contatto|${pc.data}`, tipo: 'recupero', data_prevista: pc.data, titolo: proto.testoContatto || 'contatta il supporto (chat/mail) per info sulle promozioni, da GIOCATORE, poi chiedi la rivalutazione del conto', sottotitolo: `🔧 Recupero ${lbl} · ${pc.motivo}`, meta: { ...meta, azione: 'contatto' } })
-  const inizioAtt = stato?.attivo_dal || stato?.iniziato
+  const inizioAtt0 = stato?.attivo_dal || stato?.iniziato
+  const inizioAtt = inizioAtt0 && inizioAtt0 < AZZERAMENTO_RECUPERO ? AZZERAMENTO_RECUPERO : inizioAtt0   // 12/10/2026: la verifica ogni 30 giorni riparte da zero
   if (tipo === 'sport' && inizioAtt) {
     const n = Math.floor(diffGiorni(inizioAtt, oggi) / GIORNI_VERIFICA_SPORT)
     if (n >= 1) {
