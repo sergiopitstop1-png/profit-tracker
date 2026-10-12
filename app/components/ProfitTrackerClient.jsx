@@ -855,19 +855,23 @@ useEffect(() => {
 const azzeraAvvisiRef = React.useRef(false)
 // ── Profiliamo alla guida: legge una volta al giorno da solo (poi solo con "↻ Aggiorna"), il risultato del giorno resta salvato nel browser ──
 async function caricaProfiliamoAgenda(forza = false) {
-  const chiave = `profiliamo-agenda:${lucyOggi()}`
+  const chiave = `profiliamo-agenda-v2:${lucyOggi()}`
   if (!forza) {
     try {
       const c = JSON.parse(localStorage.getItem(chiave) || 'null')
       if (c && Array.isArray(c.voci)) { setProfiliamoVoci(c.voci); setProfiliamoInfo({ caricando: false, errore: '', quando: c.quando || '', nota: c.nota || '' }); return }
     } catch { /* niente cache */ }
   }
+  // un "libro" = book + variante di protocollo del cliente (es. Goldbet · Casinò oppure Goldbet · VIP Live): ogni cliente si confronta col SUO protocollo
   const perNome = new Map()
   for (const b of books) {
     if (b.profilo_livello !== 'attivo' || bookInRecuperoLimitato(b)) continue
-    const x = perNome.get(b.nome) || { nome: b.nome, azioni: [] }
+    const varianti = getVariantiProfilazione(b.nome) || []
+    const variante = varianti.length ? (getVarianteProfilazione(b)?.label || '') : ''
+    const k = `${b.nome}|${variante}`
+    const x = perNome.get(k) || { id: `e${perNome.size + 1}`, nome: b.nome, variante, varianti: varianti.map(v => ({ label: v.label, desc: v.desc })), azioni: [] }
     for (const a of (getAzioniOggi(b)?.azioni || [])) if (!x.azioni.includes(a)) x.azioni.push(a)
-    perNome.set(b.nome, x)
+    perNome.set(k, x)
   }
   if (!perNome.size) return
   setProfiliamoInfo(i => ({ ...i, caricando: true, errore: '' }))
@@ -7158,6 +7162,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 </div>
                 {(() => {
                   const nomiProf = new Set(bookiConAzioni.filter(x => x.book.profilo_livello === 'attivo').map(x => x.book.nome))
+                  const varBook = (b) => { const vv = getVariantiProfilazione(b.nome) || []; return vv.length ? (getVarianteProfilazione(b)?.label || '') : '' }
                   const voci = profiliamoVoci.filter(v => nomiProf.has(v.book))
                   const senza = [...nomiProf].filter(n => !voci.some(v => v.book === n))
                   return (
@@ -7169,15 +7174,16 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                       </div>
                       {profiliamoInfo.errore && <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 6 }}>⚠️ {profiliamoInfo.errore}</div>}
                       {voci.map(v => {
-                        const clienti = bookiConAzioni.filter(x => x.book.profilo_livello === 'attivo' && x.book.nome === v.book).map(x => x.book.intestatario).filter(Boolean)
+                        const clienti = bookiConAzioni.filter(x => x.book.profilo_livello === 'attivo' && x.book.nome === v.book && varBook(x.book) === (v.variante || '')).map(x => x.book.intestatario).filter(Boolean)
                         return (
-                          <div key={v.book} style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(51,65,85,0.6)' }}>
+                          <div key={v.id || v.book} style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(51,65,85,0.6)' }}>
                             <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                              <b style={{ color: '#f8fafc', fontSize: 13 }}>{v.book}</b>
+                              <b style={{ color: '#f8fafc', fontSize: 13 }}>{v.book}{v.variante ? <span style={{ color: '#93c5fd', fontWeight: 600, fontSize: 11 }}> · {v.variante}</span> : null}</b>
                               <span style={{ color: '#94a3b8', fontSize: 11 }}>{clienti.length} {clienti.length === 1 ? 'cliente' : 'clienti'}: {clienti.slice(0, 6).join(', ')}{clienti.length > 6 ? '…' : ''}</span>
                               {v.link && <a href={v.link} target="_blank" rel="noreferrer" style={{ color: '#4ade80', fontSize: 11 }}>↗ messaggio</a>}
                             </div>
                             <div style={{ color: '#e2e8f0', fontSize: 13, marginTop: 2, whiteSpace: 'pre-wrap' }}>{v.azione}</div>
+                            {v.altraVariante && <div style={{ marginTop: 4, color: '#bfdbfe', background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.5)', borderRadius: 8, padding: '4px 8px', fontSize: 12 }}>ℹ️ Profiliamo parla della variante «{v.altraVariante}»: questi clienti seguono «{v.variante}». Non è uno scostamento; se vuoi passarli a «{v.altraVariante}» cambia la variante in Profilazione.</div>}
                             {v.scostamento && <div style={{ marginTop: 4, color: '#fecaca', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.5)', borderRadius: 8, padding: '4px 8px', fontSize: 12 }}>⚠️ Si discosta dal protocollo: {v.scostamento}</div>}
                           </div>
                         )

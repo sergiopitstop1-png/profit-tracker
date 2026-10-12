@@ -1,6 +1,7 @@
 // 12/10/2026 · "Profiliamo alla guida": Lucy legge i messaggi recenti di Profiliamo e scrive, per ogni book dei clienti in profilazione,
 // cosa fare oggi secondo Profiliamo; se si discosta in modo palese dal protocollo di Sergio lo segnala (campo "scostamento").
-// Solo admin. POST { libri: [{ nome, azioni: string[] }] }  ->  { voci: [{ book, azione, scostamento, link, data }], messaggi, costo }
+// Solo admin. POST { libri: [{ id, nome, variante, varianti: [{label, desc}], azioni }] }  ->  { voci: [{ id, book, variante, azione, scostamento, altraVariante, link, data }], messaggi, costo }
+// Un libro = un book + la variante di protocollo del cliente (es. Goldbet · Casinò). Se Profiliamo parla di un'ALTRA variante (es. VIP Live) non è uno scostamento: lo dice in altraVariante.
 // Costa pochi centesimi per chiamata (Haiku). Il client la fa al massimo una volta al giorno da solo; poi solo a richiesta.
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -38,7 +39,8 @@ const MAX_CARATTERI = 60000
 const norm = (s: unknown) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 300)
 
-type Libro = { nome: string; azioni: string[] }
+type Variante = { label: string; desc: string }
+type Libro = { id: string; nome: string; variante: string; varianti: Variante[]; azioni: string[] }
 type Riga = { id: number; chat_titolo: string | null; topic_titolo: string | null; data_msg: string; mittente: string | null; testo: string | null; testo_immagine: string | null; link: string | null }
 
 export async function POST(req: NextRequest) {
@@ -46,8 +48,12 @@ export async function POST(req: NextRequest) {
   let corpo: { libri?: Libro[]; ore?: number } = {}
   try { corpo = await req.json() } catch { /* corpo vuoto */ }
   const libri = (Array.isArray(corpo.libri) ? corpo.libri : [])
-    .map(l => ({ nome: String(l?.nome || '').trim(), azioni: (Array.isArray(l?.azioni) ? l.azioni : []).map(a => String(a).slice(0, 300)).slice(0, 8) }))
-    .filter(l => l.nome).slice(0, 120)
+    .map((l, i) => ({
+      id: String(l?.id || `e${i + 1}`), nome: String(l?.nome || '').trim(), variante: String(l?.variante || '').trim().slice(0, 80),
+      varianti: (Array.isArray(l?.varianti) ? l.varianti : []).map(v => ({ label: String(v?.label || '').slice(0, 60), desc: String(v?.desc || '').slice(0, 300) })).filter(v => v.label).slice(0, 6),
+      azioni: (Array.isArray(l?.azioni) ? l.azioni : []).map(a => String(a).slice(0, 300)).slice(0, 8),
+    }))
+    .filter(l => l.nome).slice(0, 160)
   if (!libri.length) return NextResponse.json({ voci: [], messaggi: 0, costo: 0, nota: 'nessun conto in profilazione' })
 
   try {
@@ -80,7 +86,7 @@ export async function POST(req: NextRequest) {
       const img = m.testo_immagine ? `\n  IMMAGINE: ${m.testo_immagine.slice(0, MAX_PER_MESSAGGIO).replace(/\n{2,}/g, '\n')}` : ''
       return `#${i + 1} [${ora(m.data_msg)}] ${m.topic_titolo ? `(${m.topic_titolo}) ` : ''}${m.mittente || '?'}: ${corpoMsg}${img}`
     }).join('\n\n')
-    const testoLibri = libri.map(l => `- ${l.nome} · protocollo di Sergio oggi: ${l.azioni.length ? l.azioni.join(' / ') : 'nessuna azione in agenda'}`).join('\n')
+    const testoLibri = libri.map(l => `- [${l.id}] ${l.nome}${l.variante ? ` · il cliente segue la variante «${l.variante}»` : ''} · protocollo di Sergio oggi: ${l.azioni.length ? l.azioni.join(' / ') : 'nessuna azione in agenda'}${l.varianti.length > 1 ? `\n    varianti possibili di questo book: ${l.varianti.map(v => `«${v.label}» = ${v.desc}`).join(' | ')}` : ''}`).join('\n')
 
     const prompt = `Sei Lucy, assistente di Sergio (profilazione di conti di bookmaker e casinò italiani). Sotto trovi (1) i messaggi recenti del gruppo Profiliamo, che dà le indicazioni operative per profilare i conti, e (2) l'elenco dei book dei clienti di Sergio in profilazione, ciascuno con l'azione che il PROTOCOLLO di Sergio prevede oggi.
 
@@ -90,9 +96,10 @@ Regole:
 - Usa SOLO ciò che è scritto nei messaggi: niente invenzioni. Importi, numero di bet, quota minima, giochi, scadenze vanno copiati esatti.
 - Il book della scheda è quello dopo "Bookmaker:" o nel titolo del topic; un book dopo "COPERTURA" NON è il book della scheda (citalo solo come copertura dentro l'azione).
 - Se Profiliamo non dà indicazioni per un book dell'elenco, NON includerlo. Se ci sono più messaggi sullo stesso book, vale il più recente; le istruzioni più vecchie ancora valide si possono riassumere.
-- "book": il nome ESATTO come nell'elenco. "azione": 1-3 frasi chiare e operative (cosa fare oggi). "msg": i numeri dei messaggi da cui viene.
-- "scostamento": stringa vuota "" se Profiliamo e protocollo sono compatibili o se il protocollo non dice nulla di confrontabile. Scrivi un testo SOLO se si discostano in modo palese (numero di bet o importo di ricarica diversi, tipo di gioco diverso, il protocollo prevede una cosa e Profiliamo dice di non farla): una frase con la differenza e i numeri, es. "Profiliamo: 5 bet e ricarica 50 €; il protocollo: 4 bet".
-- Rispondi SOLO con un array JSON, senza altro testo: [{"book":"","azione":"","scostamento":"","msg":[1]}]
+- "id": l'identificativo tra parentesi quadre dell'elenco (es. "e3"). Se Profiliamo parla di un book con più righe nell'elenco (varianti diverse dei clienti), scrivi una voce per ogni riga. "azione": 1-3 frasi chiare e operative (cosa fare oggi). "msg": i numeri dei messaggi da cui viene.
+- Alcuni book hanno più VARIANTI di protocollo (es. Goldbet: Casinò normale, VIP Live, VIP senza promo). Capisci di quale variante parla il messaggio di Profiliamo. Se parla di una variante DIVERSA da quella che il cliente segue, NON è uno scostamento: metti il nome esatto di quella variante in "altraVariante" e lascia "scostamento" vuoto. Se parla della stessa variante del cliente (o il book non ha varianti), "altraVariante" è "".
+- "scostamento": stringa vuota "" se Profiliamo e protocollo sono compatibili, se parlano di varianti diverse, o se il protocollo non dice nulla di confrontabile. Scrivi un testo SOLO quando riguarda la STESSA variante e si discostano in modo palese (numero di bet o importo di ricarica diversi, tipo di gioco diverso, il protocollo prevede una cosa e Profiliamo dice di non farla): una frase con la differenza e i numeri, es. "Profiliamo: 5 bet e ricarica 50 €; il protocollo: 4 bet".
+- Rispondi SOLO con un array JSON, senza altro testo: [{"id":"","azione":"","scostamento":"","altraVariante":"","msg":[1]}]
 
 LIBRI DEI CLIENTI:
 ${testoLibri}
@@ -104,16 +111,19 @@ ${testoMsg}`
     const a = r.testo.indexOf('['), b = r.testo.lastIndexOf(']')
     let grezzo: unknown[] = []
     try { grezzo = JSON.parse(r.testo.slice(a, b + 1)) } catch { return NextResponse.json({ error: 'Lucy ha risposto in un formato che non riesco a leggere, riprova' }, { status: 502 }) }
-    const perNome = new Map(libri.map(l => [norm(l.nome), l.nome]))
-    const voci: { book: string; azione: string; scostamento: string; link: string | null; data: string | null }[] = []
+    const perId = new Map(libri.map(l => [l.id, l]))
+    const voci: { id: string; book: string; variante: string; azione: string; scostamento: string; altraVariante: string; link: string | null; data: string | null }[] = []
     for (const x of Array.isArray(grezzo) ? grezzo : []) {
       const o = (x || {}) as Record<string, unknown>
-      const nome = perNome.get(norm(o.book))
+      const libro = perId.get(String(o.id || ''))
       const azione = String(o.azione || '').trim()
-      if (!nome || !azione) continue
+      if (!libro || !azione) continue
+      // la variante nominata deve essere davvero una di quelle del book e diversa da quella del cliente
+      const alt = libro.varianti.find(v => norm(v.label) === norm(o.altraVariante) && norm(v.label) !== norm(libro.variante))
+      const scost = alt ? '' : String(o.scostamento || '').trim()
       const numeri = (Array.isArray(o.msg) ? o.msg : []).map(n => Number(n)).filter(n => n >= 1 && n <= tenuti.length)
       const m0 = numeri.length ? tenuti[Math.max(...numeri) - 1] : null
-      voci.push({ book: nome, azione, scostamento: String(o.scostamento || '').trim(), link: m0?.link || null, data: m0?.data_msg || null })
+      voci.push({ id: libro.id, book: libro.nome, variante: libro.variante, azione, scostamento: scost, altraVariante: alt ? alt.label : '', link: m0?.link || null, data: m0?.data_msg || null })
     }
     return NextResponse.json({ voci, messaggi: tenuti.length, costo: r.costo })
   } catch (e) {
