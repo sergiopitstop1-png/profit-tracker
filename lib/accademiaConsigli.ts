@@ -21,6 +21,7 @@ const CONTESTO = 12
 
 export const TIPI = ['slot', 'promo', 'bug', 'pattern', 'file'] as const
 export type Tipo = (typeof TIPI)[number]
+type SlotNome = { nome: string; provider: string }
 type Fonte = { c: string | null; t: string | null; m: string | null; l: string | null; d: string; x: string }
 type Riga = {
   id: number; chat_id: number; topic_id: number | null; chat_titolo: string | null; topic_titolo: string | null
@@ -127,10 +128,11 @@ Regole:
 - book: nome del bookmaker o casinò in minuscolo (es. "lottomatica", "eurobet"), "" se è generale. promo: nome della promo, "" se non c'è. argomento: 2-5 parole che identificano il tema (es. "slot per rollover 30x").
 - scopo (solo per le slot): "rollover" se serve per smaltire il wagering, "margine" se è per fare profitto, "altro" altrimenti; "" per gli altri tipi.
 - Per i "file": titolo = nome del file o breve descrizione di cosa è; consiglio = a cosa serve e quando usarlo (solo ciò che è scritto); dettagli = il link/URL esatto scritto nel messaggio (copialo intero), il tipo di file (se noto dall'allegato) e chi lo ha condiviso. Se il messaggio ha solo un allegato senza spiegazione, usa il nome o la descrizione che c'è e scrivi "scopo non indicato". Se c'è un link scrivilo sempre.
+- Per le "slot": il campo "slot" è l'elenco delle slot nominate nel consiglio, con il nome ESATTO come scritto e il provider (es. NetEnt, Pragmatic, Playtech) solo se è scritto o ovvio dal nome del gioco, altrimenti "". Per gli altri tipi "slot" è [].
 - Al massimo 40 consigli. Se non c'è nulla di utile rispondi []
 
 Rispondi SOLO con un array JSON, senza testo prima o dopo e senza blocchi di codice. Ogni elemento:
-{"tipo":"slot|promo|bug|pattern|file","book":"","promo":"","argomento":"","titolo":"frase breve","consiglio":"1-2 frasi pratiche: cosa fare","dettagli":"importi, condizioni, esperienze dei membri, eccezioni; \\"\\" se non ci sono","scopo":"","msg":["m1","m5"]}
+{"tipo":"slot|promo|bug|pattern|file","book":"","promo":"","argomento":"","titolo":"frase breve","consiglio":"1-2 frasi pratiche: cosa fare","dettagli":"importi, condizioni, esperienze dei membri, eccezioni; \\"\\" se non ci sono","scopo":"","slot":[{"nome":"Starburst","provider":"NetEnt"}],"msg":["m1","m5"]}
 "msg" contiene i codici dei messaggi che sostengono il consiglio (almeno uno, solo messaggi non di contesto).
 
 GIÀ NOTI:
@@ -144,7 +146,7 @@ ${utili.map((m, i) => riga(`m${i + 1}`, m)).join('\n')}`
 }
 
 /* ---------- risposta del modello ---------- */
-type Grezzo = { tipo?: unknown; book?: unknown; promo?: unknown; argomento?: unknown; titolo?: unknown; consiglio?: unknown; dettagli?: unknown; scopo?: unknown; msg?: unknown }
+type Grezzo = { slot?: unknown; tipo?: unknown; book?: unknown; promo?: unknown; argomento?: unknown; titolo?: unknown; consiglio?: unknown; dettagli?: unknown; scopo?: unknown; msg?: unknown }
 function leggiJson(testo: string): Grezzo[] {
   let t = testo.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '')
   const a = t.indexOf('['), b = t.lastIndexOf(']')
@@ -157,9 +159,27 @@ function leggiJson(testo: string): Grezzo[] {
 const str = (v: unknown, max = 1200) => (typeof v === 'string' ? v.trim().slice(0, max) : '')
 const slug = (v: string) => norm(v).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60)
 
+function leggiSlot(v: unknown): SlotNome[] {
+  if (!Array.isArray(v)) return []
+  const viste = new Set<string>()
+  const out: SlotNome[] = []
+  for (const x of v) {
+    const nome = typeof x === 'string' ? x.trim() : str((x as { nome?: unknown })?.nome, 80)
+    const provider = typeof x === 'string' ? '' : str((x as { provider?: unknown })?.provider, 60)
+    if (!nome || viste.has(norm(nome))) continue
+    viste.add(norm(nome)); out.push({ nome, provider })
+  }
+  return out.slice(0, 15)
+}
+const unisciSlot = (a: SlotNome[], b: SlotNome[]) => {
+  const m = new Map<string, SlotNome>()
+  for (const s of [...a, ...b]) { const k = norm(s.nome); const e = m.get(k); if (!e || (!e.provider && s.provider)) m.set(k, s) }
+  return [...m.values()].slice(0, 20)
+}
+
 type Nuovo = {
   chiave: string; tipo: Tipo; book: string | null; promo: string | null; argomento: string | null; titolo: string; consiglio: string; dettagli: string | null
-  scopo: string | null; da_staff: boolean; autori: string[]; fonti: Fonte[]; chat_titolo: string | null; topic_titolo: string | null; prima: string; ultima: string
+  scopo: string | null; slot: SlotNome[]; da_staff: boolean; autori: string[]; fonti: Fonte[]; chat_titolo: string | null; topic_titolo: string | null; prima: string; ultima: string
 }
 function costruisci(grezzi: Grezzo[], utili: Riga[]): Nuovo[] {
   const out: Nuovo[] = []
@@ -176,6 +196,7 @@ function costruisci(grezzi: Grezzo[], utili: Riga[]): Nuovo[] {
       chiave: `${slug(book) || 'generale'}|${tipo}|${slug(argomento) || slug(titolo)}`,
       tipo, book: book || null, promo: str(g.promo, 100) || null, argomento: argomento || null, titolo, consiglio,
       dettagli: str(g.dettagli) || null,
+      slot: tipo === 'slot' ? leggiSlot(g.slot) : [],
       scopo: tipo === 'slot' && ['rollover', 'margine', 'altro'].includes(str(g.scopo)) ? str(g.scopo) : null,
       da_staff: righe.some(r => èStaff(r.mittente)),
       autori: [...new Set(righe.map(r => r.mittente).filter((x): x is string => !!x))],
@@ -194,14 +215,21 @@ async function salvaConsigli(nuovi: Nuovo[]) {
   for (const n of nuovi) {
     const e = perChiave.get(n.chiave)
     if (!e) { perChiave.set(n.chiave, n); continue }
-    e.fonti.push(...n.fonti); e.autori = [...new Set([...e.autori, ...n.autori])]; e.da_staff ||= n.da_staff
+    e.slot = unisciSlot(e.slot, n.slot); e.fonti.push(...n.fonti); e.autori = [...new Set([...e.autori, ...n.autori])]; e.da_staff ||= n.da_staff
     if (n.consiglio.length > e.consiglio.length) e.consiglio = n.consiglio
     if ((n.dettagli || '').length > (e.dettagli || '').length) e.dettagli = n.dettagli
     if (n.prima < e.prima) e.prima = n.prima
     if (n.ultima > e.ultima) e.ultima = n.ultima
   }
   const chiavi = [...perChiave.keys()]
-  const { data: esistenti, error } = await db.from('accademia_consigli').select('chiave,consiglio,dettagli,da_staff,autori,fonti,prima_data,ultima_data,stato').in('chiave', chiavi)
+  // se la colonna "slot" non esiste ancora (SQL non eseguito) si salva senza: nessun consiglio si perde e nessun blocco viene saltato
+  let conSlot = true
+  let r1 = await db.from('accademia_consigli').select('chiave,consiglio,dettagli,slot,da_staff,autori,fonti,prima_data,ultima_data,stato').in('chiave', chiavi)
+  if (r1.error && /slot/i.test(r1.error.message)) {
+    conSlot = false
+    r1 = await db.from('accademia_consigli').select('chiave,consiglio,dettagli,da_staff,autori,fonti,prima_data,ultima_data,stato').in('chiave', chiavi) as typeof r1
+  }
+  const { data: esistenti, error } = r1
   if (error) throw new Error(`lettura consigli: ${error.message}`)
   const mappa = new Map((esistenti || []).map(e => [e.chiave as string, e]))
   const righe = [...perChiave.values()].map(n => {
@@ -213,7 +241,7 @@ async function salvaConsigli(nuovi: Nuovo[]) {
     const dettagli = (e?.dettagli || '').length > (n.dettagli || '').length ? e?.dettagli : n.dettagli
     return {
       chiave: n.chiave, tipo: n.tipo, book: n.book, promo: n.promo, argomento: n.argomento, titolo: n.titolo, consiglio, dettagli: dettagli || null,
-      scopo: n.scopo, da_staff: !!(e?.da_staff) || n.da_staff,
+      scopo: n.scopo, ...(conSlot ? { slot: unisciSlot(((e as { slot?: SlotNome[] } | undefined)?.slot) || [], n.slot) } : {}), da_staff: !!(e?.da_staff) || n.da_staff,
       autori: [...new Set([...((e?.autori as string[]) || []), ...n.autori])],
       n_fonti: uniche.length, fonti: uniche.slice(0, 40), chat_titolo: n.chat_titolo, topic_titolo: n.topic_titolo,
       prima_data: e?.prima_data && e.prima_data < n.prima ? e.prima_data : n.prima,

@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 type Fonte = { c: string | null; t: string | null; m: string | null; l: string | null; d: string; x: string }
 type Consiglio = {
   id: number; tipo: 'slot' | 'promo' | 'bug' | 'pattern' | 'file'; book: string | null; promo: string | null; argomento: string | null
-  titolo: string; consiglio: string; dettagli: string | null; scopo: string | null; da_staff: boolean; autori: string[]
+  titolo: string; consiglio: string; dettagli: string | null; scopo: string | null; slot?: { nome: string; provider: string }[]; da_staff: boolean; autori: string[]
   n_fonti: number; fonti: Fonte[]; chat_titolo: string | null; topic_titolo: string | null; prima_data: string | null; ultima_data: string | null; stato: string
 }
 type Stato = {
@@ -217,6 +217,7 @@ export default function ConsigliAccademia() {
                     </div>
                     <div className="font-semibold text-slate-100">{c.titolo}</div>
                     <div className="mt-1 whitespace-pre-wrap text-sm text-slate-300">{c.consiglio}</div>
+                    {!!c.slot?.length && <div className="mt-1 flex flex-wrap gap-1">{c.slot.map(x => <span key={x.nome} className="rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[11px] text-amber-200">🎰 {x.nome}{x.provider ? ` · ${x.provider}` : ''}</span>)}</div>}
                     {c.dettagli && <div className="mt-1 whitespace-pre-wrap text-xs text-slate-400">{c.dettagli}</div>}
                     {c.autori.length > 0 && <div className="mt-1 text-[11px] text-slate-500">Da: {c.autori.slice(0, 5).join(', ')}{c.autori.length > 5 ? '…' : ''}</div>}
                     <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px]">
