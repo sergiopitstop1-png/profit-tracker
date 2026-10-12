@@ -3396,7 +3396,7 @@ function bloccoIncrocioLucy(p, pi, numero) {
     'OPERAZIONE SPOT':{t:'Operazione spot',bg:'#fef9c3',tx:'#854d0e'},
     'RECUPERO PROF.':{t:'Profilazione arretrata',bg:'#ffedd5',tx:'#9a3412'},   // 10/10/2026: non è un conto limitato, è una bet di profilazione non fatta nei giorni scorsi
     'MANT. PROTOCOLLO':{t:'Mant. protocollo',bg:'#fef3c7',tx:'#92400e'},
-    'MANTENIMENTO':{t:'Copertura',bg:'#e0e7ff',tx:'#3730a3'},
+    'MANTENIMENTO':{t:'Mantenimento',bg:'#e0e7ff',tx:'#3730a3'},   // 13/10/2026 (Sergio): i conti di mantenimento usati come copertura si chiamano Mantenimento
     'EXTRA PROF.':{t:'Extra',bg:'#f3e8ff',tx:'#6b21a8'}
   }
   const fatte=dettagli.filter(d=>d.ok).length
@@ -3436,8 +3436,10 @@ function bloccoIncrocioLucy(p, pi, numero) {
             {' '}{ev!=null&&ev>=0.03 ? 'Puoi giocarle scoperte.' : 'Copri a mano o salta le bet base.'}
           </div>)
       })()}
-      <table style={{width:'100%',borderCollapse:'collapse',fontSize:11,tableLayout:'fixed'}}>
-        <colgroup><col style={{width:'31%'}}/><col style={{width:'14%'}}/><col style={{width:'21%'}}/><col style={{width:'11%'}}/><col style={{width:'10%'}}/><col style={{width:'13%'}}/></colgroup>
+      {/* 13/10/2026: l'ultima colonna (CONFERMA + rimanda + salta) era troppo stretta e il tasto salta veniva tagliato; se la finestra è stretta scorre in orizzontale */}
+      <div style={{overflowX:'auto'}}>
+      <table style={{width:'100%',minWidth:660,borderCollapse:'collapse',fontSize:11,tableLayout:'fixed'}}>
+        <colgroup><col style={{width:'27%'}}/><col style={{width:'13%'}}/><col style={{width:'15%'}}/><col style={{width:'11%'}}/><col style={{width:'8%'}}/><col style={{width:'26%'}}/></colgroup>
         <thead><tr>{['CONTO','RUOLO','ESITO','IMPORTO','QUOTA',''].map((h,i)=><th key={i} style={th}>{h}</th>)}</tr></thead>
         <tbody>
           {dettagli.map(({a,tipo,key,ok,pronta},ri)=>{
@@ -3495,6 +3497,7 @@ function bloccoIncrocioLucy(p, pi, numero) {
           })}
         </tbody>
       </table>
+      </div>
       {(scenari.length>0 || p.manuale) && (
         <div style={{padding:'5px 10px',fontSize:10,background:p.manuale?'#fffbeb':'#f8fafc',borderTop:'1px solid #e2e8f0',color:p.manuale?'#92400e':'#475569'}}>
           {scenari.length>0 && <div>Risultato se piazzi tutto: {scenari.map((s,i)=>(
