@@ -238,6 +238,10 @@ const [savingProfilo, setSavingProfilo] = useState({})
 const [sceltaVarianteBook, setSceltaVarianteBook] = useState(null)
 // Finestra 🎰 Slot consigliate (lista Profiliamo): null = chiusa, altrimenti il testo dell'azione da cui è aperta
 const [slotPopup, setSlotPopup] = useState(null)
+// 12/10/2026 — PROFILIAMO ALLA GUIDA: per ogni book con conti 🟢 in profilazione, cosa fare oggi secondo Profiliamo (scritto da Lucy) + avviso se si discosta dal protocollo
+const [profiliamoVoci, setProfiliamoVoci] = useState([])
+const [profiliamoInfo, setProfiliamoInfo] = useState({ caricando: false, errore: '', quando: '', nota: '' })
+const profiliamoTentato = React.useRef(false)
 // Filtro della tab Clienti
 const [clientiFiltro, setClientiFiltro] = useState({ testo: '', stato: 'tutti', royalty: 'tutti', ordine: 'sim' })
 // Recupero conti limitati (tabella recupero_conti), vedi RecuperoConti.jsx
@@ -849,6 +853,43 @@ useEffect(() => {
 
 // 10/10/2026 — AZZERAMENTO: gli avvisi 🎯 "Bet di profilazione non fatta" nati da giorni precedenti si chiudono una volta sola.
 const azzeraAvvisiRef = React.useRef(false)
+// ── Profiliamo alla guida: legge una volta al giorno da solo (poi solo con "↻ Aggiorna"), il risultato del giorno resta salvato nel browser ──
+async function caricaProfiliamoAgenda(forza = false) {
+  const chiave = `profiliamo-agenda:${lucyOggi()}`
+  if (!forza) {
+    try {
+      const c = JSON.parse(localStorage.getItem(chiave) || 'null')
+      if (c && Array.isArray(c.voci)) { setProfiliamoVoci(c.voci); setProfiliamoInfo({ caricando: false, errore: '', quando: c.quando || '', nota: c.nota || '' }); return }
+    } catch { /* niente cache */ }
+  }
+  const perNome = new Map()
+  for (const b of books) {
+    if (b.profilo_livello !== 'attivo' || bookInRecuperoLimitato(b)) continue
+    const x = perNome.get(b.nome) || { nome: b.nome, azioni: [] }
+    for (const a of (getAzioniOggi(b)?.azioni || [])) if (!x.azioni.includes(a)) x.azioni.push(a)
+    perNome.set(b.nome, x)
+  }
+  if (!perNome.size) return
+  setProfiliamoInfo(i => ({ ...i, caricando: true, errore: '' }))
+  try {
+    const r = await fetch('/api/accademia/profiliamo-agenda', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ libri: [...perNome.values()] }) })
+    const j = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(j?.error || `errore ${r.status}`)
+    const quando = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })
+    const nota = j.nota || (j.messaggi ? `${j.messaggi} messaggi letti` : '')
+    setProfiliamoVoci(j.voci || [])
+    setProfiliamoInfo({ caricando: false, errore: '', quando, nota })
+    try { localStorage.setItem(chiave, JSON.stringify({ voci: j.voci || [], quando, nota })) } catch { /* niente cache */ }
+  } catch (e) {
+    setProfiliamoInfo(i => ({ ...i, caricando: false, errore: String(e?.message || e) }))
+  }
+}
+useEffect(() => {
+  if (profiliamoTentato.current || !books.length) return
+  profiliamoTentato.current = true
+  setTimeout(() => caricaProfiliamoAgenda(false), 6000)   // aspetta che il resto dei dati (bet confermate, pause) sia caricato, così il protocollo di oggi è completo
+}, [books])   // eslint-disable-line react-hooks/exhaustive-deps
+
 useEffect(() => {
   if (azzeraAvvisiRef.current || !Array.isArray(avvisiConti) || !avvisiConti.length) return
   azzeraAvvisiRef.current = true
@@ -7115,6 +7156,37 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                   <button style={{ border: '1px solid rgba(71,85,105,0.95)', background: 'rgba(15,23,42,0.82)', color: '#e2e8f0', width: 38, height: 38, borderRadius: 12, cursor: 'pointer', fontSize: 18 }}
                     onClick={() => { setShowAgendaPopup(false); setAgendaVista(true); localStorage.setItem('agendaVistaData', new Date().toISOString().split('T')[0]) }}>×</button>
                 </div>
+                {(() => {
+                  const nomiProf = new Set(bookiConAzioni.filter(x => x.book.profilo_livello === 'attivo').map(x => x.book.nome))
+                  const voci = profiliamoVoci.filter(v => nomiProf.has(v.book))
+                  const senza = [...nomiProf].filter(n => !voci.some(v => v.book === n))
+                  return (
+                    <div style={{ marginBottom: 14, border: '1px solid rgba(16,185,129,0.45)', background: 'rgba(16,185,129,0.07)', borderRadius: 14, padding: '10px 12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <b style={{ color: '#6ee7b7', fontSize: 13 }}>📣 Profiliamo oggi</b>
+                        <span style={{ color: '#94a3b8', fontSize: 11 }}>{profiliamoInfo.caricando ? 'Lucy sta leggendo…' : `${voci.length} book con indicazioni${profiliamoInfo.quando ? ` · letto alle ${profiliamoInfo.quando}` : ''}`}</span>
+                        <button disabled={profiliamoInfo.caricando} onClick={() => caricaProfiliamoAgenda(true)} style={{ marginLeft: 'auto', background: '#334155', color: 'white', border: 0, borderRadius: 8, padding: '3px 9px', fontWeight: 800, fontSize: 11, cursor: 'pointer' }}>↻ Aggiorna</button>
+                      </div>
+                      {profiliamoInfo.errore && <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 6 }}>⚠️ {profiliamoInfo.errore}</div>}
+                      {voci.map(v => {
+                        const clienti = bookiConAzioni.filter(x => x.book.profilo_livello === 'attivo' && x.book.nome === v.book).map(x => x.book.intestatario).filter(Boolean)
+                        return (
+                          <div key={v.book} style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(51,65,85,0.6)' }}>
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                              <b style={{ color: '#f8fafc', fontSize: 13 }}>{v.book}</b>
+                              <span style={{ color: '#94a3b8', fontSize: 11 }}>{clienti.length} {clienti.length === 1 ? 'cliente' : 'clienti'}: {clienti.slice(0, 6).join(', ')}{clienti.length > 6 ? '…' : ''}</span>
+                              {v.link && <a href={v.link} target="_blank" rel="noreferrer" style={{ color: '#4ade80', fontSize: 11 }}>↗ messaggio</a>}
+                            </div>
+                            <div style={{ color: '#e2e8f0', fontSize: 13, marginTop: 2, whiteSpace: 'pre-wrap' }}>{v.azione}</div>
+                            {v.scostamento && <div style={{ marginTop: 4, color: '#fecaca', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.5)', borderRadius: 8, padding: '4px 8px', fontSize: 12 }}>⚠️ Si discosta dal protocollo: {v.scostamento}</div>}
+                          </div>
+                        )
+                      })}
+                      {senza.length > 0 && <div style={{ marginTop: 8, color: '#94a3b8', fontSize: 11 }}>Nessuna indicazione di Profiliamo per: {senza.join(', ')} → vale il protocollo di Lucy (sotto).</div>}
+                      {!profiliamoInfo.caricando && !profiliamoInfo.errore && nomiProf.size > 0 && voci.length === 0 && <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 6 }}>{profiliamoInfo.nota || 'Nessuna indicazione trovata nei messaggi recenti.'}</div>}
+                    </div>
+                  )
+                })()}
                 {bookiConAzioni.length === 0 ? (
                   <div style={{ color: '#94a3b8', textAlign: 'center', padding: '24px 0' }}>Nessuna azione prevista per oggi 🎉</div>
                 ) : (
@@ -8019,7 +8091,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         />
       ))}
       {conSezione({ id: 'profiliamo-oggi', titolo: '📣 Profiliamo oggi · cosa dice e per quali clienti', colore: '#a78bfa', aperta: true }, (
-        <ProfiliamoOggi books={books} agendaOggi={agendaOggi} />
+        <ProfiliamoOggi books={books} agendaOggi={agendaOggi} voci={profiliamoVoci} />
       ))}
       {conSezione({ id: 'agenda', titolo: '📋 Agenda di oggi · mantenimento e profilazione', badge: agendaOggi.length ? `${agendaOggi.length} conti` : '', colore: '#60a5fa', aperta: true }, (
         <div style={{ display: 'grid', gridTemplateColumns: lucyVista === 'completa' ? '1fr 1fr' : '1fr', gap: 16, marginBottom: 16 }}>

@@ -12,7 +12,7 @@ const STAFF = ['frioni', 'lentini', 'fotia', 'amurri', 'willy', 'accademia del p
 const èStaff = (m) => STAFF.some(n => String(m.mittente || '').toLowerCase().includes(n))
 const btn = { background: '#334155', color: 'white', border: 0, borderRadius: 8, padding: '4px 10px', fontWeight: 800, fontSize: 12, cursor: 'pointer' }
 
-export default function ProfiliamoOggi({ books = [], agendaOggi = [] }) {
+export default function ProfiliamoOggi({ books = [], agendaOggi = [], voci = [] }) {
   const [messaggi, setMessaggi] = useState(null)
   const [errore, setErrore] = useState('')
   const [ore, setOre] = useState(36)
@@ -109,6 +109,15 @@ export default function ProfiliamoOggi({ books = [], agendaOggi = [] }) {
               <b style={{ color: '#f8fafc' }}>{g.nome} <span style={{ color: '#94a3b8', fontWeight: 600, fontSize: 12 }}>· {g.msgs.length} {g.msgs.length === 1 ? 'messaggio' : 'messaggi'} · ultimo {quando(g.msgs[0].data_msg)}{g.citato ? ' · solo citato nel testo' : ''}</span></b>
               <button onClick={() => setAperti(p => ({ ...p, [g.nome]: !aperto }))} style={btn}>{aperto ? '▾ Nascondi testo' : '▸ Leggi il messaggio'}</button>
             </div>
+            {(() => {
+              const v = voci.find(x => norm(x.book) === norm(g.nome))
+              return v ? (
+                <div style={{ margin: '5px 0', fontSize: 12.5, color: '#e2e8f0' }}>
+                  <div style={{ whiteSpace: 'pre-wrap' }}>📣 <b>Oggi secondo Profiliamo:</b> {v.azione}</div>
+                  {v.scostamento && <div style={{ marginTop: 3, color: '#fecaca', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.5)', borderRadius: 8, padding: '3px 8px' }}>⚠️ Si discosta dal protocollo: {v.scostamento}</div>}
+                </div>
+              ) : null
+            })()}
             <div style={{ fontSize: 12, margin: '5px 0', color: '#cbd5e1' }}>
               {inProf.length === 0
                 ? <span style={{ color: '#fbbf24' }}>Nessun cliente in profilazione su {g.nome}: messaggio solo informativo.</span>
