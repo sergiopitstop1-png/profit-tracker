@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import TradingViewChart from './TradingViewChart'
+import { ListaCompatta, OggiCard } from './AspettoDashboard'   // 12/10/2026: interruttori d'aspetto
 import MarketOverviewWidget from './MarketOverviewWidget'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import {
@@ -114,6 +115,9 @@ export default function DashboardTab({
   onPagaRoyaltyMensile,
   chatDaSentire = [],
   onApriChat,
+  aspetto = {},          // 12/10/2026: vedi AspettoDashboard.jsx (tutto spento = com'era)
+  striscePrima = null,   // strisce urgenti: avviso mail, diretta
+  strisceOggi = null,    // strisce della scheda "Oggi": quote, Lucy Trading, promo, mirate
 }) {
   const [dashChartSymbol, setDashChartSymbol] = useState('XAUUSD')
 
@@ -121,7 +125,11 @@ export default function DashboardTab({
     <div style={tabContent}>
 
       {/* 07/10/2026: la card Lucy è stata tolta; l'avviso è la striscia in cima (LucyAvvisoMail) */}
-
+      {/* 12/10/2026: ordine com'era = strisce, avvisi, numeri · ordine nuovo (numeriSu) = numeri, strisce urgenti, avvisi, scheda Oggi */}
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+      <div style={{ order: aspetto.numeriSu ? 2 : 1 }}>{striscePrima}</div>
+      <div style={{ order: aspetto.numeriSu ? 4 : 2 }}><OggiCard attiva={!!aspetto.oggiUnico}>{strisceOggi}</OggiCard></div>
+      <div style={{ order: aspetto.numeriSu ? 3 : 3 }}>
       {(() => {
         const oggi = new Date()
         const annoCorrente = oggi.getFullYear()
@@ -257,6 +265,8 @@ export default function DashboardTab({
             }}>
               🔔 AVVISI SCADENZE
             </div>
+
+            <ListaCompatta max={aspetto.rossoCompatto ? 3 : 0}>
 
             {righe.map((r, i) => (
               <div
@@ -395,10 +405,13 @@ export default function DashboardTab({
                 )}
               </div>
             ))}
+            </ListaCompatta>
           </div>
         )
       })()}
+      </div>
 
+      <div style={{ order: aspetto.numeriSu ? 1 : 4 }}>
       <div style={{ marginBottom: '15px' }}>
         <button
           style={primaryButtonBlue}
@@ -783,6 +796,8 @@ export default function DashboardTab({
             <MarketOverviewFill minHeight={360} />
           </div>
         </div>
+      </div>
+      </div>
       </div>
 
       <div style={dashboardGrid}>
