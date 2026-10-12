@@ -92,8 +92,9 @@ export function ListaSlotUnica({ contesto, incorporato }) {
         if (!v) continue
         const b = t.book || ''
         const kk = b + '|' + sc
-        const a = v.acc.get(kk) || { book: b, scopo: sc, n: 0 }
+        const a = v.acc.get(kk) || { book: b, scopo: sc, n: 0, ultima: '' }
         a.n += 1; v.acc.set(kk, a)
+        if ((t.ultima_data || '') > a.ultima) a.ultima = t.ultima_data || ''
         v.n += 1; v.staff = v.staff || !!t.da_staff
         if ((t.ultima_data || '') > v.ultima) v.ultima = t.ultima_data || ''
       }
@@ -120,7 +121,7 @@ export function ListaSlotUnica({ contesto, incorporato }) {
     for (const v of visibili) { const p = v.provider || ''; g.set(p, [...(g.get(p) || []), v]) }
     return [...g.entries()]
       .sort((a, b) => (a[0] === '' ? 1 : b[0] === '' ? -1 : a[0].localeCompare(b[0])))
-      .map(([p, vv]) => [p, vv.sort((a, b) => a.nome.localeCompare(b.nome))])
+      .map(([p, vv]) => [p, vv.sort((a, b) => b.ultima.localeCompare(a.ultima) || a.nome.localeCompare(b.nome))])
   }, [visibili]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // per book → scopo
@@ -131,7 +132,7 @@ export function ListaSlotUnica({ contesto, incorporato }) {
         if ((filtro === 'margine' || filtro === 'rollover') && a.scopo !== filtro) continue
         if (!libri.has(a.book)) libri.set(a.book, new Map())
         const per = libri.get(a.book)
-        per.set(a.scopo, [...(per.get(a.scopo) || []), { v, n: a.n }])
+        per.set(a.scopo, [...(per.get(a.scopo) || []), { v, n: a.n, ultima: a.ultima }])
       }
     }
     const ctx = norma(contesto)
@@ -139,9 +140,10 @@ export function ListaSlotUnica({ contesto, incorporato }) {
       .map(([book, per]) => ({
         book,
         perQuesto: !!(ctx && book && ctx.includes(norma(book))),
-        scopi: SCOPI.map(s => ({ ...s, voci: (per.get(s.k) || []).sort((x, y) => y.n - x.n || x.v.nome.localeCompare(y.v.nome)) })).filter(s => s.voci.length),
+        ultima: [...per.values()].flat().reduce((m, x) => (x.ultima > m ? x.ultima : m), ''),
+        scopi: SCOPI.map(s => ({ ...s, voci: (per.get(s.k) || []).sort((x, y) => y.ultima.localeCompare(x.ultima) || y.n - x.n || x.v.nome.localeCompare(y.v.nome)) })).filter(s => s.voci.length),
       }))
-      .sort((a, b) => Number(b.perQuesto) - Number(a.perQuesto) || (a.book === '' ? 1 : b.book === '' ? -1 : a.book.localeCompare(b.book)))
+      .sort((a, b) => Number(b.perQuesto) - Number(a.perQuesto) || (a.book === '' ? 1 : b.book === '' ? -1 : b.ultima.localeCompare(a.ultima) || a.book.localeCompare(b.book)))
   }, [visibili, filtro, contesto]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── azioni sulla lista (tabella slot_consigliate) ──
@@ -275,8 +277,8 @@ export function ListaSlotUnica({ contesto, incorporato }) {
                   <div key={s.k} style={{ display: 'flex', gap: 10, alignItems: 'baseline', marginTop: 5 }}>
                     <span style={{ width: 86, flexShrink: 0, fontSize: 12, fontWeight: 800, color: '#38bdf8' }}>{s.nome}</span>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, flex: 1 }}>
-                      {s.voci.map(({ v, n }) => (
-                        <span key={v.k} title={`${n} ${n === 1 ? 'consiglio' : 'consigli'}${v.provider ? ' · ' + v.provider : ''}`}
+                      {s.voci.map(({ v, n, ultima }) => (
+                        <span key={v.k} title={`${n} ${n === 1 ? 'consiglio' : 'consigli'}${v.provider ? ' · ' + v.provider : ''}${ultima ? ' · ultimo messaggio ' + new Date(ultima).toLocaleDateString('it-IT') : ''}`}
                           style={{ display: 'inline-flex', gap: 5, alignItems: 'center', border: `1px solid ${v.riga ? 'rgba(34,197,94,0.45)' : 'rgba(245,158,11,0.35)'}`, background: v.riga ? 'rgba(34,197,94,0.08)' : 'rgba(245,158,11,0.08)', borderRadius: 6, padding: '1px 7px', fontSize: 12.5, color: '#f1f5f9' }}>
                           {v.nome}{n > 1 ? <span style={{ color: '#fbbf24', opacity: 0.8 }}>×{n}</span> : null}{v.staff ? '⭐' : ''}{azione(v)}
                         </span>
