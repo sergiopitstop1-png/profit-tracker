@@ -103,6 +103,13 @@ type Riassunto = {
 const fmtGiornoRiassunto = (giorno: string) =>
   new Intl.DateTimeFormat('it-IT', { weekday: 'short', day: '2-digit', month: 'short' }).format(new Date(`${giorno}T12:00:00`))
 
+// gli indirizzi nel testo (↗ https://t.me/…) diventano link cliccabili
+function conLink(t: string) {
+  return t.split(/(https?:\/\/\S+)/g).map((p, i) => /^https?:\/\//.test(p)
+    ? <a key={i} href={p} target="_blank" rel="noreferrer" className="text-green-400 hover:underline">messaggio</a>
+    : p)
+}
+
 function TestoRiassunto({ testo }: { testo: string }) {
   // la sezione "Da non perdere" va in un riquadro evidenziato, il resto sotto come elenco
   const blocchi: { titolo: string; righe: string[] }[] = [{ titolo: '', righe: [] }]
@@ -114,8 +121,8 @@ function TestoRiassunto({ testo }: { testo: string }) {
   }
   const riga = (t: string, i: number) =>
     t.startsWith('- ')
-      ? <div key={i} className="flex gap-2 text-slate-200"><span className="text-green-500">›</span><span className="min-w-0 break-words">{t.slice(2)}</span></div>
-      : <div key={i} className="text-slate-300">{t}</div>
+      ? <div key={i} className="flex gap-2 text-slate-200"><span className="text-green-500">›</span><span className="min-w-0 break-words">{conLink(t.slice(2))}</span></div>
+      : <div key={i} className="text-slate-300">{conLink(t)}</div>
   return (
     <div className="space-y-1 text-sm">
       {blocchi.map((b, k) => {
