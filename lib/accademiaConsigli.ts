@@ -1,5 +1,5 @@
 // 11/10/2026 · Raccoglitore dei consigli dell'Accademia.
-// Lucy legge i messaggi dei topic scelti (pilota: "4 Chiacchiere", "Bonus Expert", "Bonus Casino" del gruppo CLUB D'ÈLITE)
+// Lucy legge i messaggi dei topic scelti (pilota: "4 Chiacchiere", "Bonus Expert", "Bonus Casino", "Bonus Sport", "Condivisione file" del gruppo CLUB D'ÈLITE)
 // e ne estrae i consigli operativi: slot consigliate per una promo, consigli su altre promo, bug, schemi con cui le promo sono arrivate.
 // I consigli sono salvati in accademia_consigli (una riga per consiglio, uniti se lo stesso consiglio ricompare) con il link al messaggio.
 // Si legge a blocchi, dal più vecchio, e si ricorda fin dove si è arrivati (accademia_consigli_stato): niente va letto due volte.
@@ -18,12 +18,12 @@ const ATTESA_ORE = 20
 const MAX_ERRORI = 3
 const CONTESTO = 12
 
-export const TIPI = ['slot', 'promo', 'bug', 'pattern'] as const
+export const TIPI = ['slot', 'promo', 'bug', 'pattern', 'file'] as const
 export type Tipo = (typeof TIPI)[number]
 type Fonte = { c: string | null; t: string | null; m: string | null; l: string | null; d: string; x: string }
 type Riga = {
   id: number; chat_id: number; topic_id: number | null; chat_titolo: string | null; topic_titolo: string | null
-  msg_id: number; data_msg: string; mittente: string | null; testo: string | null; testo_immagine: string | null; link: string | null
+  msg_id: number; data_msg: string; mittente: string | null; testo: string | null; media_tipo: string | null; testo_immagine: string | null; link: string | null
 }
 type Coppia = { chat_id: number; topic_id: number }
 
@@ -32,7 +32,7 @@ const sb = () => createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env
 const apostrofi = (t: string) => norm(t).replace(/[’‘`´]/g, "'")
 const rx = (env: string | undefined, def: RegExp) => { try { return env ? new RegExp(env, 'i') : def } catch { return def } }
 const RX_CHAT = rx(process.env.ACCADEMIA_CONSIGLI_CHAT, /d'?\s*elite/i)
-const RX_TOPIC = rx(process.env.ACCADEMIA_CONSIGLI_TOPIC, /(4|quattro)\s*chiacchier|bonus\s*expert|bonus\s*casin/i)
+const RX_TOPIC = rx(process.env.ACCADEMIA_CONSIGLI_TOPIC, /(4|quattro)\s*chiacchier|bonus\s*expert|bonus\s*casin|bonus\s*sport|condivision\w*\s*(di\s*)?file|file\s*condivis/i)
 
 /* ---------- quali topic leggere ---------- */
 type GruppoRpc = { chat_id: number; chat_titolo: string | null; topic_id: number | null; topic_titolo: string | null; n: number; ultimo: string | null }
@@ -52,7 +52,7 @@ async function stato() {
 }
 
 /* ---------- lettura dei messaggi nuovi ---------- */
-const SELECT = 'id,chat_id,topic_id,chat_titolo,topic_titolo,msg_id,data_msg,mittente,testo,testo_immagine,link'
+const SELECT = 'id,chat_id,topic_id,chat_titolo,topic_titolo,msg_id,data_msg,mittente,testo,media_tipo,testo_immagine,link'
 function conFiltri<T extends { in: (c: string, v: number[]) => T; or: (f: string) => T }>(q: T, coppie: Coppia[], marca: { t: string; id: number } | null) {
   let r = q.in('chat_id', [...new Set(coppie.map(c => c.chat_id))]).in('topic_id', [...new Set(coppie.map(c => c.topic_id))])
   if (marca) r = r.or(`data_msg.gt.${marca.t},and(data_msg.eq.${marca.t},id.gt.${marca.id})`)
@@ -100,7 +100,8 @@ const ora = (iso: string) => new Intl.DateTimeFormat('it-IT', { timeZone: 'Europ
 const corpo = (m: Riga) => {
   const t = (m.testo || '').slice(0, MAX_PER_MESSAGGIO).replace(/\n{3,}/g, '\n\n')
   const img = m.testo_immagine ? `\n  IMMAGINE: ${m.testo_immagine.slice(0, MAX_PER_MESSAGGIO).replace(/\n{2,}/g, '\n')}` : ''
-  return `${t}${img}`
+  const all = m.media_tipo ? `\n  [ALLEGATO: ${m.media_tipo}]` : ''
+  return `${t}${all}${img}`
 }
 const riga = (cod: string, m: Riga) => `${cod} [${ora(m.data_msg)}] ${m.mittente || '?'}${èStaff(m.mittente) ? ' (staff)' : ''} · ${m.topic_titolo || '-'}: ${corpo(m)}`
 
@@ -111,6 +112,7 @@ Tipi di consiglio:
 - "slot": una slot (o un gioco) consigliata per fare una promo, in particolare per smaltire un rollover o un wagering con poco costo.
 - "promo": un consiglio su come comportarsi con una promo (cosa fare, cosa evitare, ordine delle mosse, condizioni da controllare, come l'hanno incassata).
 - "bug": un bug, una falla o un errore di un book o di una promo che si può sfruttare o da cui stare attenti.
+- "file": un file, documento, foglio, guida, link o risorsa condivisa nel topic di condivisione file (o altrove): serve sapere QUALE file è, il link se c'è e A COSA SERVE.
 - "pattern": uno schema o una condizione che ha fatto arrivare (o non arrivare) una promo: come è stata attivata, cosa avevano fatto prima quelli a cui è arrivata, tempi di accredito.
 
 Regole:
@@ -123,10 +125,11 @@ Regole:
 - "GIÀ NOTI" è l'elenco di argomenti già raccolti: se un consiglio riguarda lo stesso book e lo stesso argomento, riusa ESATTAMENTE le stesse parole di book e argomento, così si uniscono.
 - book: nome del bookmaker o casinò in minuscolo (es. "lottomatica", "eurobet"), "" se è generale. promo: nome della promo, "" se non c'è. argomento: 2-5 parole che identificano il tema (es. "slot per rollover 30x").
 - scopo (solo per le slot): "rollover" se serve per smaltire il wagering, "margine" se è per fare profitto, "altro" altrimenti; "" per gli altri tipi.
+- Per i "file": titolo = nome del file o breve descrizione di cosa è; consiglio = a cosa serve e quando usarlo (solo ciò che è scritto); dettagli = il link/URL esatto scritto nel messaggio (copialo intero), il tipo di file (se noto dall'allegato) e chi lo ha condiviso. Se il messaggio ha solo un allegato senza spiegazione, usa il nome o la descrizione che c'è e scrivi "scopo non indicato". Se c'è un link scrivilo sempre.
 - Al massimo 40 consigli. Se non c'è nulla di utile rispondi []
 
 Rispondi SOLO con un array JSON, senza testo prima o dopo e senza blocchi di codice. Ogni elemento:
-{"tipo":"slot|promo|bug|pattern","book":"","promo":"","argomento":"","titolo":"frase breve","consiglio":"1-2 frasi pratiche: cosa fare","dettagli":"importi, condizioni, esperienze dei membri, eccezioni; \\"\\" se non ci sono","scopo":"","msg":["m1","m5"]}
+{"tipo":"slot|promo|bug|pattern|file","book":"","promo":"","argomento":"","titolo":"frase breve","consiglio":"1-2 frasi pratiche: cosa fare","dettagli":"importi, condizioni, esperienze dei membri, eccezioni; \\"\\" se non ci sono","scopo":"","msg":["m1","m5"]}
 "msg" contiene i codici dei messaggi che sostengono il consiglio (almeno uno, solo messaggi non di contesto).
 
 GIÀ NOTI:
@@ -250,7 +253,7 @@ export async function eseguiPassata(opz: { forza?: boolean; budgetMs?: number } 
       const ult = st?.ultima_esecuzione ? new Date(st.ultima_esecuzione).getTime() : 0
       if (Date.now() - ult < ATTESA_ORE * 3_600_000) return { ok: true, saltato: 'pochi messaggi nuovi: aspetto', blocchi, messaggi, consigli, costo }
     }
-    const utili = b.righe.filter(r => (r.testo || '').trim().length >= MIN_CARATTERI || (r.testo_immagine || '').trim().length >= MIN_CARATTERI)
+    const utili = b.righe.filter(r => (r.testo || '').trim().length >= MIN_CARATTERI || (r.testo_immagine || '').trim().length >= MIN_CARATTERI || !!r.media_tipo)
     let nTrovati = 0
     let spesa = 0
     if (utili.length) {

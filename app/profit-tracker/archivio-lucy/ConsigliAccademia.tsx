@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 type Fonte = { c: string | null; t: string | null; m: string | null; l: string | null; d: string; x: string }
 type Consiglio = {
-  id: number; tipo: 'slot' | 'promo' | 'bug' | 'pattern'; book: string | null; promo: string | null; argomento: string | null
+  id: number; tipo: 'slot' | 'promo' | 'bug' | 'pattern' | 'file'; book: string | null; promo: string | null; argomento: string | null
   titolo: string; consiglio: string; dettagli: string | null; scopo: string | null; da_staff: boolean; autori: string[]
   n_fonti: number; fonti: Fonte[]; chat_titolo: string | null; topic_titolo: string | null; prima_data: string | null; ultima_data: string | null; stato: string
 }
@@ -22,9 +22,9 @@ type Prova = {
 }
 
 const TIPI: { k: Consiglio['tipo']; nome: string }[] = [
-  { k: 'slot', nome: '🎰 Slot' }, { k: 'promo', nome: '🎯 Promo' }, { k: 'bug', nome: '🐞 Bug' }, { k: 'pattern', nome: '🧩 Pattern' },
+  { k: 'slot', nome: '🎰 Slot' }, { k: 'promo', nome: '🎯 Promo' }, { k: 'bug', nome: '🐞 Bug' }, { k: 'pattern', nome: '🧩 Pattern' }, { k: 'file', nome: '📎 File' },
 ]
-const NOME_TIPO: Record<string, string> = { slot: '🎰 Slot', promo: '🎯 Promo', bug: '🐞 Bug', pattern: '🧩 Pattern' }
+const NOME_TIPO: Record<string, string> = { slot: '🎰 Slot', promo: '🎯 Promo', bug: '🐞 Bug', pattern: '🧩 Pattern', file: '📎 File' }
 
 const fmtGiorno = (v: string | null) => {
   if (!v) return '-'
@@ -123,7 +123,7 @@ export default function ConsigliAccademia() {
         <div>
           <div className="font-bold text-green-300">&gt; 💡 CONSIGLI DELL&apos;ACCADEMIA</div>
           <div className="text-xs text-slate-500">
-            Lucy legge i topic scelti (4 Chiacchiere, Bonus Expert, Bonus Casino) e raccoglie qui slot consigliate, consigli sulle promo, bug e schemi.
+            Lucy legge i topic scelti (4 Chiacchiere, Bonus Expert, Bonus Casino, Bonus Sport, Condivisione file) e raccoglie qui slot consigliate, consigli sulle promo, bug, schemi e file condivisi.
           </div>
           {stato && (
             <div className="mt-1 text-[11px] text-slate-500">

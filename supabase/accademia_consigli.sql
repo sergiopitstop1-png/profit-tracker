@@ -4,7 +4,7 @@
 create table if not exists public.accademia_consigli (
   id bigint generated always as identity primary key,
   chiave text not null unique,
-  tipo text not null check (tipo in ('slot','promo','bug','pattern')),
+  tipo text not null check (tipo in ('slot','promo','bug','pattern','file')),
   book text,
   promo text,
   argomento text,
@@ -41,3 +41,7 @@ create table if not exists public.accademia_consigli_stato (
   batch_saltati int not null default 0
 );
 alter table public.accademia_consigli_stato enable row level security;
+
+-- 12/10/2026 · aggiunto il tipo 'file' (condivisione file). Per chi ha gia' creato la tabella:
+alter table public.accademia_consigli drop constraint if exists accademia_consigli_tipo_check;
+alter table public.accademia_consigli add constraint accademia_consigli_tipo_check check (tipo in ('slot','promo','bug','pattern','file'));
