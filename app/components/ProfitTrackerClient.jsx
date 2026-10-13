@@ -118,6 +118,42 @@ function Sezione({ id, titolo, badge, colore = '#38bdf8', aperta: apertaDefault 
   )
 }
 
+// 13/10/2026 — 🖥 MINI GRIGLIA: se è accesa sul PC dei telefoni (mini_griglia.py v7, porta 8765), "Apri telefoni" mostra SOLO i telefoni
+// dell'operazione e ogni bet confermata/saltata/rimandata toglie il telefono di quel cliente. Se la griglia non è accesa non succede nulla.
+const GRIGLIA_URL = 'http://127.0.0.1:8765'
+const grigliaPendenti = new Map()   // nome normalizzato del cliente -> bet ancora da fare in questa operazione
+const normNomeGriglia = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '')
+async function grigliaChiama(percorso, params = {}) {
+  try {
+    const ctrl = new AbortController()
+    const t = setTimeout(() => ctrl.abort(), 12000)
+    const q = new URLSearchParams(params).toString()
+    const r = await fetch(`${GRIGLIA_URL}${percorso}${q ? '?' + q : ''}`, { signal: ctrl.signal })
+    clearTimeout(t)
+    return await r.json()
+  } catch { return null }   // griglia spenta, o il browser non ha il permesso di parlare col PC
+}
+// nomi = intestatari, uno per ogni bet ancora da fare (un cliente con 2 bet compare 2 volte)
+async function grigliaMostra(nomi) {
+  const lista = (nomi || []).filter(Boolean)
+  if (!lista.length) return null
+  const r = await grigliaChiama('/mostra', { nomi: [...new Set(lista)].join('|') })
+  if (r && r.ok) {
+    grigliaPendenti.clear()
+    for (const n of lista) { const k = normNomeGriglia(n); grigliaPendenti.set(k, (grigliaPendenti.get(k) || 0) + 1) }
+  }
+  return r
+}
+// una bet del cliente è stata fatta/saltata: quando non ne restano, il suo telefono sparisce dalla griglia
+function grigliaFatto(intestatario) {
+  const k = normNomeGriglia(intestatario)
+  if (!k || !grigliaPendenti.has(k)) return
+  const resta = grigliaPendenti.get(k) - 1
+  if (resta > 0) { grigliaPendenti.set(k, resta); return }
+  grigliaPendenti.delete(k)
+  grigliaChiama('/fatto', { nome: intestatario })
+}
+
 export default function ProfitTrackerClient() {
   const formatMonthKey = (date = new Date()) => {
     const y = date.getFullYear()
@@ -543,6 +579,9 @@ async function apriSuTelefoni(nomeBook, url, intestatari, azione = 'apri') {
   if (!nomi.length) return
   const cosa = azione === 'app' ? `l'APP ${nomeBook} (parola "${url}")` : `${nomeBook} in Chrome (${url.replace(/^https?:\/\//, '').replace(/\/$/, '')})`
   if (!window.confirm(`Apro ${cosa} sui telefoni di:\n${nomi.join('\n')}?`)) return
+  grigliaMostra(nomi).then(g => {
+    if (g && g.mancanti && g.mancanti.length) setErrorMessage(`🖥 Griglia: non trovo il telefono di ${g.mancanti.join(', ')} (vedi alias_griglia.json)`)
+  })
   const { data, error } = await supabase.from('comandi_telefoni').insert([{ azione, url, intestatari: nomi }]).select().single()
   if (error) { setErrorMessage('Comando non inviato: lancia agente_telefoni.sql (' + error.message + ')'); return }
   setMessage(`📱 ${nomeBook}: apertura inviata a ${nomi.length} telefoni…`)
@@ -576,6 +615,10 @@ async function apriContiSuTelefoni(conti, titolo = 'il gruppo') {
   const elenco = [...perBook.entries()].map(([k, v]) => `${k}: ${[...v.nomi].join(', ')}`).join('\n')
   if (!window.confirm(`Apro ${titolo} sui telefoni?\n\n${elenco}`)) return
   const righe = [...perBook.entries()].map(([, v]) => ({ azione: 'apri', url: v.url, intestatari: [...v.nomi] }))
+  // 13/10/2026: la griglia mostra solo i telefoni di questa operazione (se è accesa)
+  grigliaMostra((conti || []).filter(b => b && b.intestatario).map(b => b.intestatario)).then(g => {
+    if (g && g.mancanti && g.mancanti.length) setErrorMessage(`🖥 Griglia: non trovo il telefono di ${g.mancanti.join(', ')} (il nome sul telefono deve iniziare come il cliente: vedi alias_griglia.json)`)
+  })
   const { data, error } = await supabase.from('comandi_telefoni').insert(righe).select('id')
   if (error) { setErrorMessage('Comando non inviato: ' + error.message); return }
   const ids = (data || []).map(r => r.id)
@@ -3612,6 +3655,7 @@ function confermaSingolaBetLucy(p,a,tipo='profilazione') {
   }
   salvaLucyConfermate([...lucyConfermate,rec])
   salvaAtteseOggiLucy()
+  grigliaFatto(a.book.intestatario)   // 13/10/2026: il telefono di questo cliente sparisce dalla griglia
   // 27/09/2026: una bet di recupero confermata in Lucy chiude l'avviso di recupero di quel conto (oggi o in ritardo)
   if (tipo==='recupero') chiudiAvvisiRecuperoDaLucy(a.book.id)
 }
@@ -3641,6 +3685,7 @@ async function decidiBetLucy(p, a, tipo, decisione) {
   const { data, error } = await supabase.from('lucy_decisioni').insert([riga]).select().single()
   if (error) { setErrorMessage('Decisione non salvata: ' + error.message + ' (hai lanciato archivio_lucy.sql?)'); return }
   setLucyDecisioni(prev => [...prev, data])
+  grigliaFatto(a.book.intestatario)   // 13/10/2026: bet saltata/rimandata → il telefono esce dalla griglia
   if (decisione === 'saltata' && tipo === 'recupero') chiudiAvvisiRecuperoDaLucy(a.book.id, 'bet di recupero SALTATA in Lucy')
   setMessage(decisione === 'saltata' ? `⏭ Saltata: ${a.book.nome} · ${a.book.intestatario || '—'}` : `🔁 Rimandata: ${a.book.nome} · ${a.book.intestatario || '—'} — Lucy la ripropone nei prossimi giorni`)
 }
