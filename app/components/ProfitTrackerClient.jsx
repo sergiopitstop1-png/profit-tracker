@@ -137,12 +137,11 @@ async function grigliaChiama(percorso, params = {}) {
 async function grigliaMostra(nomi) {
   const lista = (nomi || []).filter(Boolean)
   if (!lista.length) return null
-  const r = await grigliaChiama('/mostra', { nomi: [...new Set(lista)].join('|') })
-  if (r && r.ok) {
-    grigliaPendenti.clear()
-    for (const n of lista) { const k = normNomeGriglia(n); grigliaPendenti.set(k, (grigliaPendenti.get(k) || 0) + 1) }
-  }
-  return r
+  // le bet ancora da fare si tengono a mente subito, anche se la chiamata diretta alla griglia viene bloccata dal browser:
+  // la griglia riceve comunque i telefoni dal comando di apertura e, a bet fatta, il comando per toglierli
+  grigliaPendenti.clear()
+  for (const n of lista) { const k = normNomeGriglia(n); grigliaPendenti.set(k, (grigliaPendenti.get(k) || 0) + 1) }
+  return await grigliaChiama('/mostra', { nomi: [...new Set(lista)].join('|') })
 }
 // una bet del cliente è stata fatta/saltata: quando non ne restano, il suo telefono sparisce dalla griglia
 function grigliaFatto(intestatario) {
@@ -151,7 +150,9 @@ function grigliaFatto(intestatario) {
   const resta = grigliaPendenti.get(k) - 1
   if (resta > 0) { grigliaPendenti.set(k, resta); return }
   grigliaPendenti.delete(k)
-  grigliaChiama('/fatto', { nome: intestatario })
+  grigliaChiama('/fatto', { nome: intestatario })   // diretto (alcuni browser, come Brave, lo bloccano)
+  // via sicura, che non dipende dal browser: un comando per la griglia attraverso il database (la griglia lo legge da sola)
+  supabase.from('comandi_telefoni').insert([{ azione: 'griglia_fatto', url: '-', intestatari: [intestatario] }]).then(() => {}, () => {})
 }
 
 export default function ProfitTrackerClient() {
