@@ -108,11 +108,12 @@ export function PromoScadenze({ onApri, Sezione }) {
 // ─── TAB PROMO ───
 const vuoto = { cliente: '', anche: [], book: '', tipo: '', versamento: '', bonus: '', rollover: '', da_giocare: '', scadenza: '', note: '', mail_canale: null, mail_id: null, oggetto: '' }
 
-export default function PromoBonusPanel({ books, prefill, onPrefillUsato, onMessage, onError }) {
+export default function PromoBonusPanel({ books, prefill, onPrefillUsato, cercaIniziale, onCercaUsata, onMessage, onError }) {
   const [promo, setPromo] = useState([])
   const [form, setForm] = useState(null)          // modulo aperto (nuova o modifica)
   const [filtro, setFiltro] = useState('da fare') // 'da fare' | 'tutte' | 'fatta' | 'scaduta' | 'rinunciata'
-  const [cerca, setCerca] = useState('')
+  const [cerca, setCerca] = useState(cercaIniziale || '')   // 14/10/2026: arrivo da "Oggi da fare" → già filtrata su quella promo
+  useEffect(() => { if (cercaIniziale && onCercaUsata) onCercaUsata() }, [])   // eslint-disable-line react-hooks/exhaustive-deps
   const [errTabella, setErrTabella] = useState('')
   const formRef = useRef(null)
 
