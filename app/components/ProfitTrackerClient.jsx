@@ -3887,7 +3887,9 @@ function fotografiaOggiDaFare() {
         key: `bet|${d.key}`,
         sezione: d.tipo === 'mantenimento' ? 'bet_mant' : 'bet_prof',
         titolo: `${a.book.nome} · ${a.book.intestatario || '—'}`,
-        dettaglio: `${p.home} – ${p.away}${p.orario ? ` (${p.orario})` : ''} · ${a.esito}${a.stake == null ? ' · importo da calcolare' : ` · ${euro(a.stake)}`}${Number(a.quota) > 0 ? ` @ ${Number(a.quota).toFixed(2)}` : ''}`,
+        dettaglio: p.segnaposto   // 14/10/2026: modalità solo conti, niente partita né esito
+          ? `${p.home} · ${a.tipoRiga === 'MANTENIMENTO' ? 'copertura (importo dal matcher)' : `prima bet ${euro(a.stake)}${a.quotaMin ? ` · quota minima ${Number(a.quotaMin).toFixed(2).replace('.', ',')}` : ''}`}`
+          : `${p.home} – ${p.away}${p.orario ? ` (${p.orario})` : ''} · ${a.esito}${a.stake == null ? ' · importo da calcolare' : ` · ${euro(a.stake)}`}${Number(a.quota) > 0 ? ` @ ${Number(a.quota).toFixed(2)}` : ''}`,
         tag: d.tipo,
         fatta: !!d.ok || !!dec,
         nota: d.ok ? 'confermata in Lucy' : dec ? (dec.decisione === 'saltata' ? 'saltata in Lucy' : 'rimandata in Lucy') : null,
