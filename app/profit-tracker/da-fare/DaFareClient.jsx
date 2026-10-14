@@ -14,6 +14,7 @@
 // ════════════════════════════════════════════════════════════════════
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabaseClient'
+import { ricordaPosizioneFinestra } from '../../../lib/finestraOggiDaFare'   // 14/10/2026: finestra separata, ricorda dove l'hai messa
 import { costruisciLista, dataIso, domaniIso, dataIt, dataLunga, rinvioValido, aggiungiGiorni, vociMasaniello, vociSchedaMasaniello, vociPromo } from '../../../lib/oggiDaFare'
 import { eventiDalleBet, usoConti } from '../../components/RecuperiPronox'
 import { schedaDelGiorno } from '../../../lib/recupero/masanielloRecupero'
@@ -128,6 +129,7 @@ export default function DaFareClient() {
   }, [])
 
   useEffect(() => { carica() }, [carica])
+  useEffect(() => ricordaPosizioneFinestra(), [])
 
   // la fotografia cambia quando lavori nel Profit Tracker in un'altra scheda; ogni minuto si aggiorna anche l'età
   useEffect(() => {
