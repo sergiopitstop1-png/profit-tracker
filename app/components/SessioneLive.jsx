@@ -162,6 +162,8 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
     for (const c of turni[k] || []) { if (vince) n[`${k}:${c.id}`] = c.lato === vince ? 'V' : 'P'; else delete n[`${k}:${c.id}`] }
     return n
   })
+  // turno 1 in un colpo: i primi N/2 della lista su un lato e gli altri sull'altro (o alternati)
+  const impostaLatiTurno1 = (modo) => { setEsitiCamp({}); setLatiCamp({}); setScelti(v => { const meta = Math.floor(v.length / 2); return v.map((x, i) => ({ ...x, lato: modo === 'alternati' ? (i % 2 === 0 ? 'Banco' : 'Giocatore') : (modo === 'primiGiocatore' ? (i < meta ? 'Giocatore' : 'Banco') : (i < meta ? 'Banco' : 'Giocatore')) })) }) }
   const cambiaLatoCamp = (k, id, lato) => { setLatiCamp(l => ({ ...l, [`${k}:${id}`]: lato })); setEsitiCamp(e => { const n = tieniFinoA(e, k); for (const c of turni[k] || []) delete n[`${k}:${c.id}`]; return n }) }
   const soloNum = (t) => t.replace(/[^0-9]/g, '')
   const soloEuro = (t) => t.replace(/[^0-9.,]/g, '').replace(',', '.')
@@ -312,6 +314,14 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
                         <button onClick={() => segnaTurno(k, null)} title="Pareggio: puntate restituite, si rigioca" style={btn('#64748b')}>Pareggio / azzera</button>
                       </span>
                     </div>
+                    {k === 0 && (
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 6, fontSize: 12, color: '#94a3b8' }}>
+                        Chi ha puntato cosa (nell'ordine della lista):
+                        <button onClick={() => impostaLatiTurno1('primiGiocatore')} style={btn('#6d28d9')}>Primi {Math.floor(scelti.length / 2)} Giocatore · altri Banco</button>
+                        <button onClick={() => impostaLatiTurno1('primiBanco')} style={btn('#6d28d9')}>Primi {Math.floor(scelti.length / 2)} Banco · altri Giocatore</button>
+                        <button onClick={() => impostaLatiTurno1('alternati')} style={btn('#64748b')}>Alternati</button>
+                      </div>
+                    )}
                     <table style={{ borderCollapse: 'collapse', width: '100%' }}>
                       <tbody>
                         {t.map(c => {
@@ -326,10 +336,8 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
                               <td style={{ ...td, fontWeight: 800 }}>{c.nome}</td>
                               <td style={td}>{c.intestatario}</td>
                               <td style={td}>
-                                {k === 0 ? <span style={{ color: '#c4b5fd', fontWeight: 800 }}>{c.lato}</span> : <>
-                                  <button onClick={() => cambiaLatoCamp(k, c.id, 'Banco')} style={scelta(c.lato === 'Banco')}>Banco</button>
-                                  <button onClick={() => cambiaLatoCamp(k, c.id, 'Giocatore')} style={{ ...scelta(c.lato === 'Giocatore'), marginLeft: 4 }}>Giocatore</button>
-                                </>}
+                                <button onClick={() => (k === 0 ? cambia(c.id, 'lato', 'Banco') : cambiaLatoCamp(k, c.id, 'Banco'))} style={scelta(c.lato === 'Banco')}>Banco</button>
+                                <button onClick={() => (k === 0 ? cambia(c.id, 'lato', 'Giocatore') : cambiaLatoCamp(k, c.id, 'Giocatore'))} style={{ ...scelta(c.lato === 'Giocatore'), marginLeft: 4 }}>Giocatore</button>
                               </td>
                               <td style={td}>{euro(c.importo)}{manca > 0.004 ? <span style={{ color: '#fbbf24', fontSize: 10 }}> · saldo {euro(saldo)}: servono {euro(manca)} in più (il Banco paga 0,95)</span> : null}</td>
                               <td style={td}>
