@@ -58,6 +58,8 @@ export default function DaFareClient() {
   const [salvando, setSalvando] = useState('')
   const [rinvio, setRinvio] = useState(null)        // { key, data }
   const [mostraFatte, setMostraFatte] = useState(false)
+  const [ops, setOps] = useState([])                 // registro operazioni di profilazione (ultimi 30 giorni)
+  const [betFatte, setBetFatte] = useState([])         // bet confermate negli ultimi 30 giorni (per lo storico del cliente)
   const [mostraRimandate, setMostraRimandate] = useState(true)
   const [ora, setOra] = useState(() => Date.now())
 
@@ -77,6 +79,15 @@ export default function DaFareClient() {
         else err.push('Stato salvato: ' + error.message)
       } else { setTabellaMancante(false); setRighe(data || []) }
     } catch (e) { err.push('Stato salvato: ' + (e?.message || e)) }
+
+    // 1b. registro delle operazioni di profilazione + bet confermate (storico per cliente)
+    try {
+      const da = aggiungiGiorni(giorno, -30)
+      const r = await supabase.from('profilazione_operazioni').select('*').gte('giorno', da).order('giorno', { ascending: false })
+      if (r.error) { if (!/profilazione_operazioni|relation|schema cache/i.test(r.error.message || '')) err.push('Registro operazioni: ' + r.error.message) } else setOps(r.data || [])
+      const b = await supabase.from('lucy_bet_confermate').select('rec,data').gte('data', da).limit(3000)
+      if (!b.error) setBetFatte((b.data || []).map(x => x.rec).filter(Boolean))
+    } catch { /* storico non disponibile: la pagina funziona lo stesso */ }
 
     // 2. Masaniello di recupero: piano, tutte le bet, fotografie PronoX delle prossime 48 ore ed esiti (stesse letture del pannello Recuperi con PronoX)
     try {
@@ -224,6 +235,50 @@ export default function DaFareClient() {
     try { localStorage.setItem(CHIAVE_RICHIESTA, String(Date.now())); setRichiesta(true) } catch { setErrori(prev => [...prev, 'Non riesco a contattare il Profit Tracker: apri la Dashboard e premi Prepara bet.']) }
   }
 
+  // Registro delle operazioni di profilazione: ogni "Fatto" sulle righe Profiliamo diventa memoria per cliente
+  const bookIdProfiliamo = (key) => { const p = String(key).split('|'); return p[0] === 'profiliamo' ? (p[1] === 'residuo' ? p[3] : p[2]) : null }
+  async function registraOperazione(v, completa, residuo) {
+    const bookId = bookIdProfiliamo(v.key)
+    if (!bookId) return
+    const [nome, ...resto] = String(v.titolo || '').split(' · ')
+    const { data: u } = await supabase.auth.getUser()
+    const riga = { user_id: u?.user?.id, chiave: v.key, book_id: String(bookId), book_nome: nome || null, intestatario: resto.join(' · ') || null, giorno: oggi, origine: 'profiliamo', azione: String(v.dettaglio || '').slice(0, 600), completa, residuo: residuo || null }
+    const { data, error } = await supabase.from('profilazione_operazioni').upsert(riga, { onConflict: 'user_id,chiave' }).select().single()
+    if (error) { setErrori(prev => [...prev, /profilazione_operazioni|relation|schema cache/i.test(error.message || '') ? 'Manca il registro delle operazioni: esegui supabase/profilazione_operazioni.sql nel SQL Editor di Supabase (il Fatto è stato salvato lo stesso nella lista).' : 'Registro operazioni: ' + error.message]); return }
+    setOps(prev => [...prev.filter(x => x.chiave !== v.key), data])
+  }
+  async function togliOperazione(v) {
+    if (!bookIdProfiliamo(v.key)) return
+    const { error } = await supabase.from('profilazione_operazioni').delete().eq('chiave', v.key)
+    if (!error) setOps(prev => prev.filter(x => x.chiave !== v.key))
+  }
+  // ½ Parziale: il cliente ha fatto solo una parte. Il passo di oggi si chiude, quello che manca slitta a domani e resta in lista finché non lo fa
+  async function parziale(v) {
+    const resto = window.prompt(`${v.titolo}\n\nCosa NON è stato fatto? (resta in lista e slitta a domani)`, '')
+    if (resto === null || !resto.trim()) return
+    setSalvando(v.key)
+    try {
+      const { data: u, error: eu } = await supabase.auth.getUser()
+      if (eu || !u?.user?.id) throw new Error('utente non autenticato')
+      const adesso = new Date().toISOString()
+      const fatta = { user_id: u.user.id, chiave: v.key, stato: 'fatto', giorno: oggi, rimanda_a: null, sezione: v.sezione, titolo: v.titolo, dettaglio: v.dettaglio || null, tag: v.tag || null, aggiornato: adesso }
+      const bookId = bookIdProfiliamo(v.key)
+      const residua = { user_id: u.user.id, chiave: `profiliamo|residuo|${oggi}|${bookId}`, stato: 'rimandato', giorno: oggi, rimanda_a: domaniIso(oggi), sezione: 'profiliamo', titolo: v.titolo, dettaglio: `Rimasto da ieri: ${resto.trim()}`, tag: 'residuo', aggiornato: adesso }
+      const { data, error } = await supabase.from('oggi_da_fare_stato').upsert([fatta, residua], { onConflict: 'user_id,chiave' }).select()
+      if (error) throw error
+      setRighe(prev => [...prev.filter(r => r.chiave !== fatta.chiave && r.chiave !== residua.chiave), ...(data || [])])
+      await registraOperazione(v, false, resto.trim())
+    } catch (e) { setErrori(prev => [...prev, 'Non salvato: ' + (e?.message || e)]) }
+    setSalvando('')
+  }
+  // ultime operazioni di un cliente: registro + bet confermate (stessa fonte della Tabella bet)
+  function storicoDi(bookId) {
+    if (!bookId) return []
+    const a = ops.filter(x => String(x.book_id) === String(bookId)).map(x => ({ giorno: x.giorno, testo: x.completa ? 'passo fatto' : `passo parziale · manca: ${x.residuo || '—'}`, chiave: x.chiave }))
+    const b = betFatte.filter(x => String(x.bookId) === String(bookId)).map(x => ({ giorno: x.data, testo: `bet ${x.esito || ''} ${Number(x.stake || 0).toFixed(0)}€ confermata` }))
+    return [...a.filter(x => x.chiave !== undefined), ...b].sort((x, y) => String(y.giorno).localeCompare(String(x.giorno))).slice(0, 3)
+  }
+
   async function salva(v, stato, rimandaA) {
     setSalvando(v.key)
     try {
@@ -234,6 +289,7 @@ export default function DaFareClient() {
       if (error) throw error
       setRighe(prev => [...prev.filter(r => r.chiave !== v.key), data])
       setRinvio(null)
+      if (stato === 'fatto') await registraOperazione(v, true)
     } catch (e) {
       setErrori(prev => [...prev, 'Non salvato: ' + (e?.message || e)])
     }
@@ -246,6 +302,7 @@ export default function DaFareClient() {
       const { error } = await supabase.from('oggi_da_fare_stato').delete().eq('chiave', v.key)
       if (error) throw error
       setRighe(prev => prev.filter(r => r.chiave !== v.key))
+      await togliOperazione(v)
     } catch (e) {
       setErrori(prev => [...prev, 'Non annullato: ' + (e?.message || e)])
     }
@@ -271,6 +328,7 @@ export default function DaFareClient() {
               {v.titolo}
             </div>
             {v.dettaglio ? <div style={{ fontSize: 12.5, color: '#94a3b8', marginTop: 2, lineHeight: 1.4 }}>{v.dettaglio}</div> : null}
+            {bookIdProfiliamo(v.key) && storicoDi(bookIdProfiliamo(v.key)).length > 0 && <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 3 }}>🕘 Ultime operazioni: {storicoDi(bookIdProfiliamo(v.key)).map(x => `${dataIt(x.giorno).slice(0, 5)} ${x.testo}`).join(' · ')}</div>}
             {v.rimandataDal ? <div style={{ fontSize: 11.5, color: '#fbbf24', marginTop: 3, fontWeight: 700 }}>⏭ rimandata il {dataIt(v.rimandataDal)}: torna oggi</div> : null}
             {tipo === 'fatta' && v.nota ? <div style={{ fontSize: 11.5, color: '#4ade80', marginTop: 3, fontWeight: 700 }}>✓ {v.nota}</div> : null}
             {tipo === 'rimandata' ? <div style={{ fontSize: 12, color: '#fbbf24', marginTop: 3, fontWeight: 800 }}>⏭ rimandata al {dataIt(v.rimanda_a)} · {dataLunga(v.rimanda_a)}</div> : null}
@@ -281,6 +339,8 @@ export default function DaFareClient() {
                 style={{ ...btnBase, background: '#16a34a', color: 'white', opacity: !puoSalvare || occupato ? 0.5 : 1 }}>✓ Fatto</button>
               <button type="button" disabled={!puoSalvare || occupato} onClick={() => setRinvio(aperto ? null : { key: v.key, data: domaniIso(oggi) })}
                 style={{ ...btnBase, background: aperto ? '#78350f' : 'rgba(251,191,36,0.15)', color: '#fcd34d', borderColor: 'rgba(251,191,36,0.55)', opacity: !puoSalvare || occupato ? 0.5 : 1 }}>⏭ Rimanda</button>
+              {bookIdProfiliamo(v.key) && <button type="button" disabled={!puoSalvare || occupato} onClick={() => parziale(v)} title="Il cliente ha fatto solo una parte: il resto slitta a domani"
+                style={{ ...btnBase, background: 'rgba(167,139,250,0.15)', color: '#c4b5fd', borderColor: 'rgba(167,139,250,0.55)', opacity: !puoSalvare || occupato ? 0.5 : 1 }}>½ Parziale</button>}
             </div>
           )}
           {tipo === 'fatta' && v.segnataQui && (
