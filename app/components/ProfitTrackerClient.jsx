@@ -60,7 +60,7 @@ let REGOLE_MANT = {}
 const regolaMant = (book) => regolaMantPer(REGOLE_MANT, book)
 const RE_CASINO_MIRATE = /(slot|casin[oò]|live|roulette|blackjack|baccarat|numeri|spin|vxt)/i
 import DashboardTab from './DashboardTab'
-import { vociProfiliamo, vociPagamenti } from '../../lib/oggiDaFare'   // 14/10/2026: Profiliamo per cliente e pagamenti servizi nella lista Oggi da fare
+import { vociProfiliamo, vociPagamenti, rinvioValido, domaniIso, dataIt as dataItLista } from '../../lib/oggiDaFare'   // 14/10/2026: Profiliamo per cliente e pagamenti servizi nella lista Oggi da fare
 import AccantonamentiTab from './AccantonamentiTab'
 import SmsTab from './SmsTab'
 import PropHedgeTab from './PropHedgeTab'
@@ -377,6 +377,7 @@ const [lucyLiveProposte, setLucyLiveProposte] = useState([])
 const [lucySportNonCollocate, setLucySportNonCollocate] = useState([])
 const [lucyTabellaAperta, setLucyTabellaAperta] = useState(false)
 const [lucyLiveTabellaAperta, setLucyLiveTabellaAperta] = useState(false)
+const [liveEsiti, setLiveEsiti] = useState({})   // gruppo live di oggi → 'giocata' | 'rimandata al gg/mm' (si vede nella Tabella Live)
 const [lucyCostoMax, setLucyCostoMax] = useState(() => Number(localStorage.getItem('profittracker_lucy_costo_max') || 50))
   // 10/10/2026: massimo di incroci di MANTENIMENTO al giorno (rotazione: prima i conti fermi da più tempo)
   const [seguiProfiliamo, setSeguiProfiliamo] = useState(() => { try { return localStorage.getItem('profittracker_segui_profiliamo') !== '0' } catch { return true } })   // 13/10/2026: le bet di profilazione seguono i numeri di Profiliamo (se chiari)
@@ -3903,6 +3904,32 @@ async function annullaDecisioneLucy(d) {
   if (error) { setErrorMessage(error.message); return }
   setLucyDecisioni(prev => prev.filter(x => x.id !== d.id))
 }
+// 14/10/2026 — Fatto / Rimanda di un gruppo Live: oltre all'archivio, si segna anche nella lista "Oggi da fare" (stesse chiavi delle voci Live della pagina)
+async function segnaLiveNellaLista(p, pi, stato, rimandaA) {
+  try {
+    const uid = await lucyUserIdSync()
+    const oggi = lucyOggi(), adesso = new Date().toISOString()
+    const righe = (p.gruppo || []).map((g, gi) => ({
+      user_id: uid, chiave: `live|${oggi}|${p.target.id}|${g.book.id}|${gi}`, stato, giorno: oggi, rimanda_a: rimandaA || null, sezione: 'live',
+      titolo: `${g.ruolo} · ${g.book.nome} · ${g.book.intestatario || '—'}`,
+      dettaglio: `Incrocio Live #${pi + 1} · ${g.tipo === 'Sestina' ? 'Sestina' : 'Numeri'}: ${(g.numeri || []).join(', ')} · ${g.budget}€ a giro${g.ripetizioni ? ` · ripeti almeno ${g.ripetizioni}×` : ''}`,
+      tag: 'live', aggiornato: adesso,
+    }))
+    const { error } = await supabase.from('oggi_da_fare_stato').upsert(righe, { onConflict: 'user_id,chiave' })
+    if (error) console.warn('[Oggi da fare] Live non segnato nella lista:', error.message)
+  } catch (e) { console.warn('[Oggi da fare] Live non segnato nella lista:', e?.message || e) }
+}
+// 🔁 RIMANDA un gruppo Live: torna nella lista "Oggi da fare" nel giorno scelto (di default domani)
+async function rimandaLiveLucy(p, pi) {
+  const risposta = window.prompt(`Rimandare il gruppo live ${pi + 1} (${(p.gruppo || []).length} conti) a quale giorno?\nScrivi la data come AAAA-MM-GG.`, domaniIso(lucyOggi()))
+  if (risposta === null) return
+  const data = risposta.trim()
+  if (!rinvioValido(data, lucyOggi())) { setErrorMessage('Data non valida: scrivi AAAA-MM-GG, da domani in poi.'); return }
+  await segnaLiveNellaLista(p, pi, 'rimandato', data)
+  setLiveEsiti(prev => ({ ...prev, [`${p.target.id}`]: `rimandata al ${dataItLista(data)}` }))
+  setMessage(`🔁 Gruppo live ${pi + 1} rimandato al ${dataItLista(data)}: lo ritrovi in "Oggi da fare" quel giorno`)
+}
+
 // 02/10/2026 — ✓ GIOCATA su un gruppo del Casino Live di Lucy: finisce in live_sessioni (origine 'lucy') e nell'archivio
 async function giocataLiveLucy(p, pi) {
   const gr = p.gruppo || []
@@ -3918,6 +3945,8 @@ async function giocataLiveLucy(p, pi) {
     partecipanti: gr.map(g => ({ id: g.book.id, nome: g.book.nome, intestatario: g.book.intestatario, tipo: g.tipo, numeri: g.numeri || [] })),
   }])
   if (error) { setErrorMessage('Sessione live non salvata: ' + error.message); return }
+  await segnaLiveNellaLista(p, pi, 'fatto')
+  setLiveEsiti(prev => ({ ...prev, [`${p.target.id}`]: 'giocata' }))
   setMessage(`🎰 Gruppo live ${pi + 1} registrato nell'archivio`)
 }
 
@@ -8903,6 +8932,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                     <td style={{border:'1px solid #ddd6fe',padding:6,textAlign:'right',fontWeight:800}}>{Number(g.budgetTotale||g.budget||0).toFixed(2)} €</td>
                     <td style={{border:'1px solid #ddd6fe',padding:6,textAlign:'center',whiteSpace:'nowrap'}}>
                       {gi===0 && <button title="Registra il gruppo come giocato (finisce nell'archivio)" onClick={()=>giocataLiveLucy(p,pi)} style={{background:'#16a34a',color:'white',border:0,borderRadius:6,padding:'3px 7px',fontWeight:900,fontSize:10,cursor:'pointer',marginRight:4}}>✓ Giocata</button>}
+                      {gi===0 && <button title="Rimanda questo gruppo: torna nella lista Oggi da fare nel giorno che scegli" onClick={()=>rimandaLiveLucy(p,pi)} style={{background:'#fef3c7',color:'#92400e',border:'1px solid #fcd34d',borderRadius:6,padding:'3px 7px',fontWeight:900,fontSize:10,cursor:'pointer',marginRight:4}}>🔁 Rimanda</button>}
+                      {gi===0 && liveEsiti[`${p.target.id}`] && <span style={{fontSize:10,fontWeight:900,color:liveEsiti[`${p.target.id}`]==='giocata'?'#166534':'#92400e',marginRight:4}}>{liveEsiti[`${p.target.id}`]==='giocata'?'✅ giocata':'🔁 '+liveEsiti[`${p.target.id}`]}</span>}
                       {gi===0 && <button title="Apre tutti i book del gruppo sui telefoni giusti" onClick={()=>apriContiSuTelefoni((p.gruppo||[]).map(x=>x.book), `il gruppo live ${pi+1}`)} style={{background:'#0ea5e9',color:'white',border:0,borderRadius:6,padding:'3px 7px',fontWeight:900,fontSize:10,cursor:'pointer',marginRight:4}}>📱 gruppo</button>}
                       <button title="Apri solo questo book" onClick={()=>apriContiSuTelefoni([g.book], `${g.book.nome} di ${g.book.intestatario}`)} style={{background:'#e0f2fe',color:'#0369a1',border:'1px solid #7dd3fc',borderRadius:6,padding:'3px 6px',fontSize:10,cursor:'pointer'}}>📱</button>
                     </td>
