@@ -15,6 +15,7 @@
 // ════════════════════════════════════════════════════════════════════
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '../profit-tracker/supabaseClient'
+import { turniCampionato, risultatiCampionato, totaliTurno } from '../../lib/campionatoBaccarat'   // 14/10/2026: campionato a eliminazione
 
 export const SESTINE = [[1,2,3,4,5,6],[4,5,6,7,8,9],[7,8,9,10,11,12],[10,11,12,13,14,15],[13,14,15,16,17,18],[16,17,18,19,20,21],[19,20,21,22,23,24],[22,23,24,25,26,27],[25,26,27,28,29,30],[28,29,30,31,32,33],[31,32,33,34,35,36]]
 export const soloSestine = (b) => /lottomatica|goldbet/i.test(String(b?.nome || ''))
@@ -86,6 +87,8 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
   const [mescolata, setMescolata] = useState(0)
   const [gioco, setGioco] = useState('roulette')        // 'roulette' | 'baccarat'
   const [operazione, setOperazione] = useState('spot')  // baccarat: 'spot' | 'campionato'
+  const [esitiCamp, setEsitiCamp] = useState({})   // campionato: { 'turno:id': 'V' | 'P' } chi ha vinto / perso in ogni turno
+  const [latiCamp, setLatiCamp] = useState({})     // campionato: lati cambiati a mano dal turno 2 in poi
   const msg = onMessage || (() => {}), err = onError || ((e) => console.error(e))
 
   const carica = useCallback(async () => {
@@ -136,24 +139,47 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
   const costoMano = -(0.4586 * vinceBanco + 0.4462 * vinceGiocatore) // pareggio: puntate restituite
   const erroreB = scelti.length < 2 ? 'Servono almeno 2 conti' : (!B || !P) ? `Manca il lato ${!B ? 'Banco' : 'Giocatore'}: nessuna copertura` : ''
 
+  // ── CAMPIONATO a eliminazione: i vincitori raddoppiano e si rimettono metà Banco e metà Giocatore, fino a un vincitore
+  const campionato = !roulette && operazione === 'campionato'
+  const turni = campionato ? turniCampionato(bac, esitiCamp, latiCamp) : []
+  const { per: perConto, finito: campFinito, campioneId } = campionato ? risultatiCampionato(turni) : { per: new Map(), finito: false, campioneId: null }
+  const avvisoCamp = campionato && scelti.length >= 2 && ![2, 4, 8, 16].includes(scelti.length) ? `Il campionato funziona con 2, 4, 8 o 16 conti (ora ${scelti.length}): con altri numeri qualcuno resta senza avversario` : ''
+
   const errore = roulette ? erroreR : erroreB
   const pronta = roulette ? (!errore && righe.length >= 2) : !errore
 
-  const aggiungi = (b) => setScelti(v => [...v, { id: b.id, nome: b.nome, intestatario: b.intestatario, aMano: '', euroNum: '', lato: null, importo: '' }])
-  const togli = (id) => setScelti(v => v.filter(s => s.id !== id))
-  const cambia = (id, campo, val) => setScelti(v => v.map(s => s.id === id ? { ...s, [campo]: val } : s))
+  const aggiungi = (b) => { setEsitiCamp({}); setLatiCamp({}); setScelti(v => [...v, { id: b.id, nome: b.nome, intestatario: b.intestatario, aMano: '', euroNum: '', lato: null, importo: '' }]) }
+  const togli = (id) => { setEsitiCamp({}); setLatiCamp({}); setScelti(v => v.filter(s => s.id !== id)) }
+  const cambia = (id, campo, val) => { if (campo === 'lato' || campo === 'importo') { setEsitiCamp({}); setLatiCamp({}) }; setScelti(v => v.map(s => s.id === id ? { ...s, [campo]: val } : s)) }
+  // campionato: segna un conto vincente (V) o perdente (P) nel turno k; i turni dopo si ricalcolano
+  const tieniFinoA = (e, k) => Object.fromEntries(Object.entries(e).filter(([chiave]) => Number(chiave.split(':')[0]) <= k))
+  const segnaConto = (k, id, v) => setEsitiCamp(e => { const n = tieniFinoA(e, k); if (v) n[`${k}:${id}`] = v; else delete n[`${k}:${id}`]; return n })
+  // tutta la mano in un colpo: vince il Banco, vince il Giocatore, oppure pareggio (puntate restituite: si rigioca)
+  const segnaTurno = (k, vince) => setEsitiCamp(e => {
+    const n = tieniFinoA(e, k)
+    for (const c of turni[k] || []) { if (vince) n[`${k}:${c.id}`] = c.lato === vince ? 'V' : 'P'; else delete n[`${k}:${c.id}`] }
+    return n
+  })
+  const cambiaLatoCamp = (k, id, lato) => { setLatiCamp(l => ({ ...l, [`${k}:${id}`]: lato })); setEsitiCamp(e => { const n = tieniFinoA(e, k); for (const c of turni[k] || []) delete n[`${k}:${c.id}`]; return n }) }
   const soloNum = (t) => t.replace(/[^0-9]/g, '')
   const soloEuro = (t) => t.replace(/[^0-9.,]/g, '').replace(',', '.')
 
   async function conferma() {
     if (!pronta) return
     const parola = roulette ? 'giri' : 'mani'
-    const fatti = window.prompt(`Sessione ${numeroSessione}: quante ${parola === 'giri' ? 'volte (giri)' : 'mani'} avete giocato davvero?`, String(giri))
-    if (fatti === null) return
-    const n = Math.max(0, parseInt(fatti, 10) || 0)
+    if (campionato && !campFinito) return err('Campionato: segna prima chi vince e chi perde in ogni turno, fino al vincitore')
+    let n
+    if (campionato) n = turni.length   // le mani giocate sono i turni del campionato
+    else {
+      const fatti = window.prompt(`Sessione ${numeroSessione}: quante ${parola === 'giri' ? 'volte (giri)' : 'mani'} avete giocato davvero?`, String(giri))
+      if (fatti === null) return
+      n = Math.max(0, parseInt(fatti, 10) || 0)
+    }
     const partecipanti = roulette
       ? righe.map(r => ({ id: r.id, nome: r.nome, intestatario: r.intestatario, tipo: r.tipo, numeri: r.numeri, stake: euroNumero(r) }))
-      : bac.map(x => ({ id: x.id, nome: x.nome, intestatario: x.intestatario, tipo: x.tipo, importo: x.puntata }))
+      : campionato
+        ? bac.map(x => { const r = perConto.get(x.id) || {}; return { id: x.id, nome: x.nome, intestatario: x.intestatario, tipo: x.tipo, importo: x.puntata, campionato: true, puntato_totale: r.puntato ?? 0, risultato: r.risultato ?? 0, esito: r.campione ? 'vincitore' : 'eliminato', turno_uscita: r.uscita ?? null } })
+        : bac.map(x => ({ id: x.id, nome: x.nome, intestatario: x.intestatario, tipo: x.tipo, importo: x.puntata }))
     const { error } = await supabase.from('live_sessioni').insert([{
       giorno: oggiIso(), numero: numeroSessione, seed: seedText, stake: Number(stake), giri: Number(giri), giri_fatti: n, origine, gruppo,
       gioco, operazione: roulette ? null : operazione, partecipanti,
@@ -161,7 +187,7 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
     if (error) return err(error.message + ' (hai lanciato sessioni_live_baccarat.sql?)')
     msg(`🎰 Sessione ${numeroSessione} salvata: ${roulette ? 'roulette' : `baccarat ${operazione}`}, ${partecipanti.length} conti, ${n} ${parola}`)
     if (onSalvata) { onSalvata(); return }
-    setScelti([]); setMescolata(0); carica()
+    setScelti([]); setMescolata(0); setEsitiCamp({}); setLatiCamp({}); carica()
   }
 
   const box = { background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(148,163,184,0.25)', borderRadius: 12, padding: '10px 12px', marginBottom: 10 }
@@ -209,7 +235,7 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
         <div style={box}>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8, fontSize: 12, color: '#cbd5e1' }}>
             <span>{roulette ? '€ a numero (per tutti)' : '€ a mano (per tutti)'} <input style={{ ...inp, width: 60 }} value={stake} onChange={e => setStake(soloEuro(e.target.value))} /></span>
-            <span>{roulette ? 'giri' : 'mani'} <input style={{ ...inp, width: 50 }} value={giri} onChange={e => setGiri(soloNum(e.target.value))} /></span>
+            {!campionato && <span>{roulette ? 'giri' : 'mani'} <input style={{ ...inp, width: 50 }} value={giri} onChange={e => setGiri(soloNum(e.target.value))} /></span>}
             {roulette && <button onClick={() => setMescolata(m => m + 1)} style={btn('#6d28d9')}>🔀 Rimescola numeri</button>}
             <button onClick={() => apriContiSuTelefoni(scelti.map(s => (books || []).find(b => String(b.id) === String(s.id)) || s), `la sessione live ${numeroSessione}`)} style={btn('#0ea5e9')}>📱 Apri tutti ({scelti.length})</button>
           </div>
@@ -242,7 +268,7 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
             </table>
           ) : (
             <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-              <thead><tr><th style={th}>Book</th><th style={th}>Intestatario</th><th style={th}>Lato</th><th style={th}>€ a mano</th><th style={th}>Totale</th><th style={th}></th></tr></thead>
+              <thead><tr><th style={th}>Book</th><th style={th}>Intestatario</th><th style={th}>Lato</th><th style={th}>€ a mano</th><th style={th}>{campionato ? 'Risultato' : 'Totale'}</th><th style={th}></th></tr></thead>
               <tbody>
                 {bac.map((x) => (
                   <tr key={x.id}>
@@ -253,7 +279,9 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
                       <button onClick={() => cambia(x.id, 'lato', 'Giocatore')} style={{ ...scelta(x.tipo === 'Giocatore'), marginLeft: 4 }}>Giocatore</button>
                     </td>
                     <td style={td}><input style={{ ...inp, width: 56 }} placeholder={String(stake)} value={x.importo} onChange={e => cambia(x.id, 'importo', soloEuro(e.target.value))} /></td>
-                    <td style={td}>{euro(x.puntata * Number(giri || 0))}</td>
+                    <td style={{ ...td, fontWeight: campionato ? 800 : 400 }}>{campionato
+                      ? (perConto.get(x.id) ? <span style={{ color: perConto.get(x.id).risultato >= 0 ? '#86efac' : '#fca5a5' }}>{campioneId === x.id ? '🏆 ' : ''}{segno(perConto.get(x.id).risultato)}</span> : '')
+                      : euro(x.puntata * Number(giri || 0))}</td>
                     <td style={td}>
                       <button onClick={() => apriContiSuTelefoni([(books || []).find(b => String(b.id) === String(x.id)) || x], `${x.nome} di ${x.intestatario}`)} style={btn('#0ea5e9')}>📱</button>
                       <button onClick={() => togli(x.id)} style={{ ...btn('#64748b'), marginLeft: 4 }}>✕</button>
@@ -263,7 +291,71 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
             </table>
           )}
 
-          {pronta && (
+          {campionato && !errore && (
+            <div style={{ marginTop: 10 }}>
+              {avvisoCamp && <div style={{ color: '#fbbf24', fontSize: 12, marginBottom: 6 }}>⚠️ {avvisoCamp}</div>}
+              {turni.map((t, k) => {
+                const { B: tB, P: tP } = totaliTurno(t)
+                const chiuso = t.every(c => c.esito)
+                const finale = t.length === 2
+                return (
+                  <div key={k} style={{ ...box, borderColor: chiuso ? 'rgba(34,197,94,0.4)' : 'rgba(167,139,250,0.6)' }}>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 6, fontSize: 12 }}>
+                      <b style={{ color: '#c4b5fd' }}>{finale ? '🏁 Finale' : `Turno ${k + 1}`} · {t.length} conti · Banco {euro(tB)} · Giocatore {euro(tP)}</b>
+                      {tB !== tP && <span style={{ color: '#fbbf24' }}>⚠️ Banco e Giocatore non sono uguali: copertura sbilanciata</span>}
+                      <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <span style={{ color: '#94a3b8' }}>ha vinto la mano:</span>
+                        <button onClick={() => segnaTurno(k, 'Banco')} style={btn('#4f46e5')}>Banco</button>
+                        <button onClick={() => segnaTurno(k, 'Giocatore')} style={btn('#4f46e5')}>Giocatore</button>
+                        <button onClick={() => segnaTurno(k, null)} title="Pareggio: puntate restituite, si rigioca" style={btn('#64748b')}>Pareggio / azzera</button>
+                      </span>
+                    </div>
+                    <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                      <tbody>
+                        {t.map(c => {
+                          const prima = perConto.get(c.id)
+                          // saldo prima di questo turno = puntata iniziale + risultato dei turni già chiusi
+                          const iniziale = bac.find(x => x.id === c.id)?.puntata || 0
+                          const prec = k > 0 ? risultatiCampionato(turni.slice(0, k)).per.get(c.id) : null
+                          const saldo = iniziale + (prec?.risultato || 0)
+                          const manca = k > 0 ? Math.round((c.importo - saldo) * 100) / 100 : 0
+                          return (
+                            <tr key={c.id}>
+                              <td style={{ ...td, fontWeight: 800 }}>{c.nome}</td>
+                              <td style={td}>{c.intestatario}</td>
+                              <td style={td}>
+                                {k === 0 ? <span style={{ color: '#c4b5fd', fontWeight: 800 }}>{c.lato}</span> : <>
+                                  <button onClick={() => cambiaLatoCamp(k, c.id, 'Banco')} style={scelta(c.lato === 'Banco')}>Banco</button>
+                                  <button onClick={() => cambiaLatoCamp(k, c.id, 'Giocatore')} style={{ ...scelta(c.lato === 'Giocatore'), marginLeft: 4 }}>Giocatore</button>
+                                </>}
+                              </td>
+                              <td style={td}>{euro(c.importo)}{manca > 0.004 ? <span style={{ color: '#fbbf24', fontSize: 10 }}> · saldo {euro(saldo)}: servono {euro(manca)} in più (il Banco paga 0,95)</span> : null}</td>
+                              <td style={td}>
+                                <button onClick={() => segnaConto(k, c.id, c.esito === 'V' ? null : 'V')} style={{ ...btn('#059669', c.esito === 'V'), opacity: c.esito === 'V' ? 1 : 0.55 }}>✓ Vince</button>
+                                <button onClick={() => segnaConto(k, c.id, c.esito === 'P' ? null : 'P')} style={{ ...btn('#dc2626', c.esito === 'P'), marginLeft: 4, opacity: c.esito === 'P' ? 1 : 0.55 }}>✗ Perde</button>
+                              </td>
+                              <td style={{ ...td, fontWeight: 800 }}>
+                                {c.esito === 'V' ? <span style={{ color: '#86efac' }}>+{euro(c.importo * (c.lato === 'Banco' ? 0.95 : 1))}{finale ? ' · 🏆 campione' : ' · passa al turno dopo'}</span> : null}
+                                {c.esito === 'P' ? <span style={{ color: '#fca5a5' }}>−{euro(c.importo)} · eliminato{prima && prima.risultato !== -c.importo ? ` (in totale ${segno(prima.risultato)})` : ''}</span> : null}
+                              </td>
+                            </tr>)
+                        })}
+                      </tbody>
+                    </table>
+                  </div>)
+              })}
+              {campFinito && (
+                <div style={{ ...box, borderColor: 'rgba(34,197,94,0.6)', fontSize: 12, color: '#cbd5e1' }}>
+                  {campioneId == null ? 'Campionato chiuso senza vincitore.' : <>🏆 Campione: <b>{bac.find(x => x.id === campioneId)?.nome} · {bac.find(x => x.id === campioneId)?.intestatario}</b> {segno(perConto.get(campioneId)?.risultato || 0)}</>}
+                  {' · '}Totale squadra <b>{segno([...perConto.values()].reduce((a, r) => a + r.risultato, 0))}</b> (è il costo del campionato)
+                  <div style={{ marginTop: 6 }}>{bac.map(x => { const r = perConto.get(x.id); return r ? <div key={x.id}>{r.campione ? '🏆' : '❌'} {x.nome} · {x.intestatario}: {segno(r.risultato)} (puntato in tutto {euro(r.puntato)}{r.uscita ? `, uscito al turno ${r.uscita}` : ''})</div> : null })}</div>
+                </div>
+              )}
+              <button onClick={conferma} disabled={!campFinito} style={{ ...btn('#059669', campFinito), marginTop: 4 }}>✓ Sessione giocata{campFinito ? '' : ' (segna prima tutti i turni)'}</button>
+            </div>
+          )}
+
+          {pronta && !campionato && (
             <div style={{ marginTop: 8, fontSize: 12, color: '#cbd5e1' }}>
               {roulette ? (
                 rientroMin === rientroMax

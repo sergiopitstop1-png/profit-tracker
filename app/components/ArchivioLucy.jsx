@@ -82,6 +82,17 @@ export function righeLive(rows) {
     const orig = s.origine === 'mirata' ? 'mirata' : s.origine === 'lucy' ? 'proposta da Lucy' : 'libera'
     const baccarat = s.gioco === 'baccarat'
     for (const p of s.partecipanti || []) {
+      if (baccarat && p.campionato) {
+        // campionato a eliminazione: puntata e risultato reali del conto (non "mani × importo")
+        out.push({
+          quando: s.creato, data: s.giorno, origine: 'Casino live', tipo: `${orig} · baccarat campionato`, cliente: p.intestatario, book: p.nome,
+          evento: `Baccarat campionato · sessione ${s.numero}${s.gruppo ? ` · ${s.gruppo}` : ''}`,
+          giocata: p.esito === 'vincitore' ? `${p.tipo}: ${euro(p.importo)} · 🏆 vincitore` : `${p.tipo}: ${euro(p.importo)} · uscito al turno ${p.turno_uscita || '?'}`,
+          importo: num(p.puntato_totale) ?? num(p.importo), quota: null, stato: 'GIOCATA', esito: '', pl: num(p.risultato),
+          note: `campionato a eliminazione · risultato ${euro(num(p.risultato) || 0)}`,
+        })
+        continue
+      }
       if (baccarat) {
         const imp = num(p.importo) ?? stake
         out.push({
