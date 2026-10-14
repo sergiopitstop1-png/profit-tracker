@@ -26,7 +26,7 @@ const APRI = {
   masaniello: { dove: 'tabella_bet', testo: '📊 Apri la Tabella bet (con Apri telefoni)' },
   profiliamo: { dove: 'profiliamo-oggi', testo: '📣 Profiliamo oggi' },
   conti: { dove: 'agenda', testo: "📋 Agenda di oggi" },
-  live: { dove: 'live', testo: '🎰 Sessioni live' },
+  live: { dove: 'tabella_live', testo: '🎰 Tabella Live' },
   mirate: { dove: 'mirate', testo: '🎯 Profilazioni mirate' },
 }
 const NOME_PARTE = { bet_mant: 'mantenimento', bet_prof: 'profilazione e recupero', masaniello: 'Masaniello', profiliamo: 'Profiliamo', conti: 'conti', live: 'Live', mirate: 'mirate' }
@@ -385,13 +385,13 @@ export default function DaFareClient() {
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                   {dest.map(d => {
-                    const inAttesa = d.dove === 'tabella_bet' && betNonPronte   // la Tabella bet si apre solo quando Lucy ha finito di preparare le bet
+                    const inAttesa = (d.dove === 'tabella_bet' || d.dove === 'tabella_live') && betNonPronte   // la Tabella bet si apre solo quando Lucy ha finito di preparare le bet
                     return (
                       <button key={d.dove} type="button" disabled={inAttesa} onClick={() => apriNelProfitTracker(d.dove)}
                         style={{ ...btnBase, background: inAttesa ? '#334155' : '#0ea5e9', color: inAttesa ? '#94a3b8' : 'white', padding: '9px 16px', fontSize: 14, cursor: inAttesa ? 'not-allowed' : 'pointer', opacity: inAttesa ? 0.7 : 1 }}>{d.testo} →</button>
                     )
                   })}
-                  {betNonPronte && dest.some(d => d.dove === 'tabella_bet') && (
+                  {betNonPronte && dest.some(d => d.dove === 'tabella_bet' || d.dove === 'tabella_live') && (
                     <span className="attendi-lucy" style={{ fontWeight: 900, fontSize: 13, color: '#fde047' }}>
                       {statoBet === 'in_corso' ? '⏳ Attendi: Lucy sta preparando le bet…' : '⏳ Le bet non sono ancora pronte: premi «Prepara bet ora» qui sopra'}
                     </span>
