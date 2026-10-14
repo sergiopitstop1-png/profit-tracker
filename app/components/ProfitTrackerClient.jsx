@@ -60,6 +60,7 @@ let REGOLE_MANT = {}
 const regolaMant = (book) => regolaMantPer(REGOLE_MANT, book)
 const RE_CASINO_MIRATE = /(slot|casin[oò]|live|roulette|blackjack|baccarat|numeri|spin|vxt)/i
 import DashboardTab from './DashboardTab'
+import { vociProfiliamo, vociPagamenti } from '../../lib/oggiDaFare'   // 14/10/2026: Profiliamo per cliente e pagamenti servizi nella lista Oggi da fare
 import AccantonamentiTab from './AccantonamentiTab'
 import SmsTab from './SmsTab'
 import PropHedgeTab from './PropHedgeTab'
@@ -3731,6 +3732,20 @@ function fotografiaOggiDaFare() {
     voci.push({ key: `mirata|${g.id}|${r.prossima}`, sezione: 'mirate', titolo: g.nome, dettaglio: `${tra < 0 ? `scaduta da ${-tra} giorn${tra === -1 ? 'o' : 'i'}` : 'OGGI'} (${r.prossima.split('-').reverse().join('/')}) · ${(g.conti || []).length} conti${nomiBook.length ? ` · ${nomiBook.slice(0, 4).join(', ')}${nomiBook.length > 4 ? '…' : ''}` : ''}`, tag: 'mirata' })
   })
 
+  // Profiliamo: cosa dice di fare oggi per ogni cliente in profilazione, con avviso se contraddice il protocollo
+  try {
+    const contiProf = books
+      .filter(b => b.profilo_livello === 'attivo' && !bookInRecuperoLimitato(b))
+      .map(b => ({ id: b.id, nome: b.nome, intestatario: b.intestatario, variante: (getVariantiProfilazione(b.nome) || []).length ? (getVarianteProfilazione(b)?.label || '') : '' }))
+    voci.push(...vociProfiliamo(contiProf, profiliamoVoci || [], oggi))
+  } catch { /* Profiliamo non letto: la sezione resta vuota */ }
+
+  // pagamenti dei servizi (ChatGPT, Supabase, Anthropic, Vercel): restano finché non sono segnati "Pagato" nel mese
+  try {
+    const rate = calcolaRateAccantonamento(SERVIZI_SCHEDULE, dashboardSettings || {})
+    voci.push(...vociPagamenti(rate.daPagare.map(r => ({ key: r.key, amount: r.amount, nome: r.nome, day: r.day })), rate.meseKey))
+  } catch { /* accantonamenti non ancora caricati */ }
+
   // stato delle bet (la pagina lo mostra) e conti utilizzabili per il Masaniello di recupero (la pagina calcola da sola la scheda proposta)
   const bet = {
     stato: lucySportLoading ? 'in_corso' : lucySportProposte.length ? 'pronte' : /non trova lavorazioni/i.test(lucySportError || '') ? 'nessuna' : lucySportError ? 'errore' : 'da_preparare',
@@ -3745,7 +3760,7 @@ useEffect(() => {
   try {
     localStorage.setItem('profittracker_oggi_da_fare', JSON.stringify({ giorno: lucyOggi(), aggiornato: new Date().toISOString(), ...fotografiaOggiDaFare() }))
   } catch { /* spazio pieno o storage bloccato: la pagina mostrerà l'avviso "fotografia mancante" */ }
-}, [books, lucySportProposte, lucySportLoading, lucySportError, lucyLiveProposte, lucyConfermate, lucyDecisioni, avvisiConti, gruppiMirati, fatteMirate, recuperiConti])
+}, [books, lucySportProposte, lucySportLoading, lucySportError, lucyLiveProposte, lucyConfermate, lucyDecisioni, avvisiConti, gruppiMirati, fatteMirate, recuperiConti, profiliamoVoci, dashboardSettings])
 
 // la pagina "Oggi da fare" può chiedere di preparare le bet (pulsante "⚽ Prepara bet") anche se il Profit Tracker è aperto in un'altra scheda
 const preparaOggiRef = useRef(null)
