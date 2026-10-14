@@ -20,6 +20,17 @@ import { schedaDelGiorno } from '../../../lib/recupero/masanielloRecupero'
 import { MODEL_VERSION } from '../../../lib/pronox/footballModel'
 
 const CHIAVE_FOTO = 'profittracker_oggi_da_fare'
+const APRI = {
+  bet_mant: { dove: 'tabella_bet', testo: '📊 Apri la Tabella bet (con Apri telefoni)' },
+  bet_prof: { dove: 'tabella_bet', testo: '📊 Apri la Tabella bet (con Apri telefoni)' },
+  masaniello: { dove: 'tabella_bet', testo: '📊 Apri la Tabella bet (con Apri telefoni)' },
+  profiliamo: { dove: 'profiliamo-oggi', testo: '📣 Profiliamo oggi' },
+  conti: { dove: 'agenda', testo: "📋 Agenda di oggi" },
+  live: { dove: 'live', testo: '🎰 Sessioni live' },
+  mirate: { dove: 'mirate', testo: '🎯 Profilazioni mirate' },
+}
+const NOME_PARTE = { bet_mant: 'mantenimento', bet_prof: 'profilazione e recupero', masaniello: 'Masaniello', profiliamo: 'Profiliamo', conti: 'conti', live: 'Live', mirate: 'mirate' }
+
 const CHIAVE_APRI = 'profittracker_oggi_apri'   // la pagina chiede al Profit Tracker di aprire una scheda (Tabella bet, Live, Masaniello...)
 const CHIAVE_RICHIESTA = 'profittracker_oggi_richiesta'   // la pagina chiede al Profit Tracker di preparare le bet
 const ETA_MAX_MIN = 30   // oltre questo tempo la fotografia del Profit Tracker si considera vecchia
@@ -159,30 +170,35 @@ export default function DaFareClient() {
     try { if (w) w.focus() } catch { /* il browser non permette di portare avanti la scheda */ }
     try { if (w && w.location.href === 'about:blank') w.location.href = '/profit-tracker' } catch { /* scheda già aperta: ci pensa il Profit Tracker */ }
   }
-  // quali schede aprire per una sezione "operativa" (null = la sezione resta una semplice lista con Fatto / Rimanda)
+  // schede da aprire per ogni parte della lista (null = resta una semplice lista con Fatto / Rimanda)
   function destinazioni(sez) {
-    if (sez.id === 'bet') return [{ dove: 'tabella_bet', testo: '📊 Apri la Tabella bet (con Apri telefoni)' }]
-    if (sez.id === 'live') return [{ dove: 'live', testo: '🎰 Apri le Sessioni live' }]
-    if (sez.id === 'mirate') return [{ dove: 'mirate', testo: '🎯 Apri le Profilazioni mirate' }]
-    if (sez.id === 'profiliamo') return [{ dove: 'profiliamo-oggi', testo: '📣 Apri Profiliamo oggi' }]
-    if (sez.id === 'conti') return [{ dove: 'agenda', testo: '📋 Apri l\'Agenda di oggi' }]
+    if (sez.id === 'bet') return [APRI.bet_mant]
+    if (sez.id === 'conti_sessioni') {
+      const visti = new Set()
+      return sez.parti.map(x => ({ ...APRI[x.id], testo: `${APRI[x.id].testo} (${x.voci.length})` })).filter(d => !visti.has(d.dove) && visti.add(d.dove))
+    }
     return null
   }
   const [espanse, setEspanse] = useState({})
-  // mantenimento, profilazione/recupero e Masaniello si giocano tutti nella stessa Tabella bet: qui sono un'unica scheda
+  // Meno schede, meno tempo perso: tutte le bet vanno nella stessa Tabella bet; Profiliamo, conti, Live e mirate sono la "giornata di lavoro" sui conti
   const sezioniVista = useMemo(() => {
-    const GRUPPO = ['bet_mant', 'bet_prof', 'masaniello']
-    const parti = lista.sezioni.filter(x => GRUPPO.includes(x.id))
-    if (!parti.length) return lista.sezioni
-    const unita = {
-      id: 'bet', titolo: 'Bet da piazzare', icona: '📊', colore: '#38bdf8',
-      voci: parti.flatMap(x => x.voci.map(v => ({ ...v, tag: v.tag && v.tag !== x.id ? v.tag : x.id }))),
-      riepilogo: parti.map(x => `${x.voci.length} ${x.id === 'bet_mant' ? 'mantenimento' : x.id === 'bet_prof' ? 'profilazione e recupero' : 'Masaniello'}`).join(' · '),
-    }
+    const GRUPPI = [
+      { id: 'bet', titolo: 'Bet da piazzare', icona: '📊', colore: '#38bdf8', ids: ['bet_mant', 'bet_prof', 'masaniello'] },
+      { id: 'conti_sessioni', titolo: 'Conti, Profiliamo e sessioni di oggi', icona: '🗂️', colore: '#a78bfa', ids: ['profiliamo', 'conti', 'live', 'mirate'] },
+    ]
     const out = []
-    let messa = false
+    const messi = new Set()
     for (const x of lista.sezioni) {
-      if (GRUPPO.includes(x.id)) { if (!messa) { out.push(unita); messa = true } } else out.push(x)
+      const g = GRUPPI.find(gr => gr.ids.includes(x.id))
+      if (!g) { out.push(x); continue }
+      if (messi.has(g.id)) continue
+      messi.add(g.id)
+      const parti = lista.sezioni.filter(y => g.ids.includes(y.id))
+      out.push({
+        id: g.id, titolo: g.titolo, icona: g.icona, colore: g.colore, parti,
+        voci: parti.flatMap(y => y.voci),
+        riepilogo: parti.map(y => `${y.voci.length} ${NOME_PARTE[y.id]}`).join(' · '),
+      })
     }
     return out
   }, [lista])
