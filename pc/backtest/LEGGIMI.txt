@@ -21,3 +21,12 @@ COME LEGGERE IL RISULTATO
 - "modello - mercato" positivo = il mercato e' piu' bravo del modello.
 - "peso migliore del modello" = quanto vale la pena fidarsi del modello
   mescolandolo con il mercato (0% = per niente).
+
+
+SECONDO TEST: VALORE NELLE QUOTE DEI BOOK (valore_quote.py)
+===========================================================
+Confronta le quote di bet365, Bwin, Interwetten, William Hill, VC Bet (e la migliore
+tra tutti i book) con la quota "giusta" di Pinnacle, per vedere se giocando sempre
+il book che paga di piu' resta un margine reale. Non usa PronoX.
+Doppio clic su  avvia_valore_quote.bat  -> si apre report_valore_quote.txt
+(riusa i dati gia' scaricati dal primo test; mandami il testo).
