@@ -5219,7 +5219,7 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
           if(esitoPerBookmakerEvento.has(`${bk}|${eventoKey}`)) continue
           gruppo.push(s); contiNelGruppo.add(key)
         }
-        if(gruppo.length<nEsiti) continue
+        if(gruppo.length<(lucySoloConti?1:nEsiti)) continue   // 14/10/2026: in modalità solo conti basta 1 conto base; le coperture le mettono i conti di mantenimento
         gruppo.forEach(g=>{ const idx=slot.indexOf(g); if(idx>=0) slot.splice(idx,1) })
         chiudiMantSeTetto(gruppo)
 
