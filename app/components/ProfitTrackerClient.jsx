@@ -322,6 +322,9 @@ const [saldoRapido, setSaldoRapido] = useState({})
 // 28/09/2026 — 📸 Leggi saldi con l'AI: { [book.id]: { stato, saldo, bonus, motivo, img } } + zoom della miniatura
 const [lettureInCorso, setLettureInCorso] = useState('')
 const [risultatiLettura, setRisultatiLettura] = useState(null)
+// 14/10/2026 — ▶ LETTURA SALDI IN SEQUENZA: un book alla volta (apre sui telefoni, aspetta il login a mano, legge, conferma, prosegue)
+// { fase: 'scelta'|'apertura'|'attesa'|'lettura'|'conferma'|'fine', elenco: [{ nome, nomi, sito, modo: 'apri'|'app'|'gia', on }], i, nota, riepilogo: [] }
+const [seq, setSeq] = useState(null)
 // 28/09/2026 — 📈 Rendimento: somma dei delta delle correzioni saldo (manuali + automatiche) per cliente e per book
 const [rendimento, setRendimento] = useState(null)   // { periodo, righe, caricando, cliente }   // { titolo, righe: [[chiave, esito]] }
 const [zoomImg, setZoomImg] = useState(null)
@@ -580,16 +583,17 @@ function sitoWallet(nome) {
   return trovato ? noti[trovato] : `https://www.${k}.com/`
 }
 // azione 'apri' = pagina in Chrome (url) · azione 'app' = l'app del book (url = parola, es. "sisal")
-async function apriSuTelefoni(nomeBook, url, intestatari, azione = 'apri') {
+// silenzioso = true (lettura saldi in sequenza): niente conferma e restituisce una riga di resoconto per il banner
+async function apriSuTelefoni(nomeBook, url, intestatari, azione = 'apri', silenzioso = false) {
   const nomi = [...new Set(intestatari.filter(Boolean))]
-  if (!nomi.length) return
+  if (!nomi.length) return silenzioso ? 'nessun telefono da aprire' : undefined
   const cosa = azione === 'app' ? `l'APP ${nomeBook} (parola "${url}")` : `${nomeBook} in Chrome (${url.replace(/^https?:\/\//, '').replace(/\/$/, '')})`
-  if (!window.confirm(`Apro ${cosa} sui telefoni di:\n${nomi.join('\n')}?`)) return
+  if (!silenzioso && !window.confirm(`Apro ${cosa} sui telefoni di:\n${nomi.join('\n')}?`)) return
   grigliaMostra(nomi).then(g => {
     if (g && g.mancanti && g.mancanti.length) setErrorMessage(`🖥 Griglia: non trovo il telefono di ${g.mancanti.join(', ')} (vedi alias_griglia.json)`)
   })
   const { data, error } = await supabase.from('comandi_telefoni').insert([{ azione, url, intestatari: nomi }]).select().single()
-  if (error) { setErrorMessage('Comando non inviato: lancia agente_telefoni.sql (' + error.message + ')'); return }
+  if (error) { setErrorMessage('Comando non inviato: lancia agente_telefoni.sql (' + error.message + ')'); return silenzioso ? 'comando non inviato: ' + error.message : undefined }
   setMessage(`📱 ${nomeBook}: apertura inviata a ${nomi.length} telefoni…`)
   // resoconto: lo script risponde di solito in pochi secondi; con tante app può servire un minuto
   for (let i = 0; i < 40; i++) {
@@ -602,10 +606,11 @@ async function apriSuTelefoni(nomeBook, url, intestatari, azione = 'apri') {
       const ko = es.filter(([, v]) => v !== 'aperto')
       if (ko.length) setErrorMessage(`📱 ${nomeBook}: aperto su ${ok} · non riuscito: ${ko.map(([n, v]) => `${n} (${v})`).join(', ')}`)
       else setMessage(`📱 ${nomeBook} aperto su ${ok} telefoni`)
-      return
+      return silenzioso ? (ko.length ? `aperto su ${ok} · non riuscito: ${ko.map(([n, v]) => `${n} (${v})`).join(', ')}` : `aperto su ${ok} telefoni`) : undefined
     }
   }
   setErrorMessage(`📱 ${nomeBook}: nessuna risposta dal PC dei telefoni (lo script book_lavorati è acceso?)`)
+  return silenzioso ? 'nessuna risposta dal PC dei telefoni (lo script book_lavorati è acceso?)' : undefined
 }
 // 01/10/2026 — 📱 APRI PIÙ CONTI INSIEME (gruppi live, sessioni live, incroci): una sola conferma,
 // un comando per ogni book (ogni comando apre quel book sui telefoni dei suoi intestatari).
@@ -661,11 +666,12 @@ async function pulisciTelefoni(intestatari = []) {
 // 📸 legge i saldi dei book APERTI sui telefoni (aperti a mano o dal Profit Tracker, login fatto a mano).
 // filtro = nome del book (es. "Snai") per leggere solo quel book, '' = qualsiasi book aperto · nomi = [] per tutti i telefoni.
 // Il server scrive i saldi da solo, con una riga "correzione automatica" in Transazioni.
-async function leggiSaldiAperti(etichetta, filtro, nomi) {
+// senzaConferma = true (lettura saldi in sequenza): parte subito e restituisce true se le letture sono arrivate, false altrimenti
+async function leggiSaldiAperti(etichetta, filtro, nomi, senzaConferma = false) {
   const chi = nomi.length ? `${nomi.length} clienti` : 'tutti i telefoni'
-  if (!window.confirm(`📸 Leggo i saldi ${filtro ? `di ${filtro} ` : ''}aperti su ${chi}?\n\nNon apre niente: fotografa il book che c'è in primo piano su ogni telefono e l'AI legge il saldo.\nPrima di scrivere ti mostro cosa ha letto e confermi tu (in Transazioni: "correzione automatica").`)) return
+  if (!senzaConferma && !window.confirm(`📸 Leggo i saldi ${filtro ? `di ${filtro} ` : ''}aperti su ${chi}?\n\nNon apre niente: fotografa il book che c'è in primo piano su ogni telefono e l'AI legge il saldo.\nPrima di scrivere ti mostro cosa ha letto e confermi tu (in Transazioni: "correzione automatica").`)) return false
   const { data, error } = await supabase.from('comandi_telefoni').insert([{ azione: 'leggi_saldi', url: filtro || '-', intestatari: [...new Set(nomi.filter(Boolean))] }]).select().single()
-  if (error) { setErrorMessage('Comando non inviato: ' + error.message); return }
+  if (error) { setErrorMessage('Comando non inviato: ' + error.message); return false }
   setLettureInCorso(etichetta)
   setMessage(`📸 Lettura saldi in corso (${chi})…`)
   for (let i = 0; i < 60; i++) {
@@ -678,19 +684,22 @@ async function leggiSaldiAperti(etichetta, filtro, nomi) {
     setMessage(`📸 Letti: ${n('cambiato')} cambiati · ${n('invariato')} invariati · ${n('da controllare')} da controllare · ${n('non letto') + n('conto non trovato')} non letti — conferma nella finestra`)
     // preselezionati: cambiati e invariati; "da controllare" lo spunti tu se è giusto
     setRisultatiLettura({ titolo: `📸 Lettura saldi ${filtro ? `· ${filtro}` : ''}`, righe, sel: new Set(righe.filter(([, e]) => e.esito === 'cambiato' || e.esito === 'invariato').map(([k]) => k)), fatti: {} })
-    return
+    return true
   }
   setLettureInCorso('')
   setErrorMessage('📸 Nessuna risposta dal PC dei telefoni (lo script book_lavorati è acceso?)')
+  return false
 }
 // ✅ scrive le letture confermate: saldo + "correzione automatica" in Transazioni (prima la transazione, poi il saldo)
 const GIORNI_SALDO_FERMO = 30   // saldo invariato da almeno tanti giorni → segnale: conto da usare (operazione spot)
-async function confermaLetture() {
-  const r = risultatiLettura; if (!r) return
-  const scelte = r.righe.filter(([k, e]) => r.sel.has(k) && e.book_id && e.saldo !== null && e.saldo !== undefined)
-  if (!scelte.length) return
+// senzaConferma = true (pulsante "Scrivi e prosegui" della sequenza: il clic è già la conferma).
+// Restituisce { agg, ver, err } (aggiornati, verificati, errori) oppure null se non ha scritto niente per scelta o mancanza di dati.
+async function confermaLetture(senzaConferma = false) {
+  const r = risultatiLettura; if (!r) return null
+  const scelte = r.righe.filter(([k, e]) => r.sel.has(k) && e.book_id && e.saldo !== null && e.saldo !== undefined && !r.fatti[k])
+  if (!scelte.length) return senzaConferma ? { agg: 0, ver: 0, err: 0 } : null
   const cambi = scelte.filter(([, e]) => Number(e.saldo) !== Number(e.prec))
-  if (!window.confirm(`Confermo ${scelte.length} letture?\n\n${cambi.length} saldi da aggiornare (correzione automatica)\n${scelte.length - cambi.length} invariati (solo verificati)`)) return
+  if (!senzaConferma && !window.confirm(`Confermo ${scelte.length} letture?\n\n${cambi.length} saldi da aggiornare (correzione automatica)\n${scelte.length - cambi.length} invariati (solo verificati)`)) return null
   const ora = new Date().toISOString(), oggiIso = new Date().toLocaleDateString('sv-SE')
   const fatti = { ...r.fatti }, nuoveTx = [], aggiornati = {}
   for (const [k, e] of scelte) {
@@ -717,7 +726,48 @@ async function confermaLetture() {
   if (nuoveTx.length) setTransactions(prev => [...nuoveTx, ...prev])
   setBooks(prev => prev.map(b => aggiornati[b.id] ? { ...b, ...aggiornati[b.id] } : b))
   setRisultatiLettura({ ...r, sel: new Set(), fatti })
+  const agg = scelte.filter(([k]) => String(fatti[k] || '').startsWith('✅')).length
+  const ver = scelte.filter(([k]) => String(fatti[k] || '').startsWith('✓')).length
   setMessage(`✅ ${Object.values(fatti).filter(x => x.startsWith('✅')).length} saldi aggiornati · ${Object.values(fatti).filter(x => x.startsWith('✓')).length} verificati`)
+  return { agg, ver, err: scelte.length - agg - ver }
+}
+// ▶ LETTURA SALDI IN SEQUENZA (14/10/2026): per ogni book apre sui telefoni (la minigriglia mostra solo quelli), aspetta che fai il login a mano,
+// poi "Leggi ora" fotografa i telefoni; controlli le letture e "Scrivi e prosegui" passa al book dopo. Nessun login automatico.
+async function seqVaiA(i, s) {
+  const el = s.elenco[i]
+  if (!el) { setSeq({ ...s, i, fase: 'fine', nota: '' }); return }
+  if (el.modo === 'gia') { setSeq({ ...s, i, fase: 'attesa', nota: 'Book già aperto da te: fai il login dove serve, poi premi "Leggi ora".' }); return }
+  setSeq({ ...s, i, fase: 'apertura', nota: '' })
+  const r = await apriSuTelefoni(el.nome, el.modo === 'app' ? el.nome : el.sito, el.nomi, el.modo === 'app' ? 'app' : 'apri', true)
+  // se nel frattempo hai premuto Ferma (seq nullo) o sei già altrove, non tocco niente
+  setSeq(prev => (prev && prev.i === i && prev.fase === 'apertura') ? { ...prev, fase: 'attesa', nota: `${r || 'aperto'} · fai il login dove serve, poi premi "Leggi ora".` } : prev)
+}
+async function seqLeggi(s) {
+  const el = s.elenco[s.i]; if (!el) return
+  setRisultatiLettura(null)
+  setSeq({ ...s, fase: 'lettura', nota: '' })
+  const ok = await leggiSaldiAperti(el.nome, el.nome, el.nomi, true)
+  setSeq(prev => (prev && prev.i === s.i && prev.fase === 'lettura') ? { ...prev, fase: ok ? 'conferma' : 'attesa', nota: ok ? '' : 'Lettura non riuscita: controlla i telefoni e premi di nuovo "Leggi ora".' } : prev)
+}
+async function seqScriviEProsegui(s) {
+  const el = s.elenco[s.i]; if (!el) return
+  const esito = await confermaLetture(true)
+  if (!esito) { setErrorMessage('Non ho scritto niente: le letture non sono più nella finestra. Premi "Rileggi".'); return }
+  if (esito.err > 0) { setErrorMessage(`⚠️ ${el.nome}: ${esito.err} letture non scritte (guarda la finestra). Non proseguo: correggi o premi "Salta".`); return }
+  setRisultatiLettura(null)
+  seqVaiA(s.i + 1, { ...s, riepilogo: [...(s.riepilogo || []), { nome: el.nome, testo: `${esito.agg} aggiornati · ${esito.ver} verificati` }] })
+}
+function seqSalta(s) {
+  const el = s.elenco[s.i]; if (!el) return
+  const nonScritte = risultatiLettura ? risultatiLettura.righe.filter(([k, e]) => risultatiLettura.sel.has(k) && e.book_id && e.saldo !== null && e.saldo !== undefined && !risultatiLettura.fatti[k]).length : 0
+  if (nonScritte && !window.confirm(`${el.nome}: ci sono ${nonScritte} letture selezionate non ancora scritte.\nSalto il book senza scriverle?`)) return
+  setRisultatiLettura(null)
+  seqVaiA(s.i + 1, { ...s, riepilogo: [...(s.riepilogo || []), { nome: el.nome, testo: 'saltato' }] })
+}
+function seqFerma() {
+  setRisultatiLettura(null)
+  setLettureInCorso('')
+  setSeq(null)
 }
 // conto con saldo fermo: avviso "operazione spot" in plancia (resta finché non lo segni Fatto)
 async function avvisoOperazioneSpot(bookId, giorni) {
@@ -7681,6 +7731,70 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               </div>
             </div>)
         })()}
+        {seq && seq.fase === 'scelta' && (() => {
+          const agg = (idx, patch) => setSeq({ ...seq, elenco: seq.elenco.map((x, j) => j === idx ? { ...x, ...patch } : x) })
+          const scelti = seq.elenco.filter(x => x.on && x.nomi.length)
+          return (
+          <div onClick={() => setSeq(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.8)', zIndex: 1050, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: '#0f172a', border: '1px solid rgba(217,70,239,0.5)', borderRadius: 16, padding: 18, width: 'min(720px, 100%)', maxHeight: '88vh', overflowY: 'auto', color: '#e2e8f0' }}>
+              <div style={{ fontSize: 16, fontWeight: 900, color: '#f0abfc', marginBottom: 6 }}>▶ Lettura saldi in sequenza</div>
+              <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>Per ogni book: lo apro sui telefoni dei clienti (la griglia mostra solo quelli), tu fai il login dove serve e premi «Leggi ora», controlli le letture e premi «Scrivi e prosegui». Il login resta sempre a mano.</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {seq.elenco.map((x, idx) => (
+                  <div key={x.nome} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', fontSize: 13, padding: '6px 8px', borderRadius: 8, background: 'rgba(11,18,32,0.75)' }}>
+                    <input type="checkbox" checked={x.on} onChange={() => agg(idx, { on: !x.on })} />
+                    <b style={{ color: '#f8fafc', minWidth: 150 }}>{x.nome}</b>
+                    <span style={{ color: '#94a3b8', flex: 1, minWidth: 100 }}>{x.nomi.length} telefoni</span>
+                    <select value={x.modo} onChange={e => agg(idx, { modo: e.target.value })} style={{ background: '#020617', color: '#f8fafc', border: '1px solid #475569', borderRadius: 8, padding: '4px 8px' }}>
+                      <option value="apri">Apri in Chrome</option>
+                      <option value="app">Apri l&apos;app</option>
+                      <option value="gia">Già aperto (non aprire)</option>
+                    </select>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+                <button onClick={() => setSeq(null)} style={{ background: '#020617', color: '#f8fafc', border: '1px solid #475569', borderRadius: 10, padding: '9px 14px', cursor: 'pointer' }}>Annulla</button>
+                <button disabled={!scelti.length} onClick={() => seqVaiA(0, { ...seq, elenco: scelti, riepilogo: [] })} style={{ background: scelti.length ? '#a21caf' : '#334155', color: 'white', border: 0, borderRadius: 10, padding: '9px 16px', fontWeight: 900, cursor: scelti.length ? 'pointer' : 'default' }}>▶ Avvia · {scelti.length} book</button>
+              </div>
+            </div>
+          </div>)
+        })()}
+        {seq && seq.fase !== 'scelta' && (() => {
+          const el = seq.elenco[seq.i]
+          const prossimo = seq.elenco[seq.i + 1]
+          const btn = bg => ({ background: bg, color: 'white', border: 0, borderRadius: 10, padding: '8px 14px', fontWeight: 900, cursor: 'pointer', fontSize: 13 })
+          const attesaFase = seq.fase === 'apertura' || seq.fase === 'lettura'
+          return (
+          <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 1060, display: 'flex', justifyContent: 'center', padding: 10, pointerEvents: 'none' }}>
+            <div style={{ pointerEvents: 'auto', background: '#0f172a', border: '1px solid rgba(217,70,239,0.7)', borderRadius: 14, padding: '10px 14px', width: 'min(900px, 100%)', color: '#e2e8f0', boxShadow: '0 8px 30px rgba(0,0,0,0.6)' }}>
+              {seq.fase === 'fine' ? (<>
+                <div style={{ fontWeight: 900, color: '#f0abfc', marginBottom: 6 }}>✅ Lettura saldi finita · {seq.elenco.length} book</div>
+                <div style={{ fontSize: 12, color: '#cbd5e1', display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 8, maxHeight: 140, overflowY: 'auto' }}>
+                  {(seq.riepilogo || []).map((x, k) => <span key={k}><b>{x.nome}</b> · {x.testo}</span>)}
+                </div>
+                <button onClick={() => setSeq(null)} style={btn('#334155')}>Chiudi</button>
+              </>) : (<>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <div style={{ fontWeight: 900, color: '#f0abfc' }}>▶ Lettura saldi · book {seq.i + 1}/{seq.elenco.length} · {el?.nome} <span style={{ color: '#94a3b8', fontWeight: 600 }}>({el?.nomi.length} telefoni)</span></div>
+                  <div style={{ fontSize: 12, color: '#cbd5e1' }}>
+                    {seq.fase === 'apertura' && '📱 Apro sui telefoni…'}
+                    {seq.fase === 'lettura' && '📸 Lettura in corso…'}
+                    {seq.fase === 'attesa' && (seq.nota || 'Fai il login dove serve, poi premi "Leggi ora".')}
+                    {seq.fase === 'conferma' && 'Controlla le letture nella finestra (togli la spunta a quelle sbagliate), poi scrivi e prosegui.'}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                  {seq.fase === 'attesa' && <button onClick={() => seqLeggi(seq)} style={btn('#a21caf')}>📸 Leggi ora</button>}
+                  {seq.fase === 'conferma' && <button disabled={!risultatiLettura} onClick={() => seqScriviEProsegui(seq)} style={btn(risultatiLettura ? '#16a34a' : '#334155')}>{prossimo ? `✅ Scrivi e prosegui → ${prossimo.nome}` : '✅ Scrivi e finisci'}</button>}
+                  {seq.fase === 'conferma' && <button onClick={() => seqLeggi(seq)} style={btn('#0ea5e9')}>🔁 Rileggi</button>}
+                  {!attesaFase && <button onClick={() => seqSalta(seq)} style={btn('#334155')}>⏭ Salta questo book</button>}
+                  <button onClick={seqFerma} style={btn('#7f1d1d')}>⏹ Ferma</button>
+                </div>
+              </>)}
+            </div>
+          </div>)
+        })()}
         {risultatiLettura && (() => {
           const r = risultatiLettura
           const giorniDa = iso => iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 86400000) : null
@@ -7688,7 +7802,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           const toggle = k => { const x = new Set(r.sel); if (x.has(k)) x.delete(k); else x.add(k); setRisultatiLettura({ ...r, sel: x }) }
           return (
           <div onClick={() => setRisultatiLettura(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.8)', zIndex: 1050, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-            <div onClick={e => e.stopPropagation()} style={{ background: '#0f172a', border: '1px solid rgba(217,70,239,0.5)', borderRadius: 16, padding: 18, width: 'min(900px, 100%)', maxHeight: '88vh', overflowY: 'auto', color: '#e2e8f0' }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: '#0f172a', border: '1px solid rgba(217,70,239,0.5)', borderRadius: 16, padding: 18, width: 'min(900px, 100%)', maxHeight: seq ? '70vh' : '88vh', overflowY: 'auto', color: '#e2e8f0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <div style={{ fontSize: 16, fontWeight: 900, color: '#f0abfc' }}>{r.titolo}</div>
                 <button onClick={() => setRisultatiLettura(null)} style={{ background: '#020617', color: '#f8fafc', border: '1px solid #475569', borderRadius: 8, padding: '6px 10px', cursor: 'pointer' }}>Chiudi</button>
@@ -7722,7 +7836,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               {selezionabili.length > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12, alignItems: 'center' }}>
                   <span style={{ fontSize: 12, color: '#94a3b8' }}>{[...r.sel].filter(k => selezionabili.some(([x]) => x === k)).length} selezionate</span>
-                  <button onClick={confermaLetture} style={{ background: '#16a34a', color: 'white', border: 0, borderRadius: 10, padding: '9px 16px', fontWeight: 900, cursor: 'pointer' }}>✅ Conferma e scrivi</button>
+                  <button onClick={() => confermaLetture()} style={{ background: '#16a34a', color: 'white', border: 0, borderRadius: 10, padding: '9px 16px', fontWeight: 900, cursor: 'pointer' }}>✅ Conferma e scrivi</button>
                 </div>
               )}
             </div>
@@ -10265,6 +10379,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                 <span style={{ fontWeight: 900, color: '#4ade80', fontSize: 13, marginRight: 4 }}>💰 Saldi da aggiornare · {lista.length}</span>
                 <button title="Il controllo l'ha già fatto qualcuno a mano" onClick={async () => { if (!window.confirm(`Segno come verificati TUTTI i ${lista.length} saldi della lista?\n(usalo se il controllo è già stato fatto a mano; se un conto viene riusato più tardi, ricompare)`)) return; await segnaSaldoVerificato(lista.map(v => v.book.id)); setMessage(`✓ ${lista.length} saldi segnati come verificati`) }} style={{ padding: '2px 8px', borderRadius: 999, fontSize: 11, cursor: 'pointer', border: '1px solid #475569', background: 'transparent', color: '#94a3b8', marginRight: 4 }}>✓ tutti verificati</button>
+                <button disabled={!!seq || !!lettureInCorso} title="Apre i book uno alla volta sui telefoni, legge i saldi e prosegue solo quando confermi tu (il login lo fai a mano)" onClick={() => setSeq({ fase: 'scelta', i: 0, nota: '', riepilogo: [], elenco: elenco.map(g => ({ nome: g.nome, nomi: [...new Set(g.voci.map(v => v.book.intestatario).filter(Boolean))], sito: sitoBook(g.voci[0].book), modo: 'apri', on: true })) })} style={{ padding: '3px 10px', borderRadius: 999, fontSize: 12, fontWeight: 800, cursor: (seq || lettureInCorso) ? 'default' : 'pointer', border: 0, background: (seq || lettureInCorso) ? '#334155' : '#a21caf', color: 'white', marginRight: 4 }}>▶ Lettura saldi in sequenza</button>
                 {elenco.map(g => (
                   <button key={g.nome} onClick={() => setSaldiDaAggAperto(saldiDaAggAperto === g.nome ? null : g.nome)} style={{ padding: '3px 9px', borderRadius: 999, fontSize: 12, fontWeight: 700, cursor: 'pointer', border: `1px solid ${saldiDaAggAperto === g.nome ? '#4ade80' : 'rgba(74,222,128,0.35)'}`, background: saldiDaAggAperto === g.nome ? 'rgba(74,222,128,0.2)' : 'transparent', color: '#bbf7d0' }}>{g.nome} {g.voci.length}</button>
                 ))}
