@@ -152,7 +152,7 @@ export function MenuIntestazione({ stile, testoCopyright }) {
    Il bottone lampeggia in giallo finché dentro c'è qualcosa da fare oggi: le sezioni segnalano "da fare" con l'attributo data-da-fare="1"
    (promo che scadono oggi, profilazioni mirate di oggi o scadute) e il segnale sparisce da solo quando le cose sono state fatte.
    Il contenuto resta montato anche da chiuso, così i pannelli continuano a caricarsi. */
-export function OggiCard({ children, attiva }) {
+export function OggiCard({ children, attiva, onApri }) {
   const [aperta, setAperta] = useState(false)
   const [daFare, setDaFare] = useState(false)
   const [pos, setPos] = useState(null)
@@ -211,9 +211,9 @@ export function OggiCard({ children, attiva }) {
   return (
     <>
       <style>{`@keyframes oggiGiallo { 0%,100% { background: rgba(250,204,21,.18); box-shadow: 0 0 0 0 rgba(250,204,21,0); border-color: rgba(250,204,21,.7); color: #fde68a } 50% { background: rgba(250,204,21,.95); box-shadow: 0 0 16px 3px rgba(250,204,21,.6); border-color: #fde047; color: #1c1917 } } .oggi-lampeggia { animation: oggiGiallo 1.1s ease-in-out infinite }`}</style>
-      {/* 14/10/2026: il tastino apre in una nuova scheda la lista completa di oggi (bet, incroci, Masaniello, conti, avvisi, mail) con Fatto / Rimanda.
+      {/* 14/10/2026: il tastino apre in una nuova scheda la lista completa di oggi (promo, avvisi, bet, incroci, Masaniello, Live, mirate, conti) con Fatto / Rimanda e prepara le bet se non sono già pronte.
           La finestra mobile di prima (Lucy Trading, promo in scadenza, profilazioni mirate) resta nel bottone accanto. */}
-      <button type="button" onClick={() => { try { window.open('/profit-tracker/da-fare', '_blank') } catch {} }} className={daFare ? 'oggi-lampeggia' : undefined}
+      <button type="button" onClick={() => { try { window.open('/profit-tracker/da-fare', '_blank') } catch {} ; try { if (onApri) onApri() } catch {} }} className={daFare ? 'oggi-lampeggia' : undefined}
         title={daFare ? 'Ci sono cose da fare oggi: apri la lista completa in una nuova scheda' : 'Apre in una nuova scheda tutto quello che c\'è da fare oggi, con Fatto e Rimanda'}
         style={{ padding: '10px 16px', borderRadius: 12, border: '1px solid rgba(71,85,105,0.9)', background: 'rgba(15,23,42,0.75)', color: '#e2e8f0', fontWeight: 900, fontSize: 14, cursor: 'pointer' }}>
         📋 Oggi da fare
