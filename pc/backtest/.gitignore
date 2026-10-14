@@ -2,3 +2,4 @@ dati/
 report_backtest.txt
 dettaglio_backtest.csv
 __pycache__/
+report_valore_quote.txt
