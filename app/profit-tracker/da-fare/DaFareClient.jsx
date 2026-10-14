@@ -17,7 +17,6 @@ import { supabase } from '../supabaseClient'
 import { costruisciLista, dataIso, domaniIso, dataIt, dataLunga, rinvioValido, aggiungiGiorni, vociMasaniello, vociSchedaMasaniello, vociPromo } from '../../../lib/oggiDaFare'
 import { eventiDalleBet, usoConti } from '../../components/RecuperiPronox'
 import { schedaDelGiorno } from '../../../lib/recupero/masanielloRecupero'
-import ArchivioBet from './ArchivioBet'
 import { MODEL_VERSION } from '../../../lib/pronox/footballModel'
 
 const CHIAVE_FOTO = 'profittracker_oggi_da_fare'
@@ -412,10 +411,9 @@ export default function DaFareClient() {
               )
             })}
             {s.id === 'avvisi' && <div style={{ padding: '9px 14px', borderTop: '1px solid rgba(51,65,85,0.6)' }}><button type="button" onClick={() => apriNelProfitTracker('avvisi')} style={{ ...btnBase, background: 'rgba(56,189,248,0.15)', color: '#7dd3fc', borderColor: 'rgba(56,189,248,0.5)' }}>🔔 Apri gli Avvisi nel Profit Tracker →</button></div>}
-            {s.id === 'bet' && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>Le bet si comandano dalla Tabella bet: quando lì le confermi, le salti o le rimandi, qui e nell&apos;archivio compare l&apos;esito. In fondo alla Tabella c&apos;è il Masaniello: ✓ Conferma scheda, poi 📱 Apri telefoni.</div>}
+            {s.id === 'bet' && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>Le bet si comandano dalla Tabella bet: quando lì le confermi, le salti o le rimandi, qui compare l&apos;esito (e resta nell&apos;Archivio operazioni del Profit Tracker). In fondo alla Tabella c&apos;è il Masaniello: ✓ Conferma scheda, poi 📱 Apri telefoni.</div>}
             {s.id === 'promo' && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>Se la promo è già stata fatta e la segni nella tab Promo, qui sparisce da sola.</div>}
           </div>
-          {s.id === 'bet' && <ArchivioBet oggi={oggi} versione={fotoDiOggi?.aggiornato} />}
           </React.Fragment>
         )})}
 

@@ -288,6 +288,9 @@ const [recuperiConti, setRecuperiConti] = useState([])
 const [avvisiConti, setAvvisiConti] = useState(null)
 // 01/10/2026 — sezione della tab Profilazione da aprire (dai pulsanti "Oggi" o dal banner della Dashboard)
 const [sezioneDaAprire, setSezioneDaAprire] = useState(null)
+// 14/10/2026: in Profilazione restano visibili solo Profilazioni mirate, scelta dei book e Archivio operazioni; gli altri pannelli lavorano in background (restano montati) e si gestiscono da "Oggi da fare"
+const [mostraTuttiPannelli, setMostraTuttiPannelli] = useState(() => { try { return localStorage.getItem('profittracker_mostra_tutti_pannelli') === '1' } catch { return false } })
+function cambiaMostraTutti() { setMostraTuttiPannelli(v => { const n = !v; try { localStorage.setItem('profittracker_mostra_tutti_pannelli', n ? '1' : '0') } catch {} return n }) }
 const [pronoxDaFare, setPronoxDaFare] = useState(0)
 const [regoleMant, setRegoleMantStato] = useState({})
 const setRegoleMant = (r) => { REGOLE_MANT = r || {}; setRegoleMantStato(REGOLE_MANT) }
@@ -3587,8 +3590,11 @@ function cambiaVistaProfilazione(v) {
 
 // 01/10/2026 — VISTA OPERATIVA PULITA: sezioni a scomparsa + riga "Oggi" + chat nel banner della Dashboard
 function conSezione(props, node) {
-  if (lucyVista !== 'operativa') return node
-  return <Sezione {...props} forzaApri={sezioneDaAprire?.id === props.id ? sezioneDaAprire.t : null}>{node}</Sezione>
+  const { nascosta, ...sez } = props
+  const corpo = lucyVista !== 'operativa' ? node : <Sezione {...sez} forzaApri={sezioneDaAprire?.id === props.id ? sezioneDaAprire.t : null}>{node}</Sezione>
+  // pannello "di servizio": resta montato (calcola e carica i dati) ma non si vede, salvo che lo apra un pulsante di "Oggi da fare" o l'interruttore "Mostra tutti i pannelli"
+  if (nascosta && !mostraTuttiPannelli && sezioneDaAprire?.id !== props.id) return <div style={{ display: 'none' }}>{corpo}</div>
+  return corpo
 }
 function apriSezioneProfilazione(id) {
   if (lucyVista !== 'operativa') cambiaVistaProfilazione('operativa')
@@ -8359,8 +8365,12 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
       })()}
 
 
+      {/* 14/10/2026: interruttore discreto per rivedere tutti i pannelli di servizio */}
+      {lucyVista === 'operativa' && <div style={{ textAlign: 'right', margin: '0 0 8px' }}>
+        <button onClick={cambiaMostraTutti} style={{ background: 'transparent', border: '1px solid rgba(100,116,139,.5)', color: '#94a3b8', borderRadius: 999, padding: '3px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{mostraTuttiPannelli ? '🔧 Nascondi i pannelli di servizio' : '🔧 Mostra tutti i pannelli'}</button>
+      </div>}
       {/* 01/10/2026 — OGGI: cosa c'è da fare, a colpo d'occhio. Un clic apre la sezione */}
-      {lucyVista === 'operativa' && (() => {
+      {lucyVista === 'operativa' && mostraTuttiPannelli && (() => {
         const c = contaOggiProfilazione(agendaOggi.length)
         const chip = (id, icona, testo, n, colore) => (
           <button key={id} onClick={() => apriSezioneProfilazione(id)}
@@ -8380,7 +8390,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             </button>
           </div>)
       })()}
-      {conSezione({ id: 'avvisi', titolo: '⚠️ Avvisi · chat · giocate a mano', badge: contaOggiProfilazione().avvisiTesto, colore: '#fbbf24', aperta: true }, (
+      {conSezione({ nascosta: true, id: 'avvisi', titolo: '⚠️ Avvisi · chat · giocate a mano', badge: contaOggiProfilazione().avvisiTesto, colore: '#fbbf24', aperta: true }, (
         <AvvisiContiPanel
           books={books}
           setBooks={setBooks}
@@ -8394,10 +8404,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           onError={setErrorMessage}
         />
       ))}
-      {conSezione({ id: 'profiliamo-oggi', titolo: '📣 Profiliamo oggi · cosa dice e per quali clienti', colore: '#a78bfa', aperta: true }, (
+      {conSezione({ nascosta: true, id: 'profiliamo-oggi', titolo: '📣 Profiliamo oggi · cosa dice e per quali clienti', colore: '#a78bfa', aperta: true }, (
         <ProfiliamoOggi books={books} agendaOggi={agendaOggi} voci={profiliamoVoci} />
       ))}
-      {conSezione({ id: 'agenda', titolo: '📋 Agenda di oggi · mantenimento e profilazione', badge: agendaOggi.length ? `${agendaOggi.length} conti` : '', colore: '#60a5fa', aperta: true }, (
+      {conSezione({ nascosta: true, id: 'agenda', titolo: '📋 Agenda di oggi · mantenimento e profilazione', badge: agendaOggi.length ? `${agendaOggi.length} conti` : '', colore: '#60a5fa', aperta: true }, (
         <div style={{ display: 'grid', gridTemplateColumns: lucyVista === 'completa' ? '1fr 1fr' : '1fr', gap: 16, marginBottom: 16 }}>
 
           {/* AGENDA rimpicciolita */}
@@ -8476,7 +8486,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 
         </div>
       ))}
-      {conSezione({ id: 'pronox', titolo: '🎯 Recuperi con PronoX · Masaniello pilota', badge: pronoxDaFare ? `${pronoxDaFare} bet da fare` : '', colore: '#34d399', aperta: false }, (
+      {conSezione({ nascosta: true, id: 'pronox', titolo: '🎯 Recuperi con PronoX · Masaniello pilota', badge: pronoxDaFare ? `${pronoxDaFare} bet da fare` : '', colore: '#34d399', aperta: false }, (
         <>
         {/* 01/10/2026 — Recuperi con PronoX: Masaniello pilota (RecuperiPronox.jsx) */}
         <RecuperiPronoxPanel
@@ -8494,7 +8504,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         </>
       ))}
       {/* 01/10/2026 — SESSIONI LIVE LIBERE (dal file Randomizzatori) */}
-      {conSezione({ id: 'live', titolo: '🎰 Sessioni live · copertura roulette a scelta', badge: '', colore: '#a78bfa', aperta: false }, (
+      {conSezione({ nascosta: true, id: 'live', titolo: '🎰 Sessioni live · copertura roulette a scelta', badge: '', colore: '#a78bfa', aperta: false }, (
         <SessioneLivePanel
           books={books}
           contoUsabile={(b) => b.profilo_livello !== 'dormiente' && !lucyMaiProfilazione(b)}
@@ -8503,7 +8513,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           onError={setErrorMessage}
         />
       ))}
-      {conSezione({ id: 'coda', titolo: '🔧 Coda dei recuperi', badge: '', colore: '#f87171', aperta: false }, (
+      {conSezione({ nascosta: true, id: 'coda', titolo: '🔧 Coda dei recuperi', badge: '', colore: '#f87171', aperta: false }, (
         <RecuperoContiPanel
           books={books}
           recuperi={recuperiConti}
@@ -8543,7 +8553,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         />
       ))}
       {/* 01/10/2026 — PAGELLA PRONOX: i pronostici fotografati confrontati con gli esiti */}
-      {conSezione({ id: 'pagella', titolo: '📊 Pagella PronoX · i pronostici funzionano?', badge: '', colore: '#818cf8', aperta: false }, (
+      {conSezione({ nascosta: true, id: 'pagella', titolo: '📊 Pagella PronoX · i pronostici funzionano?', badge: '', colore: '#818cf8', aperta: false }, (
         <PagellaPronox onError={(e) => console.warn('[Pagella PronoX]', e)} />
       ))}
       {/* 02/10/2026 — ARCHIVIO OPERAZIONI: tutto quello che hai fatto (o deciso di non fare) */}
