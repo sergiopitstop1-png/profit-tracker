@@ -3765,6 +3765,28 @@ useEffect(() => {
 // la pagina "Oggi da fare" può chiedere di preparare le bet (pulsante "⚽ Prepara bet") anche se il Profit Tracker è aperto in un'altra scheda
 const preparaOggiRef = useRef(null)
 useEffect(() => { preparaOggiRef.current = preparaOggiDaFare })
+// la pagina "Oggi da fare" apre da qui le schede vere: Tabella bet (con Apri telefoni), Recuperi PronoX, Live, mirate, Profiliamo, agenda, avvisi
+function apriDaOggiDaFare(dove) {
+  if (dove === 'tabella_bet') { if (activeTab !== 'profilazione') handleTabChange('profilazione'); setLucyTabellaAperta(true); return }
+  apriSezioneProfilazione(dove)
+}
+const apriDaOggiRef = useRef(null)
+useEffect(() => { apriDaOggiRef.current = apriDaOggiDaFare })
+const apriInSospeso = useRef(null)
+useEffect(() => {
+  try { window.name = 'profittracker_main' } catch { /* nome scheda non impostabile */ }   // così la pagina Oggi da fare ritrova questa scheda
+  const leggi = () => { try { const r = JSON.parse(localStorage.getItem('profittracker_oggi_apri') || 'null'); return r && r.dove && Date.now() - r.t < 60000 ? r : null } catch { return null } }
+  apriInSospeso.current = leggi()   // richiesta arrivata mentre questa scheda si stava aprendo
+  const su = (e) => { if (e.key === 'profittracker_oggi_apri') { const r = leggi(); if (r) apriDaOggiRef.current?.(r.dove) } }
+  window.addEventListener('storage', su)
+  return () => window.removeEventListener('storage', su)
+}, [])
+useEffect(() => {
+  const r = apriInSospeso.current
+  if (!r || !books.length) return
+  apriInSospeso.current = null
+  setTimeout(() => { if (r.dove === 'tabella_bet') preparaOggiRef.current?.(); apriDaOggiRef.current?.(r.dove) }, 800)
+}, [books])
 useEffect(() => {
   const su = (e) => { if (e.key === 'profittracker_oggi_richiesta') preparaOggiRef.current?.() }
   window.addEventListener('storage', su)

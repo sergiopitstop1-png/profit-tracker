@@ -20,6 +20,7 @@ import { schedaDelGiorno } from '../../../lib/recupero/masanielloRecupero'
 import { MODEL_VERSION } from '../../../lib/pronox/footballModel'
 
 const CHIAVE_FOTO = 'profittracker_oggi_da_fare'
+const CHIAVE_APRI = 'profittracker_oggi_apri'   // la pagina chiede al Profit Tracker di aprire una scheda (Tabella bet, Live, Masaniello...)
 const CHIAVE_RICHIESTA = 'profittracker_oggi_richiesta'   // la pagina chiede al Profit Tracker di preparare le bet
 const ETA_MAX_MIN = 30   // oltre questo tempo la fotografia del Profit Tracker si considera vecchia
 
@@ -148,6 +149,32 @@ export default function DaFareClient() {
     if (caricamento || tabellaMancante) return
     try { localStorage.setItem('profittracker_oggi_conteggio', JSON.stringify({ giorno: oggi, n: lista.totali.daFare, aggiornato: new Date().toISOString() })) } catch { /* storage bloccato */ }
   }, [caricamento, tabellaMancante, lista, oggi])
+
+  // Apre nel Profit Tracker la scheda vera (Tabella bet con "Apri telefoni", Live, PronoX...). Se il Profit Tracker è già aperto in un'altra scheda
+  // si porta lì quella scheda (le bet di oggi stanno nella memoria di quella scheda); altrimenti lo apre e ci arriva da solo.
+  function apriNelProfitTracker(dove) {
+    try { localStorage.setItem(CHIAVE_APRI, JSON.stringify({ dove, t: Date.now() })) } catch { setErrori(prev => [...prev, 'Non riesco a contattare il Profit Tracker: aprilo a mano dalla Dashboard.']); return }
+    let w = null
+    try { w = window.open('', 'profittracker_main') } catch { w = null }
+    try { if (w) w.focus() } catch { /* il browser non permette di portare avanti la scheda */ }
+    try { if (w && w.location.href === 'about:blank') w.location.href = '/profit-tracker' } catch { /* scheda già aperta: ci pensa il Profit Tracker */ }
+  }
+  // quali schede aprire per una sezione "operativa" (null = la sezione resta una semplice lista con Fatto / Rimanda)
+  function destinazioni(sez) {
+    if (sez.id === 'bet_mant' || sez.id === 'bet_prof') return [{ dove: 'tabella_bet', testo: '📊 Apri la Tabella bet (con Apri telefoni)' }]
+    if (sez.id === 'masaniello') {
+      const out = []
+      if (sez.voci.some(v => v.tag === 'proposta' || v.tag === 'attenzione')) out.push({ dove: 'pronox', testo: '🎯 Apri Recuperi PronoX e conferma la scheda' })
+      if (sez.voci.some(v => v.tag === 'da piazzare')) out.push({ dove: 'tabella_bet', testo: '📊 Apri la Tabella bet (con Apri telefoni)' })
+      return out.length ? out : [{ dove: 'pronox', testo: '🎯 Apri Recuperi PronoX' }]
+    }
+    if (sez.id === 'live') return [{ dove: 'live', testo: '🎰 Apri le Sessioni live' }]
+    if (sez.id === 'mirate') return [{ dove: 'mirate', testo: '🎯 Apri le Profilazioni mirate' }]
+    if (sez.id === 'profiliamo') return [{ dove: 'profiliamo-oggi', testo: '📣 Apri Profiliamo oggi' }]
+    if (sez.id === 'conti') return [{ dove: 'agenda', testo: '📋 Apri l\'Agenda di oggi' }]
+    return null
+  }
+  const [espanse, setEspanse] = useState({})
 
   const statoBet = fotoDiOggi?.bet?.stato || null
   function chiediPreparaBet() {
@@ -297,19 +324,35 @@ export default function DaFareClient() {
           <div style={{ ...card, borderColor: 'rgba(74,222,128,0.5)', padding: '16px 14px', textAlign: 'center', color: '#86efac', fontWeight: 800, fontSize: 16 }}>✅ Non c&apos;è altro da fare per oggi</div>
         )}
 
-        {lista.sezioni.map(s => (
+        {lista.sezioni.map(s => {
+          const dest = destinazioni(s)
+          const aperta = !!espanse[s.id]
+          return (
           <div key={s.id} style={card}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'rgba(30,41,59,0.9)', borderLeft: `4px solid ${s.colore}` }}>
               <span style={{ fontWeight: 900, fontSize: 15 }}>{s.icona} {s.titolo}</span>
               <span style={{ marginLeft: 'auto', color: s.colore, fontWeight: 900, fontSize: 13 }}>{s.voci.length}</span>
             </div>
-            {s.voci.map(v => <React.Fragment key={v.key}>{riga(v)}</React.Fragment>)}
-            {s.id === 'masaniello' && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>Le partite «proposta» vanno prima confermate nel Profit Tracker (Profilazione → Recuperi con PronoX → ✓ Conferma scheda); la quota reale si registra lì e da lì la voce passa da sola in «Fatte».</div>}
-            {(s.id === 'bet_mant' || s.id === 'bet_prof') && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>Le bet si confermano nella Tabella bet del Profit Tracker: da lì la voce passa da sola in «Fatte».</div>}
-            {s.id === 'live' && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>Il dettaglio completo dei giri è nella Tabella Live del Profit Tracker.</div>}
+            {dest ? (
+              <div style={{ padding: '10px 14px', borderTop: '1px solid rgba(51,65,85,0.6)' }}>
+                <div style={{ fontSize: 12.5, color: '#94a3b8', lineHeight: 1.45, marginBottom: 9 }}>
+                  {s.voci.slice(0, 5).map(v => v.titolo).join(' · ')}{s.voci.length > 5 ? ` … e altre ${s.voci.length - 5}` : ''}
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {dest.map(d => (
+                    <button key={d.dove} type="button" onClick={() => apriNelProfitTracker(d.dove)} style={{ ...btnBase, background: '#0ea5e9', color: 'white', padding: '9px 16px', fontSize: 14 }}>{d.testo} →</button>
+                  ))}
+                  <button type="button" onClick={() => setEspanse(p => ({ ...p, [s.id]: !aperta }))} style={{ ...btnBase, background: 'transparent', color: '#cbd5e1', borderColor: 'rgba(148,163,184,0.5)', padding: '7px 12px', fontSize: 12.5 }}>{aperta ? '▾ nascondi elenco' : `▸ vedi l'elenco (${s.voci.length})`}</button>
+                </div>
+              </div>
+            ) : null}
+            {(!dest || aperta) && s.voci.map(v => <React.Fragment key={v.key}>{riga(v)}</React.Fragment>)}
+            {s.id === 'avvisi' && <div style={{ padding: '9px 14px', borderTop: '1px solid rgba(51,65,85,0.6)' }}><button type="button" onClick={() => apriNelProfitTracker('avvisi')} style={{ ...btnBase, background: 'rgba(56,189,248,0.15)', color: '#7dd3fc', borderColor: 'rgba(56,189,248,0.5)' }}>🔔 Apri gli Avvisi nel Profit Tracker →</button></div>}
+            {s.id === 'masaniello' && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>Le partite «proposta» vanno prima confermate nel Profit Tracker (Recuperi con PronoX → ✓ Conferma scheda); poi compaiono nella Tabella bet.</div>}
+            {(s.id === 'bet_mant' || s.id === 'bet_prof') && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>Le bet si confermano nella Tabella bet: da lì la voce passa da sola in «Fatte».</div>}
             {s.id === 'promo' && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>Se la promo è già stata fatta e la segni nella tab Promo, qui sparisce da sola.</div>}
           </div>
-        ))}
+        )})}
 
         {lista.rimandate.length > 0 && (
           <div style={card}>
