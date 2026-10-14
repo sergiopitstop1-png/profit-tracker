@@ -3525,7 +3525,71 @@ function righeIncrocioLucy(p, pi) {
   return {dettagli,riep,cambiate}
 }
 
+// 14/10/2026 (Sergio) · SOLO CONTI: un incrocio senza partita. Lucy dice su quali conti fare l'operazione e l'importo della prima bet;
+// la partita e il mercato li scegli tu (matcher ADP) e il conto di copertura lo usi per l'altra gamba (importo e quota li dà il matcher).
+function bloccoSoloContiLucy(p, pi, numero) {
+  const {dettagli}=righeIncrocioLucy(p,pi)
+  const fatte=dettagli.filter(d=>d.ok).length
+  const th={padding:'4px 8px',textAlign:'left',fontSize:9,color:'#64748b',fontWeight:800,borderBottom:'1px solid #e2e8f0',background:'#f8fafc'}
+  const ruolo=a=>({
+    'PROFILAZIONE':{t:'Profilazione',bg:'#dcfce7',tx:'#166534'},
+    'RECUPERO CONTO':{t:'Recupero conto',bg:'#fee2e2',tx:'#991b1b'},
+    'OPERAZIONE SPOT':{t:'Operazione spot',bg:'#fef9c3',tx:'#854d0e'},
+    'RECUPERO PROF.':{t:'Profilazione arretrata',bg:'#ffedd5',tx:'#9a3412'},
+    'MANT. PROTOCOLLO':{t:'Mantenimento',bg:'#fef3c7',tx:'#92400e'},
+    'MANTENIMENTO':{t:'Copertura',bg:'#e0e7ff',tx:'#3730a3'},
+    'EXTRA PROF.':{t:'Extra',bg:'#f3e8ff',tx:'#6b21a8'}
+  }[a.tipoRiga]||{t:a.tipoRiga,bg:'#e2e8f0',tx:'#334155'})
+  return (
+    <div key={`inc-${pi}`} style={{border:'1px solid #94a3b8',borderRadius:10,overflow:'hidden',background:'#fff',marginBottom:12,boxShadow:'0 1px 3px rgba(0,0,0,.08)'}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',padding:'7px 10px',background:'#e2e8f0',borderBottom:'1px solid #cbd5e1'}}>
+        <span style={{background:'#1e293b',color:'#fff',borderRadius:6,padding:'2px 8px',fontWeight:900,fontSize:12}}>#{numero}</span>
+        <span style={{fontWeight:900,fontSize:13}}>🔎 {p.home}</span>
+        <span style={{marginLeft:'auto',display:'flex',gap:10,alignItems:'center',fontSize:11}}>
+          {dettagli.some(d=>!d.ok) && <button title="Apre i book di questo incrocio (bet non ancora fatte) sui telefoni giusti" onClick={()=>apriContiSuTelefoni(dettagli.filter(d=>!d.ok).map(d=>d.a.book), `l'incrocio #${numero}`)} style={{background:'#0ea5e9',color:'white',border:0,borderRadius:6,padding:'3px 8px',fontWeight:900,fontSize:10,cursor:'pointer'}}>📱 Apri tutti ({dettagli.filter(d=>!d.ok).length})</button>}
+          <span style={{fontWeight:800,color:fatte===dettagli.length&&dettagli.length>0?'#166534':'#475569'}}>{fatte}/{dettagli.length} fatte</span>
+        </span>
+      </div>
+      <div style={{overflowX:'auto'}}>
+      <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+        <thead><tr><th style={th}>CONTO</th><th style={th}>RUOLO</th><th style={{...th,textAlign:'right'}}>IMPORTO PRIMA BET</th><th style={{...th,textAlign:'right'}}>QUOTA MIN</th><th style={th}></th></tr></thead>
+        <tbody>
+          {dettagli.map(({a,tipo,key,ok},ri)=>{
+            const r=ruolo(a); const dec=!ok&&decisioneBetLucy(key); const copertura=a.tipoRiga==='MANTENIMENTO'
+            const dettaglio=[a.betNumero&&a.betRichieste?`bet ${a.betNumero}/${a.betRichieste}`:null,a.budgetTotale?`target ${Number(a.budgetTotale).toFixed(0)}€`:null].filter(Boolean).join(' · ')
+            return (
+              <tr key={`${pi}-${ri}-${a.book.id}`} style={{background:ok?'#f0fdf4':dec?'#f1f5f9':'#fff',borderBottom:'1px solid #f1f5f9',opacity:dec?0.7:1}}>
+                <td style={{padding:'5px 8px'}}>
+                  <div style={{fontWeight:900}}>{a.book.nome}</div>
+                  <div style={{color:'#475569'}}>{a.book.intestatario}</div>
+                  {dettaglio && <div style={{fontSize:9,color:'#94a3b8'}}>{dettaglio}</div>}
+                </td>
+                <td style={{padding:'5px 8px'}}><span style={{background:r.bg,color:r.tx,borderRadius:6,padding:'2px 7px',fontWeight:800,fontSize:10,whiteSpace:'nowrap'}}>{r.t}</span></td>
+                <td style={{padding:'5px 8px',fontWeight:900,fontSize:13,textAlign:'right'}}>{copertura ? <i style={{color:'#64748b',fontWeight:600,fontSize:11}}>lo dà il matcher</i> : `${Number(a.stake||0).toFixed(2)} €`}</td>
+                <td style={{padding:'5px 8px',textAlign:'right',color:'#475569',fontWeight:700}}>{!copertura && a.quotaMin ? Number(a.quotaMin).toFixed(2) : '—'}</td>
+                <td style={{padding:'5px 8px',textAlign:'right',whiteSpace:'nowrap'}}>
+                  {ok ? <span style={{color:'#166534',fontWeight:900,fontSize:11}}>✓ fatta</span>
+                    : dec ? <span style={{color:'#64748b',fontWeight:800,fontSize:11}}>{dec.decisione==='saltata'?'⏭ saltata':'🔁 rimandata'}</span>
+                    : <span>
+                        <button onClick={()=>confermaSingolaBetLucy(p,a,tipo)} style={{background:'#2563eb',color:'white',border:0,borderRadius:6,padding:'6px 9px',fontSize:10,fontWeight:900,cursor:'pointer'}}>FATTA</button>
+                        <button title="Rimanda: Lucy la ripropone nei prossimi giorni" onClick={()=>decidiBetLucy(p,a,tipo,'rimandata')} style={{marginLeft:4,background:'#fef3c7',color:'#92400e',border:'1px solid #fcd34d',borderRadius:6,padding:'5px 7px',fontSize:10,fontWeight:900,cursor:'pointer'}}>🔁</button>
+                        <button title="Salta: non viene riproposta" onClick={()=>decidiBetLucy(p,a,tipo,'saltata')} style={{marginLeft:3,background:'#fee2e2',color:'#991b1b',border:'1px solid #fca5a5',borderRadius:6,padding:'5px 7px',fontSize:10,fontWeight:900,cursor:'pointer'}}>⏭</button>
+                      </span>}
+                </td>
+              </tr>)
+          })}
+        </tbody>
+      </table>
+      </div>
+      <div style={{padding:'5px 10px',fontSize:10,background:'#f8fafc',borderTop:'1px solid #e2e8f0',color:'#475569'}}>
+        Scegli la partita dal matcher: gioca il conto base con l&apos;importo indicato (quota minima del protocollo) e usa il conto di copertura per l&apos;altra gamba.
+      </div>
+    </div>
+  )
+}
+
 function bloccoIncrocioLucy(p, pi, numero) {
+  if(p.segnaposto) return bloccoSoloContiLucy(p,pi,numero)
   const {dettagli,riep,cambiate}=righeIncrocioLucy(p,pi)
   const palette=[{bg:'#dbeafe',bd:'#60a5fa',tx:'#1e3a8a'},{bg:'#fce7f3',bd:'#f472b6',tx:'#831843'},{bg:'#dcfce7',bd:'#4ade80',tx:'#14532d'}]
   const col=e=>palette[Math.max(0,(p.esiti||[]).findIndex(([n])=>n===e))%palette.length]
@@ -5286,7 +5350,7 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
       msgErr=`Lucy resta entro il costo massimo di ${Number(lucyCostoMax).toFixed(0)}€. ${rinviate.length} incroci rinviati; ${nonCollocate.length} bet restano da completare. Le bet già confermate oggi non vengono riproposte.`
     }
     const msgManuale=manProposte.length && lucySoloConti
-      ? `Lucy ti dice i conti di ${manProposte.length} incroci (massimo ${LUCY_SOLO_CONTI_MAX} al giorno): scegli tu la partita con il mercato indicato, scrivi la quota di ogni riga nella tabella e le coperture si calcolano da sole.`
+      ? `Lucy ti dice i conti di ${manProposte.length} incroci (massimo ${LUCY_SOLO_CONTI_MAX} al giorno): per ognuno trovi i conti da usare e l'importo della prima bet. La partita la scegli tu dal matcher e il conto di copertura lo usi per l'altra gamba.`
       : manProposte.length
       ? `${manProposte.length} incroci in MODALITÀ MANUALE (partite senza quote): nella tabella inserisci la quota che vedi sul book di ogni riga e le coperture si calcolano da sole. Le bet base hanno l'importo di protocollo.`
       : ''
