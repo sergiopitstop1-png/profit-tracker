@@ -27,6 +27,7 @@ import LucyAvvisoMail from './LucyAvvisoMail'   // 07/10/2026: avviso sottile nu
 import PromoBonusPanel, { PromoScadenze } from './PromoBonus'   // 05/10/2026: tab Promo + striscia scadenze
 import BetfairStato from './BetfairStato'   // 06/10/2026: avviso "quote Betfair ferme" in Dashboard
 import PromoNuovePopup from './PromoNuovePopup'   // 14/10/2026: popup promo segnalate nuove, finché non premi «Ok visto» (solo admin)
+import SceltaData from './SceltaData'   // 14/10/2026: calendario unico per scegliere le date (rimandi)
 import DiretteAvviso from './DiretteAvviso'   // 09/10/2026: prossima diretta Accademia (solo admin)
 import LucyTrading from './LucyTrading'   // 06/10/2026: scheda Lucy · trading prematch
 import ProfilazioniMiratePanel, { prossimaMirata } from './ProfilazioniMirate'   // 05/10/2026: prossimaMirata per il banner in Dashboard
@@ -329,6 +330,7 @@ const [risultatiLettura, setRisultatiLettura] = useState(null)
 // 14/10/2026 — ▶ LETTURA SALDI IN SEQUENZA: un book alla volta (apre sui telefoni, aspetta il login a mano, legge, conferma, prosegue)
 // { fase: 'scelta'|'apertura'|'attesa'|'lettura'|'conferma'|'fine', elenco: [{ nome, nomi, sito, modo: 'apri'|'app'|'gia', on }], i, nota, riepilogo: [] }
 const [seq, setSeq] = useState(null)
+const [sceltaData, setSceltaData] = useState(null)   // 14/10/2026: finestra calendario { titolo, valore, minimo, etichettaAuto, onConferma }
 // 28/09/2026 — 📈 Rendimento: somma dei delta delle correzioni saldo (manuali + automatiche) per cliente e per book
 const [rendimento, setRendimento] = useState(null)   // { periodo, righe, caricando, cliente }   // { titolo, righe: [[chiave, esito]] }
 const [zoomImg, setZoomImg] = useState(null)
@@ -3993,14 +3995,18 @@ async function segnaLiveNellaLista(p, pi, stato, rimandaA) {
   } catch (e) { console.warn('[Oggi da fare] Live non segnato nella lista:', e?.message || e) }
 }
 // 🔁 RIMANDA un gruppo Live: torna nella lista "Oggi da fare" nel giorno scelto (di default domani)
-async function rimandaLiveLucy(p, pi) {
-  const risposta = window.prompt(`Rimandare il gruppo live ${pi + 1} (${(p.gruppo || []).length} conti) a quale giorno?\nScrivi la data come AAAA-MM-GG.`, domaniIso(lucyOggi()))
-  if (risposta === null) return
-  const data = risposta.trim()
-  if (!rinvioValido(data, lucyOggi())) { setErrorMessage('Data non valida: scrivi AAAA-MM-GG, da domani in poi.'); return }
-  await segnaLiveNellaLista(p, pi, 'rimandato', data)
-  setLiveEsiti(prev => ({ ...prev, [`${p.target.id}`]: `rimandata al ${dataItLista(data)}` }))
-  setMessage(`🔁 Gruppo live ${pi + 1} rimandato al ${dataItLista(data)}: lo ritrovi in "Oggi da fare" quel giorno`)
+function rimandaLiveLucy(p, pi) {
+  const domani = domaniIso(lucyOggi())
+  setSceltaData({
+    titolo: `🔁 Rimandare il gruppo live ${pi + 1} (${(p.gruppo || []).length} conti) a quale giorno?`, sottotitolo: 'Torna in "Oggi da fare" nel giorno scelto.', valore: domani, minimo: domani, etichettaAuto: null,
+    onConferma: async (data) => {
+      setSceltaData(null)
+      if (!rinvioValido(data, lucyOggi())) { setErrorMessage('Data non valida: scegli un giorno da domani in poi.'); return }
+      await segnaLiveNellaLista(p, pi, 'rimandato', data)
+      setLiveEsiti(prev => ({ ...prev, [`${p.target.id}`]: `rimandata al ${dataItLista(data)}` }))
+      setMessage(`🔁 Gruppo live ${pi + 1} rimandato al ${dataItLista(data)}: lo ritrovi in "Oggi da fare" quel giorno`)
+    },
+  })
 }
 
 // 02/10/2026 — ✓ GIOCATA su un gruppo del Casino Live di Lucy: finisce in live_sessioni (origine 'lucy') e nell'archivio
@@ -8077,6 +8083,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         )}
 
        {/* 05/10/2026 · 🎁 PROMO IN SCADENZA (lampeggia entro 2 giorni) */}
+       {sceltaData && <SceltaData {...sceltaData} onAnnulla={() => setSceltaData(null)} />}
        {activeTab === 'dashboard' && (
           <DashboardTab
             aspetto={aspetto}
@@ -8093,26 +8100,17 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           const oggiM = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' })
           const traGiorni = (iso) => Math.round((new Date(iso + 'T12:00:00') - new Date(oggiM + 'T12:00:00')) / 86400000)
           const dataIt = (iso) => iso.split('-').reverse().join('/')
-          // 05/10/2026: 📅 rimanda dalla Dashboard alla data scelta da Sergio (stessa regola del pannello Profilazione)
-          const leggiData = (t) => {
-            const m = String(t || '').trim().match(/^(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?$/)
-            if (!m) return null
-            let y = m[3] ? Number(m[3]) : Number(oggiM.slice(0, 4)); if (y < 100) y += 2000
-            const iso = `${y}-${String(m[2]).padStart(2, '0')}-${String(m[1]).padStart(2, '0')}`
-            const d = new Date(iso + 'T00:00:00')
-            if (Number.isNaN(d.getTime()) || d.getDate() !== Number(m[1])) return null
-            return iso < oggiM && !m[3] ? `${y + 1}${iso.slice(4)}` : iso
-          }
-          const rimanda = async (g, prossima) => {
-            const t = window.prompt(`📅 "${g.nome}": a quando la rimandi?\nScrivi la data (gg/mm/aaaa oppure gg/mm).\nLascia vuoto per tornare alla cadenza automatica (ogni ${g.ogni_giorni} giorni).`, dataIt(prossima))
-            if (t === null) return
-            const iso = t.trim() ? leggiData(t) : null
-            if (t.trim() && !iso) { setErrorMessage('Data non valida: usa gg/mm/aaaa'); return }
-            const { error } = await supabase.from('profilazioni_mirate').update({ prossima_manuale: iso }).eq('id', g.id)
-            if (error) { setErrorMessage('Data non salvata: ' + error.message); return }
-            setGruppiMirati(prev => prev.map(x => x.id === g.id ? { ...x, prossima_manuale: iso } : x))
-            setMessage(iso ? `📅 ${g.nome}: rimandata al ${dataIt(iso)}` : `📅 ${g.nome}: cadenza automatica ogni ${g.ogni_giorni} giorni`)
-          }
+          // 05/10/2026: 📅 rimanda dalla Dashboard alla data scelta da Sergio (dal 14/10 sul calendario)
+          const rimanda = (g, prossima) => setSceltaData({
+            titolo: `📅 "${g.nome}": a quando la rimandi?`, valore: prossima, minimo: oggiM, etichettaAuto: `Cadenza automatica (${g.ogni_giorni} gg)`,
+            onConferma: async (iso) => {
+              setSceltaData(null)
+              const { error } = await supabase.from('profilazioni_mirate').update({ prossima_manuale: iso }).eq('id', g.id)
+              if (error) { setErrorMessage('Data non salvata: ' + error.message); return }
+              setGruppiMirati(prev => prev.map(x => x.id === g.id ? { ...x, prossima_manuale: iso } : x))
+              setMessage(iso ? `📅 ${g.nome}: rimandata al ${dataIt(iso)}` : `📅 ${g.nome}: cadenza automatica ogni ${g.ogni_giorni} giorni`)
+            },
+          })
           const prossime = (gruppiMirati || [])
             .map(g => ({ g, ...prossimaMirata(g, fatteMirate || [], giorniPausaTotale) }))
             .map(r => ({ ...r, tra: traGiorni(r.prossima) }))
