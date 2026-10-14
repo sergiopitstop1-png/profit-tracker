@@ -14,7 +14,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '../profit-tracker/supabaseClient'
 import { contiInRecupero } from './RecuperoConti'
 import { MODEL_VERSION } from '../../lib/pronox/footballModel'
-import { PIANO_PILOTA, statoPiano, schedaDelGiorno, dividiTraConti } from '../../lib/recupero/masanielloRecupero'
+import { PIANO_PILOTA, MASANIELLO_ATTIVO, statoPiano, schedaDelGiorno, dividiTraConti } from '../../lib/recupero/masanielloRecupero'
 
 // book dove il recupero NON passa dalle scommesse sport
 // 10/10/2026 (rettifica di Sergio): i limitati del gruppo E-play24 (eplay24, sportium, betwin360) fanno scommettere 1 €, quindi restano utilizzabili
@@ -234,6 +234,7 @@ export default function RecuperiPronoxPanel({ books, recuperi, getRecuperoProtoc
         <div style={{ fontWeight: 900, color: '#6ee7b7' }}>🎯 Recuperi con PronoX · Masaniello pilota {stato ? `· ${euro(stato.capitale)} · ${stato.vinte}V ${stato.perse}P` : ''} {daFare.length ? <span style={{ color: '#fbbf24' }}>· {daFare.length} bet da fare</span> : null}</div>
         <div style={{ color: '#94a3b8' }}>{aperto ? '▲' : '▼'}</div>
       </div>)}
+      {aperto && !MASANIELLO_ATTIVO && <div style={{ background: 'rgba(251,191,36,.12)', border: '1px solid #b45309', borderRadius: 10, padding: '6px 10px', margin: '8px 0', fontSize: 12, color: '#fcd34d', fontWeight: 800 }}>⏸ Masaniello di recupero in PAUSA (14/10/2026): nessuna nuova bet proposta. Le bet già fatte restano qui e si chiudono come prima.</div>}
       {aperto && (carico ? <div style={{ color: '#94a3b8', marginTop: 8 }}>Carico piano, fotografie ed esiti…</div> : !stato ? <div style={{ color: '#fca5a5', marginTop: 8 }}>Piano non trovato: lancia recupero_pronox.sql in Supabase.</div> : (
         <div style={{ marginTop: 10 }}>
           {/* stato del piano */}
