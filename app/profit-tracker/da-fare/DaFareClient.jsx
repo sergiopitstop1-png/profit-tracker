@@ -162,12 +162,7 @@ export default function DaFareClient() {
   // quali schede aprire per una sezione "operativa" (null = la sezione resta una semplice lista con Fatto / Rimanda)
   function destinazioni(sez) {
     if (sez.id === 'bet_mant' || sez.id === 'bet_prof') return [{ dove: 'tabella_bet', testo: '📊 Apri la Tabella bet (con Apri telefoni)' }]
-    if (sez.id === 'masaniello') {
-      const out = []
-      if (sez.voci.some(v => v.tag === 'proposta' || v.tag === 'attenzione')) out.push({ dove: 'pronox', testo: '🎯 Apri Recuperi PronoX e conferma la scheda' })
-      if (sez.voci.some(v => v.tag === 'da piazzare')) out.push({ dove: 'tabella_bet', testo: '📊 Apri la Tabella bet (con Apri telefoni)' })
-      return out.length ? out : [{ dove: 'pronox', testo: '🎯 Apri Recuperi PronoX' }]
-    }
+    if (sez.id === 'masaniello') return [{ dove: 'tabella_bet', testo: '📊 Apri la Tabella bet (Masaniello, con Apri telefoni)' }]   // la Tabella bet contiene anche proposta e bet del Masaniello
     if (sez.id === 'live') return [{ dove: 'live', testo: '🎰 Apri le Sessioni live' }]
     if (sez.id === 'mirate') return [{ dove: 'mirate', testo: '🎯 Apri le Profilazioni mirate' }]
     if (sez.id === 'profiliamo') return [{ dove: 'profiliamo-oggi', testo: '📣 Apri Profiliamo oggi' }]
@@ -348,7 +343,7 @@ export default function DaFareClient() {
             ) : null}
             {(!dest || aperta) && s.voci.map(v => <React.Fragment key={v.key}>{riga(v)}</React.Fragment>)}
             {s.id === 'avvisi' && <div style={{ padding: '9px 14px', borderTop: '1px solid rgba(51,65,85,0.6)' }}><button type="button" onClick={() => apriNelProfitTracker('avvisi')} style={{ ...btnBase, background: 'rgba(56,189,248,0.15)', color: '#7dd3fc', borderColor: 'rgba(56,189,248,0.5)' }}>🔔 Apri gli Avvisi nel Profit Tracker →</button></div>}
-            {s.id === 'masaniello' && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>Le partite «proposta» vanno prima confermate nel Profit Tracker (Recuperi con PronoX → ✓ Conferma scheda); poi compaiono nella Tabella bet.</div>}
+            {s.id === 'masaniello' && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>Nella Tabella bet, in fondo, trovi il Masaniello: premi ✓ Conferma scheda sulle partite proposte, poi 📱 Apri telefoni.</div>}
             {(s.id === 'bet_mant' || s.id === 'bet_prof') && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>Le bet si confermano nella Tabella bet: da lì la voce passa da sola in «Fatte».</div>}
             {s.id === 'promo' && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>Se la promo è già stata fatta e la segni nella tab Promo, qui sparisce da sola.</div>}
           </div>
