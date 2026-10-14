@@ -3639,6 +3639,47 @@ function contaOggiProfilazione(nAgenda = 0) {
   return { chat, avvisi, agenda: nAgenda, pronox: pronoxDaFare, incroci, avvisiTesto: tot ? `${tot} da fare${chat ? ` · ${chat} chat` : ''}` : '' }
 }
 
+// 14/10/2026 — pagina "Oggi da fare" (/profit-tracker/da-fare, si apre dal tastino 📋 Oggi della Dashboard).
+// Qui si prepara la fotografia di ciò che il Profit Tracker già calcola: bet e incroci di Lucy, conti da movimentare, avvisi del giorno.
+// La pagina la legge dal browser (localStorage) e la completa con Masaniello di recupero e mail/SMS. Non scrive nulla nelle tabelle di Lucy.
+function fotografiaOggiDaFare() {
+  const oggi = lucyOggi()
+  const euro = (n) => Number(n || 0).toFixed(2).replace('.', ',') + ' €'
+  const voci = []
+  lucySportProposte.forEach((p, pi) => {
+    const { dettagli } = righeIncrocioLucy(p, pi)
+    dettagli.forEach(d => {
+      const a = d.a
+      if (!a?.book || a.stake === 0) return   // stake 0 = "non serve"
+      const dec = decisioneBetLucy(d.key)
+      voci.push({
+        key: `bet|${d.key}`,
+        sezione: d.tipo === 'mantenimento' ? 'bet_mant' : 'bet_prof',
+        titolo: `${a.book.nome} · ${a.book.intestatario || '—'}`,
+        dettaglio: `${p.home} – ${p.away}${p.orario ? ` (${p.orario})` : ''} · ${a.esito}${a.stake == null ? ' · importo da calcolare' : ` · ${euro(a.stake)}`}${Number(a.quota) > 0 ? ` @ ${Number(a.quota).toFixed(2)}` : ''}`,
+        tag: d.tipo,
+        fatta: !!d.ok || !!dec,
+        nota: d.ok ? 'confermata in Lucy' : dec ? (dec.decisione === 'saltata' ? 'saltata in Lucy' : 'rimandata in Lucy') : null,
+      })
+    })
+  })
+  books.filter(b => b.profilo_livello === 'attivo' || (b.profilo_livello && b.profilo_livello.startsWith('mantenimento'))).forEach(b => {
+    const ag = getAzioniOggi(b)
+    if (!ag) return
+    voci.push({ key: `conto|${oggi}|${b.id}`, sezione: 'conti', titolo: `${b.nome} · ${b.intestatario || '—'}`, dettaglio: (ag.azioni || []).join(' · '), tag: ag.tipo })
+  })
+  chatDaSentireOggi().forEach(c => {
+    voci.push({ key: `avviso|${c.id}`, sezione: 'avvisi', titolo: `${c.etichetta} ${c.titolo}`, dettaglio: [c.chi, c.testoData || (c.ritardo > 0 ? `in ritardo di ${c.ritardo} giorn${c.ritardo === 1 ? 'o' : 'i'}` : '')].filter(Boolean).join(' · '), tag: c.etichetta.includes('CHAT') ? 'chat' : c.etichetta.includes('SCADENZA') ? 'scadenza' : 'avviso' })
+  })
+  return voci
+}
+useEffect(() => {
+  if (!books.length) return   // finché i conti non sono caricati non pubblico nulla (si sovrascriverebbe una fotografia buona con una vuota)
+  try {
+    localStorage.setItem('profittracker_oggi_da_fare', JSON.stringify({ giorno: lucyOggi(), aggiornato: new Date().toISOString(), voci: fotografiaOggiDaFare() }))
+  } catch { /* spazio pieno o storage bloccato: la pagina mostrerà l'avviso "fotografia mancante" */ }
+}, [books, lucySportProposte, lucyConfermate, lucyDecisioni, avvisiConti])
+
 function keyBetLucy(p,a,tipo='profilazione') {
   return `${lucyOggi()}|${p.home}|${p.away}|${p.mercato}|${a.book.id}|${a.esito}|${Number(a.stake||0).toFixed(2)}|${tipo}`
 }
