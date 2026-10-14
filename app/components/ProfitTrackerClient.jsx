@@ -4822,7 +4822,7 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
         if(ev.ou) aggiungi('Over/Under 2.5',[['Over 2.5',Number(ev.ou.over)],['Under 2.5',Number(ev.ou.under)]])
       }
     })
-    ;(pronoxFeed?.matches||[]).filter(x=>x.sport==='tennis' && x.tennisOdds?.a && x.tennisOdds?.b)
+    ;(lucySoloConti ? [] : (pronoxFeed?.matches||[])).filter(x=>x.sport==='tennis' && x.tennisOdds?.a && x.tennisOdds?.b)   // 14/10/2026: in modalità solo conti niente partite dal feed PronoX
       .filter(tm=>!tennisChiaviRd.has(`${cognomeLucy(tm.home)}|${cognomeLucy(tm.away)}`) && !tennisChiaviRd.has(`${cognomeLucy(tm.away)}|${cognomeLucy(tm.home)}`))
       .forEach(tm=>{
       const merc='Tennis Vincente'
