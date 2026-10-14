@@ -3,7 +3,8 @@
 // Legge le segnalazioni del topic "Segnalazione Promo" (testo + testo letto dalle immagini), riconosce il book citato
 // e cerca nelle mail e negli SMS dei clienti (stesso book, vicino nel tempo) chi l'ha ricevuta. Poi elenca i clienti
 // che hanno quel book e NON risultano averla ricevuta. Calcolo al volo: non scrive niente e non usa l'AI.
-// Solo admin. GET ?giorni=14 (da 3 a 45)
+// Solo admin. GET ?giorni=14 (da 3 a 45). GET ?nuove=1 = solo le promo nuove da quando hai attivato il popup e non ancora segnate «ok visto».
+// POST {ids:[…]} segna come viste (tabella promo_segnalate_viste).
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@supabase/ssr'
@@ -31,6 +32,7 @@ async function èAdmin(req: NextRequest) {
 }
 
 const GIORNO = 86400000
+const TAB_VISTE = 'promo_segnalate_viste'   // chiave 'inizio' = da quando contano le nuove, 'msg:ID' = segnalazione già vista
 const PRIMA_DELLA_SEGNALAZIONE = 2 * GIORNO   // la mail può arrivare prima che qualcuno la segnali
 const DOPO_LA_SEGNALAZIONE = 5 * GIORNO
 // comunicazioni operative sul conto (non sono promo): non contano come "promo ricevuta"
@@ -58,11 +60,27 @@ async function leggiTutto(pagina: (da: number, a: number) => PromiseLike<{ data:
 
 export async function GET(req: NextRequest) {
   if (!(await èAdmin(req))) return NextResponse.json({ error: 'Accesso riservato agli admin' }, { status: 403 })
-  const giorni = Math.min(45, Math.max(3, Number(req.nextUrl.searchParams.get('giorni')) || 14))
-  const dal = new Date(Date.now() - giorni * GIORNO).toISOString()
-  const dalComunicazioni = new Date(Date.now() - giorni * GIORNO - PRIMA_DELLA_SEGNALAZIONE).toISOString()
+  const soloNuove = req.nextUrl.searchParams.get('nuove') === '1'
+  let giorni = Math.min(45, Math.max(3, Number(req.nextUrl.searchParams.get('giorni')) || 14))
+  let inizioNuove = 0; const viste = new Set<number>()
 
   try {
+    if (soloNuove) {
+      // da quando contano le "nuove": la prima volta parte da adesso (la promo già presenti non fanno popup)
+      const { data: riga, error: eI } = await admin.from(TAB_VISTE).select('visto_il').eq('chiave', 'inizio').maybeSingle()
+      if (eI) return NextResponse.json({ nuove: [], errore: `tabella ${TAB_VISTE} non pronta: ${eI.message}` })
+      if (!riga) {
+        await admin.from(TAB_VISTE).upsert({ chiave: 'inizio' }, { onConflict: 'chiave', ignoreDuplicates: true })
+        return NextResponse.json({ nuove: [], partito_ora: true })
+      }
+      inizioNuove = new Date(riga.visto_il).getTime()
+      const rv = await leggiTutto((a, b) => admin.from(TAB_VISTE).select('chiave').like('chiave', 'msg:%').range(a, b))
+      for (const r of rv) viste.add(Number(String(r.chiave).slice(4)))
+      giorni = Math.min(45, Math.max(3, Math.ceil((Date.now() - inizioNuove) / GIORNO) + 4))   // + margine per riconoscere i doppioni
+    }
+    const dal = new Date(Date.now() - giorni * GIORNO).toISOString()
+    const dalComunicazioni = new Date(Date.now() - giorni * GIORNO - PRIMA_DELLA_SEGNALAZIONE).toISOString()
+
     // 1. segnalazioni
     const { data: msg, error: eMsg } = await admin
       .from('accademia_messaggi')
@@ -137,7 +155,7 @@ export async function GET(req: NextRequest) {
       return comuni / Math.min(a.size, b.size) >= 0.6
     }
     const èAvviso = (x: string) => /(truffa|phishing|attenzione|fate attenzione|falso sito|finto sito|non cliccate)/.test(senzaAccenti(x)) && !/(bonus|promo|cashback|freebet|rimborso|quota|offerta|moltiplicatore|%)/.test(senzaAccenti(x))
-    type Gruppo = { msg: any; testo: string; testoImg: string | null; books: string[]; tMin: number; tMax: number; doppioni: number; parole: Set<string> }
+    type Gruppo = { ids: number[]; msg: any; testo: string; testoImg: string | null; books: string[]; tMin: number; tMax: number; doppioni: number; parole: Set<string> }
     const gruppi: Gruppo[] = []
     let senzaBook = 0; let avvisi = 0
     for (const m of msg || []) {   // dal più recente: il primo di un gruppo è il più recente
@@ -150,13 +168,14 @@ export async function GET(req: NextRequest) {
       const t = tempo(m.data_msg) as number
       const parole_ = paroleTesto(tutto)
       const g = gruppi.find(x => x.books.join() === books_.join() && Math.abs(x.tMax - t) < 4 * GIORNO && simili(x.parole, parole_))
-      if (g) { g.tMin = Math.min(g.tMin, t); g.doppioni++; continue }
-      gruppi.push({ msg: m, testo: tCorpo, testoImg: tImg || null, books: books_, tMin: t, tMax: t, doppioni: 0, parole: parole_ })
+      if (g) { g.tMin = Math.min(g.tMin, t); g.doppioni++; g.ids.push(m.id); continue }
+      gruppi.push({ ids: [m.id], msg: m, testo: tCorpo, testoImg: tImg || null, books: books_, tMin: t, tMax: t, doppioni: 0, parole: parole_ })
     }
 
     // 5. abbinamento mail/SMS ↔ segnalazione
     const risultati: any[] = []
     for (const g of gruppi) {
+      if (soloNuove && (g.tMax < inizioNuove || g.ids.some(i => viste.has(Number(i))))) continue
       const m = g.msg; const books_ = g.books
       const testoNorm = senzaAccenti([g.testo, g.testoImg].filter(Boolean).join('\n'))
       const arrivata = new Map<string, any>()
@@ -187,7 +206,7 @@ export async function GET(req: NextRequest) {
       const righe = (g.testo || g.testoImg || '').split('\n').map(r => r.trim()).filter(r => r.length >= 8)
       const titolo = (righe[0] || '').slice(0, 120)
       risultati.push({
-        id: m.id, data: m.data_msg, gruppo: m.chat_titolo, topic: m.topic_titolo, mittente: m.mittente, link: m.link,
+        id: m.id, ids: g.ids, data: m.data_msg, gruppo: m.chat_titolo, topic: m.topic_titolo, mittente: m.mittente, link: m.link,
         titolo, doppioni: g.doppioni,
         testo: g.testo.slice(0, 600), testo_immagine: g.testoImg ? g.testoImg.slice(0, 900) : null,
         book: books_.map(k => nomiBook.get(k)),
@@ -198,12 +217,28 @@ export async function GET(req: NextRequest) {
       })
     }
 
+    if (soloNuove) return NextResponse.json({ nuove: risultati })
     return NextResponse.json({
       giorni,
       segnalazioni: risultati,
       riepilogo: { totale: risultati.length, con_ricevute: risultati.filter(r => r.arrivata_a.length).length, nessuno: risultati.filter(r => !r.arrivata_a.length).length, senza_book_riconosciuto: senzaBook, avvisi_nascosti: avvisi },
       comunicazioni_considerate: comunicazioni.length,
     })
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || String(e) }, { status: 500 })
+  }
+}
+
+// segna come viste (ok visto). Body: { ids: number[] }
+export async function POST(req: NextRequest) {
+  if (!(await èAdmin(req))) return NextResponse.json({ error: 'Accesso riservato agli admin' }, { status: 403 })
+  try {
+    const body = await req.json().catch(() => ({}))
+    const ids: number[] = (Array.isArray(body?.ids) ? body.ids : []).map(Number).filter((n: number) => Number.isFinite(n)).slice(0, 500)
+    if (!ids.length) return NextResponse.json({ error: 'nessuna promo indicata' }, { status: 400 })
+    const { error } = await admin.from(TAB_VISTE).upsert(ids.map(i => ({ chiave: `msg:${i}` })), { onConflict: 'chiave', ignoreDuplicates: true })
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ ok: true, segnate: ids.length })
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || String(e) }, { status: 500 })
   }
