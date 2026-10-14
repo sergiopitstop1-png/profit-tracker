@@ -3,18 +3,24 @@
 // OGGI DA FARE (14/10/2026)
 // Tutto ciò che c'è da fare oggi in un'unica pagina, per sezione, con ✓ Fatto e ⏭ Rimanda (con la data).
 // Le voci non si copiano: vengono ricalcolate dalle fonti che esistono già.
-//   • Bet, incroci, conti da movimentare, avvisi → fotografia che il Profit Tracker salva nel browser (localStorage)
-//   • Masaniello di recupero → tabella recupero_bets, letta qui
-//   • Mail e SMS con azione → /api/lucy-mail/archive?vista=problemi, letta qui
+//   • Bet e incroci di Lucy, sessioni Live, conti da movimentare, avvisi, profilazioni mirate → fotografia che il Profit Tracker
+//     salva nel browser (localStorage). Il tastino "Oggi da fare" fa partire anche "Prepara bet" se le bet di oggi non ci sono ancora.
+//   • Masaniello di recupero → bet già confermate (recupero_bets) + scheda che Lucy propone (calcolata qui con la stessa funzione del pannello)
+//   • Promo che scadono oggi → tabella promo_bonus, letta qui
+//   • Le mail NON ci sono: si controllano dalla tab Lucy Mail
 // Di nuovo salvato c'è solo lo stato: tabella oggi_da_fare_stato (supabase/oggi_da_fare.sql).
 // "Fatto" qui è la lista di controllo di oggi: non scrive nelle tabelle di Lucy, degli avvisi o delle bet.
-// Le voci già chiuse dal Profit Tracker (bet confermate, bet del Masaniello piazzate, mail lette) passano da sole in "Fatte".
+// Le voci già chiuse dal Profit Tracker (bet confermate, bet del Masaniello piazzate) passano da sole in "Fatte"; una promo segnata nella tab Promo sparisce.
 // ════════════════════════════════════════════════════════════════════
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabaseClient'
-import { costruisciLista, dataIso, domaniIso, dataIt, dataLunga, rinvioValido, aggiungiGiorni, vociMasaniello, vociMail } from '../../../lib/oggiDaFare'
+import { costruisciLista, dataIso, domaniIso, dataIt, dataLunga, rinvioValido, aggiungiGiorni, vociMasaniello, vociSchedaMasaniello, vociPromo } from '../../../lib/oggiDaFare'
+import { eventiDalleBet, usoConti } from '../../components/RecuperiPronox'
+import { schedaDelGiorno } from '../../../lib/recupero/masanielloRecupero'
+import { MODEL_VERSION } from '../../../lib/pronox/footballModel'
 
 const CHIAVE_FOTO = 'profittracker_oggi_da_fare'
+const CHIAVE_RICHIESTA = 'profittracker_oggi_richiesta'   // la pagina chiede al Profit Tracker di preparare le bet
 const ETA_MAX_MIN = 30   // oltre questo tempo la fotografia del Profit Tracker si considera vecchia
 
 const card = { border: '1px solid rgba(71,85,105,0.7)', borderRadius: 14, background: 'rgba(15,23,42,0.85)', marginBottom: 14, overflow: 'hidden' }
@@ -31,8 +37,9 @@ export default function DaFareClient() {
   const [oggi, setOggi] = useState(() => dataIso())
   const [foto, setFoto] = useState(null)
   const [righe, setRighe] = useState([])
-  const [masaniello, setMasaniello] = useState([])
-  const [mail, setMail] = useState([])
+  const [dati, setDati] = useState(null)             // dati del Masaniello di recupero: { piano, bets, righe, esiti }
+  const [promo, setPromo] = useState([])              // righe di promo_bonus che scadono oggi
+  const [richiesta, setRichiesta] = useState(false)   // ho chiesto al Profit Tracker di preparare le bet
   const [errori, setErrori] = useState([])
   const [tabellaMancante, setTabellaMancante] = useState(false)
   const [caricamento, setCaricamento] = useState(true)
@@ -59,21 +66,39 @@ export default function DaFareClient() {
       } else { setTabellaMancante(false); setRighe(data || []) }
     } catch (e) { err.push('Stato salvato: ' + (e?.message || e)) }
 
-    // 2. bet del Masaniello di recupero: da fare, e piazzate oggi
+    // 2. Masaniello di recupero: piano, tutte le bet, fotografie PronoX delle prossime 48 ore ed esiti (stesse letture del pannello Recuperi con PronoX)
     try {
-      const inizioOggi = new Date(giorno + 'T00:00:00')
-      const { data, error } = await supabase.from('recupero_bets').select('*').or(`stato.eq.da_fare,piazzata_at.gte.${inizioOggi.toISOString()}`).order('event_start', { ascending: true })
-      if (error) err.push('Masaniello: ' + error.message)
-      else setMasaniello(vociMasaniello(data || [], Date.now(), inizioOggi.getTime()))
+      const { data: piano, error: e1 } = await supabase.from('recupero_piano').select('*').eq('id', 1).maybeSingle()
+      if (e1) throw new Error('recupero_piano: ' + e1.message)
+      const { data: bets, error: e2 } = await supabase.from('recupero_bets').select('*').order('event_start', { ascending: true })
+      if (e2) throw new Error('recupero_bets: ' + e2.message)
+      const da = new Date(Date.now() + 10 * 60000).toISOString(), a = new Date(Date.now() + 48 * 3600000).toISOString()
+      const righe = []
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase.from('prediction_snapshots')
+          .select('event_id,event_start,competition,home_team,away_team,market,selection,model_version,model_prob')
+          .gte('event_start', da).lte('event_start', a).like('model_version', `${MODEL_VERSION}_%`)
+          .order('id', { ascending: true }).range(from, from + 999)
+        if (error) throw new Error('fotografie PronoX: ' + error.message)
+        righe.push(...(data || []))
+        if (!data || data.length < 1000) break
+      }
+      const esiti = new Map()
+      const ids = [...new Set((bets || []).map(x => x.event_id))]
+      for (let i = 0; i < ids.length; i += 100) {
+        const { data, error } = await supabase.from('selection_outcomes').select('event_id,market,selection,won').in('event_id', ids.slice(i, i + 100))
+        if (error) throw new Error('esiti: ' + error.message)
+        for (const o of data || []) esiti.set(`${o.event_id}|${o.market}|${o.selection}`, o.won)
+      }
+      setDati({ piano, bets: bets || [], righe, esiti })
     } catch (e) { err.push('Masaniello: ' + (e?.message || e)) }
 
-    // 3. mail e SMS che richiedono azione
+    // 3. promo che scadono oggi e sono ancora da fare
     try {
-      const res = await fetch('/api/lucy-mail/archive?vista=problemi&periodo=15g&page_size=50', { cache: 'no-store' })
-      if (!res.ok) throw new Error(res.status === 401 ? 'non autorizzato' : 'errore ' + res.status)
-      const j = await res.json()
-      setMail(vociMail(j.data || []))
-    } catch (e) { err.push('Mail e SMS: ' + (e?.message || e)) }
+      const { data, error } = await supabase.from('promo_bonus').select('id,cliente,book,tipo,bonus,scadenza').eq('stato', 'da fare').eq('scadenza', giorno)
+      if (error) err.push('Promo: ' + error.message)
+      else setPromo(data || [])
+    } catch (e) { err.push('Promo: ' + (e?.message || e)) }
 
     setErrori(err)
     setCaricamento(false)
@@ -94,10 +119,34 @@ export default function DaFareClient() {
   const fotoDiOggi = foto && foto.giorno === oggi ? foto : null
   const etaMin = fotoDiOggi?.aggiornato ? Math.max(0, Math.round((ora - new Date(fotoDiOggi.aggiornato).getTime()) / 60000)) : null
 
+  // scheda di Masaniello che Lucy propone (non ancora confermata): stessa funzione e stessi dati del pannello Recuperi con PronoX
+  const schedaMas = useMemo(() => {
+    const conti = fotoDiOggi?.contiRecupero
+    if (!dati?.piano || !Array.isArray(conti)) return null
+    const p = dati.piano
+    const pianoDb = { capitale: Number(p.capitale), N: Number(p.n_eventi), K: Number(p.k_vincite), quotaRif: Number(p.quota_rif), eventi_extra: Number(p.eventi_extra || 0) }
+    try {
+      const eventi = eventiDalleBet(dati.bets, dati.esiti)
+      const { uso, ultima } = usoConti(dati.bets)
+      return schedaDelGiorno({ pianoDb, eventi, righeSnapshot: dati.righe, conti, usoSettimana: uso, ultimaBet: ultima, giaInPiano: new Set(dati.bets.map(x => x.event_id)) })
+    } catch (e) { return { errore: String(e?.message || e), bets: [] } }
+  }, [dati, fotoDiOggi])
+
   const lista = useMemo(() => {
-    const voci = [...(fotoDiOggi?.voci || []), ...masaniello, ...mail]
+    const inizioOggi = new Date(oggi + 'T00:00:00').getTime()
+    const voci = [
+      ...vociPromo(promo, oggi),
+      ...(fotoDiOggi?.voci || []),
+      ...vociMasaniello(dati?.bets || [], ora, inizioOggi),
+      ...vociSchedaMasaniello(schedaMas, ora),
+    ]
     return costruisciLista({ voci, righe, oggi })
-  }, [fotoDiOggi, masaniello, mail, righe, oggi])
+  }, [fotoDiOggi, dati, schedaMas, promo, righe, oggi, ora])
+
+  const statoBet = fotoDiOggi?.bet?.stato || null
+  function chiediPreparaBet() {
+    try { localStorage.setItem(CHIAVE_RICHIESTA, String(Date.now())); setRichiesta(true) } catch { setErrori(prev => [...prev, 'Non riesco a contattare il Profit Tracker: apri la Dashboard e premi Prepara bet.']) }
+  }
 
   async function salva(v, stato, rimandaA) {
     setSalvando(v.key)
@@ -185,7 +234,6 @@ export default function DaFareClient() {
       <div style={{ maxWidth: 920, margin: '0 auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 6 }}>
           <a href="/profit-tracker" style={{ color: '#7dd3fc', fontWeight: 800, textDecoration: 'none', fontSize: 14 }}>← Profit Tracker</a>
-          <a href="/profit-tracker/archivio-lucy" style={{ color: '#94a3b8', fontWeight: 700, textDecoration: 'none', fontSize: 13 }}>✉️ Archivio Lucy</a>
           <button type="button" onClick={carica} disabled={caricamento} style={{ ...btnBase, marginLeft: 'auto', background: 'rgba(56,189,248,0.15)', color: '#7dd3fc', borderColor: 'rgba(56,189,248,0.5)' }}>{caricamento ? '⏳ Aggiorno…' : '🔄 Aggiorna'}</button>
         </div>
         <h1 style={{ fontSize: 26, fontWeight: 900, margin: '8px 0 2px' }}>📋 Oggi da fare</h1>
@@ -204,6 +252,29 @@ export default function DaFareClient() {
         {errori.map((e, i) => (
           <div key={i} style={{ ...card, borderColor: 'rgba(248,113,113,0.6)', padding: '9px 14px', color: '#fecaca', fontSize: 13 }}>⚠️ {e}</div>
         ))}
+        {fotoDiOggi && statoBet === 'in_corso' && (
+          <div style={{ ...card, borderColor: 'rgba(56,189,248,0.6)', padding: '10px 14px', color: '#bae6fd', fontSize: 13.5 }}>
+            ⏳ Lucy sta preparando le bet di oggi (calendari e quote): tra poco compaiono qui da sole.
+          </div>
+        )}
+        {fotoDiOggi && statoBet === 'da_preparare' && (
+          <div style={{ ...card, borderColor: 'rgba(251,191,36,0.6)', padding: '12px 14px', color: '#fde68a', fontSize: 13.5, lineHeight: 1.5, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ flex: '1 1 260px' }}>⚽ Le bet e gli incroci di oggi non sono ancora stati preparati{richiesta ? ': ho chiesto al Profit Tracker di farlo, se non parte controlla che sia aperto in un\'altra scheda.' : '. Di solito li prepara il tastino Oggi da fare della Dashboard.'}</span>
+            <button type="button" onClick={chiediPreparaBet} style={{ ...btnBase, background: '#0ea5e9', color: 'white' }}>⚽ Prepara bet ora</button>
+          </div>
+        )}
+        {fotoDiOggi && statoBet === 'nessuna' && (
+          <div style={{ ...card, padding: '9px 14px', color: '#94a3b8', fontSize: 13 }}>⚽ Oggi Lucy non trova bet sport da incrociare.</div>
+        )}
+        {fotoDiOggi && statoBet === 'errore' && (
+          <div style={{ ...card, borderColor: 'rgba(248,113,113,0.6)', padding: '12px 14px', color: '#fecaca', fontSize: 13.5, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ flex: '1 1 260px' }}>⚠️ Le bet non si sono preparate: {fotoDiOggi.bet?.errore || 'errore sconosciuto'}</span>
+            <button type="button" onClick={chiediPreparaBet} style={{ ...btnBase, background: '#0ea5e9', color: 'white' }}>↻ Riprova</button>
+          </div>
+        )}
+        {schedaMas?.errore && (
+          <div style={{ ...card, borderColor: 'rgba(248,113,113,0.6)', padding: '9px 14px', color: '#fecaca', fontSize: 13 }}>⚠️ Masaniello: non riesco a calcolare la scheda proposta ({schedaMas.errore})</div>
+        )}
         {!caricamento && !fotoDiOggi && (
           <div style={{ ...card, borderColor: 'rgba(251,191,36,0.6)', padding: '12px 14px', color: '#fde68a', fontSize: 13.5, lineHeight: 1.5 }}>
             ⚠️ Mancano bet, incroci, conti e avvisi di oggi: li prepara il Profit Tracker.{' '}
@@ -227,8 +298,10 @@ export default function DaFareClient() {
               <span style={{ marginLeft: 'auto', color: s.colore, fontWeight: 900, fontSize: 13 }}>{s.voci.length}</span>
             </div>
             {s.voci.map(v => <React.Fragment key={v.key}>{riga(v)}</React.Fragment>)}
-            {s.id === 'masaniello' && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>La quota reale e la bet piazzata si registrano nel Profit Tracker (Profilazione → Recuperi con PronoX): da lì la voce passa da sola in &ldquo;Fatte&rdquo;.</div>}
-            {s.id === 'mail' && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>Se apri la mail nell&apos;Archivio Lucy e la segni letta, qui sparisce da sola.</div>}
+            {s.id === 'masaniello' && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>Le partite «proposta» vanno prima confermate nel Profit Tracker (Profilazione → Recuperi con PronoX → ✓ Conferma scheda); la quota reale si registra lì e da lì la voce passa da sola in «Fatte».</div>}
+            {(s.id === 'bet_mant' || s.id === 'bet_prof') && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>Le bet si confermano nella Tabella bet del Profit Tracker: da lì la voce passa da sola in «Fatte».</div>}
+            {s.id === 'live' && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>Il dettaglio completo dei giri è nella Tabella Live del Profit Tracker.</div>}
+            {s.id === 'promo' && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>Se la promo è già stata fatta e la segni nella tab Promo, qui sparisce da sola.</div>}
           </div>
         ))}
 

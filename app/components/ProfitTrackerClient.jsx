@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { supabase } from '../profit-tracker/supabaseClient'
@@ -14,7 +14,7 @@ import { RisparmiCard, calcolaRisparmi, maturaInteressi, normalizza as normalizz
 import SlotConsigliate, { PulsanteSlot, parlaDiSlot, ListaSlotUnica } from './SlotConsigliate'
 import ProfiliamoOggi from './ProfiliamoOggi'
 import RecuperoContiPanel, { contiInRecupero, azioniRecuperoOggi, limitazioniDaNota, daPromuovere, recuperoSport } from './RecuperoConti'
-import RecuperiPronoxPanel from './RecuperiPronox'
+import RecuperiPronoxPanel, { contiPerRecupero } from './RecuperiPronox'
 import PagellaPronox from './PagellaPronox'
 import SessioneLivePanel from './SessioneLive'
 import ArchivioLucy from './ArchivioLucy'
@@ -3639,19 +3639,38 @@ function contaOggiProfilazione(nAgenda = 0) {
   return { chat, avvisi, agenda: nAgenda, pronox: pronoxDaFare, incroci, avvisiTesto: tot ? `${tot} da fare${chat ? ` · ${chat} chat` : ''}` : '' }
 }
 
-// 14/10/2026 — pagina "Oggi da fare" (/profit-tracker/da-fare, si apre dal tastino 📋 Oggi della Dashboard).
-// Qui si prepara la fotografia di ciò che il Profit Tracker già calcola: bet e incroci di Lucy, conti da movimentare, avvisi del giorno.
-// La pagina la legge dal browser (localStorage) e la completa con Masaniello di recupero e mail/SMS. Non scrive nulla nelle tabelle di Lucy.
+// 14/10/2026 — pagina "Oggi da fare" (/profit-tracker/da-fare, si apre dal tastino 📋 Oggi da fare della Dashboard).
+// Qui si prepara la fotografia di ciò che il Profit Tracker già calcola: bet e incroci di Lucy, sessioni Live, conti da movimentare,
+// avvisi del giorno, profilazioni mirate. La pagina la legge dal browser (localStorage) e la completa con Masaniello di recupero e promo.
+// Fatto e Rimanda della pagina non scrivono nulla nelle tabelle di Lucy.
+
+// Agenda di oggi (conti in profilazione o mantenimento con qualcosa da fare): la stessa che usa il bottone "Prepara bet"
+const agendaOggiLucy = () => books
+  .filter(b => b.profilo_livello === 'attivo' || (b.profilo_livello && b.profilo_livello.startsWith('mantenimento')))
+  .map(b => ({ book: b, agenda: getAzioniOggi(b) }))
+  .filter(x => x.agenda !== null)
+
+// Il tastino (e il pulsante "Prepara bet" della pagina) fa partire da solo "⚽ Prepara bet", ma solo se le bet di oggi non ci sono già.
+// Le quote TheRundown passano dalla cache del server (senza "forza quote"): aprire la pagina più volte non brucia datapoint.
+function preparaOggiDaFare() {
+  if (lucySportLoading || lucySportProposte.length > 0 || !books.length) return
+  generaLucySport(agendaOggiLucy().concat(agendaRecuperoLucy()), false)
+}
+
 function fotografiaOggiDaFare() {
   const oggi = lucyOggi()
   const euro = (n) => Number(n || 0).toFixed(2).replace('.', ',') + ' €'
   const voci = []
+  const bookConBet = new Set(), bookInLive = new Set()
+
+  // bet e incroci di Lucy (compaiono dopo "Prepara bet")
   lucySportProposte.forEach((p, pi) => {
     const { dettagli } = righeIncrocioLucy(p, pi)
     dettagli.forEach(d => {
       const a = d.a
       if (!a?.book || a.stake === 0) return   // stake 0 = "non serve"
       const dec = decisioneBetLucy(d.key)
+      bookConBet.add(String(a.book.id))
       voci.push({
         key: `bet|${d.key}`,
         sezione: d.tipo === 'mantenimento' ? 'bet_mant' : 'bet_prof',
@@ -3663,22 +3682,79 @@ function fotografiaOggiDaFare() {
       })
     })
   })
-  books.filter(b => b.profilo_livello === 'attivo' || (b.profilo_livello && b.profilo_livello.startsWith('mantenimento'))).forEach(b => {
-    const ag = getAzioniOggi(b)
-    if (!ag) return
-    voci.push({ key: `conto|${oggi}|${b.id}`, sezione: 'conti', titolo: `${b.nome} · ${b.intestatario || '—'}`, dettaglio: (ag.azioni || []).join(' · '), tag: ag.tipo })
+
+  // sessioni Live (casinò), preparate insieme alle bet
+  lucyLiveProposte.forEach((p, pi) => {
+    if (!p?.target) return
+    bookInLive.add(String(p.target.id))
+    if (p.insufficiente) {
+      voci.push({ key: `live|${oggi}|${p.target.id}|manca`, sezione: 'live', titolo: `Incrocio Live #${pi + 1} · ${p.target.nome} · ${p.target.intestatario || '—'}`, dettaglio: `mancano conti amici: ne ho trovati ${(p.amici || []).length} su ${p.amiciRichiesti || 5}`, tag: 'attenzione' })
+      return
+    }
+    ;(p.gruppo || []).forEach((g, gi) => {
+      bookInLive.add(String(g.book.id))
+      voci.push({
+        key: `live|${oggi}|${p.target.id}|${g.book.id}|${gi}`,
+        sezione: 'live',
+        titolo: `${g.ruolo} · ${g.book.nome} · ${g.book.intestatario || '—'}`,
+        dettaglio: `Incrocio Live #${pi + 1} · ${g.tipo === 'Sestina' ? 'Sestina' : 'Numeri'}: ${(g.numeri || []).join(', ')} · ${g.budget}€ a giro${g.ripetizioni ? ` · ripeti almeno ${g.ripetizioni}×` : ''}`,
+        tag: 'live',
+      })
+    })
   })
+
+  // conti da movimentare: se per un conto le bet (o il Live) sono già nelle sezioni sopra, qui restano solo le altre azioni
+  const eSport = t => /(sport|bet\b|scommess|superquote|doppia|exchange)/i.test(t) && !/(slot|casin[oò]|blackjack|roulette|numeri|virtuali|ricarica)/i.test(t)
+  const eLive = t => /(casin[oò]\s*live|live numeri|roulette|numeri)/i.test(t)
+  agendaOggiLucy().forEach(({ book: b, agenda: ag }) => {
+    let azioni = ag.azioni || []
+    if (bookConBet.has(String(b.id))) azioni = azioni.filter(t => !eSport(t))
+    if (bookInLive.has(String(b.id))) azioni = azioni.filter(t => !eLive(t))
+    if (!azioni.length) return
+    voci.push({ key: `conto|${oggi}|${b.id}`, sezione: 'conti', titolo: `${b.nome} · ${b.intestatario || '—'}`, dettaglio: azioni.join(' · '), tag: ag.tipo })
+  })
+
+  // avvisi e chat del giorno
   chatDaSentireOggi().forEach(c => {
     voci.push({ key: `avviso|${c.id}`, sezione: 'avvisi', titolo: `${c.etichetta} ${c.titolo}`, dettaglio: [c.chi, c.testoData || (c.ritardo > 0 ? `in ritardo di ${c.ritardo} giorn${c.ritardo === 1 ? 'o' : 'i'}` : '')].filter(Boolean).join(' · '), tag: c.etichetta.includes('CHAT') ? 'chat' : c.etichetta.includes('SCADENZA') ? 'scadenza' : 'avviso' })
   })
-  return voci
+
+  // profilazioni mirate di oggi o scadute
+  const oggiM = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' })
+  const traGiorni = (iso) => Math.round((new Date(iso + 'T12:00:00') - new Date(oggiM + 'T12:00:00')) / 86400000)
+  ;(gruppiMirati || []).forEach(g => {
+    const r = prossimaMirata(g, fatteMirate || [], giorniPausaTotale)
+    if (!r?.prossima) return
+    const tra = traGiorni(r.prossima)
+    if (tra > 0) return
+    const nomiBook = [...new Set((g.conti || []).map(id => books.find(x => String(x.id) === String(id))?.nome).filter(Boolean))]
+    voci.push({ key: `mirata|${g.id}|${r.prossima}`, sezione: 'mirate', titolo: g.nome, dettaglio: `${tra < 0 ? `scaduta da ${-tra} giorn${tra === -1 ? 'o' : 'i'}` : 'OGGI'} (${r.prossima.split('-').reverse().join('/')}) · ${(g.conti || []).length} conti${nomiBook.length ? ` · ${nomiBook.slice(0, 4).join(', ')}${nomiBook.length > 4 ? '…' : ''}` : ''}`, tag: 'mirata' })
+  })
+
+  // stato delle bet (la pagina lo mostra) e conti utilizzabili per il Masaniello di recupero (la pagina calcola da sola la scheda proposta)
+  const bet = {
+    stato: lucySportLoading ? 'in_corso' : lucySportProposte.length ? 'pronte' : /non trova lavorazioni/i.test(lucySportError || '') ? 'nessuna' : lucySportError ? 'errore' : 'da_preparare',
+    errore: lucySportError || '',
+  }
+  let contiRecupero = []
+  try { contiRecupero = contiPerRecupero(books, recuperiConti || [], getRecuperoProtocollo) } catch { contiRecupero = [] }
+  return { voci, bet, contiRecupero }
 }
 useEffect(() => {
   if (!books.length) return   // finché i conti non sono caricati non pubblico nulla (si sovrascriverebbe una fotografia buona con una vuota)
   try {
-    localStorage.setItem('profittracker_oggi_da_fare', JSON.stringify({ giorno: lucyOggi(), aggiornato: new Date().toISOString(), voci: fotografiaOggiDaFare() }))
+    localStorage.setItem('profittracker_oggi_da_fare', JSON.stringify({ giorno: lucyOggi(), aggiornato: new Date().toISOString(), ...fotografiaOggiDaFare() }))
   } catch { /* spazio pieno o storage bloccato: la pagina mostrerà l'avviso "fotografia mancante" */ }
-}, [books, lucySportProposte, lucyConfermate, lucyDecisioni, avvisiConti])
+}, [books, lucySportProposte, lucySportLoading, lucySportError, lucyLiveProposte, lucyConfermate, lucyDecisioni, avvisiConti, gruppiMirati, fatteMirate, recuperiConti])
+
+// la pagina "Oggi da fare" può chiedere di preparare le bet (pulsante "⚽ Prepara bet") anche se il Profit Tracker è aperto in un'altra scheda
+const preparaOggiRef = useRef(null)
+useEffect(() => { preparaOggiRef.current = preparaOggiDaFare })
+useEffect(() => {
+  const su = (e) => { if (e.key === 'profittracker_oggi_richiesta') preparaOggiRef.current?.() }
+  window.addEventListener('storage', su)
+  return () => window.removeEventListener('storage', su)
+}, [])
 
 function keyBetLucy(p,a,tipo='profilazione') {
   return `${lucyOggi()}|${p.home}|${p.away}|${p.mercato}|${a.book.id}|${a.esito}|${Number(a.stake||0).toFixed(2)}|${tipo}`
@@ -7748,6 +7824,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
        {activeTab === 'dashboard' && (
           <DashboardTab
             aspetto={aspetto}
+            onPreparaOggi={preparaOggiDaFare}
             striscePrima={<><LucyAvvisoMail />
 <BetfairStato />
 <DiretteAvviso /></>}

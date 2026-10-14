@@ -118,6 +118,7 @@ export default function DashboardTab({
   aspetto = {},          // 12/10/2026: vedi AspettoDashboard.jsx (tutto spento = com'era)
   striscePrima = null,   // strisce urgenti: avviso mail, diretta
   strisceOggi = null,    // strisce della scheda "Oggi": quote, Lucy Trading, promo, mirate
+  onPreparaOggi = null,  // 14/10/2026: il tastino "Oggi da fare" fa partire "Prepara bet" se non è già stato fatto oggi
 }) {
   const [dashChartSymbol, setDashChartSymbol] = useState('XAUUSD')
 
@@ -420,7 +421,7 @@ export default function DashboardTab({
         >
           Salva Periodo
         </button>
-        <OggiCard attiva={!!aspetto.oggiUnico}>{strisceOggi}</OggiCard>
+        <OggiCard attiva={!!aspetto.oggiUnico} onApri={onPreparaOggi}>{strisceOggi}</OggiCard>
       </div>
 
       <div style={heroGrid}>
