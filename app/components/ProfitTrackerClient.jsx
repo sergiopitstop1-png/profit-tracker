@@ -8125,7 +8125,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                     <div key={r.key} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12, padding: '6px 8px', borderRadius: 8, background: 'rgba(11,18,32,0.75)', border: '1px solid rgba(51,65,85,0.6)' }}>
                       <span style={{ color: '#94a3b8', width: 78 }}>{String(r.data).split('-').reverse().join('/')}</span>
                       <b style={{ color: '#f8fafc' }}>{r.book}</b><span style={{ color: '#94a3b8' }}>{r.intestatario || '—'}</span>
-                      <span style={{ color: '#c084fc' }}>{r.tipoOp}</span>{r.stake ? <span>{r.stake}€</span> : null}
+                      <span style={{ color: '#c084fc' }}>{r.tipoOp}</span>{r.stake ? <span>{r.stake}€</span> : null}<span style={{ background: '#1e293b', borderRadius: 6, padding: '1px 7px', fontSize: 11, color: '#fcd34d', fontWeight: 800 }}>{r.tipoConto === 'mantenimento' ? '🟡 mantenimento' : r.tipoConto === 'recupero' ? '🔧 recupero' : '🟢 profilazione'}</span>
                       <span style={{ color: '#cbd5e1', flex: 1, minWidth: 120 }}>{r.partita}</span>
                       {r.copreGiorno && <span style={{ color: '#22c55e' }}>✓ giornata coperta</span>}
                       <button onClick={() => annullaRegistrazioneManuale(r)} title="Togli dal registro" style={{ ...inp, cursor: 'pointer', padding: '2px 8px', fontSize: 12 }}>✕</button>
