@@ -143,6 +143,12 @@ export default function DaFareClient() {
     return costruisciLista({ voci, righe, oggi })
   }, [fotoDiOggi, dati, schedaMas, promo, righe, oggi, ora])
 
+  // il Profit Tracker (altra scheda) legge questo numero per scriverlo sul tastino "Oggi da fare"
+  useEffect(() => {
+    if (caricamento || tabellaMancante) return
+    try { localStorage.setItem('profittracker_oggi_conteggio', JSON.stringify({ giorno: oggi, n: lista.totali.daFare, aggiornato: new Date().toISOString() })) } catch { /* storage bloccato */ }
+  }, [caricamento, tabellaMancante, lista, oggi])
+
   const statoBet = fotoDiOggi?.bet?.stato || null
   function chiediPreparaBet() {
     try { localStorage.setItem(CHIAVE_RICHIESTA, String(Date.now())); setRichiesta(true) } catch { setErrori(prev => [...prev, 'Non riesco a contattare il Profit Tracker: apri la Dashboard e premi Prepara bet.']) }
