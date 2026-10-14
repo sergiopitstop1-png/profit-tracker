@@ -1,0 +1,23 @@
+TEST DI PRONOX CONTRO IL MERCATO
+================================
+Scarica i risultati storici (campionati principali, dal 2021 a oggi) e confronta
+le previsioni del modello PronoX con le quote di mercato (Pinnacle).
+NON tocca il database e non invia nulla: legge solo file pubblici.
+
+COSA SERVE
+- Python 3 installato sul PC (nessun pacchetto aggiuntivo).
+- Connessione internet.
+
+COME SI USA
+1. Doppio clic su  avvia_backtest.bat
+2. Aspetta (qualche minuto la prima volta: scarica i file).
+3. Si apre il file  report_backtest.txt  : mandamelo (o incolla il testo in chat).
+
+Opzioni (facoltative), da prompt dei comandi:
+  python backtest_pronox.py --leghe E0,SP1 --stagioni 2425,2526
+
+COME LEGGERE IL RISULTATO
+- "modello - mercato" negativo = il modello e' meglio del mercato (raro).
+- "modello - mercato" positivo = il mercato e' piu' bravo del modello.
+- "peso migliore del modello" = quanto vale la pena fidarsi del modello
+  mescolandolo con il mercato (0% = per niente).
