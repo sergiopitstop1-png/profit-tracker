@@ -204,6 +204,13 @@ export default function DaFareClient() {
   }, [lista])
 
   const statoBet = fotoDiOggi?.bet?.stato || null
+  const betNonPronte = !fotoDiOggi || statoBet === 'in_corso' || statoBet === 'da_preparare'
+  // se le bet non sono ancora state preparate le chiedo io, una sola volta (le quote passano dalla cache del server)
+  useEffect(() => {
+    if (statoBet === 'da_preparare' && !richiesta) {
+      try { localStorage.setItem(CHIAVE_RICHIESTA, String(Date.now())); setRichiesta(true) } catch { /* storage bloccato: resta il pulsante manuale */ }
+    }
+  }, [statoBet, richiesta])
   function chiediPreparaBet() {
     try { localStorage.setItem(CHIAVE_RICHIESTA, String(Date.now())); setRichiesta(true) } catch { setErrori(prev => [...prev, 'Non riesco a contattare il Profit Tracker: apri la Dashboard e premi Prepara bet.']) }
   }
@@ -296,6 +303,7 @@ export default function DaFareClient() {
           <a href="/profit-tracker" style={{ color: '#7dd3fc', fontWeight: 800, textDecoration: 'none', fontSize: 14 }}>← Profit Tracker</a>
           <button type="button" onClick={carica} disabled={caricamento} style={{ ...btnBase, marginLeft: 'auto', background: 'rgba(56,189,248,0.15)', color: '#7dd3fc', borderColor: 'rgba(56,189,248,0.5)' }}>{caricamento ? '⏳ Aggiorno…' : '🔄 Aggiorna'}</button>
         </div>
+        <style>{`@keyframes attendiLucy { 0%,100% { opacity: 1 } 50% { opacity: .25 } } .attendi-lucy { animation: attendiLucy 1s ease-in-out infinite }`}</style>
         <h1 style={{ fontSize: 26, fontWeight: 900, margin: '8px 0 2px' }}>📋 Oggi da fare</h1>
         <div style={{ color: '#94a3b8', fontSize: 14, textTransform: 'capitalize', marginBottom: 12 }}>{dataLunga(oggi)}</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
@@ -366,9 +374,18 @@ export default function DaFareClient() {
                   {s.riepilogo || (s.voci.slice(0, 5).map(v => v.titolo).join(' · ') + (s.voci.length > 5 ? ` … e altre ${s.voci.length - 5}` : ''))}
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                  {dest.map(d => (
-                    <button key={d.dove} type="button" onClick={() => apriNelProfitTracker(d.dove)} style={{ ...btnBase, background: '#0ea5e9', color: 'white', padding: '9px 16px', fontSize: 14 }}>{d.testo} →</button>
-                  ))}
+                  {dest.map(d => {
+                    const inAttesa = d.dove === 'tabella_bet' && betNonPronte   // la Tabella bet si apre solo quando Lucy ha finito di preparare le bet
+                    return (
+                      <button key={d.dove} type="button" disabled={inAttesa} onClick={() => apriNelProfitTracker(d.dove)}
+                        style={{ ...btnBase, background: inAttesa ? '#334155' : '#0ea5e9', color: inAttesa ? '#94a3b8' : 'white', padding: '9px 16px', fontSize: 14, cursor: inAttesa ? 'not-allowed' : 'pointer', opacity: inAttesa ? 0.7 : 1 }}>{d.testo} →</button>
+                    )
+                  })}
+                  {betNonPronte && dest.some(d => d.dove === 'tabella_bet') && (
+                    <span className="attendi-lucy" style={{ fontWeight: 900, fontSize: 13, color: '#fde047' }}>
+                      {statoBet === 'in_corso' ? '⏳ Attendi: Lucy sta preparando le bet…' : '⏳ Le bet non sono ancora pronte: premi «Prepara bet ora» qui sopra'}
+                    </span>
+                  )}
                   <button type="button" onClick={() => setEspanse(p => ({ ...p, [s.id]: !aperta }))} style={{ ...btnBase, background: 'transparent', color: '#cbd5e1', borderColor: 'rgba(148,163,184,0.5)', padding: '7px 12px', fontSize: 12.5 }}>{aperta ? '▾ nascondi elenco' : `▸ vedi l'elenco (${s.voci.length})`}</button>
                 </div>
               </div>
