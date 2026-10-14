@@ -2,7 +2,7 @@
 // 📚 ARCHIVIO BET (14/10/2026): le bet generate da Lucy giorno per giorno (tabella lucy_proposte_giorno, supabase/lucy_proposte_giorno.sql)
 // con a fianco l'esito: ✅ fatta (bet confermata), ⏭ saltata, 🔁 rimandata, oppure "non fatta" se è rimasta lì.
 // Sola lettura: l'esito si legge da lucy_bet_confermate e lucy_decisioni, le stesse tabelle che usa già il Profit Tracker.
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { dataLunga, aggiungiGiorni } from '../../../lib/oggiDaFare'
 
@@ -16,7 +16,7 @@ const STATI = {
   nd: { icona: '', testo: '', colore: '#64748b' },
 }
 
-export default function ArchivioBet({ oggi }) {
+export default function ArchivioBet({ oggi, versione }) {
   const [aperto, setAperto] = useState(false)
   const [giorni, setGiorni] = useState(null)   // [{ giorno, righe:[{...voce, stato, motivo}] }]
   const [errore, setErrore] = useState('')
@@ -50,6 +50,14 @@ export default function ArchivioBet({ oggi }) {
     setCarico(false)
   }
 
+  // quando nel Profit Tracker cambia qualcosa (bet confermata, saltata, rimandata) e l'archivio è aperto, si aggiorna da solo
+  useEffect(() => {
+    if (!aperto || giorni === null) return
+    const t = setTimeout(() => carica(), 1200)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [versione])
+
   function apri() {
     const n = !aperto
     setAperto(n)
@@ -64,7 +72,7 @@ export default function ArchivioBet({ oggi }) {
   const chip = (id, testo) => <button key={id} type="button" onClick={() => setFiltro(id)} style={{ background: filtro === id ? 'rgba(56,189,248,0.2)' : 'transparent', color: filtro === id ? '#7dd3fc' : '#94a3b8', border: '1px solid rgba(100,116,139,0.5)', borderRadius: 999, padding: '2px 10px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>{testo}</button>
 
   return (
-    <div style={{ marginTop: 14, border: '1px solid rgba(51,65,85,0.7)', borderRadius: 12, background: 'rgba(15,23,42,0.5)' }}>
+    <div style={{ marginTop: -6, marginBottom: 14, border: '1px solid rgba(51,65,85,0.7)', borderRadius: 12, background: 'rgba(15,23,42,0.5)' }}>
       <button type="button" onClick={apri} style={{ width: '100%', textAlign: 'left', cursor: 'pointer', border: 0, background: 'transparent', color: '#94a3b8', padding: '9px 14px', fontWeight: 800, fontSize: 13 }}>
         📚 Archivio bet · ultimi {GIORNI} giorni {aperto ? '▾' : '▸'}
       </button>

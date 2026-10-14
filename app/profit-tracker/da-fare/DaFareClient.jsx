@@ -187,22 +187,31 @@ export default function DaFareClient() {
       { id: 'bet', titolo: 'Bet da piazzare', icona: '📊', colore: '#38bdf8', ids: ['bet_mant', 'bet_prof', 'masaniello'] },
       { id: 'conti_sessioni', titolo: 'Conti, Profiliamo e sessioni di oggi', icona: '🗂️', colore: '#a78bfa', ids: ['profiliamo', 'conti', 'live', 'mirate'] },
     ]
+    // le bet si comandano dalla Tabella bet: qui si vedono soltanto, con l'esito (fatta / saltata / rimandata) che arriva da lì
+    const chiuse = lista.fatte.filter(v => GRUPPI[0].ids.includes(v.sezione)).map(v => ({ ...v, statoRO: /saltata/i.test(v.nota || '') ? 'saltata' : /rimandata/i.test(v.nota || '') ? 'rimandata' : 'fatta' }))
     const out = []
     const messi = new Set()
+    const costruisci = (g, parti) => {
+      const voci = parti.flatMap(y => y.voci)
+      const base = { id: g.id, titolo: g.titolo, icona: g.icona, colore: g.colore, parti, voci }
+      if (g.id !== 'bet') return { ...base, riepilogo: parti.map(y => `${y.voci.length} ${NOME_PARTE[y.id]}`).join(' · ') }
+      const n = (st) => chiuse.filter(v => v.statoRO === st).length
+      return { ...base, chiuse, riepilogo: `${voci.length} da fare · ✅ ${n('fatta')} fatte · ⏭ ${n('saltata')} saltate · 🔁 ${n('rimandata')} rimandate${parti.length ? ` — ${parti.map(y => `${y.voci.length} ${NOME_PARTE[y.id]}`).join(' · ')} ancora da fare` : ''}` }
+    }
     for (const x of lista.sezioni) {
       const g = GRUPPI.find(gr => gr.ids.includes(x.id))
       if (!g) { out.push(x); continue }
       if (messi.has(g.id)) continue
       messi.add(g.id)
-      const parti = lista.sezioni.filter(y => g.ids.includes(y.id))
-      out.push({
-        id: g.id, titolo: g.titolo, icona: g.icona, colore: g.colore, parti,
-        voci: parti.flatMap(y => y.voci),
-        riepilogo: parti.map(y => `${y.voci.length} ${NOME_PARTE[y.id]}`).join(' · '),
-      })
+      out.push(costruisci(g, lista.sezioni.filter(y => g.ids.includes(y.id))))
+    }
+    if (!messi.has('bet') && chiuse.length) {   // tutte le bet sono già chiuse: la scheda resta, con i numeri
+      const i = out.findIndex(x => x.id === 'conti_sessioni')
+      out.splice(i < 0 ? out.length : i, 0, costruisci(GRUPPI[0], []))
     }
     return out
   }, [lista])
+  const fatteAltre = useMemo(() => lista.fatte.filter(v => !['bet_mant', 'bet_prof', 'masaniello'].includes(v.sezione)), [lista])
 
   const statoBet = fotoDiOggi?.bet?.stato || null
   const betNonPronte = !fotoDiOggi || statoBet === 'in_corso' || statoBet === 'da_preparare'
@@ -364,7 +373,8 @@ export default function DaFareClient() {
           const dest = destinazioni(s)
           const aperta = !!espanse[s.id]
           return (
-          <div key={s.id} style={card}>
+          <React.Fragment key={s.id}>
+          <div style={card}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'rgba(30,41,59,0.9)', borderLeft: `4px solid ${s.colore}` }}>
               <span style={{ fontWeight: 900, fontSize: 15 }}>{s.icona} {s.titolo}</span>
               <span style={{ marginLeft: 'auto', color: s.colore, fontWeight: 900, fontSize: 13 }}>{s.voci.length}</span>
@@ -387,15 +397,26 @@ export default function DaFareClient() {
                       {statoBet === 'in_corso' ? '⏳ Attendi: Lucy sta preparando le bet…' : '⏳ Le bet non sono ancora pronte: premi «Prepara bet ora» qui sopra'}
                     </span>
                   )}
-                  <button type="button" onClick={() => setEspanse(p => ({ ...p, [s.id]: !aperta }))} style={{ ...btnBase, background: 'transparent', color: '#cbd5e1', borderColor: 'rgba(148,163,184,0.5)', padding: '7px 12px', fontSize: 12.5 }}>{aperta ? '▾ nascondi elenco' : `▸ vedi l'elenco (${s.voci.length})`}</button>
+                  <button type="button" onClick={() => setEspanse(p => ({ ...p, [s.id]: !aperta }))} style={{ ...btnBase, background: 'transparent', color: '#cbd5e1', borderColor: 'rgba(148,163,184,0.5)', padding: '7px 12px', fontSize: 12.5 }}>{aperta ? '▾ nascondi elenco' : `▸ vedi l'elenco (${s.id === 'bet' ? s.voci.length + (s.chiuse || []).length : s.voci.length})`}</button>
                 </div>
               </div>
             ) : null}
-            {(!dest || aperta) && s.voci.map(v => <React.Fragment key={v.key}>{riga(v)}</React.Fragment>)}
+            {(!dest || aperta) && s.id !== 'bet' && s.voci.map(v => <React.Fragment key={v.key}>{riga(v)}</React.Fragment>)}
+            {aperta && s.id === 'bet' && [...s.voci.map(v => ({ ...v, statoRO: 'da_fare' })), ...(s.chiuse || [])].map(v => {
+              const st = { fatta: ['✅ fatta', '#4ade80'], saltata: ['⏭ saltata', '#fb923c'], rimandata: ['🔁 rimandata', '#fbbf24'], da_fare: ['• da fare', '#7dd3fc'] }[v.statoRO]
+              return (
+                <div key={v.key} style={{ display: 'flex', gap: 10, alignItems: 'baseline', padding: '6px 14px', borderTop: '1px solid rgba(51,65,85,0.5)', fontSize: 12.5 }}>
+                  <div style={{ flex: 1, minWidth: 0, color: '#94a3b8', lineHeight: 1.4 }}><b style={{ color: '#e2e8f0' }}>{v.titolo}</b> · {v.dettaglio}</div>
+                  <div style={{ color: st[1], fontWeight: 800, whiteSpace: 'nowrap' }}>{st[0]}</div>
+                </div>
+              )
+            })}
             {s.id === 'avvisi' && <div style={{ padding: '9px 14px', borderTop: '1px solid rgba(51,65,85,0.6)' }}><button type="button" onClick={() => apriNelProfitTracker('avvisi')} style={{ ...btnBase, background: 'rgba(56,189,248,0.15)', color: '#7dd3fc', borderColor: 'rgba(56,189,248,0.5)' }}>🔔 Apri gli Avvisi nel Profit Tracker →</button></div>}
-            {s.id === 'bet' && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>Nella Tabella bet confermi le bet (da lì passano da sole in «Fatte»); in fondo c&apos;è il Masaniello: ✓ Conferma scheda, poi 📱 Apri telefoni.</div>}
+            {s.id === 'bet' && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>Le bet si comandano dalla Tabella bet: quando lì le confermi, le salti o le rimandi, qui e nell&apos;archivio compare l&apos;esito. In fondo alla Tabella c&apos;è il Masaniello: ✓ Conferma scheda, poi 📱 Apri telefoni.</div>}
             {s.id === 'promo' && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>Se la promo è già stata fatta e la segni nella tab Promo, qui sparisce da sola.</div>}
           </div>
+          {s.id === 'bet' && <ArchivioBet oggi={oggi} versione={fotoDiOggi?.aggiornato} />}
+          </React.Fragment>
         )})}
 
         {lista.rimandate.length > 0 && (
@@ -408,17 +429,15 @@ export default function DaFareClient() {
           </div>
         )}
 
-        {lista.fatte.length > 0 && (
+        {fatteAltre.length > 0 && (
           <div style={card}>
             <button type="button" onClick={() => setMostraFatte(v => !v)} style={{ width: '100%', textAlign: 'left', cursor: 'pointer', border: 0, display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'rgba(30,41,59,0.9)', color: '#e2e8f0', borderLeft: '4px solid #4ade80' }}>
               <span style={{ fontWeight: 900, fontSize: 15 }}>✓ Fatte oggi</span>
-              <span style={{ marginLeft: 'auto', color: '#4ade80', fontWeight: 900, fontSize: 13 }}>{lista.fatte.length} {mostraFatte ? '▾' : '▸'}</span>
+              <span style={{ marginLeft: 'auto', color: '#4ade80', fontWeight: 900, fontSize: 13 }}>{fatteAltre.length} {mostraFatte ? '▾' : '▸'}</span>
             </button>
-            {mostraFatte && lista.fatte.map(v => <React.Fragment key={v.key}>{riga(v, 'fatta')}</React.Fragment>)}
+            {mostraFatte && fatteAltre.map(v => <React.Fragment key={v.key}>{riga(v, 'fatta')}</React.Fragment>)}
           </div>
         )}
-
-        <ArchivioBet oggi={oggi} />
 
         <div style={{ color: '#64748b', fontSize: 12, lineHeight: 1.5, marginTop: 8 }}>
           Le voci si ricalcolano ogni volta dalle stesse fonti del Profit Tracker. ✓ Fatto e ⏭ Rimanda segnano solo questa lista: una voce rimandata ricompare nel giorno scelto, anche se Lucy nel frattempo ricalcola le bet.
