@@ -17,6 +17,7 @@ import { supabase } from '../supabaseClient'
 import { costruisciLista, dataIso, domaniIso, dataIt, dataLunga, rinvioValido, aggiungiGiorni, vociMasaniello, vociSchedaMasaniello, vociPromo } from '../../../lib/oggiDaFare'
 import { eventiDalleBet, usoConti } from '../../components/RecuperiPronox'
 import { schedaDelGiorno } from '../../../lib/recupero/masanielloRecupero'
+import ArchivioBet from './ArchivioBet'
 import { MODEL_VERSION } from '../../../lib/pronox/footballModel'
 
 const CHIAVE_FOTO = 'profittracker_oggi_da_fare'
@@ -416,6 +417,8 @@ export default function DaFareClient() {
             {mostraFatte && lista.fatte.map(v => <React.Fragment key={v.key}>{riga(v, 'fatta')}</React.Fragment>)}
           </div>
         )}
+
+        <ArchivioBet oggi={oggi} />
 
         <div style={{ color: '#64748b', fontSize: 12, lineHeight: 1.5, marginTop: 8 }}>
           Le voci si ricalcolano ogni volta dalle stesse fonti del Profit Tracker. ✓ Fatto e ⏭ Rimanda segnano solo questa lista: una voce rimandata ricompare nel giorno scelto, anche se Lucy nel frattempo ricalcola le bet.
