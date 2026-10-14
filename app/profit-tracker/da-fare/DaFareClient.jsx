@@ -161,8 +161,7 @@ export default function DaFareClient() {
   }
   // quali schede aprire per una sezione "operativa" (null = la sezione resta una semplice lista con Fatto / Rimanda)
   function destinazioni(sez) {
-    if (sez.id === 'bet_mant' || sez.id === 'bet_prof') return [{ dove: 'tabella_bet', testo: '📊 Apri la Tabella bet (con Apri telefoni)' }]
-    if (sez.id === 'masaniello') return [{ dove: 'tabella_bet', testo: '📊 Apri la Tabella bet (Masaniello, con Apri telefoni)' }]   // la Tabella bet contiene anche proposta e bet del Masaniello
+    if (sez.id === 'bet') return [{ dove: 'tabella_bet', testo: '📊 Apri la Tabella bet (con Apri telefoni)' }]
     if (sez.id === 'live') return [{ dove: 'live', testo: '🎰 Apri le Sessioni live' }]
     if (sez.id === 'mirate') return [{ dove: 'mirate', testo: '🎯 Apri le Profilazioni mirate' }]
     if (sez.id === 'profiliamo') return [{ dove: 'profiliamo-oggi', testo: '📣 Apri Profiliamo oggi' }]
@@ -170,6 +169,23 @@ export default function DaFareClient() {
     return null
   }
   const [espanse, setEspanse] = useState({})
+  // mantenimento, profilazione/recupero e Masaniello si giocano tutti nella stessa Tabella bet: qui sono un'unica scheda
+  const sezioniVista = useMemo(() => {
+    const GRUPPO = ['bet_mant', 'bet_prof', 'masaniello']
+    const parti = lista.sezioni.filter(x => GRUPPO.includes(x.id))
+    if (!parti.length) return lista.sezioni
+    const unita = {
+      id: 'bet', titolo: 'Bet da piazzare', icona: '📊', colore: '#38bdf8',
+      voci: parti.flatMap(x => x.voci.map(v => ({ ...v, tag: v.tag && v.tag !== x.id ? v.tag : x.id }))),
+      riepilogo: parti.map(x => `${x.voci.length} ${x.id === 'bet_mant' ? 'mantenimento' : x.id === 'bet_prof' ? 'profilazione e recupero' : 'Masaniello'}`).join(' · '),
+    }
+    const out = []
+    let messa = false
+    for (const x of lista.sezioni) {
+      if (GRUPPO.includes(x.id)) { if (!messa) { out.push(unita); messa = true } } else out.push(x)
+    }
+    return out
+  }, [lista])
 
   const statoBet = fotoDiOggi?.bet?.stato || null
   function chiediPreparaBet() {
@@ -319,7 +335,7 @@ export default function DaFareClient() {
           <div style={{ ...card, borderColor: 'rgba(74,222,128,0.5)', padding: '16px 14px', textAlign: 'center', color: '#86efac', fontWeight: 800, fontSize: 16 }}>✅ Non c&apos;è altro da fare per oggi</div>
         )}
 
-        {lista.sezioni.map(s => {
+        {sezioniVista.map(s => {
           const dest = destinazioni(s)
           const aperta = !!espanse[s.id]
           return (
@@ -331,7 +347,7 @@ export default function DaFareClient() {
             {dest ? (
               <div style={{ padding: '10px 14px', borderTop: '1px solid rgba(51,65,85,0.6)' }}>
                 <div style={{ fontSize: 12.5, color: '#94a3b8', lineHeight: 1.45, marginBottom: 9 }}>
-                  {s.voci.slice(0, 5).map(v => v.titolo).join(' · ')}{s.voci.length > 5 ? ` … e altre ${s.voci.length - 5}` : ''}
+                  {s.riepilogo || (s.voci.slice(0, 5).map(v => v.titolo).join(' · ') + (s.voci.length > 5 ? ` … e altre ${s.voci.length - 5}` : ''))}
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                   {dest.map(d => (
@@ -343,8 +359,7 @@ export default function DaFareClient() {
             ) : null}
             {(!dest || aperta) && s.voci.map(v => <React.Fragment key={v.key}>{riga(v)}</React.Fragment>)}
             {s.id === 'avvisi' && <div style={{ padding: '9px 14px', borderTop: '1px solid rgba(51,65,85,0.6)' }}><button type="button" onClick={() => apriNelProfitTracker('avvisi')} style={{ ...btnBase, background: 'rgba(56,189,248,0.15)', color: '#7dd3fc', borderColor: 'rgba(56,189,248,0.5)' }}>🔔 Apri gli Avvisi nel Profit Tracker →</button></div>}
-            {s.id === 'masaniello' && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>Nella Tabella bet, in fondo, trovi il Masaniello: premi ✓ Conferma scheda sulle partite proposte, poi 📱 Apri telefoni.</div>}
-            {(s.id === 'bet_mant' || s.id === 'bet_prof') && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>Le bet si confermano nella Tabella bet: da lì la voce passa da sola in «Fatte».</div>}
+            {s.id === 'bet' && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>Nella Tabella bet confermi le bet (da lì passano da sole in «Fatte»); in fondo c&apos;è il Masaniello: ✓ Conferma scheda, poi 📱 Apri telefoni.</div>}
             {s.id === 'promo' && <div style={{ padding: '7px 14px', borderTop: '1px solid rgba(51,65,85,0.6)', fontSize: 12, color: '#64748b' }}>Se la promo è già stata fatta e la segni nella tab Promo, qui sparisce da sola.</div>}
           </div>
         )})}
