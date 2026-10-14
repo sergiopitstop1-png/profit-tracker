@@ -74,6 +74,8 @@ export function distribuisci(partecipanti, seedText) {
   return { righe, errore: '' }
 }
 
+// 14/10/2026: i conti si presentano in ordine alfabetico partendo dal nome (gli intestatari sono scritti «Nome Cognome»)
+const perNome = (a, b) => String(a.intestatario || '').localeCompare(String(b.intestatario || ''), 'it', { sensitivity: 'base' }) || String(a.nome || '').localeCompare(String(b.nome || ''), 'it', { sensitivity: 'base' })
 const oggiIso = () => new Date().toLocaleDateString('sv-SE')
 const euro = (n) => (Number(n) || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
 
@@ -81,7 +83,7 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
   // contiIniziali: i conti di una profilazione mirata, già pronti (origine 'mirata', gruppo = nome del gruppo)
   const [sessioni, setSessioni] = useState([])
   const [cerca, setCerca] = useState('')
-  const [scelti, setScelti] = useState(() => (contiIniziali || []).map(b => ({ id: b.id, nome: b.nome, intestatario: b.intestatario, aMano: '', euroNum: '', lato: null, importo: '' }))) // [{ id, nome, intestatario, aMano }]
+  const [scelti, setScelti] = useState(() => (contiIniziali || []).map(b => ({ id: b.id, nome: b.nome, intestatario: b.intestatario, aMano: '', euroNum: '', lato: null, importo: '' })).sort(perNome)) // [{ id, nome, intestatario, aMano }]
   const [stake, setStake] = useState(10)
   const [giri, setGiri] = useState(3)
   const [mescolata, setMescolata] = useState(0)
@@ -113,7 +115,7 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
       .filter(b => b.profilo_livello && b.profilo_livello !== 'dormiente')
       .filter(b => !q || `${b.nome} ${b.intestatario}`.toLowerCase().includes(q))
       .filter(b => !scelti.some(s => String(s.id) === String(b.id)))
-      .sort((a, b) => Number(giocatoOggi.has(String(a.id))) - Number(giocatoOggi.has(String(b.id))) || String(a.nome).localeCompare(String(b.nome)) || String(a.intestatario).localeCompare(String(b.intestatario)))
+      .sort((a, b) => Number(giocatoOggi.has(String(a.id))) - Number(giocatoOggi.has(String(b.id))) || perNome(a, b))
       .slice(0, 40)
   }, [books, contoUsabile, cerca, scelti, giocatoOggi])
 
@@ -148,7 +150,7 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
   const errore = roulette ? erroreR : erroreB
   const pronta = roulette ? (!errore && righe.length >= 2) : !errore
 
-  const aggiungi = (b) => { setEsitiCamp({}); setLatiCamp({}); setScelti(v => [...v, { id: b.id, nome: b.nome, intestatario: b.intestatario, aMano: '', euroNum: '', lato: null, importo: '' }]) }
+  const aggiungi = (b) => { setEsitiCamp({}); setLatiCamp({}); setScelti(v => [...v, { id: b.id, nome: b.nome, intestatario: b.intestatario, aMano: '', euroNum: '', lato: null, importo: '' }].sort(perNome)) }
   const togli = (id) => { setEsitiCamp({}); setLatiCamp({}); setScelti(v => v.filter(s => s.id !== id)) }
   const cambia = (id, campo, val) => { if (campo === 'lato' || campo === 'importo') { setEsitiCamp({}); setLatiCamp({}) }; setScelti(v => v.map(s => s.id === id ? { ...s, [campo]: val } : s)) }
   // campionato: segna un conto vincente (V) o perdente (P) nel turno k; i turni dopo si ricalcolano
