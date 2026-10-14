@@ -37,8 +37,8 @@ async function tutte(query) {
 
 // ─── normalizzazione: una riga per operazione (esportate per i test) ──
 export function righeSport(rows) {
-  return (rows || []).map(r => r.rec || r).filter(x => x && x.tipo !== 'manuale').map(x => ({
-    quando: x.creato || x.data, data: x.data, origine: 'Sport Lucy', tipo: x.recupero ? `${x.tipo} (recupero bet)` : x.tipo,
+  return (rows || []).map(r => r.rec || r).filter(x => x && (x.tipo !== 'manuale' || x.manualeProf)).map(x => ({   // 14/10/2026: anche le operazioni del Registro manuale
+    quando: x.creato || x.data, data: x.data, origine: 'Sport Lucy', tipo: x.manualeProf ? `${x.tipoConto || 'profilazione'} (manuale)` : x.recupero ? `${x.tipo} (recupero bet)` : x.tipo,
     cliente: x.intestatario, book: x.book, evento: [x.partita, x.sport].filter(Boolean).join(' · '),
     giocata: [x.mercato, x.esito].filter(v => v && v !== '—').join(': '), importo: num(x.stake), quota: num(x.quota) || null,
     stato: 'CONFERMATA', esito: '', pl: null, note: x.betNumero ? `bet ${x.betNumero}/${x.betRichieste || '?'}` : '',
