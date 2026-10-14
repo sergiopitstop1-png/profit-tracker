@@ -3696,6 +3696,25 @@ function ripristinaProposteSalvate() {
   return proposteSalvateProva.current
 }
 useEffect(() => { if (books.length) ripristinaProposteSalvate() }, [books.length])
+// 14/10/2026: "giocata" / "rimandata al gg/mm" dei gruppi Live restano visibili anche dopo un ricaricamento (si leggono dalla lista Oggi da fare)
+useEffect(() => {
+  if (!books.length) return
+  ;(async () => {
+    try {
+      const oggi = lucyOggi()
+      const { data, error } = await supabase.from('oggi_da_fare_stato').select('chiave,stato,rimanda_a').like('chiave', `live|${oggi}|%`)
+      if (error || !data) return
+      const esiti = {}
+      for (const r of data) {
+        const id = String(r.chiave).split('|')[2]
+        if (!id) continue
+        if (r.stato === 'fatto') esiti[id] = 'giocata'
+        else if (r.stato === 'rimandato' && r.rimanda_a && !esiti[id]) esiti[id] = `rimandata al ${dataItLista(r.rimanda_a)}`
+      }
+      setLiveEsiti(prev => ({ ...esiti, ...prev }))
+    } catch { /* tabella non disponibile: resta l'etichetta di sessione */ }
+  })()
+}, [books.length])
 useEffect(() => {
   if (!books.length || lucySportLoading) return
   if (!lucySportProposte.length && !lucyLiveProposte.length) return
