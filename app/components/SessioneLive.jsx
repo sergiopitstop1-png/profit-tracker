@@ -218,7 +218,7 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
           {!roulette && <>
             <span style={{ color: '#94a3b8', fontSize: 12, marginLeft: 6 }}>operazione:</span>
             <button onClick={() => setOperazione('spot')} style={scelta(operazione === 'spot')}>Spot</button>
-            <button onClick={() => setOperazione('campionato')} style={scelta(operazione === 'campionato')}>Campionato</button>
+            <button onClick={() => { setOperazione('campionato'); setStake('100') }} style={scelta(operazione === 'campionato')}>Campionato</button>
           </>}
         </div>
         <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>{contiIniziali ? 'Aggiungi altri conti se servono:' : 'Scegli i conti:'}</div>
@@ -270,7 +270,7 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
                 })}
               </tbody>
             </table>
-          ) : (
+          ) : campionato ? null : (
             <table style={{ borderCollapse: 'collapse', width: '100%' }}>
               <thead><tr><th style={th}>Book</th><th style={th}>Intestatario</th><th style={th}>Lato</th><th style={th}>€ a mano</th><th style={th}>{campionato ? 'Risultato' : 'Totale'}</th><th style={th}></th></tr></thead>
               <tbody>
@@ -316,7 +316,7 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
                     </div>
                     {k === 0 && (
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 6, fontSize: 12, color: '#94a3b8' }}>
-                        Chi ha puntato cosa (nell'ordine della lista):
+                        Chi ha puntato cosa (nell&apos;ordine della lista):
                         <button onClick={() => impostaLatiTurno1('primiGiocatore')} style={btn('#6d28d9')}>Primi {Math.floor(scelti.length / 2)} Giocatore · altri Banco</button>
                         <button onClick={() => impostaLatiTurno1('primiBanco')} style={btn('#6d28d9')}>Primi {Math.floor(scelti.length / 2)} Banco · altri Giocatore</button>
                         <button onClick={() => impostaLatiTurno1('alternati')} style={btn('#64748b')}>Alternati</button>
@@ -339,7 +339,7 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
                                 <button onClick={() => (k === 0 ? cambia(c.id, 'lato', 'Banco') : cambiaLatoCamp(k, c.id, 'Banco'))} style={scelta(c.lato === 'Banco')}>Banco</button>
                                 <button onClick={() => (k === 0 ? cambia(c.id, 'lato', 'Giocatore') : cambiaLatoCamp(k, c.id, 'Giocatore'))} style={{ ...scelta(c.lato === 'Giocatore'), marginLeft: 4 }}>Giocatore</button>
                               </td>
-                              <td style={td}>{euro(c.importo)}{manca > 0.004 ? <span style={{ color: '#fbbf24', fontSize: 10 }}> · saldo {euro(saldo)}: servono {euro(manca)} in più (il Banco paga 0,95)</span> : null}</td>
+                              <td style={td}>{k === 0 ? <input style={{ ...inp, width: 56 }} placeholder={String(stake)} value={scelti.find(x => x.id === c.id)?.importo ?? ''} onChange={e => cambia(c.id, 'importo', soloEuro(e.target.value))} /> : null}{k === 0 ? <span style={{ color: '#94a3b8' }}> {euro(c.importo)}</span> : euro(c.importo)}{manca > 0.004 ? <span style={{ color: '#fbbf24', fontSize: 10 }}> · saldo {euro(saldo)}: servono {euro(manca)} in più (il Banco paga 0,95)</span> : null}</td>
                               <td style={td}>
                                 <button onClick={() => segnaConto(k, c.id, c.esito === 'V' ? null : 'V')} style={{ ...btn('#059669', c.esito === 'V'), opacity: c.esito === 'V' ? 1 : 0.55 }}>✓ Vince</button>
                                 <button onClick={() => segnaConto(k, c.id, c.esito === 'P' ? null : 'P')} style={{ ...btn('#dc2626', c.esito === 'P'), marginLeft: 4, opacity: c.esito === 'P' ? 1 : 0.55 }}>✗ Perde</button>
@@ -348,6 +348,12 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
                                 {c.esito === 'V' ? <span style={{ color: '#86efac' }}>+{euro(c.importo * (c.lato === 'Banco' ? 0.95 : 1))}{finale ? ' · 🏆 campione' : ' · passa al turno dopo'}</span> : null}
                                 {c.esito === 'P' ? <span style={{ color: '#fca5a5' }}>−{euro(c.importo)} · eliminato{prima && prima.risultato !== -c.importo ? ` (in totale ${segno(prima.risultato)})` : ''}</span> : null}
                               </td>
+                              {k === 0 && (
+                                <td style={td}>
+                                  <button onClick={() => apriContiSuTelefoni([(books || []).find(b => String(b.id) === String(c.id)) || c], `${c.nome} di ${c.intestatario}`)} style={btn('#0ea5e9')}>📱</button>
+                                  <button onClick={() => togli(c.id)} style={{ ...btn('#64748b'), marginLeft: 4 }}>✕</button>
+                                </td>
+                              )}
                             </tr>)
                         })}
                       </tbody>
@@ -356,8 +362,16 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
               })}
               {campFinito && (
                 <div style={{ ...box, borderColor: 'rgba(34,197,94,0.6)', fontSize: 12, color: '#cbd5e1' }}>
+                  {(() => {
+                    const tot = Math.round([...perConto.values()].reduce((a, r) => a + r.risultato, 0) * 100) / 100
+                    return (
+                      <div style={{ textAlign: 'center', padding: '8px 0 12px' }}>
+                        <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 800, letterSpacing: 1 }}>{tot <= 0 ? '💸 COSTO PROFILATIVO DEL CAMPIONATO' : '💰 GUADAGNO DEL CAMPIONATO'}</div>
+                        <div style={{ fontSize: 40, fontWeight: 900, color: tot <= 0 ? '#fca5a5' : '#86efac', lineHeight: 1.2 }}>{euro(Math.abs(tot))}</div>
+                        <div style={{ fontSize: 11, color: '#94a3b8' }}>somma dei risultati di tutti i conti · si salva con «Sessione giocata» e finisce in Archivio come costo profilativo</div>
+                      </div>)
+                  })()}
                   {campioneId == null ? 'Campionato chiuso senza vincitore.' : <>🏆 Campione: <b>{bac.find(x => x.id === campioneId)?.nome} · {bac.find(x => x.id === campioneId)?.intestatario}</b> {segno(perConto.get(campioneId)?.risultato || 0)}</>}
-                  {' · '}Totale squadra <b>{segno([...perConto.values()].reduce((a, r) => a + r.risultato, 0))}</b> (è il costo del campionato)
                   <div style={{ marginTop: 6 }}>{bac.map(x => { const r = perConto.get(x.id); return r ? <div key={x.id}>{r.campione ? '🏆' : '❌'} {x.nome} · {x.intestatario}: {segno(r.risultato)} (puntato in tutto {euro(r.puntato)}{r.uscita ? `, uscito al turno ${r.uscita}` : ''})</div> : null })}</div>
                 </div>
               )}
