@@ -128,27 +128,48 @@ export async function GET(req: NextRequest) {
       comunicazioni.push({ canale: 'SMS', cliente, clienteKey: norm(cliente), book, t, titolo: String(s.testo || '').slice(0, 140), importo: Number(s.bonus_importo) > 0 ? Number(s.bonus_importo) : null, paroleChiave: parole(String(s.testo || '')) })
     }
 
-    // 4. abbinamento
-    const risultati: any[] = []
-    let senzaBook = 0
-    for (const m of msg || []) {
-      const testo = [m.testo, m.testo_immagine].filter(Boolean).join('\n').trim()
-      if (testo.length < 25) continue
-      const books_ = bookNelTesto(testo)
+    // 4. segnalazioni utili: pulisco il testo, scarto gli avvisi (truffe, phishing…) e unisco i doppioni
+    const pulisci = (x: any) => String(x ?? '').replace(/\*\*|__|`|^#+\s*/gm, '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
+    const paroleTesto = (x: string) => new Set(senzaAccenti(x).split(/[^a-z0-9]+/).filter(p => p.length >= 4))
+    const simili = (a: Set<string>, b: Set<string>) => {
+      if (!a.size || !b.size) return false
+      let comuni = 0; for (const p of a) if (b.has(p)) comuni++
+      return comuni / Math.min(a.size, b.size) >= 0.6
+    }
+    const èAvviso = (x: string) => /(truffa|phishing|attenzione|fate attenzione|falso sito|finto sito|non cliccate)/.test(senzaAccenti(x)) && !/(bonus|promo|cashback|freebet|rimborso|quota|offerta|moltiplicatore|%)/.test(senzaAccenti(x))
+    type Gruppo = { msg: any; testo: string; testoImg: string | null; books: string[]; tMin: number; tMax: number; doppioni: number; parole: Set<string> }
+    const gruppi: Gruppo[] = []
+    let senzaBook = 0; let avvisi = 0
+    for (const m of msg || []) {   // dal più recente: il primo di un gruppo è il più recente
+      const tCorpo = pulisci(m.testo); const tImg = m.testo_immagine ? pulisci(m.testo_immagine) : ''
+      const tutto = [tCorpo, tImg].filter(Boolean).join('\n').trim()
+      if (tutto.length < 25) continue
+      const books_ = bookNelTesto(tutto)
       if (!books_.length) { senzaBook++; continue }
-      const t0 = tempo(m.data_msg) as number
-      const testoNorm = senzaAccenti(testo)
+      if (èAvviso(tutto)) { avvisi++; continue }
+      const t = tempo(m.data_msg) as number
+      const parole_ = paroleTesto(tutto)
+      const g = gruppi.find(x => x.books.join() === books_.join() && Math.abs(x.tMax - t) < 4 * GIORNO && simili(x.parole, parole_))
+      if (g) { g.tMin = Math.min(g.tMin, t); g.doppioni++; continue }
+      gruppi.push({ msg: m, testo: tCorpo, testoImg: tImg || null, books: books_, tMin: t, tMax: t, doppioni: 0, parole: parole_ })
+    }
+
+    // 5. abbinamento mail/SMS ↔ segnalazione
+    const risultati: any[] = []
+    for (const g of gruppi) {
+      const m = g.msg; const books_ = g.books
+      const testoNorm = senzaAccenti([g.testo, g.testoImg].filter(Boolean).join('\n'))
       const arrivata = new Map<string, any>()
       for (const c of comunicazioni) {
         if (!c.book.some(k => books_.includes(k))) continue
-        if (c.t < t0 - PRIMA_DELLA_SEGNALAZIONE || c.t > t0 + DOPO_LA_SEGNALAZIONE) continue
+        if (c.t < g.tMin - PRIMA_DELLA_SEGNALAZIONE || c.t > g.tMax + DOPO_LA_SEGNALAZIONE) continue
         const importoOk = c.importo !== null && Number.isInteger(c.importo) && new RegExp(`(?<![0-9])${c.importo}(?![0-9])`).test(testoNorm)
         const paroleOk = c.paroleChiave.filter(p => testoNorm.includes(p)).length >= 2
         const forza = importoOk || paroleOk ? 'forte' : 'probabile'
         const voce = { cliente: c.cliente, canale: c.canale, quando: new Date(c.t).toISOString(), titolo: c.titolo, book: nomiBook.get(c.book.find(k => books_.includes(k)) as string), forza }
         const prec = arrivata.get(c.clienteKey)
         // per ogni cliente tengo l'abbinamento migliore (prima il più sicuro, poi il più vicino alla segnalazione)
-        if (!prec || (forza === 'forte' && prec.forza !== 'forte') || (forza === prec.forza && Math.abs(c.t - t0) < Math.abs(new Date(prec.quando).getTime() - t0))) arrivata.set(c.clienteKey, voce)
+        if (!prec || (forza === 'forte' && prec.forza !== 'forte') || (forza === prec.forza && Math.abs(c.t - g.tMax) < Math.abs(new Date(prec.quando).getTime() - g.tMax))) arrivata.set(c.clienteKey, voce)
       }
       // clienti che hanno il book (non chiuso, non limitato ai bonus, non terminato) e non risultano averla ricevuta
       const ricevuti = [...arrivata.keys()]
@@ -162,11 +183,16 @@ export async function GET(req: NextRequest) {
         if (nota.includes('limitato bonus')) limitati.set(k, nome)
         else nonArrivata.set(k, nome)
       }
+      const tutte = [...arrivata.values()]
+      const righe = (g.testo || g.testoImg || '').split('\n').map(r => r.trim()).filter(r => r.length >= 8)
+      const titolo = (righe[0] || '').slice(0, 120)
       risultati.push({
         id: m.id, data: m.data_msg, gruppo: m.chat_titolo, topic: m.topic_titolo, mittente: m.mittente, link: m.link,
-        testo: String(m.testo || '').slice(0, 600), testo_immagine: m.testo_immagine ? String(m.testo_immagine).slice(0, 900) : null,
+        titolo, doppioni: g.doppioni,
+        testo: g.testo.slice(0, 600), testo_immagine: g.testoImg ? g.testoImg.slice(0, 900) : null,
         book: books_.map(k => nomiBook.get(k)),
-        arrivata_a: [...arrivata.values()].sort((a, b) => (a.forza === b.forza ? a.cliente.localeCompare(b.cliente) : a.forza === 'forte' ? -1 : 1)),
+        arrivata_a: tutte.filter(a => a.forza === 'forte').sort((a, b) => a.cliente.localeCompare(b.cliente)),
+        forse_arrivata_a: tutte.filter(a => a.forza === 'probabile').sort((a, b) => a.cliente.localeCompare(b.cliente)),
         non_arrivata_a: [...nonArrivata.values()].sort((a, b) => a.localeCompare(b)),
         limitati_bonus: [...limitati.values()].sort((a, b) => a.localeCompare(b)),
       })
@@ -175,7 +201,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       giorni,
       segnalazioni: risultati,
-      riepilogo: { totale: risultati.length, con_ricevute: risultati.filter(r => r.arrivata_a.length).length, nessuno: risultati.filter(r => !r.arrivata_a.length).length, senza_book_riconosciuto: senzaBook },
+      riepilogo: { totale: risultati.length, con_ricevute: risultati.filter(r => r.arrivata_a.length).length, nessuno: risultati.filter(r => !r.arrivata_a.length).length, senza_book_riconosciuto: senzaBook, avvisi_nascosti: avvisi },
       comunicazioni_considerate: comunicazioni.length,
     })
   } catch (e: any) {
