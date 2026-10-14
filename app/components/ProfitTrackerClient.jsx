@@ -390,6 +390,7 @@ const [liveEsiti, setLiveEsiti] = useState({})   // gruppo live di oggi → 'gio
 const [lucyCostoMax, setLucyCostoMax] = useState(() => Number(localStorage.getItem('profittracker_lucy_costo_max') || 50))
   // 10/10/2026: massimo di incroci di MANTENIMENTO al giorno (rotazione: prima i conti fermi da più tempo)
   const [seguiProfiliamo, setSeguiProfiliamo] = useState(() => { try { return localStorage.getItem('profittracker_segui_profiliamo') !== '0' } catch { return true } })   // 13/10/2026: le bet di profilazione seguono i numeri di Profiliamo (se chiari)
+  const [lucySoloConti, setLucySoloConti] = useState(() => { try { return localStorage.getItem('profittracker_lucy_solo_conti') !== '0' } catch { return true } })   // 14/10/2026: default attivo
   const [lucyIncrociMantMax, setLucyIncrociMantMax] = useState(() => { const n = Number(localStorage.getItem('profittracker_lucy_incroci_mant_max')); return Number.isFinite(n) && n >= 0 && localStorage.getItem('profittracker_lucy_incroci_mant_max') !== null ? n : 1 })
 const [lucyCopMin, setLucyCopMin] = useState(() => { const v = Number(localStorage.getItem('profittracker_lucy_cop_min')); return v >= 50 && v <= 100 ? v : 85 })
 const [lucyRinviate, setLucyRinviate] = useState([])
@@ -3547,7 +3548,7 @@ function bloccoIncrocioLucy(p, pi, numero) {
       <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',padding:'7px 10px',background:'#e2e8f0',borderBottom:'1px solid #cbd5e1'}}>
         <span style={{background:'#1e293b',color:'#fff',borderRadius:6,padding:'2px 8px',fontWeight:900,fontSize:12}}>#{numero}</span>
         <span style={{fontWeight:800,color:'#1e3a8a',fontSize:11}}>{sportLabelLucy(p)}</span>
-        <span style={{fontWeight:900,fontSize:13}}>{p.home} – {p.away}</span>
+        <span style={{fontWeight:900,fontSize:13}}>{p.segnaposto ? `🔎 ${p.home}` : `${p.home} – ${p.away}`}</span>
         <span style={{background:'#fff',border:'1px solid #94a3b8',borderRadius:6,padding:'1px 7px',fontWeight:900,fontSize:11}}>🕒 {p.orario||'—'}</span>
         <span style={{background:'#fff',border:'1px solid #94a3b8',borderRadius:6,padding:'1px 7px',fontWeight:700,fontSize:11}}>{p.mercato||''}</span>
         {p.manuale && <span style={{background:'#fde68a',color:'#92400e',borderRadius:6,padding:'1px 7px',fontWeight:800,fontSize:10}}>🧮 SENZA QUOTE</span>}
@@ -4174,6 +4175,7 @@ function normalizzaProbPronoxLucy(prob) {
 const LUCY_MANT_MIN = regolaMant(null).stake_min   // puntata minima su un conto di mantenimento (regola generale)
 const LUCY_MANT_MAX = regolaMant(null).stake_max   // puntata massima su un conto di mantenimento (regola generale)
 const LUCY_MANT_MAX_TOT = 90     // oltre questo buco totale: una sola puntata extra su un conto in profilazione
+const LUCY_SOLO_CONTI_MAX = 5      // 14/10/2026 (Sergio): modalità "Lucy dice i conti, io scelgo la partita": massimo 5 incroci al giorno per tutto
 const LUCY_MANUALI_MAX = 12         // V38: massimo incroci in modalità manuale (senza quote) per volta
 const LUCY_RECUPERO_MAX_GG = 90    // 27/09/2026 (era 3): una bet arretrata di profilazione si ripropone finché il conto è in profilazione, in coda dopo quelle del giorno
 const LUCY_MANT_RIPOSO_GG = regolaMant(null).riposo_giorni   // riposo tra due usi dello stesso conto (regola generale; ogni book può avere il suo)
@@ -4546,6 +4548,7 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
       ['Championship','ELC','Championship'], ['Eredivisie','DED','Eredivisie'],
       ['Serie B Brasile','BSA','Brazil'], ['World Cup','WC','World Cup']
     ]
+    if (lucySoloConti) leghe.splice(0)   // 14/10/2026: le partite le scegli tu: niente calendario e niente quote (risparmia anche i crediti TheRundown)
     const oggi = new Date()
     const y = oggi.getFullYear(), m = String(oggi.getMonth()+1).padStart(2,'0'), d = String(oggi.getDate()).padStart(2,'0')
     const dataOggi = `${y}-${m}-${d}`
@@ -4656,12 +4659,19 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
       })
     })
 
-    const tuttePartite=risultati.flat()
+    // 14/10/2026 (Sergio) · SOLO CONTI: Lucy non cerca partite. Prepara fino a 5 incroci al giorno (in tutto, contando quelli già fatti oggi)
+    // con i conti, gli esiti e le puntate; la partita la scegli tu e scrivi le quote nella tabella: le coperture si calcolano da sole.
+    const incrociGiaOggi=new Set(lucyConfermate.filter(x=>x.data===lucyOggi()).map(x=>`${x.partita}|${x.mercato}`)).size
+    const incrociResidui=Math.max(0,LUCY_SOLO_CONTI_MAX-incrociGiaOggi)
+    if(lucySoloConti && incrociResidui===0) throw new Error(`Oggi hai già fatto ${incrociGiaOggi} incroci: il massimo è ${LUCY_SOLO_CONTI_MAX} al giorno (modalità "solo conti"). Per cambiare spegni "SOLO CONTI" nelle impostazioni di Lucy.`)
+    const tuttePartite=lucySoloConti
+      ? Array.from({length:incrociResidui},(_,i)=>({lega:'Scegli tu',home:`Incrocio ${incrociGiaOggi+i+1} · scegli tu la partita`,away:'',ora:null,giorno:'oggi',mercati:[],_haQuote:false,_provider:null,segnaposto:true}))
+      : risultati.flat()
     const eventi=tuttePartite.filter(e=>e.mercati.length)
     // V38: senza quote Lucy NON si ferma: prepara comunque gli incroci in modalità manuale (vedi sotto).
     const senzaQuote=tuttePartite.filter(e=>!e.mercati.length)
     const avvisiQuote=[]
-    if (tuttePartite.length && !eventi.length) {
+    if (!lucySoloConti && tuttePartite.length && !eventi.length) {
       // Championship, Eredivisie e Brasile non sono nel catalogo del tuo account: non contano come errore
       const dettaglio=[...new Set(erroriQuote)].filter(e=>!/^(Championship|Eredivisie|Brazil):/.test(e)).slice(0,8).join(' · ')
       const risp=riepilogoLeghe.map(r=>`${r.lega} ${r.eventi} eventi`).join(' · ')
@@ -4676,7 +4686,7 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
     //  · MLB (3), NFL (2), NHL (6): 2 esiti (vincente) + Over/Under sulla linea principale
     //  · MLS (10), Liga MX (34), J-League (19), Europa League (33): 1X2 + Over/Under 2.5, come il calcio
     const cognomeLucy = s => { const t=String(s||'').trim().split(/\s+/).filter(Boolean); return normTeam(t[t.length-1]||'') }
-    const sportExtra=[
+    const sportExtra=lucySoloConti ? [] : [   // 14/10/2026: in modalità solo conti nessuna ricerca di partite
       {tipo:'tennis',nome:'ATP',id:38,icona:'🎾'},{tipo:'tennis',nome:'WTA',id:39,icona:'🎾'},
       {tipo:'due',nome:'MLB',id:3,icona:'⚾'},{tipo:'due',nome:'NFL',id:2,icona:'🏈'},{tipo:'due',nome:'NHL',id:6,icona:'🏒'},
       {tipo:'calcio',nome:'MLS',id:10,icona:'⚽'},{tipo:'calcio',nome:'Liga MX',id:34,icona:'⚽'},
@@ -5193,7 +5203,7 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
       const manCand=['Over/Under 2.5','1X2'].flatMap(m=>['oggi','domani'].flatMap(g=>
         partiteMan.filter(e=>e.giorno===g).map(ev=>({...ev,mercato:m,esiti:defEsiti[m]}))))
       let gm=0
-      while(slot.length && manProposte.length<LUCY_MANUALI_MAX && gm<manCand.length) {
+      while(slot.length && manProposte.length<(lucySoloConti?incrociResidui:LUCY_MANUALI_MAX) && gm<manCand.length) {
         const c=manCand[gm]; gm++
         const nEsiti=c.esiti.length
         const eventoKey=`${c.home}|${c.away}`
@@ -5275,7 +5285,9 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
     if (nonCollocate.length || rinviate.length) {
       msgErr=`Lucy resta entro il costo massimo di ${Number(lucyCostoMax).toFixed(0)}€. ${rinviate.length} incroci rinviati; ${nonCollocate.length} bet restano da completare. Le bet già confermate oggi non vengono riproposte.`
     }
-    const msgManuale=manProposte.length
+    const msgManuale=manProposte.length && lucySoloConti
+      ? `Lucy ti dice i conti di ${manProposte.length} incroci (massimo ${LUCY_SOLO_CONTI_MAX} al giorno): scegli tu la partita con il mercato indicato, scrivi la quota di ogni riga nella tabella e le coperture si calcolano da sole.`
+      : manProposte.length
       ? `${manProposte.length} incroci in MODALITÀ MANUALE (partite senza quote): nella tabella inserisci la quota che vedi sul book di ogni riga e le coperture si calcolano da sole. Le bet base hanno l'importo di protocollo.`
       : ''
     const msgTutti=[msgErr,...avvisiQuote,msgManuale].filter(Boolean).join(' ')
@@ -8506,6 +8518,12 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                     <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 800 }}>📣 SEGUI PROFILIAMO</span>
                     <input type="checkbox" checked={seguiProfiliamo} onChange={e => { setSeguiProfiliamo(e.target.checked); try { localStorage.setItem('profittracker_segui_profiliamo', e.target.checked ? '1' : '0') } catch {} }} />
                   </div>
+                  <div style={campo} title="Se attivo, Lucy ti dice solo i conti da incrociare (massimo 5 incroci al giorno in tutto) e la partita la scegli tu. Se spento, Lucy cerca anche le partite e le quote.">
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: '#94a3b8', fontWeight: 800, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={lucySoloConti} onChange={e => { setLucySoloConti(e.target.checked); try { localStorage.setItem('profittracker_lucy_solo_conti', e.target.checked ? '1' : '0') } catch {} }} />
+                      🔎 SOLO CONTI (max 5 incroci/giorno, partita scelta da me)
+                    </label>
+                  </div>
                   <div style={campo} title="Quanti incroci al giorno Lucy costruisce con i conti in Mantenimento (prima quelli fermi da più tempo). Gli incroci di Profilazione non sono limitati da questo valore.">
                     <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 800 }}>🔁 INCROCI MANT./GIORNO</span>
                     <input type="number" min="0" max="5" step="1" value={lucyIncrociMantMax}
@@ -8779,6 +8797,13 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               style={{display:'flex',alignItems:'center',gap:6,background:'rgba(15,23,42,.75)',border:'1px solid #334155',borderRadius:9,padding:'5px 8px'}}>
               <span style={{fontSize:10,color:'#94a3b8',fontWeight:800}}>📣 SEGUI PROFILIAMO</span>
               <input type="checkbox" checked={seguiProfiliamo} onChange={e=>{setSeguiProfiliamo(e.target.checked);try{localStorage.setItem('profittracker_segui_profiliamo',e.target.checked?'1':'0')}catch{}}} />
+            </div>
+            <div title="Se attivo, Lucy ti dice solo i conti da incrociare (massimo 5 incroci al giorno in tutto) e la partita la scegli tu. Se spento, Lucy cerca anche le partite e le quote."
+              style={{display:'flex',alignItems:'center',gap:6,background:'rgba(15,23,42,.75)',border:'1px solid #334155',borderRadius:9,padding:'5px 8px'}}>
+              <label style={{display:'flex',alignItems:'center',gap:6,fontSize:10,color:'#94a3b8',fontWeight:800,cursor:'pointer'}}>
+                <input type="checkbox" checked={lucySoloConti} onChange={e=>{setLucySoloConti(e.target.checked);try{localStorage.setItem('profittracker_lucy_solo_conti',e.target.checked?'1':'0')}catch{}}} />
+                🔎 SOLO CONTI (max 5 incroci/giorno)
+              </label>
             </div>
             <div title="Quanti incroci al giorno Lucy costruisce con i conti in Mantenimento (prima quelli fermi da più tempo)."
               style={{display:'flex',alignItems:'center',gap:6,background:'rgba(15,23,42,.75)',border:'1px solid #334155',borderRadius:9,padding:'5px 8px'}}>
