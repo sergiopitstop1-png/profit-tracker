@@ -24,6 +24,9 @@ function personeDoppie(contiBook) {
   return [...m.values()].filter(l => l.length > 1).map(l => ({ persona: l[0].intestatario, conti: l }))
 }
 const dataIt = (iso) => iso ? iso.split('-').reverse().join('/') : ''
+const giornoLungo = (iso) => iso ? new Date(iso + 'T12:00:00').toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : ''
+const giornoBreve = (iso) => new Date(iso + 'T12:00:00').toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit', month: '2-digit' })
+const piuGiorni = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('sv-SE') }
 const inp = { background: '#020617', color: '#f8fafc', border: '1px solid #475569', borderRadius: 8, padding: '6px 9px', fontSize: 13 }
 const btn = (c) => ({ padding: '5px 10px', borderRadius: 8, border: `1px solid ${c}66`, background: `${c}1a`, color: c, fontWeight: 700, fontSize: 12, cursor: 'pointer' })
 
@@ -45,6 +48,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
   const [numeri, setNumeri] = useState(null)      // 02/10/2026: id gruppo con la tabella numeri aperta
   const [nota, setNota] = useState(null)          // 05/10/2026: { id, testo } nota in modifica
   const [dettaglio, setDettaglio] = useState(null) // 05/10/2026: id del gruppo aperto nella finestra
+  const [scegliData, setScegliData] = useState(null) // 14/10/2026: { g, valore } calendario per la data della prossima
   const oggi = oggiISO()
   const bookDi = id => (books || []).find(b => String(b.id) === String(id))
 
@@ -113,16 +117,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
     if (error) { onError(error.message); return }
     setGruppi(prev => prev.filter(x => x.id !== g.id))
   }
-  // 02/10/2026 — 📅 la prossima la decide Sergio: gg/mm/aaaa (o gg/mm); vuoto = automatica (ogni N giorni)
-  function leggiData(t) {
-    const m = String(t || '').trim().match(/^(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?$/)
-    if (!m) return null
-    let y = m[3] ? Number(m[3]) : Number(oggi.slice(0, 4)); if (y < 100) y += 2000
-    const iso = `${y}-${String(m[2]).padStart(2, '0')}-${String(m[1]).padStart(2, '0')}`
-    const d = new Date(iso + 'T00:00:00')
-    if (Number.isNaN(d.getTime()) || d.getDate() !== Number(m[1])) return null
-    return iso < oggi && !m[3] ? `${y + 1}${iso.slice(4)}` : iso
-  }
+  // 02/10/2026 — 📅 la prossima la decide Sergio (vuoto = automatica, ogni N giorni); dal 14/10 si sceglie sul calendario
   // 05/10/2026 — 📝 note del gruppo: restano finché non le cancelli tu
   async function salvaNota() {
     const testo = String(nota?.testo || '').trim()
@@ -132,15 +127,14 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
     onMessage(testo ? '📝 Nota salvata' : '📝 Nota cancellata')
     setNota(null)
   }
-  async function scegliProssima(g, proposta) {
-    const t = window.prompt(`📅 "${g.nome}": quando fai la prossima?\nScrivi la data (gg/mm/aaaa oppure gg/mm).\nLascia vuoto per la cadenza automatica (ogni ${g.ogni_giorni} giorni).`, proposta ? dataIt(proposta) : '')
-    if (t === null) return
-    const iso = t.trim() ? leggiData(t) : null
-    if (t.trim() && !iso) { onError('Data non valida: usa gg/mm/aaaa'); return }
+  // 14/10/2026 — 📅 ora si sceglie la data su un calendario vero (con il giorno della settimana), non scrivendola a mano
+  function scegliProssima(g, proposta) { setScegliData({ g, valore: proposta || '' }) }
+  async function salvaProssima(g, iso) {
     const { error } = await supabase.from('profilazioni_mirate').update({ prossima_manuale: iso }).eq('id', g.id)
     if (error) { onError('Data non salvata: ' + error.message + ' (hai lanciato sessioni_live_baccarat.sql?)'); return }
     setGruppi(prev => prev.map(x => x.id === g.id ? { ...x, prossima_manuale: iso } : x))
-    onMessage(iso ? `📅 ${g.nome}: prossima il ${dataIt(iso)}` : `📅 ${g.nome}: cadenza automatica ogni ${g.ogni_giorni} giorni`)
+    onMessage(iso ? `📅 ${g.nome}: prossima ${giornoLungo(iso)}` : `📅 ${g.nome}: cadenza automatica ogni ${g.ogni_giorni} giorni`)
+    setScegliData(null)
   }
   async function fatta(g, daSessione = false) {
     const nomi = g.conti.map(bookDi).filter(Boolean).map(b => `${b.nome} – ${b.intestatario || '—'}`)
@@ -367,6 +361,27 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
               </React.Fragment>
             )
           })}
+        </div>
+      )}
+      {scegliData && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setScegliData(null)}>
+          <div style={{ width: 'min(520px, 100%)', background: '#0f172a', border: '1px solid rgba(250,204,21,0.5)', borderRadius: 14, padding: 16, color: '#e2e8f0' }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontWeight: 900, fontSize: 15, color: '#fde047', marginBottom: 2 }}>📅 {scegliData.g.nome}: quando fai la prossima?</div>
+            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>Scegli il giorno sul calendario o con i pulsanti. Oggi è {giornoLungo(oggi)}.</div>
+            <input type="date" min={oggi} value={scegliData.valore} onChange={e => setScegliData(d => ({ ...d, valore: e.target.value }))}
+              style={{ background: '#0b1220', color: '#f8fafc', border: '1px solid #475569', borderRadius: 8, padding: '8px 10px', fontSize: 16, colorScheme: 'dark', width: '100%' }} />
+            <div style={{ marginTop: 8, fontSize: 15, fontWeight: 800, color: scegliData.valore ? '#86efac' : '#64748b', minHeight: 22 }}>{scegliData.valore ? `➜ ${giornoLungo(scegliData.valore)}` : 'nessun giorno scelto'}</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+              {Array.from({ length: 14 }, (_, i) => piuGiorni(oggi, i + 1)).map(iso => (
+                <button key={iso} onClick={() => setScegliData(d => ({ ...d, valore: iso }))}
+                  style={{ ...btn(scegliData.valore === iso ? '#7c3aed' : '#1e293b'), border: `1px solid ${scegliData.valore === iso ? '#a78bfa' : '#334155'}`, textTransform: 'capitalize' }}>{giornoBreve(iso)}</button>))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
+              <button disabled={!scegliData.valore} onClick={() => salvaProssima(scegliData.g, scegliData.valore)} style={{ ...btn(scegliData.valore ? '#059669' : '#334155'), padding: '7px 14px' }}>✓ Salva questa data</button>
+              <button onClick={() => salvaProssima(scegliData.g, null)} style={btn('#64748b')} title={`Torna a ogni ${scegliData.g.ogni_giorni} giorni`}>Cadenza automatica ({scegliData.g.ogni_giorni} gg)</button>
+              <button onClick={() => setScegliData(null)} style={{ ...btn('#475569'), marginLeft: 'auto' }}>Annulla</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
