@@ -3505,18 +3505,27 @@ function righeIncrocioLucy(p, pi) {
     ...(p.extraProfilazione||[]).map(a=>({...a,tipoRiga:'EXTRA PROF.'})),
     ...(p.integrazioni||[]).map(a=>({...a,tipoRiga:'MANTENIMENTO'}))
   ]
-  const rows=p.manuale?righeManualiLucy(p,pi,rows0):rows0
-  const riep=p.manuale?riepilogoManualeLucy(p,pi,rows):null
+  // 14/10/2026: ogni riga ha un id (serve per scrivere la tua quota); se cambi una quota Lucy ricalcola gli stake come negli incroci senza quote,
+  // lasciando com'erano le bet già confermate
+  rows0.forEach((a,i)=>{ if(!a.rid) rows0[i]={...a,rid:`A|${a.book.id}|${a.esito}`} })
+  const cambiate=quoteCambiateLucy(p,pi,rows0)
+  const rowsBase=cambiate?rows0.map(a=>{
+    const tipoR=(a.tipoRiga==='PROFILAZIONE'||a.tipoRiga==='RECUPERO PROF.')?'profilazione':(a.tipoRiga==='RECUPERO CONTO'||a.tipoRiga==='OPERAZIONE SPOT')?'recupero':a.tipoRiga==='EXTRA PROF.'?'extra':'mantenimento'
+    const rec=lucyConfermate.find(x=>x.data===lucyOggi() && x.tipo===tipoR && x.partita===`${p.home} - ${p.away}` && x.mercato===p.mercato && String(x.bookId)===String(a.book.id) && x.esito===a.esito)
+    return rec?{...a,stake:Number(rec.stake),quota:Number(rec.quota),fissa:true}:a
+  }):rows0
+  const rows=(p.manuale||cambiate)?righeManualiLucy(p,pi,rowsBase):rows0
+  const riep=(p.manuale||cambiate)?riepilogoManualeLucy(p,pi,rows):null
   const dettagli=rows.map(a=>{
     const tipo=(a.tipoRiga==='PROFILAZIONE'||a.tipoRiga==='RECUPERO PROF.')?'profilazione':(a.tipoRiga==='RECUPERO CONTO'||a.tipoRiga==='OPERAZIONE SPOT')?'recupero':a.tipoRiga==='EXTRA PROF.'?'extra':'mantenimento'
     const key=keyBetLucy(p,a,tipo)
-    return {a,tipo,key,ok:lucyConfermate.some(x=>x.key===key),pronta:!p.manuale||(Number(a.stake)>0&&Number(a.quota)>0)}
+    return {a,tipo,key,ok:lucyConfermate.some(x=>x.key===key),pronta:!(p.manuale||cambiate)||(Number(a.stake)>0&&Number(a.quota)>0)}
   })
-  return {dettagli,riep}
+  return {dettagli,riep,cambiate}
 }
 
 function bloccoIncrocioLucy(p, pi, numero) {
-  const {dettagli,riep}=righeIncrocioLucy(p,pi)
+  const {dettagli,riep,cambiate}=righeIncrocioLucy(p,pi)
   const palette=[{bg:'#dbeafe',bd:'#60a5fa',tx:'#1e3a8a'},{bg:'#fce7f3',bd:'#f472b6',tx:'#831843'},{bg:'#dcfce7',bd:'#4ade80',tx:'#14532d'}]
   const col=e=>palette[Math.max(0,(p.esiti||[]).findIndex(([n])=>n===e))%palette.length]
   const ruoli={
@@ -3529,8 +3538,9 @@ function bloccoIncrocioLucy(p, pi, numero) {
     'EXTRA PROF.':{t:'Extra',bg:'#f3e8ff',tx:'#6b21a8'}
   }
   const fatte=dettagli.filter(d=>d.ok).length
-  const costo = p.manuale ? (riep&&riep.completo?riep.costo:null) : costoPeggioreIncrocioLucy(p)
-  const scenari = p.manuale ? (riep&&riep.completo ? (p.esiti||[]).map(([e],i)=>({esito:e,netto:riep.nets[i]})) : []) : (p.scenari||[])
+  const ricalcolato = p.manuale || cambiate
+  const costo = ricalcolato ? (riep&&riep.completo?riep.costo:null) : costoPeggioreIncrocioLucy(p)
+  const scenari = ricalcolato ? (riep&&riep.completo ? (p.esiti||[]).map(([e],i)=>({esito:e,netto:riep.nets[i]})) : []) : (p.scenari||[])
   const th={padding:'4px 8px',textAlign:'left',fontSize:9,color:'#64748b',fontWeight:800,borderBottom:'1px solid #e2e8f0',background:'#f8fafc'}
   return (
     <div key={`inc-${pi}`} style={{border:'1px solid #94a3b8',borderRadius:10,overflow:'hidden',background:'#fff',marginBottom:12,boxShadow:'0 1px 3px rgba(0,0,0,.08)'}}>
@@ -3599,12 +3609,18 @@ function bloccoIncrocioLucy(p, pi, numero) {
                     : a.stake===0 ? <span style={{color:'#64748b',fontSize:11}}>0 · non serve</span>
                     : <>{Number(a.stake||0).toFixed(2)} €{p.manuale && a.tipoRiga==='MANTENIMENTO' && a.stake>LUCY_MANT_MAX ? <div style={{fontSize:9,color:'#b91c1c'}}>⚠ oltre {LUCY_MANT_MAX}€: aggiungi un conto</div> : null}</>}
                 </td>
-                <td style={{padding:p.manuale?'3px 8px':'5px 8px',textAlign:'right'}}>
-                  {p.manuale
-                    ? <input type="text" inputMode="decimal" value={lucyQuoteManuali[`${pi}|${a.rid}`]??''}
-                        placeholder={a.tipoRiga==='MANTENIMENTO' ? 'quota' : (a.quotaMin?`min ${a.quotaMin}`:'quota')}
-                        onChange={e=>{const v=e.target.value; setLucyQuoteManuali(prev=>({...prev,[`${pi}|${a.rid}`]:v}))}}
-                        style={{width:64,textAlign:'right',border:'1px solid #94a3b8',borderRadius:4,padding:'3px 4px',fontWeight:800,background:'#fffbeb'}} />
+                <td style={{padding:(p.manuale||(!ok&&!decisioneBetLucy(key)&&!a.fissa))?'3px 8px':'5px 8px',textAlign:'right'}}>
+                  {(p.manuale || (!ok && !decisioneBetLucy(key) && !a.fissa))
+                    ? (() => {
+                        // 14/10/2026: la quota si può scrivere anche negli incroci con le quote di Lucy (vuoto = quota di Lucy)
+                        const scritta=lucyQuoteManuali[`${pi}|${a.rid}`]??''
+                        const mia=!p.manuale && Number(String(scritta).replace(',','.'))>1 && Math.abs(Number(String(scritta).replace(',','.'))-Number(a.quota||0))>1e-9
+                        return <input type="text" inputMode="decimal" value={scritta}
+                          title={p.manuale?undefined:'Quota di Lucy. Scrivi qui quella che vedi sul book: gli stake si ricalcolano da soli.'}
+                          placeholder={p.manuale ? (a.tipoRiga==='MANTENIMENTO' ? 'quota' : (a.quotaMin?`min ${a.quotaMin}`:'quota')) : Number(a.quota||0).toFixed(2)}
+                          onChange={e=>{const v=e.target.value; setLucyQuoteManuali(prev=>({...prev,[`${pi}|${a.rid}`]:v}))}}
+                          style={{width:64,textAlign:'right',border:`1px solid ${mia?'#d97706':'#94a3b8'}`,borderRadius:4,padding:'3px 4px',fontWeight:800,background:(p.manuale||mia)?'#fffbeb':'#fff'}} />
+                      })()
                     : <span style={{fontWeight:700}}>{Number(a.quota||0).toFixed(2)}</span>}
                 </td>
                 <td style={{padding:'4px 8px',textAlign:'right'}}>
@@ -3628,10 +3644,12 @@ function bloccoIncrocioLucy(p, pi, numero) {
         </tbody>
       </table>
       </div>
-      {(scenari.length>0 || p.manuale) && (
+      {true && (
         <div style={{padding:'5px 10px',fontSize:10,background:p.manuale?'#fffbeb':'#f8fafc',borderTop:'1px solid #e2e8f0',color:p.manuale?'#92400e':'#475569'}}>
-          {scenari.length>0 && <div>Risultato se piazzi tutto: {scenari.map((s,i)=>(
+          {scenari.length>0 && <div>Risultato se piazzi tutto{cambiate?' (con le tue quote)':''}: {scenari.map((s,i)=>(
             <span key={i} style={{marginRight:14}}>esce <b>{s.esito}</b> → <b style={{color:Number(s.netto)>=0?'#166534':'#b91c1c'}}>{Number(s.netto)>=0?'+':''}{Number(s.netto).toFixed(2)} €</b></span>))}</div>}
+          {!p.manuale && !cambiate && <div style={{color:'#64748b'}}>✏️ La quota non è quella che vedi sul book? Scrivila nella colonna QUOTA: gli stake delle coperture si ricalcolano da soli.</div>}
+          {cambiate && <div style={{color:'#92400e',fontWeight:700}}>✏️ Hai cambiato delle quote: gli stake delle coperture sono ricalcolati. Le bet già confermate restano come le hai giocate. <button onClick={()=>setLucyQuoteManuali(prev=>Object.fromEntries(Object.entries(prev).filter(([k])=>!k.startsWith(`${pi}|`))))} style={{marginLeft:6,background:'white',border:'1px solid #d97706',borderRadius:6,padding:'2px 8px',fontSize:10,fontWeight:800,cursor:'pointer',color:'#92400e'}}>↺ torna alle quote di Lucy</button></div>}
           {p.manuale && <div>🧮 Scrivi nella colonna QUOTA la quota che vedi sul book di ogni riga: le coperture si calcolano da sole (copertura = (ritorno massimo − ritorno già coperto) ÷ quota del conto). Nelle bet base il campo vuoto mostra la quota minima del protocollo.</div>}
           {riep && riep.warn.map((w,wi)=><div key={wi} style={{color:'#b91c1c',fontWeight:800}}>⚠ {w}</div>)}
         </div>
@@ -4327,22 +4345,36 @@ function preferitoPronoxManualeLucy(pm, mercato) {
 }
 
 // Quota inserita a mano per una riga (0 = mancante o non valida)
-function quotaManualeLucy(pi, a) {
+// 14/10/2026: negli incroci con le quote di Lucy dove non scrivi nulla vale la quota di Lucy; le bet già confermate (fissa) restano come sono
+function quotaManualeLucy(pi, a, p) {
+  if(a.fissa) return Number(a.quota)>1 ? Number(a.quota) : 0
   const v=String(lucyQuoteManuali[`${pi}|${a.rid}`]??'').replace(',','.')
   const q=Number(v)
-  return q>1 ? q : 0
+  if(q>1) return q
+  if(p && !p.manuale && Number(a.quota)>1) return Number(a.quota)
+  return 0
+}
+// 14/10/2026: l'incrocio con le quote di Lucy ha almeno una quota che hai cambiato tu (valida e diversa da quella di Lucy)
+function quoteCambiateLucy(p, pi, righe) {
+  if(p.manuale) return false
+  return righe.some(a=>{
+    if(a.fissa) return false
+    const q=Number(String(lucyQuoteManuali[`${pi}|${a.rid}`]??'').replace(',','.'))
+    return q>1 && Math.abs(q-Number(a.quota||0))>1e-9
+  })
 }
 
 // Calcola quote e stake delle coperture dalle quote inserite.
 // R = ritorno massimo delle bet base; copertura sull'esito e = (R - ritorno base su e) / quota del conto di copertura.
 function righeManualiLucy(p, pi, righe) {
   const basi=righe.filter(a=>a.tipoRiga!=='MANTENIMENTO')
-  const okBasi=basi.length>0 && basi.every(a=>quotaManualeLucy(pi,a)>0)
-  const ritorno=e=>basi.filter(a=>a.esito===e).reduce((s,a)=>s+Number(a.stake||0)*quotaManualeLucy(pi,a),0)
+  const okBasi=basi.length>0 && basi.every(a=>quotaManualeLucy(pi,a,p)>0)
+  const ritorno=e=>basi.filter(a=>a.esito===e).reduce((s,a)=>s+Number(a.stake||0)*quotaManualeLucy(pi,a,p),0)
   const R=okBasi ? Math.max(...p.esiti.map(([e])=>ritorno(e))) : 0
   const aggiustamenti=[]
   const out=righe.map(a=>{
-    const q=quotaManualeLucy(pi,a)
+    const q=quotaManualeLucy(pi,a,p)
+    if(a.fissa) return a   // già confermata: stake e quota restano quelle giocate
     if(a.tipoRiga!=='MANTENIMENTO') return {...a,quota:q}
     if(!okBasi || !q) return {...a,quota:q,stake:null}
     const c=(R-ritorno(a.esito))/q
