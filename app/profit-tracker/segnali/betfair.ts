@@ -528,7 +528,8 @@ export async function caricaCongelati(supabase: any): Promise<Map<string, RigaCo
 const paroleTennis = (s: string | null | undefined) => testoNorm(s).replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(t => t.length >= 3)
 const comuniTennis = (a: string[], b: string[]) => { const set = new Set(b); return a.filter(t => set.has(t)).length }
 export type CellaTennis =
-  | { stato: 'ok'; back: number | null; lay: number | null; backSize: number | null; laySize: number | null; deltaBook: number | null; iniziata: boolean; vecchia: boolean; evento: string }
+  | { stato: 'ok'; back: number | null; lay: number | null; backSize: number | null; laySize: number | null; deltaBook: number | null; iniziata: boolean; vecchia: boolean; evento: string
+      ; eventId?: string; inizio?: number; selNome?: string; fair?: number | null }   // 14/10/2026: per congelare le quote del tennis
   | { stato: 'nd'; motivo: string }
 export function quotaTennis(s: { inizio?: string | null; data_partita?: string | null; ora?: string | null; giocatore_a: string; giocatore_b: string; selezione: string; quota?: number | null }, eventi: EventoBF[], ora = Date.now()): CellaTennis {
   const t0 = s.inizio ? Date.parse(s.inizio) : romaAUtc(s.data_partita, s.ora)
@@ -556,5 +557,8 @@ export function quotaTennis(s: { inizio?: string | null; data_partita?: string |
   const iniziata = r.inGioco || ev.inizio <= ora
   const vecchia = ev.battito != null && ora - ev.battito > 10 * MIN
   const q = s.quota != null ? Number(s.quota) : null
-  return { stato: 'ok', back: r.back, lay: r.lay, backSize: r.backSize, laySize: r.laySize, deltaBook: q != null && r.back ? q / r.back - 1 : null, iniziata, vecchia, evento: ev.evento }
+  const altro = ev.mercati['MATCH_ODDS'].sel[1 - is]
+  const fair = r.back && altro?.back ? r.back * (1 / r.back + 1 / altro.back) : null   // quota giusta: i due back senza margine
+  return { stato: 'ok', back: r.back, lay: r.lay, backSize: r.backSize, laySize: r.laySize, deltaBook: q != null && r.back ? q / r.back - 1 : null, iniziata, vecchia, evento: ev.evento,
+    eventId: ev.eventId, inizio: ev.inizio, selNome: r.nome, fair }
 }

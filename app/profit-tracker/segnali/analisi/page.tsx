@@ -282,7 +282,7 @@ export default function AnalisiSegnali() {
   const chCanale = canale === 'hunterbet' ? 'hunter' : canale
   const clvLista: number[] = []
   let conPrezzoSegnale = 0
-  if (canale !== 'tennis') for (const r of tutte) {
+  for (const r of tutte) {
     const c = congelati.get(`${chCanale}|${r.id}`)
     if (!c) continue
     conPrezzoSegnale++
@@ -406,7 +406,7 @@ export default function AnalisiSegnali() {
         )}
         {totale && totale.n < 100 && <div style={{ fontSize: 12, color: '#fbbf24', marginBottom: 12 }}>⚠️ {totale.n} bet chiuse: i numeri sono ancora molto incerti (guarda il margine). Diventano affidabili da circa 100 bet, e per i singoli segmenti da {MIN_N} in su.</div>}
 
-        {canale !== 'tennis' && (
+        {(
           <div style={{ background: 'rgba(15,23,42,.6)', border: '1px solid #1e293b', borderRadius: 14, padding: 12, marginBottom: 14 }}>
             <div style={{ fontWeight: 900, marginBottom: 6, color: '#7dd3fc' }}>🎯 Questo servizio batte il mercato? (CLV su Betfair)</div>
             {clvN === 0 ? (
