@@ -3820,6 +3820,7 @@ useEffect(() => { preparaOggiRef.current = preparaOggiDaFare })
 // la pagina "Oggi da fare" apre da qui le schede vere: Tabella bet (con Apri telefoni), Recuperi PronoX, Live, mirate, Profiliamo, agenda, avvisi
 function apriDaOggiDaFare(dove) {
   if (dove === 'tabella_bet') { if (activeTab !== 'profilazione') handleTabChange('profilazione'); setLucyTabellaAperta(true); return }
+  if (dove === 'tabella_live') { if (activeTab !== 'profilazione') handleTabChange('profilazione'); setLucyLiveTabellaAperta(true); return }   // gli incroci Live di oggi (conto da lavorare + amici)
   apriSezioneProfilazione(dove)
 }
 const apriDaOggiRef = useRef(null)
