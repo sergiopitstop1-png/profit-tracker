@@ -166,6 +166,8 @@ export default function ProfitTrackerClient() {
   const [aspetto, setAspetto] = useAspetto()   // 12/10/2026: ⚙ Aspetto (ogni modifica si spegne da sola)
   // 05/10/2026 · 🎁 arrivo da Lucy Mail (/profit-tracker?tab=promo&...): apre la tab Promo con il modulo già compilato
   const [promoPrefill, setPromoPrefill] = useState(null)
+  // 14/10/2026 · arrivo da "Oggi da fare" (/profit-tracker?tab=promo&cerca=Cliente+Book): la tab Promo si apre già filtrata su quella promo
+  const [promoCerca, setPromoCerca] = useState('')
   // 12/10/2026 · ?tab=lucy-mail&vista=...&sezione=telegram e ?tab=segnali aprono le due tab (arrivo da avvisi e link)
   const [lucyMailDeep, setLucyMailDeep] = useState({ vista: '', sezione: '', canale: '' })
   useEffect(() => {
@@ -180,6 +182,7 @@ export default function ProfitTrackerClient() {
       }
       if (t !== 'promo') return
       if (q.get('mail_id')) setPromoPrefill(Object.fromEntries(q.entries()))
+      if (q.get('cerca')) setPromoCerca(q.get('cerca') || '')
       setActiveTab('promo')
       window.history.replaceState(null, '', window.location.pathname)
     } catch {}
@@ -9744,7 +9747,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 )}
 
       {activeTab === 'promo' && (
-        <PromoBonusPanel books={books} prefill={promoPrefill} onPrefillUsato={() => setPromoPrefill(null)} onMessage={setMessage} onError={setErrorMessage} />
+        <PromoBonusPanel books={books} prefill={promoPrefill} onPrefillUsato={() => setPromoPrefill(null)} cercaIniziale={promoCerca} onCercaUsata={() => setPromoCerca('')} onMessage={setMessage} onError={setErrorMessage} />
       )}
 
       {activeTab === 'matrice' && (

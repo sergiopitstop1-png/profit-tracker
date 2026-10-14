@@ -118,7 +118,7 @@ export default function DaFareClient() {
 
     // 3. promo che scadono oggi e sono ancora da fare
     try {
-      const { data, error } = await supabase.from('promo_bonus').select('id,cliente,book,tipo,bonus,scadenza').eq('stato', 'da fare').eq('scadenza', giorno)
+      const { data, error } = await supabase.from('promo_bonus').select('id,cliente,book,tipo,bonus,scadenza,note,versamento,rollover,da_giocare').eq('stato', 'da fare').eq('scadenza', giorno)
       if (error) err.push('Promo: ' + error.message)
       else setPromo(data || [])
     } catch (e) { err.push('Promo: ' + (e?.message || e)) }
@@ -328,6 +328,15 @@ export default function DaFareClient() {
               {v.titolo}
             </div>
             {v.dettaglio ? <div style={{ fontSize: 12.5, color: '#94a3b8', marginTop: 2, lineHeight: 1.4 }}>{v.dettaglio}</div> : null}
+            {v.sezione === 'promo' && v.promoCerca !== undefined ? (
+              <div style={{ marginTop: 5 }}>
+                {v.notaPromo
+                  ? <div style={{ fontSize: 13, color: '#fde68a', background: 'rgba(250,204,21,0.08)', border: '1px solid rgba(250,204,21,0.3)', borderRadius: 8, padding: '5px 9px', lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>📝 {v.notaPromo}</div>
+                  : <div style={{ fontSize: 12, color: '#64748b', fontStyle: 'italic' }}>nessuna nota scritta in questa promo</div>}
+                <a href={`/profit-tracker?tab=promo&cerca=${encodeURIComponent(v.promoCerca || '')}`} target="_blank" rel="noreferrer"
+                  style={{ display: 'inline-block', marginTop: 5, fontSize: 12, fontWeight: 800, color: '#7dd3fc', textDecoration: 'none', border: '1px solid rgba(125,211,252,0.4)', borderRadius: 8, padding: '3px 9px' }}>🎁 Apri la promo</a>
+              </div>
+            ) : null}
             {bookIdProfiliamo(v.key) && storicoDi(bookIdProfiliamo(v.key)).length > 0 && <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 3 }}>🕘 Ultime operazioni: {storicoDi(bookIdProfiliamo(v.key)).map(x => `${dataIt(x.giorno).slice(0, 5)} ${x.testo}`).join(' · ')}</div>}
             {v.rimandataDal ? <div style={{ fontSize: 11.5, color: '#fbbf24', marginTop: 3, fontWeight: 700 }}>⏭ rimandata il {dataIt(v.rimandataDal)}: torna oggi</div> : null}
             {tipo === 'fatta' && v.nota ? <div style={{ fontSize: 11.5, color: '#4ade80', marginTop: 3, fontWeight: 700 }}>✓ {v.nota}</div> : null}
