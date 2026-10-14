@@ -3653,10 +3653,56 @@ const agendaOggiLucy = () => books
 
 // Il tastino (e il pulsante "Prepara bet" della pagina) fa partire da solo "⚽ Prepara bet", ma solo se le bet di oggi non ci sono già.
 // Le quote TheRundown passano dalla cache del server (senza "forza quote"): aprire la pagina più volte non brucia datapoint.
-function preparaOggiDaFare() {
+async function preparaOggiDaFare() {
   if (lucySportLoading || lucySportProposte.length > 0 || !books.length) return
+  if (await ripristinaProposteSalvate()) return   // le bet di oggi erano già state generate e salvate: si rimettono com'erano
   generaLucySport(agendaOggiLucy().concat(agendaRecuperoLucy()), false)
 }
+
+// 14/10/2026 — BET SALVATE: le bet generate da Lucy si salvano su Supabase (tabella lucy_proposte_giorno, una riga al giorno).
+// Se ricarichi il Profit Tracker tornano com'erano (stesse quote di quando le hai generate, "Prepara bet" le rigenera) e
+// la pagina Oggi da fare ne ricava l'archivio con l'esito (fatta / saltata / rimandata). I conti si salvano come riferimento (id) e si rimettono dai conti caricati.
+const proposteSalvateProva = useRef(null)
+const eBookLucy = (v) => !!v && typeof v === 'object' && !Array.isArray(v) && v.id != null && typeof v.nome === 'string' && ('saldo' in v || 'intestatario' in v)
+function ripristinaProposteSalvate() {
+  if (proposteSalvateProva.current === 'fatto') return Promise.resolve(false)
+  if (!proposteSalvateProva.current) {
+    proposteSalvateProva.current = (async () => {
+      try {
+        const uid = await lucyUserIdSync()
+        const { data, error } = await supabase.from('lucy_proposte_giorno').select('dati').eq('user_id', uid).eq('giorno', lucyOggi()).maybeSingle()
+        if (error || !data?.dati) return false
+        let mancanti = false
+        const dati = JSON.parse(JSON.stringify(data.dati), (k, v) => {
+          if (v && typeof v === 'object' && v.__bookId !== undefined) { const b = books.find(x => String(x.id) === String(v.__bookId)); if (!b) mancanti = true; return b || null }
+          return v
+        })
+        if (mancanti || !Array.isArray(dati.sport) || !Array.isArray(dati.live)) return false   // un conto non esiste più: meglio rigenerare
+        setLucySportProposte(dati.sport); setLucyLiveProposte(dati.live)
+        setLucySportNonCollocate(dati.nonCollocate || []); setLucyRinviate(dati.rinviate || [])
+        if (dati.errore) setLucySportError(dati.errore)
+        if (dati.aggiornato) setLucySportAggiornato(new Date(dati.aggiornato))
+        return dati.sport.length > 0
+      } catch (e) { console.warn('[Lucy] bet salvate non lette:', e?.message || e); return false }
+    })().then(r => { proposteSalvateProva.current = 'fatto'; return r })
+  }
+  return proposteSalvateProva.current
+}
+useEffect(() => { if (books.length) ripristinaProposteSalvate() }, [books.length])
+useEffect(() => {
+  if (!books.length || lucySportLoading) return
+  if (!lucySportProposte.length && !lucyLiveProposte.length) return
+  const t = setTimeout(async () => {
+    try {
+      const uid = await lucyUserIdSync()
+      const dati = JSON.parse(JSON.stringify({ sport: lucySportProposte, live: lucyLiveProposte, nonCollocate: lucySportNonCollocate, rinviate: lucyRinviate, errore: lucySportError || '', aggiornato: lucySportAggiornato || new Date() }, (k, v) => eBookLucy(v) ? { __bookId: v.id } : v))
+      const righe = fotografiaOggiDaFare().voci.filter(v => /^(bet|live)\|/.test(v.key)).map(({ key, sezione, titolo, dettaglio, tag }) => ({ key, sezione, titolo, dettaglio, tag }))
+      const { error } = await supabase.from('lucy_proposte_giorno').upsert({ user_id: uid, giorno: lucyOggi(), dati, righe, aggiornato: new Date().toISOString() }, { onConflict: 'user_id,giorno' })
+      if (error) console.warn('[Lucy] bet non salvate (hai lanciato lucy_proposte_giorno.sql?):', error.message)
+    } catch (e) { console.warn('[Lucy] bet non salvate:', e?.message || e) }
+  }, 1500)
+  return () => clearTimeout(t)
+}, [lucySportProposte, lucyLiveProposte, lucySportLoading])
 
 function fotografiaOggiDaFare() {
   const oggi = lucyOggi()
@@ -3878,7 +3924,7 @@ function azzeraConfermeOggiLucy() {
   salvaLucyConfermate(lucyConfermate.filter(x=>x.data!==oggi || x.tipo==='manuale'))
   // V34: azzerare la giornata cancella anche le bet attese di oggi (su Supabase e in locale)
   try { localStorage.removeItem('profittracker_lucy_attese_oggi') } catch {}
-  ;(async()=>{ try { const uid=await lucyUserIdSync(); await supabase.from('lucy_bet_attese').delete().eq('user_id',uid).eq('data',oggi) } catch {} })()
+  ;(async()=>{ try { const uid=await lucyUserIdSync(); await supabase.from('lucy_bet_attese').delete().eq('user_id',uid).eq('data',oggi); await supabase.from('lucy_proposte_giorno').delete().eq('user_id',uid).eq('giorno',oggi) } catch {} })()
   setLucySportProposte([])
   setLucySportNonCollocate([])
   setLucyRinviate([])
