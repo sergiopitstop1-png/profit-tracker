@@ -43,7 +43,7 @@ export default function LucyChatPage() {
           {!msgs.length && <div style={{ color: '#64748b', fontSize: 14, padding: 10 }}>Prova a chiederle: «cosa ho rimandato questa settimana?» oppure «quali avvisi sono ancora aperti?»</div>}
           {msgs.map((m, i) => (
             <div key={i} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '88%', background: m.role === 'user' ? 'rgba(56,189,248,.18)' : 'rgba(15,23,42,.9)', border: '1px solid ' + (m.role === 'user' ? 'rgba(56,189,248,.4)' : '#1e293b'), borderRadius: 12, padding: '8px 12px', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.55, fontSize: 14.5 }}>
-              {m.role === 'assistant' && <b style={{ color: '#4ade80' }}>Lucy: </b>}{m.content}
+              {m.role === 'assistant' && <b style={{ color: '#4ade80' }}>Lucy: </b>}{m.role === 'assistant' ? m.content.replace(/\*\*/g, '') : m.content}
             </div>
           ))}
           {attesa && <div style={{ color: '#94a3b8', fontSize: 13 }}>Lucy sta scrivendo…</div>}
