@@ -30,7 +30,7 @@ import PromoNuovePopup from './PromoNuovePopup'   // 14/10/2026: popup promo seg
 import SceltaData from './SceltaData'   // 14/10/2026: calendario unico per scegliere le date (rimandi)
 import DiretteAvviso from './DiretteAvviso'   // 09/10/2026: prossima diretta Accademia (solo admin)
 import LucyTrading from './LucyTrading'   // 06/10/2026: scheda Lucy · trading prematch
-import ProfilazioniMiratePanel, { prossimaMirata } from './ProfilazioniMirate'   // 05/10/2026: prossimaMirata per il banner in Dashboard
+import ProfilazioniMiratePanel, { prossimaMirata, tipoMirata } from './ProfilazioniMirate'   // 05/10/2026: prossimaMirata per il banner in Dashboard
 import { impostaPausaRecupero } from './RecuperoConti'
 import CalendarioAperture from './CalendarioAperture'
 import { useAspetto, PannelloAspetto, NavRaggruppata, MenuIntestazione } from './AspettoDashboard'   // 12/10/2026: Dashboard meno affollata, con interruttori
@@ -319,7 +319,7 @@ const [pausaForm, setPausaForm] = useState(null)   // { modo, ripresa } quando i
 // 28/09/2026 — PROFILAZIONI MIRATE
 const [gruppiMirati, setGruppiMiratiState] = useState([])
 const [fatteMirate, setFatteMirate] = useState([])
-const setGruppiMirati = (v) => setGruppiMiratiState(prev => { const n = typeof v === 'function' ? v(prev) : v; MIRATE_IDS = new Set(n.flatMap(g => (g.conti || []).map(String))); return n })
+const setGruppiMirati = (v) => setGruppiMiratiState(prev => { const n = typeof v === 'function' ? v(prev) : v; MIRATE_IDS = new Set(n.filter(g => tipoMirata(g) === 'casino live').flatMap(g => (g.conti || []).map(String))); return n })
 // 27/09/2026 — SALDI DA AGGIORNARE: conti usati (telefoni via Chrome, Lucy, registro manuale) dopo l'ultima verifica del saldo
 const [bookAttivita, setBookAttivita] = useState([])
 const [saldiDaAggAperto, setSaldiDaAggAperto] = useState(null)   // nome del book aperto nel pannello (null = solo i nomi dei book)
@@ -10585,7 +10585,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                   {filteredBooks.map((book) => {
   const livBadge = bookInRecuperoLimitato(book) ? { bg: 'rgba(239,68,68,0.18)', color: '#f87171', label: '🔧' } : book.profilo_livello === 'attivo' ? { bg: 'rgba(34,197,94,0.18)', color: '#22c55e', label: '🟢' } : (book.profilo_livello && book.profilo_livello.startsWith('mantenimento')) ? { bg: 'rgba(251,191,36,0.18)', color: '#fbbf24', label: '🟡' } : book.profilo_livello === 'dormiente' ? { bg: 'rgba(100,116,139,0.18)', color: '#94a3b8', label: '⚫' } : null
 
-  const gruppoMirato = MIRATE_IDS.has(String(book.id)) ? (gruppiMirati || []).find(g => (g.conti || []).map(String).includes(String(book.id))) : null   // 28/09/2026: pallino blu
+  const gruppoMirato = MIRATE_IDS.has(String(book.id)) ? (gruppiMirati || []).find(g => tipoMirata(g) === 'casino live' && (g.conti || []).map(String).includes(String(book.id))) : null   // 28/09/2026: pallino blu
   const pendingVal = pendingBookSaldi[book.id]
   const displaySaldo = pendingVal !== undefined ? pendingVal : String(book.saldo ?? 0)
   const hasPending = pendingVal !== undefined && Number(String(pendingVal).replace(',','.')) !== Number(book.saldo || 0)

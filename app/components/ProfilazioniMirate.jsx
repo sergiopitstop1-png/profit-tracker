@@ -8,6 +8,9 @@
 // la stessa persona con due book nello stesso gruppo viene bloccata (aggiunta, salvataggio) e segnalata nei gruppi salvati.
 // 05/10/2026: 📝 NOTE del gruppo (cosa fare la prossima volta) — colonna profilazioni_mirate.note (profilazioni_mirate_note.sql).
 // 05/10/2026: ELENCO SEMPLICE — una riga per gruppo con i dati essenziali; clic → finestra con tutti i dettagli e i pulsanti.
+// 15/10/2026: SEZIONI — Casinò live (come prima), Sport, Slot, Bingo. Il tipo sta in profilazioni_mirate.tipo (vuoto = casinò live).
+//   Solo i gruppi di CASINÒ LIVE sostituiscono la profilazione casinò normale e hanno la regola "una persona = un conto" e il pulsante Numeri.
+//   Sport, Slot e Bingo sono promemoria ricorrenti (ogni N giorni, ✅ Fatta, storico, note) che compaiono anche in Oggi da fare e in Dashboard.
 // ════════════════════════════════════════════════════════════════════
 import React, { useState } from 'react'
 import { supabase } from '../profit-tracker/supabaseClient'
@@ -29,6 +32,20 @@ const giornoLungo = (iso) => iso ? new Date(iso + 'T12:00:00').toLocaleDateStrin
 const inp = { background: '#020617', color: '#f8fafc', border: '1px solid #475569', borderRadius: 8, padding: '6px 9px', fontSize: 13 }
 const btn = (c) => ({ padding: '5px 10px', borderRadius: 8, border: `1px solid ${c}66`, background: `${c}1a`, color: c, fontWeight: 700, fontSize: 12, cursor: 'pointer' })
 
+// 15/10/2026 — le sezioni della schermata
+export const TIPI_MIRATE = [
+  { k: 'casino live', nome: 'Casinò live', icona: '🎰', colore: '#facc15', descr: 'operazione di casinò live', prefisso: 'Profilazione',
+    vuoto: 'Nessun gruppo. Crea "Profilazione 1" con i conti che hai taggato su Panda: da quel momento quei conti non ricevono più la profilazione casinò normale.' },
+  { k: 'sport', nome: 'Sport', icona: '⚽', colore: '#38bdf8', descr: 'operazione sport', prefisso: 'Sport',
+    vuoto: 'Nessun gruppo sport. Crea un gruppo con i conti su cui fare l\'operazione sport ogni N giorni.' },
+  { k: 'slot', nome: 'Slot', icona: '🎲', colore: '#c084fc', descr: 'sessione slot', prefisso: 'Slot',
+    vuoto: 'Nessun gruppo slot. Crea un gruppo con i conti su cui fare la sessione slot ogni N giorni.' },
+  { k: 'bingo', nome: 'Bingo', icona: '🔢', colore: '#34d399', descr: 'operazione bingo', prefisso: 'Bingo',
+    vuoto: 'Nessun gruppo bingo. Crea un gruppo con i conti su cui fare il bingo ogni N giorni.' },
+]
+export const tipoMirata = g => (TIPI_MIRATE.some(t => t.k === g?.tipo) ? g.tipo : 'casino live')   // vuoto o sconosciuto = casinò live
+const infoMirata = g => TIPI_MIRATE.find(t => t.k === tipoMirata(g)) || TIPI_MIRATE[0]
+
 // prossima data di un gruppo: ultima fatta + N giorni (+ giorni di pausa totale); mai fatta = oggi
 export function prossimaMirata(g, fatte, giorniPausa) {
   const ultime = fatte.filter(f => f.gruppo_id === g.id).map(f => f.data).sort()
@@ -42,6 +59,7 @@ export function prossimaMirata(g, fatte, giorniPausa) {
 
 export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setGruppi, fatte, setFatte, giorniPausa, onProfilazione, onProfilazioneTutti, onApri, sitoBook, onMessage, onError }) {
   const [aperto, setAperto] = useState(true)
+  const [chiuse, setChiuse] = useState({})          // 15/10/2026: sezioni ripiegate { 'sport': true }
   const [edit, setEdit] = useState(null)          // { id?, nome, ogni_giorni, conti: [book_id], cerca }
   const [storico, setStorico] = useState(null)    // id gruppo con lo storico aperto
   const [numeri, setNumeri] = useState(null)      // 02/10/2026: id gruppo con la tabella numeri aperta
@@ -59,10 +77,11 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
     const e = edit
     if (!e.nome.trim()) { onError('Dai un nome al gruppo'); return }
     if (!e.conti.length) { onError('Aggiungi almeno un conto'); return }
-    // 05/10/2026: una persona = un conto per gruppo
-    const doppie = personeDoppie(e.conti.map(bookDi))
+    // 05/10/2026: una persona = un conto per gruppo (dal 15/10 vale solo per il casinò live)
+    const tipoE = e.tipo || 'casino live'
+    const doppie = tipoE === 'casino live' ? personeDoppie(e.conti.map(bookDi)) : []
     if (doppie.length) { onError(`⛔ Non salvato: ${doppie.map(d => `${d.persona} è presente ${d.conti.length} volte (${d.conti.map(b => b.nome).join(', ')})`).join(' · ')}. Al casinò live ci si collega con un solo conto per persona: togline uno.`); return }
-    const riga = { nome: e.nome.trim(), ogni_giorni: Math.max(1, Number(e.ogni_giorni) || 7), conti: e.conti.map(String), tipo: 'casino live' }
+    const riga = { nome: e.nome.trim(), ogni_giorni: Math.max(1, Number(e.ogni_giorni) || 7), conti: e.conti.map(String), tipo: tipoE }
     const q = e.id ? supabase.from('profilazioni_mirate').update(riga).eq('id', e.id).select().single()
       : supabase.from('profilazioni_mirate').insert([riga]).select().single()
     const { data, error } = await q
@@ -111,7 +130,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
   }
 
   async function elimina(g) {
-    if (!window.confirm(`Elimino il gruppo "${g.nome}"?\nLo storico delle operazioni fatte resta salvato. I suoi conti tornano alla profilazione casinò normale.`)) return
+    if (!window.confirm(`Elimino il gruppo "${g.nome}"?\nLo storico delle operazioni fatte resta salvato.${tipoMirata(g) === 'casino live' ? ' I suoi conti tornano alla profilazione casinò normale.' : ''}`)) return
     const { error } = await supabase.from('profilazioni_mirate').delete().eq('id', g.id)
     if (error) { onError(error.message); return }
     setGruppi(prev => prev.filter(x => x.id !== g.id))
@@ -166,6 +185,8 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
 
   // ─── editor del gruppo ───
   const editor = edit && (() => {
+    const unaPersona = (edit.tipo || 'casino live') === 'casino live'   // 15/10/2026: la regola vale solo per il casinò live
+    const infoTipo = TIPI_MIRATE.find(t => t.k === (edit.tipo || 'casino live')) || TIPI_MIRATE[0]
     const q = edit.cerca.trim().toLowerCase()
     // ricerca a più parole: "snai laura" trova Snai di Laura Corà
     const parole = q.split(/\s+/).filter(Boolean)
@@ -177,13 +198,13 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
     const gruppiDi = id => (gruppi || []).filter(g => g.id !== edit.id && (g.conti || []).map(String).includes(String(id))).map(g => g.nome)
     const etichetta = id => { const b = (books || []).find(x => String(x.id) === String(id)); return b ? `${b.nome} · ${b.intestatario || '—'}` : `conto ${id}` }
     // 05/10/2026: persona già nel gruppo con un altro conto → quel conto non si aggiunge
-    const personaGiaNelGruppo = id => { const b = bookDi(id); const k = normNome(b?.intestatario); return k ? edit.conti.map(bookDi).find(x => x && normNome(x.intestatario) === k) : null }
+    const personaGiaNelGruppo = id => { if (!unaPersona) return null; const b = bookDi(id); const k = normNome(b?.intestatario); return k ? edit.conti.map(bookDi).find(x => x && normNome(x.intestatario) === k) : null }
     const aggiungiConti = (ids) => {
       let nuovi = ids.map(String).filter(id => !edit.conti.includes(id))
       // 05/10/2026: una persona = un conto: scarta chi è già nel gruppo e, tra i nuovi, tiene il primo conto di ogni persona
       const visti = new Set(edit.conti.map(bookDi).filter(Boolean).map(b => normNome(b.intestatario)))
       const scartati = []
-      nuovi = nuovi.filter(id => { const k = normNome(bookDi(id)?.intestatario); if (k && visti.has(k)) { scartati.push(id); return false } if (k) visti.add(k); return true })
+      nuovi = nuovi.filter(id => { if (!unaPersona) return true; const k = normNome(bookDi(id)?.intestatario); if (k && visti.has(k)) { scartati.push(id); return false } if (k) visti.add(k); return true })
       if (scartati.length) onError(`⛔ Una persona = un conto per sessione. Non aggiunti: ${scartati.map(id => { const g = personaGiaNelGruppo(id); return `${etichetta(id)}${g ? ` (c'è già ${g.nome})` : ''}` }).join(', ')}`)
       if (!nuovi.length) { setEdit({ ...edit, cerca: '' }); return }
       const doppi = nuovi.filter(id => gruppiDi(id).length)
@@ -203,7 +224,8 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
           <input placeholder="Nome (es. Profilazione 1)" value={edit.nome} onChange={e => setEdit({ ...edit, nome: e.target.value })} style={{ ...inp, minWidth: 200 }} />
           <span style={{ fontSize: 12, color: '#cbd5e1' }}>ogni</span>
           <input type="number" min={1} value={edit.ogni_giorni} onChange={e => setEdit({ ...edit, ogni_giorni: e.target.value })} style={{ ...inp, width: 70 }} />
-          <span style={{ fontSize: 12, color: '#cbd5e1' }}>giorni · operazione di casinò live</span>
+          <span style={{ fontSize: 12, color: '#cbd5e1' }}>giorni · {infoTipo.descr}</span>
+          {TIPI_MIRATE.map(t => <button key={t.k} title={`Sposta il gruppo nella sezione ${t.nome}`} style={{ ...btn(t.colore), opacity: t.k === infoTipo.k ? 1 : 0.45, fontWeight: t.k === infoTipo.k ? 900 : 700 }} onClick={() => setEdit({ ...edit, tipo: t.k })}>{t.icona} {t.nome}</button>)}
         </div>
         <input placeholder="Aggiungi conti: cerca book o cliente (es. snai laura)" value={edit.cerca} onChange={e => setEdit({ ...edit, cerca: e.target.value })} style={{ ...inp, width: '100%' }} />
         {trovati.length > 0 && (
@@ -223,12 +245,12 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
             })}
           </div>
         )}
-        {(() => { const d = personeDoppie(edit.conti.map(bookDi)); return d.length > 0 && (
+        {(() => { const d = unaPersona ? personeDoppie(edit.conti.map(bookDi)) : []; return d.length > 0 && (
           <div style={{ marginTop: 8, padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(248,113,113,0.6)', background: 'rgba(248,113,113,0.10)', color: '#fca5a5', fontSize: 12, fontWeight: 700 }}>
             ⛔ {d.map(x => `${x.persona} è presente ${x.conti.length} volte (${x.conti.map(b => b.nome).join(' + ')})`).join(' · ')}. Al casinò live ci si collega con un solo conto per persona: togline uno con ✕ prima di salvare.
           </div>) })()}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 8 }}>
-          {edit.conti.map(id => { const b = bookDi(id); const doppio = b && personeDoppie(edit.conti.map(bookDi)).some(x => x.conti.some(c => String(c.id) === String(id))); return (
+          {edit.conti.map(id => { const b = bookDi(id); const doppio = unaPersona && b && personeDoppie(edit.conti.map(bookDi)).some(x => x.conti.some(c => String(c.id) === String(id))); return (
             <span key={id} style={{ fontSize: 12, padding: '3px 8px', borderRadius: 999, background: doppio ? 'rgba(248,113,113,0.15)' : 'rgba(250,204,21,0.12)', border: `1px solid ${doppio ? 'rgba(248,113,113,0.7)' : 'rgba(250,204,21,0.35)'}`, color: doppio ? '#fca5a5' : '#fde68a' }}>
               {doppio ? '⛔ ' : ''}              {b ? `${b.nome} · ${b.intestatario || '—'}` : `conto ${id}`} <span onClick={() => setEdit({ ...edit, conti: edit.conti.filter(x => x !== id) })} style={{ cursor: 'pointer', marginLeft: 4, color: '#f87171' }}>✕</span>
             </span>) })}
@@ -241,123 +263,143 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
     )
   })()
 
-  return (
-    <div style={{ background: 'rgba(250,204,21,0.05)', border: '1px solid rgba(250,204,21,0.35)', borderRadius: 16, padding: '12px 16px', marginBottom: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <div onClick={() => setAperto(!aperto)} style={{ fontSize: 14, fontWeight: 900, color: '#fde047', cursor: 'pointer' }}>
-          🎯 Profilazioni mirate · {(gruppi || []).length} gruppi{daFare ? <span style={{ color: '#f87171' }}> · {daFare} da fare</span> : ''} {aperto ? '▾' : '▸'}
-        </div>
-        {!edit && <button style={btn('#facc15')} onClick={() => setEdit({ nome: `Profilazione ${(gruppi || []).length + 1}`, ogni_giorni: 7, conti: [], cerca: '' })}>➕ Nuovo gruppo</button>}
-      </div>
-      {editor}
-      {aperto && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
-          {righe.length === 0 && !edit && <div style={{ fontSize: 12, color: '#94a3b8' }}>Nessun gruppo. Crea "Profilazione 1" con i conti che hai taggato su Panda: da quel momento quei conti non ricevono più la profilazione casinò normale.</div>}
-          {righe.map(({ g, ultima, prossima, manuale }) => {
-            const ritardo = prossima < oggi ? diffGiorni(prossima, oggi) : 0
-            const stato = prossima <= oggi ? (ritardo ? `in ritardo di ${ritardo} gg` : 'da fare oggi') : `tra ${diffGiorni(oggi, prossima)} gg (${dataIt(prossima)})`
-            const conti = (g.conti || []).map(bookDi).filter(Boolean)
-            const nonProf = conti.filter(b => b.profilo_livello !== 'attivo')
-            const libri = [...new Set(conti.map(b => b.nome))]
-            const doppie = personeDoppie(conti)   // 05/10/2026
-            // 05/10/2026 · riga semplice dell'elenco
-            const tra = diffGiorni(oggi, prossima)
-            const colore = tra <= 0 ? '#f87171' : tra === 1 ? '#fbbf24' : '#64748b'
-            const quando = tra < 0 ? `in ritardo di ${-tra} gg` : tra === 0 ? 'OGGI' : tra === 1 ? 'domani' : `tra ${tra} gg`
-            const problemi = (doppie.length ? 1 : 0) + (nonProf.length ? 1 : 0)
-            return (
-              <React.Fragment key={g.id}>
-              <div onClick={() => setDettaglio(g.id)} title="Clic per aprire tutti i dettagli"
-                style={{ display: 'grid', gridTemplateColumns: '14px minmax(110px,1.2fr) minmax(130px,1fr) minmax(120px,1.4fr) 70px minmax(0,2fr)', gap: 10, alignItems: 'center',
-                  padding: '9px 12px', borderRadius: 10, cursor: 'pointer', background: 'rgba(11,18,32,0.75)', border: `1px solid ${tra <= 0 ? 'rgba(248,113,113,0.45)' : 'rgba(51,65,85,0.7)'}` }}>
-                <span style={{ width: 11, height: 11, borderRadius: 6, background: colore, display: 'inline-block' }} />
-                <b style={{ color: '#fde047', fontSize: 13.5 }}>{g.nome}</b>
-                <span style={{ fontSize: 13, color: colore === '#64748b' ? '#cbd5e1' : colore, fontWeight: 800 }}>{quando} <span style={{ color: '#94a3b8', fontWeight: 400 }}>· {dataIt(prossima)}</span></span>
-                <span style={{ fontSize: 12.5, color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{libri.join(', ') || '—'}</span>
-                <span style={{ fontSize: 12.5, color: '#94a3b8' }}>{conti.length} conti</span>
-                <span style={{ fontSize: 12, color: '#fde68a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {problemi > 0 && <span style={{ color: doppie.length ? '#f87171' : '#fbbf24', marginRight: 8 }}>{doppie.length ? '⛔' : '⚠️'}</span>}
-                  {g.note ? `📝 ${g.note.replace(/\s+/g, ' ')}` : ''}
+  // riga di un gruppo (elenco semplice + finestra dettagli): la usano tutte le sezioni
+  const renderRiga = ({ g, ultima, prossima, manuale }) => {
+          const ritardo = prossima < oggi ? diffGiorni(prossima, oggi) : 0
+          const stato = prossima <= oggi ? (ritardo ? `in ritardo di ${ritardo} gg` : 'da fare oggi') : `tra ${diffGiorni(oggi, prossima)} gg (${dataIt(prossima)})`
+          const conti = (g.conti || []).map(bookDi).filter(Boolean)
+          const nonProf = conti.filter(b => b.profilo_livello !== 'attivo')
+          const libri = [...new Set(conti.map(b => b.nome))]
+          const doppie = tipoMirata(g) === 'casino live' ? personeDoppie(conti) : []   // 05/10/2026 (dal 15/10 solo casinò live)
+          // 05/10/2026 · riga semplice dell'elenco
+          const tra = diffGiorni(oggi, prossima)
+          const colore = tra <= 0 ? '#f87171' : tra === 1 ? '#fbbf24' : '#64748b'
+          const quando = tra < 0 ? `in ritardo di ${-tra} gg` : tra === 0 ? 'OGGI' : tra === 1 ? 'domani' : `tra ${tra} gg`
+          const problemi = (doppie.length ? 1 : 0) + (nonProf.length ? 1 : 0)
+          return (
+            <React.Fragment key={g.id}>
+            <div onClick={() => setDettaglio(g.id)} title="Clic per aprire tutti i dettagli"
+              style={{ display: 'grid', gridTemplateColumns: '14px minmax(110px,1.2fr) minmax(130px,1fr) minmax(120px,1.4fr) 70px minmax(0,2fr)', gap: 10, alignItems: 'center',
+                padding: '9px 12px', borderRadius: 10, cursor: 'pointer', background: 'rgba(11,18,32,0.75)', border: `1px solid ${tra <= 0 ? 'rgba(248,113,113,0.45)' : 'rgba(51,65,85,0.7)'}` }}>
+              <span style={{ width: 11, height: 11, borderRadius: 6, background: colore, display: 'inline-block' }} />
+              <b style={{ color: '#fde047', fontSize: 13.5 }}>{g.nome}</b>
+              <span style={{ fontSize: 13, color: colore === '#64748b' ? '#cbd5e1' : colore, fontWeight: 800 }}>{quando} <span style={{ color: '#94a3b8', fontWeight: 400 }}>· {dataIt(prossima)}</span></span>
+              <span style={{ fontSize: 12.5, color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{libri.join(', ') || '—'}</span>
+              <span style={{ fontSize: 12.5, color: '#94a3b8' }}>{conti.length} conti</span>
+              <span style={{ fontSize: 12, color: '#fde68a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {problemi > 0 && <span style={{ color: doppie.length ? '#f87171' : '#fbbf24', marginRight: 8 }}>{doppie.length ? '⛔' : '⚠️'}</span>}
+                {g.note ? `📝 ${g.note.replace(/\s+/g, ' ')}` : ''}
+              </span>
+            </div>
+            {dettaglio === g.id && (
+            <div onClick={() => setDettaglio(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.75)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '6vh 16px', overflowY: 'auto' }}>
+            <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 980, background: '#0b1220', border: '1px solid rgba(250,204,21,0.45)', borderRadius: 16, padding: 16, boxShadow: '0 20px 60px rgba(0,0,0,.6)' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+              <button style={btn('#94a3b8')} onClick={() => setDettaglio(null)}>✕ Chiudi</button>
+            </div>
+            <div style={{ background: 'rgba(11,18,32,0.75)', border: `1px solid ${prossima <= oggi ? 'rgba(248,113,113,0.5)' : 'rgba(51,65,85,0.7)'}`, borderRadius: 12, padding: '8px 12px' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <b style={{ color: '#fde047', fontSize: 13 }}>{infoMirata(g).icona} {g.nome}</b>
+                <span style={{ fontSize: 12, color: '#cbd5e1' }}>{conti.length} conti · {manuale ? `📅 data scelta da te (${dataIt(prossima)})` : `ogni ${g.ogni_giorni} gg`} · ultima {ultima ? dataIt(ultima) : 'mai'}</span>
+                <span style={{ fontSize: 12, fontWeight: 800, color: prossima <= oggi ? '#f87171' : '#94a3b8' }}>{stato}</span>
+                <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {libri.length > 1 && <button style={{ ...btn('#0ea5e9'), fontWeight: 900 }} title="Apre tutti i book del gruppo sui telefoni giusti" onClick={() => apriSuTelefoni(conti, `tutti i book di "${g.nome}"`)}>📱 Apri tutti ({conti.length})</button>}
+                  {onApri && libri.map(nb => <button key={nb} style={btn('#38bdf8')} title={`Apri ${nb} sui telefoni di questi conti`} onClick={() => onApri(nb, conti.filter(b => b.nome === nb))}>📱 {nb}</button>)}
+                  {tipoMirata(g) === 'casino live' && <button style={{ ...btn('#a78bfa'), fontWeight: 900 }} title="Quanti numeri gioca ogni conto: copertura della roulette, sestine per Lottomatica/GoldBet" onClick={() => setNumeri(numeri === g.id ? null : g.id)}>🎰 Numeri</button>}
+                  <button style={btn('#22c55e')} onClick={() => fatta(g)}>✅ Fatta</button>
+                  <button style={btn('#94a3b8')} title="Scegli tu la data della prossima" onClick={() => scegliProssima(g, prossima)}>📅</button>
+                  <button style={{ ...btn(g.note ? '#fbbf24' : '#94a3b8'), fontWeight: g.note ? 900 : 700 }} title={g.note ? 'Modifica la nota' : 'Aggiungi una nota (cosa fare la prossima volta)'} onClick={() => setNota(nota?.id === g.id ? null : { id: g.id, testo: g.note || '' })}>📝</button>
+                  <button style={btn('#94a3b8')} onClick={() => setStorico(storico === g.id ? null : g.id)}>📜</button>
+                  <button style={btn('#facc15')} onClick={() => { setDettaglio(null); setEdit({ id: g.id, tipo: tipoMirata(g), nome: g.nome, ogni_giorni: g.ogni_giorni, conti: (g.conti || []).map(String), cerca: '' }) }}>✏️</button>
+                  <button style={btn('#f87171')} onClick={() => elimina(g)}>🗑</button>
                 </span>
               </div>
-              {dettaglio === g.id && (
-              <div onClick={() => setDettaglio(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.75)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '6vh 16px', overflowY: 'auto' }}>
-              <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 980, background: '#0b1220', border: '1px solid rgba(250,204,21,0.45)', borderRadius: 16, padding: 16, boxShadow: '0 20px 60px rgba(0,0,0,.6)' }}>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
-                <button style={btn('#94a3b8')} onClick={() => setDettaglio(null)}>✕ Chiudi</button>
+              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: '2px 10px' }}>
+                {conti.map(b => <span key={b.id} onClick={() => apriSuTelefoni([b], `${b.nome} di ${b.intestatario || '—'}`)} title="Clic: apri solo questo book sul suo telefono" style={{ cursor: 'pointer', textDecoration: 'underline dotted', textUnderlineOffset: 3 }}>📱 {b.nome} · {b.intestatario || '—'}</span>)}
               </div>
-              <div style={{ background: 'rgba(11,18,32,0.75)', border: `1px solid ${prossima <= oggi ? 'rgba(248,113,113,0.5)' : 'rgba(51,65,85,0.7)'}`, borderRadius: 12, padding: '8px 12px' }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <b style={{ color: '#fde047', fontSize: 13 }}>🎯 {g.nome}</b>
-                  <span style={{ fontSize: 12, color: '#cbd5e1' }}>{conti.length} conti · {manuale ? `📅 data scelta da te (${dataIt(prossima)})` : `ogni ${g.ogni_giorni} gg`} · ultima {ultima ? dataIt(ultima) : 'mai'}</span>
-                  <span style={{ fontSize: 12, fontWeight: 800, color: prossima <= oggi ? '#f87171' : '#94a3b8' }}>{stato}</span>
-                  <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {libri.length > 1 && <button style={{ ...btn('#0ea5e9'), fontWeight: 900 }} title="Apre tutti i book del gruppo sui telefoni giusti" onClick={() => apriSuTelefoni(conti, `tutti i book di "${g.nome}"`)}>📱 Apri tutti ({conti.length})</button>}
-                    {onApri && libri.map(nb => <button key={nb} style={btn('#38bdf8')} title={`Apri ${nb} sui telefoni di questi conti`} onClick={() => onApri(nb, conti.filter(b => b.nome === nb))}>📱 {nb}</button>)}
-                    <button style={{ ...btn('#a78bfa'), fontWeight: 900 }} title="Quanti numeri gioca ogni conto: copertura della roulette, sestine per Lottomatica/GoldBet" onClick={() => setNumeri(numeri === g.id ? null : g.id)}>🎰 Numeri</button>
-                    <button style={btn('#22c55e')} onClick={() => fatta(g)}>✅ Fatta</button>
-                    <button style={btn('#94a3b8')} title="Scegli tu la data della prossima" onClick={() => scegliProssima(g, prossima)}>📅</button>
-                    <button style={{ ...btn(g.note ? '#fbbf24' : '#94a3b8'), fontWeight: g.note ? 900 : 700 }} title={g.note ? 'Modifica la nota' : 'Aggiungi una nota (cosa fare la prossima volta)'} onClick={() => setNota(nota?.id === g.id ? null : { id: g.id, testo: g.note || '' })}>📝</button>
-                    <button style={btn('#94a3b8')} onClick={() => setStorico(storico === g.id ? null : g.id)}>📜</button>
-                    <button style={btn('#facc15')} onClick={() => { setDettaglio(null); setEdit({ id: g.id, nome: g.nome, ogni_giorni: g.ogni_giorni, conti: (g.conti || []).map(String), cerca: '' }) }}>✏️</button>
-                    <button style={btn('#f87171')} onClick={() => elimina(g)}>🗑</button>
-                  </span>
+              {/* 05/10/2026 · 📝 nota del gruppo */}
+              {g.note && nota?.id !== g.id && (
+                <div onClick={() => setNota({ id: g.id, testo: g.note })} title="Clic per modificare"
+                  style={{ marginTop: 6, padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(251,191,36,0.5)', background: 'rgba(251,191,36,0.08)', color: '#fde68a', fontSize: 12.5, whiteSpace: 'pre-wrap', cursor: 'pointer' }}>
+                  📝 {g.note}
                 </div>
-                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: '2px 10px' }}>
-                  {conti.map(b => <span key={b.id} onClick={() => apriSuTelefoni([b], `${b.nome} di ${b.intestatario || '—'}`)} title="Clic: apri solo questo book sul suo telefono" style={{ cursor: 'pointer', textDecoration: 'underline dotted', textUnderlineOffset: 3 }}>📱 {b.nome} · {b.intestatario || '—'}</span>)}
-                </div>
-                {/* 05/10/2026 · 📝 nota del gruppo */}
-                {g.note && nota?.id !== g.id && (
-                  <div onClick={() => setNota({ id: g.id, testo: g.note })} title="Clic per modificare"
-                    style={{ marginTop: 6, padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(251,191,36,0.5)', background: 'rgba(251,191,36,0.08)', color: '#fde68a', fontSize: 12.5, whiteSpace: 'pre-wrap', cursor: 'pointer' }}>
-                    📝 {g.note}
-                  </div>
-                )}
-                {nota?.id === g.id && (
-                  <div style={{ marginTop: 6 }}>
-                    <textarea autoFocus rows={3} value={nota.testo} onChange={e => setNota({ ...nota, testo: e.target.value })}
-                      placeholder="Cosa devi fare la prossima volta? (es. alzare la puntata a Paolo, controllare il bonus di Federica…)"
-                      style={{ ...inp, width: '100%', resize: 'vertical', fontFamily: 'inherit' }} />
-                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 4 }}>
-                      {g.note && <button style={btn('#f87171')} onClick={() => setNota({ ...nota, testo: '' })}>Svuota</button>}
-                      <button style={btn('#94a3b8')} onClick={() => setNota(null)}>Annulla</button>
-                      <button style={btn('#fbbf24')} onClick={salvaNota}>💾 Salva nota</button>
-                    </div>
-                  </div>
-                )}
-                {doppie.length > 0 && (
-                  <div style={{ fontSize: 12, color: '#fca5a5', fontWeight: 700, marginTop: 4 }}>
-                    ⛔ {doppie.map(x => `${x.persona} ha ${x.conti.length} conti in questo gruppo (${x.conti.map(b => b.nome).join(' + ')})`).join(' · ')}: al casinò live solo un conto per persona. Correggi con ✏️.
-                  </div>
-                )}
-                {numeri === g.id && (
-                  <div style={{ marginTop: 8 }}>
-                    <SessioneLivePanel books={books} contiIniziali={conti} origine="mirata" gruppo={g.nome}
-                      apriContiSuTelefoni={apriSuTelefoni} onMessage={onMessage} onError={onError}
-                      onSalvata={() => { setNumeri(null); fatta(g, true) }} />
-                  </div>
-                )}
-                {nonProf.length > 0 && (
-                  <div style={{ fontSize: 11, color: '#fbbf24', marginTop: 4, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                    ⚠️ non in profilazione: {onProfilazioneTutti && nonProf.length > 1 && <button style={{ ...btn('#22c55e'), padding: '2px 8px', fontSize: 11, fontWeight: 900 }} onClick={() => { if (window.confirm(`Metto in profilazione tutti i ${nonProf.length} conti?`)) onProfilazioneTutti(nonProf.map(b => b.id)) }}>🟢 Tutti ({nonProf.length})</button>}{nonProf.map(b => <button key={b.id} style={{ ...btn('#22c55e'), padding: '2px 6px', fontSize: 11 }} onClick={() => onProfilazione(b.id)}>🟢 {b.nome} · {b.intestatario}</button>)}
-                  </div>
-                )}
-                {storico === g.id && (
-                  <div style={{ marginTop: 6, borderTop: '1px solid rgba(51,65,85,0.6)', paddingTop: 6 }}>
-                    {(fatte || []).filter(f => f.gruppo_id === g.id).sort((a, b) => b.data.localeCompare(a.data)).map(f => (
-                      <div key={f.id} style={{ fontSize: 11, color: '#cbd5e1', display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <span style={{ minWidth: 70 }}>{dataIt(f.data)}</span>
-                        <span style={{ flex: 1 }}>{(f.conti || []).map(bookDi).filter(Boolean).map(b => `${b.nome} · ${b.intestatario}`).join(', ')}</span>
-                        <span onClick={() => annullaFatta(f)} style={{ cursor: 'pointer', color: '#f87171' }}>✕</span>
-                      </div>))}
-                    {!(fatte || []).some(f => f.gruppo_id === g.id) && <div style={{ fontSize: 11, color: '#64748b' }}>Ancora nessuna operazione registrata.</div>}
-                  </div>
-                )}
-              </div>
-              </div>
-              </div>
               )}
-              </React.Fragment>
+              {nota?.id === g.id && (
+                <div style={{ marginTop: 6 }}>
+                  <textarea autoFocus rows={3} value={nota.testo} onChange={e => setNota({ ...nota, testo: e.target.value })}
+                    placeholder="Cosa devi fare la prossima volta? (es. alzare la puntata a Paolo, controllare il bonus di Federica…)"
+                    style={{ ...inp, width: '100%', resize: 'vertical', fontFamily: 'inherit' }} />
+                  <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 4 }}>
+                    {g.note && <button style={btn('#f87171')} onClick={() => setNota({ ...nota, testo: '' })}>Svuota</button>}
+                    <button style={btn('#94a3b8')} onClick={() => setNota(null)}>Annulla</button>
+                    <button style={btn('#fbbf24')} onClick={salvaNota}>💾 Salva nota</button>
+                  </div>
+                </div>
+              )}
+              {doppie.length > 0 && (
+                <div style={{ fontSize: 12, color: '#fca5a5', fontWeight: 700, marginTop: 4 }}>
+                  ⛔ {doppie.map(x => `${x.persona} ha ${x.conti.length} conti in questo gruppo (${x.conti.map(b => b.nome).join(' + ')})`).join(' · ')}: al casinò live solo un conto per persona. Correggi con ✏️.
+                </div>
+              )}
+              {numeri === g.id && (
+                <div style={{ marginTop: 8 }}>
+                  <SessioneLivePanel books={books} contiIniziali={conti} origine="mirata" gruppo={g.nome}
+                    apriContiSuTelefoni={apriSuTelefoni} onMessage={onMessage} onError={onError}
+                    onSalvata={() => { setNumeri(null); fatta(g, true) }} />
+                </div>
+              )}
+              {nonProf.length > 0 && (
+                <div style={{ fontSize: 11, color: '#fbbf24', marginTop: 4, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                  ⚠️ non in profilazione: {onProfilazioneTutti && nonProf.length > 1 && <button style={{ ...btn('#22c55e'), padding: '2px 8px', fontSize: 11, fontWeight: 900 }} onClick={() => { if (window.confirm(`Metto in profilazione tutti i ${nonProf.length} conti?`)) onProfilazioneTutti(nonProf.map(b => b.id)) }}>🟢 Tutti ({nonProf.length})</button>}{nonProf.map(b => <button key={b.id} style={{ ...btn('#22c55e'), padding: '2px 6px', fontSize: 11 }} onClick={() => onProfilazione(b.id)}>🟢 {b.nome} · {b.intestatario}</button>)}
+                </div>
+              )}
+              {storico === g.id && (
+                <div style={{ marginTop: 6, borderTop: '1px solid rgba(51,65,85,0.6)', paddingTop: 6 }}>
+                  {(fatte || []).filter(f => f.gruppo_id === g.id).sort((a, b) => b.data.localeCompare(a.data)).map(f => (
+                    <div key={f.id} style={{ fontSize: 11, color: '#cbd5e1', display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <span style={{ minWidth: 70 }}>{dataIt(f.data)}</span>
+                      <span style={{ flex: 1 }}>{(f.conti || []).map(bookDi).filter(Boolean).map(b => `${b.nome} · ${b.intestatario}`).join(', ')}</span>
+                      <span onClick={() => annullaFatta(f)} style={{ cursor: 'pointer', color: '#f87171' }}>✕</span>
+                    </div>))}
+                  {!(fatte || []).some(f => f.gruppo_id === g.id) && <div style={{ fontSize: 11, color: '#64748b' }}>Ancora nessuna operazione registrata.</div>}
+                </div>
+              )}
+            </div>
+            </div>
+            </div>
+            )}
+            </React.Fragment>
+          )
+  }
+
+  return (
+    <div style={{ background: 'rgba(250,204,21,0.05)', border: '1px solid rgba(250,204,21,0.35)', borderRadius: 16, padding: '12px 16px', marginBottom: 16 }}>
+      <div onClick={() => setAperto(!aperto)} style={{ fontSize: 14, fontWeight: 900, color: '#fde047', cursor: 'pointer' }}>
+        🎯 Profilazioni mirate · {(gruppi || []).length} gruppi{daFare ? <span style={{ color: '#f87171' }}> · {daFare} da fare</span> : ''} {aperto ? '▾' : '▸'}
+      </div>
+      {aperto && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
+          {TIPI_MIRATE.map(t => {
+            const dellaSezione = righe.filter(r => tipoMirata(r.g) === t.k)
+            const daFareT = dellaSezione.filter(r => r.prossima <= oggi).length
+            const chiusa = !!chiuse[t.k]
+            const inModifica = !!edit && (edit.tipo || 'casino live') === t.k
+            return (
+              <div key={t.k} style={{ border: `1px solid ${t.colore}55`, background: `${t.colore}0d`, borderRadius: 12, padding: '8px 12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <div onClick={() => setChiuse({ ...chiuse, [t.k]: !chiusa })} style={{ fontSize: 13.5, fontWeight: 900, color: t.colore, cursor: 'pointer' }}>
+                    {t.icona} {t.nome} · {dellaSezione.length} gruppi{daFareT ? <span style={{ color: '#f87171' }}> · {daFareT} da fare</span> : ''} {chiusa ? '▸' : '▾'}
+                  </div>
+                  {!edit && <button style={btn(t.colore)} onClick={() => setEdit({ tipo: t.k, nome: `${t.prefisso} ${dellaSezione.length + 1}`, ogni_giorni: 7, conti: [], cerca: '' })}>➕ Nuovo gruppo</button>}
+                </div>
+                {inModifica && editor}
+                {!chiusa && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+                    {dellaSezione.length === 0 && !inModifica && <div style={{ fontSize: 12, color: '#94a3b8' }}>{t.vuoto}</div>}
+                    {dellaSezione.map(renderRiga)}
+                  </div>
+                )}
+              </div>
             )
           })}
         </div>

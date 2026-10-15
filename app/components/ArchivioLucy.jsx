@@ -123,7 +123,7 @@ export function righeLive(rows) {
   }
   return out
 }
-export function righeMirate(rows, books, sessioni = []) {
+export function righeMirate(rows, books, sessioni = [], tipi = null) {
   const out = []
   for (const f of rows || []) {
     // se quel giorno il gruppo è stato giocato con 🎰 Numeri, la sessione live ha già conti, numeri e importi:
@@ -132,7 +132,7 @@ export function righeMirate(rows, books, sessioni = []) {
     for (const id of f.conti || []) {
       const b = (books || []).find(x => String(x.id) === String(id))
       out.push({
-        quando: f.creato || f.data, data: f.data, origine: 'Profilazione mirata', tipo: 'casino live', cliente: b?.intestatario || '?',
+        quando: f.creato || f.data, data: f.data, origine: 'Profilazione mirata', tipo: (tipi && tipi.get(String(f.gruppo_id))) || 'casino live', cliente: b?.intestatario || '?',
         book: b?.nome || `conto ${id}`, evento: f.nome_gruppo, giocata: '', importo: num(f.importo_per_conto), quota: null, stato: 'FATTA', esito: '', pl: null,
         note: f.importo_per_conto == null ? 'importo non indicato' : '',
       })
@@ -242,7 +242,7 @@ export default function ArchivioLucy({ books }) {
     await prova('Oggi da fare rimandate', async () => righeRimandateOggi(await tutte(() => supabase.from('oggi_da_fare_stato').select('*').eq('stato', 'rimandato').order('rimanda_a', { ascending: true }))))
     let sessioniLive = []
     await prova('Casino live', async () => { sessioniLive = await tutte(() => supabase.from('live_sessioni').select('*').gte('giorno', da).order('creato', { ascending: false })); return righeLive(sessioniLive) })
-    await prova('Profilazioni mirate', async () => righeMirate(await tutte(() => supabase.from('profilazioni_mirate_fatte').select('*').gte('data', da).order('data', { ascending: false })), books, sessioniLive))
+    await prova('Profilazioni mirate', async () => { const { data: gr } = await supabase.from('profilazioni_mirate').select('id,tipo'); const tipi = new Map((gr || []).map(g => [String(g.id), g.tipo])); return righeMirate(await tutte(() => supabase.from('profilazioni_mirate_fatte').select('*').gte('data', da).order('data', { ascending: false })), books, sessioniLive, tipi) })
     // 04/10/2026: avvisi fatti, recuperi chiusi, note gestite
     await prova('Avvisi conti', async () => righeAvvisi(await tutte(() => supabase.from('avvisi_conti').select('*').eq('stato', 'fatto').gte('fatto_il', da).order('fatto_il', { ascending: false })), books))
     await prova('Recuperi chiusi', async () => righeRecuperi(await tutte(() => supabase.from('recupero_esiti').select('*').gte('chiuso_il', da).order('chiuso_il', { ascending: false }))))
