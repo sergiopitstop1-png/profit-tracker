@@ -7,7 +7,7 @@ export type Blocco = { titolo?: string; testo?: string; punti?: string[]; passi?
 export type Sezione = { id: string; titolo: string; intro?: string; blocchi: Blocco[] }
 export type Parte = { id: string; titolo: string; sottotitolo: string; sezioni: Sezione[] }
 
-export const AGGIORNATO = '4 ottobre 2026'
+export const AGGIORNATO = '15 ottobre 2026'
 
 export const PARTI: Parte[] = [
 // ─────────────────────────────────────────────────────────────────────
@@ -18,9 +18,10 @@ export const PARTI: Parte[] = [
       { nota: { tipo: 'regola', testo: 'Se non è segnato, non è successo. Ogni bet, ogni sessione, ogni chat con l\'assistenza va registrata nel Profit Tracker nel momento in cui la fai. Lucy decide il lavoro dei giorni successivi solo in base a quello che trova scritto.' } },
       { nota: { tipo: 'regola', testo: 'Niente si perde. Quello che non fai viene riproposto finché non lo segni come fatto, rimandato o saltato. Non serve ricordarsi le cose: serve segnarle.' } },
       { titolo: 'I tre pilastri', punti: [
-        'Lucy (tab Profilazione): prepara le bet e le operazioni del giorno.',
+        'Oggi da fare (pulsante 📋 della Dashboard): la lista unica di tutto quello che va fatto oggi.',
+        'Lucy (tab Profilazione): indica i conti da muovere e prepara le operazioni del giorno.',
         'Avvisi e chat: le cose da fare a mano (assistenza, documenti, slot, virtuali, riaperture).',
-        'Archivio operazioni: la memoria di tutto quello che è stato fatto.',
+        'Archivio operazioni: la memoria di tutto quello che è stato fatto, saltato o rimandato.',
       ] },
     ] },
   { id: 'schede', titolo: 'Le schede in alto: a cosa serve ognuna',
@@ -43,7 +44,7 @@ export const PARTI: Parte[] = [
         ['📱 SMS', 'Gli SMS arrivati sui telefoni dei clienti', 'Codici, avvisi dei book'],
         ['👥 Team', 'Promo, conti e risultati dei collaboratori', 'Se lavori in squadra'],
         ['📈 Prop Hedge · 🎲 Masaniello · Contabilità', 'Moduli dell\'amministratore', 'Solo se autorizzato'],
-        ['📡 Segnali', 'Apre la pagina dei segnali dei canali Telegram (ScoreTrend, Hunterbet) con pagella e analisi', 'Quando lavori sui segnali'],
+        ['📡 Segnali', 'Apre la pagina dei segnali dei canali Telegram (ScoreTrend, Hunterbet, PronoX) con pagella, analisi e misura del CLV', 'Quando lavori sui segnali'],
         ['📬 Lucy Mail', 'Apre l\'archivio delle email e degli SMS dei bookmaker analizzati da Lucy', 'Per promo, problemi e comunicazioni dei conti'],
       ] },
       { nota: { tipo: 'consiglio', testo: 'Lucy Mail e i Segnali hanno pagine loro: si aprono con i pulsanti 📬 Lucy Mail e 📡 Segnali nella barra delle schede. Sono spiegati nei capitoli dedicati.' } },
@@ -70,9 +71,11 @@ export const PARTI: Parte[] = [
         ['Profilazione mirata', 'Un gruppo fisso di conti che fa insieme operazioni di casinò live ogni tot giorni'],
         ['Sestina', 'Puntata su 6 numeri consecutivi della roulette (Lottomatica e GoldBet giocano solo così)'],
         ['Quota minima', 'La quota più bassa accettabile per una bet del Masaniello: sotto quella, la bet non conviene'],
+        ['Solo conti', 'Modalità di Lucy: ti dice SOLO su quali conti fare l\'operazione e l\'importo della prima bet; partita, mercato e pronostico li scegli tu'],
+        ['CLV', 'Confronto tra la quota presa al momento del segnale e la quota di chiusura su Betfair: se la quota presa è più alta, il segnale batte il mercato'],
         ['Rimandata / Saltata', 'Rimandata = torna nei prossimi giorni. Saltata = non torna più. Entrambe restano scritte'],
         ['PronoX', 'Il nostro modello di pronostici: stima la probabilità di ogni esito'],
-        ['Masaniello', 'Metodo che calcola quanto puntare su una serie di partite per arrivare a un obiettivo con un capitale dato'],
+        ['Masaniello', 'Metodo che calcola quanto puntare su una serie di partite per arrivare a un obiettivo con un capitale dato. Dal 14/10/2026 è in PAUSA'],
       ] },
     ] },
 ] },
@@ -83,15 +86,14 @@ export const PARTI: Parte[] = [
     blocchi: [
       { passi: [
         'Apri la Dashboard. Guarda il banner rosso in alto: scadenze, royalty e chat con l\'assistenza da sentire. Le cose "IN RITARDO" vanno fatte per prime.',
-        'Vai in Profilazione, vista "Operativa". Leggi la riga 📌 Oggi: ti dice quante chat, avvisi, conti in agenda, bet del Masaniello e incroci ci sono.',
+        'Apri 📋 Oggi da fare (dalla Dashboard): è la lista di tutto il lavoro del giorno. Poi vai in Profilazione, vista "Operativa": la riga 📌 Oggi ti dice quante chat, avvisi, conti in agenda e incroci ci sono.',
         'Fai le chat con l\'assistenza (sezione ⚠️ Avvisi) e annota subito l\'esito di ognuna.',
-        'Premi ⚽ Prepara bet, poi apri 📊 Tabella bet.',
-        'Per ogni incrocio: 📱 Apri tutti, piazza le bet sui telefoni, poi CONFERMA riga per riga (oppure 🔁 Rimanda o ⏭ Salta).',
-        'In fondo alla Tabella bet: le bet del Masaniello. Conferma la scheda se è nuova, poi piazza e segna ✓ con la quota reale.',
+        'Premi ⚽ Prepara bet (con SOLO CONTI attivo, vedi capitolo dedicato), poi apri 📊 Tabella bet.',
+        'Per ogni incrocio: scegli la partita dal matcher, 📱 Apri tutti, piazza le bet sui telefoni, poi CONFERMA riga per riga (oppure 🔁 Rimanda o ⏭ Salta). Massimo 5 incroci al giorno.',
         'Fai le giocate a mano della sezione ⚠️ Avvisi (slot, virtuali, giochi offline, documenti) e segna Fatto o Rimanda.',
-        'Se ci sono gruppi live (🎰 Tabella Live) o profilazioni mirate da fare, falle e registrale (✓ Giocata / ✅ Fatta).',
+        'Se ci sono gruppi live (🎰 Tabella Live) o profilazioni mirate da fare, falle e registrale (✓ Giocata / ✅ Fatta). Se hai fatto un\'operazione fuori da Lucy, registrala con ✍️ Registro manuale.',
         'Controlla la sezione 📋 Agenda di oggi: tutti i conti proposti devono risultare mossi.',
-        'Prima di chiudere apri 📚 Archivio operazioni, filtro "Oggi": quello che vedi è quello che hai fatto. Se manca qualcosa, segnalo adesso.',
+        'Prima di chiudere apri 📚 Archivio operazioni, filtro "Oggi": quello che vedi è quello che hai fatto. Se manca qualcosa, segnalo adesso. Le voci rimandate si trovano lì (origine "Oggi da fare").',
       ] },
       { nota: { tipo: 'consiglio', testo: 'Non serve aprire tutte le sezioni: la riga 📌 Oggi ti dice dove c\'è lavoro. Clicca il contatore e ti porta direttamente nella sezione giusta.' } },
     ] },
@@ -104,6 +106,26 @@ export const PARTI: Parte[] = [
         'I riquadri di cassa (saldo bookmaker, wallet, disponibile) servono all\'amministrazione: non devi modificarli.',
       ] },
     ] },
+  { id: 'oggi-da-fare', titolo: 'La pagina Oggi da fare',
+    intro: 'È la lista unica del lavoro del giorno, pensata per restare aperta su un secondo monitor: si apre in una finestra separata che ricorda la posizione. Si apre dal pulsante 📋 Oggi da fare della Dashboard.',
+    blocchi: [
+      { titolo: 'Le sezioni', tabella: [
+        ['Sezione', 'Cosa contiene'],
+        ['🎁 Promo in scadenza oggi', 'Le promo da fare, con nota e link diretto alla promo'],
+        ['💳 Pagamenti dei servizi', 'I pagamenti dei servizi da fare'],
+        ['🔔 Avvisi e chat', 'Assistenza, documenti, slot, virtuali, riaperture'],
+        ['📣 Profiliamo', 'Cosa fare oggi per ogni cliente'],
+        ['🛡️ / ⚽ Bet', 'Bet di mantenimento, profilazione e recupero: si vedono qui, si comandano dalla Tabella bet (pulsante "Apri la Tabella bet")'],
+        ['🎰 Live · 🎯 Mirate', 'Sessioni live e profilazioni mirate di oggi'],
+        ['🗂️ Conti da movimentare', 'I conti che oggi vanno mossi'],
+        ['↩️ Rimandate che tornano oggi', 'Le voci che avevi rimandato e che scadono oggi'],
+      ] },
+      { titolo: 'Come si usa', punti: [
+        '✓ Fatto segna la voce come eseguita; ⏭ Rimanda la sposta a un giorno scelto sul calendario.',
+        'Una voce rimandata ricompare il giorno scelto, anche se Lucy nel frattempo ricalcola le bet.',
+        'Dal 15/10/2026 l\'elenco delle voci rimandate NON è più in questa pagina: lo trovi nell\'Archivio operazioni (pagina Profilazione), origine "Oggi da fare", stato RIMANDATA, con la data di ritorno nella nota.',
+      ] },
+    ] },
   { id: 'profilazione', titolo: 'La pagina Profilazione, pulsante per pulsante',
     intro: 'In alto a destra scegli la vista: "Operativa" (consigliata: solo quello che serve) o "Completa" (tutto aperto). Questa guida usa la vista Operativa.',
     blocchi: [
@@ -111,13 +133,13 @@ export const PARTI: Parte[] = [
         ['Pulsante', 'Cosa fa'],
         ['📋 Agenda di oggi', 'I conti da muovere oggi per profilazione e mantenimento, con l\'azione prevista'],
         ['🎰 Slot consigliate', 'L\'elenco delle slot da usare quando un\'azione chiede "slot"'],
-        ['⚽ Prepara bet', 'Lucy calcola gli incroci del giorno con le quote attuali'],
+        ['⚽ Prepara bet', 'Lucy prepara gli incroci del giorno (in modalità SOLO CONTI: i conti da usare e l\'importo della prima bet)'],
         ['📊 Tabella bet', 'Tutte le bet da piazzare in un unico posto: incroci e Masaniello. Il numero indica fatte/totali e le bet del Masaniello (🎯)'],
         ['🎰 Tabella Live', 'I gruppi di casinò live proposti da Lucy per i conti in profilazione'],
         ['✓ Conferma e archivia', 'Da NON usare per ora (vedi nota sotto)'],
-        ['✍️ Registro manuale', 'Per registrare un\'operazione di profilazione fatta a mano su un conto: il conto passa in Profilazione'],
+        ['✍️ Registro manuale', 'Per registrare un\'operazione fatta a mano su un conto: indichi se conta come mantenimento, profilazione o recupero'],
         ['⏸ Pausa', 'Ferma la profilazione: solo sport (slot e casinò continuano) oppure tutta. Si può indicare la data di ripresa automatica'],
-        ['⚙️', 'Impostazioni di Lucy: costo massimo di oggi, copertura minima, aggiornamento quote, azzeramento della memoria di oggi'],
+        ['⚙️', 'Impostazioni di Lucy: SOLO CONTI (acceso), costo massimo di oggi, copertura minima, aggiornamento quote, azzeramento della memoria di oggi'],
         ['ℹ️ regole mantenimento', 'Apre l\'editor delle regole di mantenimento (vedi capitolo dedicato)'],
       ] },
       { nota: { tipo: 'attenzione', testo: '"✓ Conferma e archivia" salva nello storico TUTTE le bet proposte da Lucy quel giorno, anche quelle non piazzate o saltate. Le conferme riga per riga (CONFERMA / Rimanda / Salta) bastano e sono precise: non usare questo pulsante finché non viene aggiornato.' } },
@@ -133,14 +155,27 @@ export const PARTI: Parte[] = [
       { titolo: 'Le sezioni a scomparsa', punti: [
         '⚠️ Avvisi · chat · giocate a mano — aperta: le cose da fare a mano.',
         '📋 Agenda di oggi — aperta: profilazione e mantenimento.',
-        '🎯 Recuperi con PronoX — il pannello completo del Masaniello pilota.',
+        '🎯 Recuperi con PronoX — il pannello del Masaniello: oggi mostra l\'avviso di pausa.',
         '🎰 Sessioni live — per creare una sessione di roulette o baccarat scegliendo tu i conti.',
         '🔧 Coda dei recuperi — i conti limitati attivi e in coda.',
         '🎯 Profilazioni mirate — i gruppi fissi di casinò live.',
         '📊 Pagella PronoX — quanto sono affidabili i pronostici.',
-        '📚 Archivio operazioni — tutto quello che è stato fatto.',
+        '📚 Archivio operazioni — tutto quello che è stato fatto, saltato o rimandato.',
         'Ogni sezione si apre e si chiude con un clic e si ricorda come l\'hai lasciata.',
       ] },
+    ] },
+  { id: 'solo-conti', titolo: 'Modalità SOLO CONTI (dal 14 ottobre 2026)',
+    intro: 'I test fatti con i dati hanno mostrato che i pronostici non battono il mercato. Per questo Lucy non sceglie più le partite: ti dice quali conti incrociare e tu scegli la partita.',
+    blocchi: [
+      { passi: [
+        'Premi ⚽ Prepara bet: Lucy propone fino a 5 incroci al giorno in totale (contando quelli già fatti oggi).',
+        'Ogni incrocio è semplice: i conti da usare e l\'importo della PRIMA bet. Non ci sono partita, mercato, esito né quota.',
+        'Scegli tu la partita, il mercato e il pronostico dal matcher di ADP.',
+        'Piazza la prima bet sul conto indicato e la copertura sull\'altro conto (conto di mantenimento).',
+        'Torna nel Profit Tracker e premi CONFERMA sulla riga (oppure 🔁 Rimanda / ⏭ Salta).',
+      ] },
+      { nota: { tipo: 'regola', testo: 'Massimo 5 incroci al giorno per tutto: profilazione, mantenimento e recupero insieme. Se ne hai già fatti 5, Lucy non ne prepara altri. Per tornare ai calcoli con le partite si spegne "SOLO CONTI" nelle impostazioni ⚙️.' } },
+      { nota: { tipo: 'consiglio', testo: 'Se la tabella mostra ancora gli incroci vecchi con le partite, premi di nuovo ⚽ Prepara bet: la tabella salvata prima del cambio va rifatta.' } },
     ] },
   { id: 'tabella-bet', titolo: 'Prepara bet e Tabella bet: come si piazzano le bet',
     blocchi: [
@@ -177,9 +212,10 @@ export const PARTI: Parte[] = [
       ] },
       { nota: { tipo: 'regola', testo: 'Sulla stessa partita, lo stesso bookmaker va su un solo esito (mai Sisal su 1 e Sisal su 2). Lucy lo rispetta già: non cambiare conto di tua iniziativa.' } },
     ] },
-  { id: 'masaniello', titolo: 'Le bet del Masaniello (recupero conti con PronoX)',
-    intro: 'Sono bet "scoperte" (senza copertura) sui conti limitati: servono a dare volume da giocatore normale ai conti in recupero, con un piano di puntate controllato.',
+  { id: 'masaniello', titolo: 'Le bet del Masaniello (in PAUSA dal 14/10/2026)',
+    intro: 'Il Masaniello di recupero è fermo: Lucy non propone nuove bet scoperte e nel pannello compare un avviso di pausa. Per profilazione, mantenimento e recupero si usano gli incroci SOLO CONTI. Si riattiva cambiando un solo valore nel codice, se un giorno ci saranno segnali con vantaggio reale. Quello che segue descrive come funzionava e vale se verrà riacceso.',
     blocchi: [
+      { nota: { tipo: 'regola', testo: 'Regole per conto già impostate (valgono alla ripresa): 1 sola partita al giorno; Snai Samuele e Snai Paolo non possono scommettere nemmeno 1 €; StarCasinò Michela è un conto chiuso; NetBet Libero massimo 1 € a scommessa.' } },
       { passi: [
         'In fondo alla Tabella bet trovi "💡 Lucy propone N partite": per ogni partita esito, probabilità, quota minima e puntata, divisa tra più conti.',
         'Controlla e premi "✓ Conferma scheda". Da quel momento le bet diventano "da fare".',
@@ -274,7 +310,7 @@ export const PARTI: Parte[] = [
     ] },
   { id: 'registro', titolo: 'Registro manuale, Pausa e Impostazioni',
     blocchi: [
-      { titolo: '✍️ Registro manuale', testo: 'Se fai un\'operazione di profilazione di tua iniziativa (fuori da Lucy), registrala qui: cerchi il conto (es. "eurobet ivan"), indichi cosa hai fatto. Il conto passa in Profilazione ed entra nel giro, e Lucy non ti ripropone doppioni.' },
+      { titolo: '✍️ Registro manuale', testo: 'Se fai un\'operazione di tua iniziativa (fuori da Lucy), registrala qui: cerchi il conto scrivendo più parole (es. "bet365 libero"; nella ricerca compaiono tutti i conti), indichi cosa hai fatto e se CONTA COME mantenimento, profilazione o recupero. L\'operazione finisce nell\'Archivio operazioni e conta nel giro: per esempio una registrazione come mantenimento segna il mantenimento di quel conto come già fatto e Lucy non te lo ripropone. Nell\'elenco ogni registrazione mostra come viene contata.' },
       { titolo: '⏸ Pausa', testo: 'Ferma la profilazione per un periodo: "sport" (slot e casinò continuano) oppure "totale". Si può indicare la data di ripresa automatica; altrimenti si riprende con il pulsante Riprendi.' },
       { titolo: '⚙️ Impostazioni di Lucy', punti: [
         '💰 Costo massimo oggi: la perdita massima teorica accettata per gli incroci del giorno; oltre, Lucy rinvia.',
@@ -287,7 +323,8 @@ export const PARTI: Parte[] = [
     blocchi: [
       { punti: [
         'Una riga per ogni operazione: data, ora, tipo, cliente, book, evento, giocata, importo, quota, stato, esito, guadagno/perdita e note.',
-        'Contiene: bet Sport Lucy (confermate, saltate e rimandate), Masaniello, casinò live (sessioni libere, mirate e di Lucy), profilazioni mirate.',
+        'Contiene: bet Sport Lucy (confermate, saltate e rimandate), operazioni del Registro manuale, Masaniello, casinò live (sessioni libere, mirate e di Lucy), profilazioni mirate, avvisi, recuperi chiusi, note e promo.',
+        'Dal 15/10/2026 contiene anche le voci di Oggi da fare rimandate (origine "Oggi da fare"): qui le ritrovi con il giorno di ritorno.',
         'Filtri: periodo, tipo di operazione, stato e ricerca libera (cliente, book, partita).',
         '"⬇️ Excel (CSV)" scarica esattamente quello che stai vedendo.',
         'In alto: totale giocato e guadagno/perdita conosciuto.',
@@ -331,6 +368,12 @@ export const PARTI: Parte[] = [
         '"Regge sui dati nuovi?": confronta la prima metà dei segnali con la seconda.',
         'Hunterbet non dà le quote: la pagina calcola la quota di pareggio (sotto quella quota si perde) e simula il risultato a una quota ipotetica che scegli tu.',
       ] },
+      { titolo: 'Il CLV (quanto batti il mercato)', punti: [
+        'Per ogni segnale il sistema congela la quota del book al momento del segnale e, a partita iniziata, la quota di chiusura su Betfair. Vale per ScoreTrend, PronoX calcio e PronoX tennis.',
+        'Nell\'Analisi segnali il riquadro CLV mostra la media, il margine di errore e la % di segnali con quota migliore della chiusura. Media positiva con margine stretto = vantaggio reale; vicino a zero = nessun vantaggio.',
+        'Hunterbet non si può misurare: sono segnali live senza quota.',
+        'Serve qualche settimana di dati prima di trarre conclusioni.',
+      ] },
       { nota: { tipo: 'attenzione', testo: 'Con poche decine di segnali ogni numero è molto incerto. Prima di seguire un segnale con soldi veri servono almeno 100 bet chiuse (20 per ogni segmento): fidati del margine, non della percentuale da sola.' } },
     ] },
   { id: 'telefoni', titolo: 'I telefoni e il pulsante 📱',
@@ -372,6 +415,7 @@ export const PARTI: Parte[] = [
         ['Il book non mi fa piazzare (limite, errore, quota sparita)', '🔁 Rimanda o ⏭ Salta con il motivo; se è una limitazione, scrivi "limitato bonus/sport" nella nota del conto'],
         ['Quota del Masaniello sotto la minima', 'Non piazzare: ✗ e Lucy propone un altro conto'],
         ['📱 non apre il telefono', 'Script del PC spento: avvisa l\'amministratore e apri a mano'],
+        ['Cerco le voci che avevo rimandato in Oggi da fare', 'Aprilo dall\'Archivio operazioni (Profilazione), filtro origine "Oggi da fare"'],
         ['Ho confermato per sbaglio', 'Clicca su "✓ FATTA" per annullare la conferma; per Salta/Rimanda usa ↩'],
         ['Una chat è rimasta in sospeso', 'Annota "In attesa di risposta": Lucy ti ricorda di ricontrollare'],
         ['Una comunicazione di Lucy Mail sembra sbagliata', 'Apri l\'email originale e fidati del testo; segnala il caso'],
@@ -386,15 +430,16 @@ export const PARTI: Parte[] = [
   { id: 'pronox', titolo: 'PronoX e la Pagella',
     blocchi: [
       { punti: [
-        'PronoX stima la probabilità degli esiti (calcio e tennis). Per il calcio usa un modello statistico sui gol (Poisson con correzione Dixon-Coles) da cui ricava 80 esiti: 1X2, doppia chance, over/under, multigol, combo.',
+        'PronoX stima la probabilità degli esiti (calcio e tennis). Dai test di ottobre 2026 non batte il mercato: i suoi segnali si misurano con il CLV, ma non guidano più le bet. Per il calcio usa un modello statistico sui gol (Poisson con correzione Dixon-Coles) da cui ricava 80 esiti: 1X2, doppia chance, over/under, multigol, combo.',
         'La pagina /oggi mostra i pronostici del giorno; ogni mattina una procedura automatica "fotografa" i pronostici delle partite del giorno dopo, così non si possono riscrivere dopo il risultato.',
         'Ogni 6 ore un\'altra procedura scrive gli esiti delle partite finite.',
         'La Pagella confronta le fotografie con gli esiti: quando PronoX dice 70%, succede davvero 7 volte su 10? E fa meglio di un pronostico "ingenuo"? Giudizi: 🟢 affidabile, 🔴 troppo ottimista, 🟡 troppo prudente, ⚪ non aggiunge nulla, ⏳ pochi dati.',
       ] },
     ] },
-  { id: 'piano-masaniello', titolo: 'Il piano Masaniello pilota',
+  { id: 'piano-masaniello', titolo: 'Il piano Masaniello pilota (in pausa)',
     blocchi: [
       { punti: [
+        'Attenzione: oggi il piano è fermo (pausa dal 14/10/2026, massimo 1 partita al giorno alla ripresa).',
         'Capitale 500 €, obiettivo 133 vincite su 200 eventi, quota di riferimento 1,45; massimo 5 partite al giorno con quota giusta tra 1,40 e 1,60.',
         'Se si resta indietro, Lucy propone di allungare il piano (fino a 400 eventi): puntate e obiettivo si abbassano.',
         'Avviso rosso e stop delle nuove bet quando la perdita arriva a 200 €.',
