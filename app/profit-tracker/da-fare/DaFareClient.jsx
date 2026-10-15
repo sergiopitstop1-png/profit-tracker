@@ -377,7 +377,7 @@ export default function DaFareClient() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#050b18', color: '#e2e8f0', fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif', padding: '18px 14px 60px' }}>
+    <div className="pt-mobile" style={{ minHeight: '100vh', background: '#050b18', color: '#e2e8f0', fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif', padding: '18px 14px 60px' }}>
       <div style={{ maxWidth: 920, margin: '0 auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 6 }}>
           <a href="/profit-tracker" style={{ color: '#7dd3fc', fontWeight: 800, textDecoration: 'none', fontSize: 14 }}>← Profit Tracker</a>

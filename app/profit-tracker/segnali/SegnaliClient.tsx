@@ -419,7 +419,7 @@ export default function SegnaliClient({ incorporato = false }: { incorporato?: b
     </table>)
 
   return (
-    <div style={incorporato ? { color: '#e2e8f0' } : { minHeight: '100vh', background: '#0b1220', color: '#e2e8f0', fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif' }}>
+    <div className="pt-mobile" style={incorporato ? { color: '#e2e8f0' } : { minHeight: '100vh', background: '#0b1220', color: '#e2e8f0', fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif' }}>
       <div style={incorporato ? { padding: '4px 0 40px' } : { maxWidth: 1300, margin: '0 auto', padding: '22px 18px 60px' }}>
         {!incorporato && <Link href="/profit-tracker" style={{ color: '#7dd3fc', fontSize: 12, textDecoration: 'none', fontWeight: 700 }}>← Torna al Profit Tracker</Link>}
         {!incorporato && <h1 style={{ fontSize: 28, margin: '8px 0 2px', color: '#f8fafc' }}>📡 Segnali</h1>}

@@ -381,7 +381,7 @@ export default function AnalisiSegnali() {
     </table>)
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0b1220', color: '#e2e8f0', fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif' }}>
+    <div className="pt-mobile" style={{ minHeight: '100vh', background: '#0b1220', color: '#e2e8f0', fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif' }}>
       <div style={{ maxWidth: 1300, margin: '0 auto', padding: '22px 18px 60px' }}>
         <Link href="/profit-tracker/segnali" style={{ color: '#7dd3fc', fontSize: 12, textDecoration: 'none', fontWeight: 700 }}>← Torna ai segnali</Link>
         <h1 style={{ fontSize: 28, margin: '8px 0 10px', color: '#f8fafc' }}>📈 Analisi segnali</h1>
