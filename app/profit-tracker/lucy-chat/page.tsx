@@ -38,7 +38,7 @@ export default function LucyChatPage() {
           <button onClick={() => { if (confirm('Cancellare la cronologia di questa chat?')) setMsgs([]) }} style={{ marginLeft: 'auto', background: 'transparent', color: '#94a3b8', border: '1px solid #334155', borderRadius: 8, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>🗑 Nuova chat</button>
         </div>
         <h1 style={{ fontSize: 22, margin: '4px 0' }}>💬 Chat con Lucy</h1>
-        <div style={{ fontSize: 12.5, color: '#94a3b8', marginBottom: 10, lineHeight: 1.5 }}>Lucy legge le operazioni degli ultimi 7 giorni, le voci rimandate e gli avvisi aperti. In questa chat <b>non può modificare nulla</b>: risponde e ti indica dove fare le cose.</div>
+        <div style={{ fontSize: 12.5, color: '#94a3b8', marginBottom: 10, lineHeight: 1.5 }}>Lucy legge le operazioni degli ultimi 7 giorni, le voci rimandate, gli avvisi aperti e può cercare nelle mail e negli SMS (esclusi i codici OTP). In questa chat <b>non può modificare nulla</b>: risponde e ti indica dove fare le cose.</div>
         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingBottom: 8 }}>
           {!msgs.length && <div style={{ color: '#64748b', fontSize: 14, padding: 10 }}>Prova a chiederle: «cosa ho rimandato questa settimana?» oppure «quali avvisi sono ancora aperti?»</div>}
           {msgs.map((m, i) => (
