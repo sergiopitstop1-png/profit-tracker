@@ -8178,6 +8178,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           {/* 12/10/2026 — Segnali e Lucy Mail sono tab come le altre: la barra resta sempre in alto */}
           <button style={activeTab === 'segnali' ? activeTabButton : { ...tabButton, borderColor: 'rgba(56,189,248,0.6)' }} title="Segnali del canale ScoreTrend in tempo reale, con la pagella" onClick={() => handleTabChange('segnali')}>📡 Segnali</button>
           <button style={activeTab === 'lucy-mail' ? activeTabButton : { ...tabButton, borderColor: 'rgba(34,197,94,0.6)' }} title="Email e SMS dei bookmaker analizzati da Lucy" onClick={() => handleTabChange('lucy-mail')}>📬 Lucy Mail</button>
+          {/* 15/10/2026 — chat con Lucy (sola lettura), pagina a parte */}
+          <button style={{ ...tabButton, borderColor: 'rgba(34,197,94,0.6)' }} title="Chatta con Lucy (sola lettura)" onClick={() => window.open('/profit-tracker/lucy-chat', '_blank')}>💬 Chat Lucy</button>
           {/* 13/10/2026 — Strumenti: per ora la lista slot unica (Profilazione + Accademia) */}
           <button style={activeTab === 'slot-consigliate' ? activeTabButton : tabButton} title="Strumenti: lista slot unica (Profilazione + Accademia)" onClick={() => handleTabChange('slot-consigliate')}>🎰 Lista slot</button>
 <button
