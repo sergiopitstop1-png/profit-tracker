@@ -31,9 +31,24 @@ export default function ManualePage() {
   const cella = { border: '1px solid #1e293b', padding: '6px 9px', fontSize: 13, verticalAlign: 'top' as const, lineHeight: 1.5 }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0b1220', color: '#e2e8f0', fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif' }}>
-      <div style={{ maxWidth: 1220, margin: '0 auto', padding: '24px 18px 80px', display: 'flex', gap: 28, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-        <nav style={{ position: 'sticky', top: 16, flex: '0 0 270px', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto', background: 'rgba(15,23,42,.92)', border: '1px solid #1e293b', borderRadius: 14, padding: 14 }}>
+    <div className="man-root" style={{ minHeight: '100vh', background: '#0b1220', color: '#e2e8f0', fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif' }}>
+      <style>{`
+        @media (max-width: 800px) {
+          .man-wrap { padding: 12px 12px 60px !important; gap: 14px !important; }
+          .man-nav { position: static !important; flex: 1 1 100% !important; max-height: 190px !important; width: 100% !important; box-sizing: border-box; }
+          .man-main { flex: 1 1 100% !important; }
+          .man-h1 { font-size: 24px !important; }
+          .man-sez { padding: 14px 13px !important; border-radius: 12px !important; }
+          .man-sez h2 { font-size: 18px !important; }
+          .man-sez td, .man-sez th { font-size: 12.5px !important; padding: 5px 6px !important; min-width: 90px; }
+          .man-sez ul, .man-sez ol { padding-left: 18px !important; }
+          .man-nav a { padding-top: 3px; padding-bottom: 3px; }
+        }
+        html { -webkit-text-size-adjust: 100%; }
+        .man-sez, .man-sez p, .man-sez li { overflow-wrap: anywhere; }
+      `}</style>
+      <div className="man-wrap" style={{ maxWidth: 1220, margin: '0 auto', padding: '24px 18px 80px', display: 'flex', gap: 28, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <nav className="man-nav" style={{ position: 'sticky', top: 16, flex: '0 0 270px', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto', background: 'rgba(15,23,42,.92)', border: '1px solid #1e293b', borderRadius: 14, padding: 14 }}>
           <Link href="/profit-tracker" style={{ color: '#7dd3fc', fontSize: 12, textDecoration: 'none', fontWeight: 700 }}>← Torna al Profit Tracker</Link>
           <div style={{ fontWeight: 900, margin: '12px 0 8px', fontSize: 13, color: '#f8fafc' }}>📘 Indice</div>
           <input value={cerca} onChange={e => setCerca(e.target.value)} placeholder="🔎 Cerca nel manuale…"
@@ -49,10 +64,10 @@ export default function ManualePage() {
           {q && !parti.length && <div style={{ fontSize: 12, color: '#94a3b8' }}>Nessun risultato.</div>}
         </nav>
 
-        <main style={{ flex: '1 1 640px', minWidth: 0 }}>
+        <main className="man-main" style={{ flex: '1 1 640px', minWidth: 0 }}>
           <header style={{ marginBottom: 22 }}>
             <div style={{ fontSize: 12, letterSpacing: 2, color: '#38bdf8', fontWeight: 800 }}>PROFITTRACKER · LUCY · PRONOX</div>
-            <h1 style={{ fontSize: 32, margin: '6px 0', color: '#f8fafc' }}>Manuale operativo</h1>
+            <h1 className="man-h1" style={{ fontSize: 32, margin: '6px 0', color: '#f8fafc' }}>Manuale operativo</h1>
             <div style={{ fontSize: 14, color: '#94a3b8', lineHeight: 1.6 }}>Dal primo accesso al lavoro di tutti i giorni, pulsante per pulsante. Aggiornato al {AGGIORNATO}.</div>
           </header>
 
@@ -63,7 +78,7 @@ export default function ManualePage() {
                 <div style={{ fontSize: 13, color: '#bae6fd' }}>{p.sottotitolo}</div>
               </div>
               {p.sezioni.map(s => (
-                <section key={s.id} id={s.id} style={{ scrollMarginTop: 16, background: 'rgba(15,23,42,.6)', border: '1px solid #1e293b', borderRadius: 14, padding: '18px 20px', marginBottom: 16 }}>
+                <section key={s.id} id={s.id} className="man-sez" style={{ scrollMarginTop: 16, background: 'rgba(15,23,42,.6)', border: '1px solid #1e293b', borderRadius: 14, padding: '18px 20px', marginBottom: 16 }}>
                   <h2 style={{ fontSize: 20, margin: '0 0 8px', color: '#f8fafc' }}>{numeri.get(s.id)}. {ev(s.titolo)}</h2>
                   {s.intro && <p style={{ margin: '0 0 10px', lineHeight: 1.65, color: '#cbd5e1' }}>{ev(s.intro)}</p>}
                   {s.blocchi.map((b, i) => (
