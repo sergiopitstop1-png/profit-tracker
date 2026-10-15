@@ -488,7 +488,7 @@ export default function DaFareClient() {
           </React.Fragment>
         )})}
 
-        {lista.rimandate.length > 0 && (
+        {false && lista.rimandate.length > 0 && ( // 15/10/2026: le rimandate ora stanno nell'Archivio operazioni (pagina Profilazione)
           <div style={card}>
             <button type="button" onClick={() => setMostraRimandate(v => !v)} style={{ width: '100%', textAlign: 'left', cursor: 'pointer', border: 0, display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'rgba(30,41,59,0.9)', color: '#e2e8f0', borderLeft: '4px solid #94a3b8' }}>
               <span style={{ fontWeight: 900, fontSize: 15 }}>⏭ Rimandate</span>

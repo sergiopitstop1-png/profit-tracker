@@ -52,6 +52,14 @@ export function righeDecisioni(rows) {
     esito: '', pl: null, note: d.motivo || '',
   }))
 }
+// 15/10/2026: le voci di Oggi da fare rimandate a un altro giorno vivono qui, non più nella pagina Oggi da fare
+export function righeRimandateOggi(rows) {
+  return (rows || []).filter(r => r.stato === 'rimandato').map(r => ({
+    quando: r.aggiornato || r.giorno, data: r.giorno, origine: 'Oggi da fare', tipo: r.sezione || 'voce', cliente: '', book: '',
+    evento: r.titolo || r.chiave, giocata: r.dettaglio || '', importo: 0, quota: null, stato: 'RIMANDATA', esito: '', pl: null,
+    note: r.rimanda_a ? `rimandata al ${String(r.rimanda_a).split('-').reverse().join('/')}` : '',
+  }))
+}
 export function righeMasaniello(rows, esiti) {
   const adesso = Date.now()
   return (rows || []).map(b => {
@@ -202,7 +210,7 @@ async function tutteDal(tabella, da) {
   throw ultimo
 }
 
-const ORIGINI = ['Sport Lucy', 'Masaniello', 'Casino live', 'Profilazione mirata', 'Avvisi conti', 'Recupero conti', 'Note conti', 'Promo']
+const ORIGINI = ['Oggi da fare', 'Sport Lucy', 'Masaniello', 'Casino live', 'Profilazione mirata', 'Avvisi conti', 'Recupero conti', 'Note conti', 'Promo']
 const STATI = ['CONFERMATA', 'PIAZZATA', 'GIOCATA', 'FATTA', 'FATTO', 'CHIUSO', 'NOTA', 'SALTATA', 'RIMANDATA', 'NON GIOCATA', 'DA FARE']
 
 export default function ArchivioLucy({ books }) {
@@ -231,6 +239,7 @@ export default function ArchivioLucy({ books }) {
       }
       return righeMasaniello(bets, esiti)
     })
+    await prova('Oggi da fare rimandate', async () => righeRimandateOggi(await tutte(() => supabase.from('oggi_da_fare_stato').select('*').eq('stato', 'rimandato').order('rimanda_a', { ascending: true }))))
     let sessioniLive = []
     await prova('Casino live', async () => { sessioniLive = await tutte(() => supabase.from('live_sessioni').select('*').gte('giorno', da).order('creato', { ascending: false })); return righeLive(sessioniLive) })
     await prova('Profilazioni mirate', async () => righeMirate(await tutte(() => supabase.from('profilazioni_mirate_fatte').select('*').gte('data', da).order('data', { ascending: false })), books, sessioniLive))
