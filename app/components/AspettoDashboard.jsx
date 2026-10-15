@@ -84,7 +84,7 @@ export function PannelloAspetto({ aspetto, setAspetto, stile }) {
 /* ---------- barra a gruppi ---------- */
 const PREFERITI = [
   ['dashboard', 'Dashboard'], ['profilazione', 'Profilazione'], ['books', 'Books'], ['clienti', 'Clienti'],
-  ['lucy-mail', '📬 Lucy Mail'], ['segnali', '📡 Segnali'],
+  ['lucy-mail', '📬 Lucy Mail'], ['segnali', '📡 Segnali'], ['lucy-chat', '💬 Chat Lucy'],
 ]
 const GRUPPI = [
   { id: 'soldi', nome: '💰 Soldi', voci: [['accantonamenti', '💰 Accantonamenti'], ['wallets', '👛 Wallets'], ['transactions', '🔄 Transactions'], ['periodi', '📅 Periodi'], ['punti-monete', '🏆 Punti & Monete'], ['stime-cassa', '🧾 Contabilità']] },
