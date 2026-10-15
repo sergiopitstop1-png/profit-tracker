@@ -8,8 +8,8 @@
 import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
 
-const TESTO = '📘 È disponibile il MANUALE OPERATIVO di ProfitTracker · Lucy · PronoX: Prepara bet, Archivio operazioni, sessioni live, regole di mantenimento e routine consigliate — clicca qui per aprirlo'
-const VERSIONE = 'manuale-2026-10-02'
+const TESTO = '📘 È disponibile il MANUALE OPERATIVO di ProfitTracker · Lucy · PronoX: Oggi da fare, modalità Solo conti, Registro manuale, Archivio operazioni, sessioni live, CLV e routine consigliate — clicca qui per aprirlo'
+const VERSIONE = 'manuale-2026-10-15'
 const CHIAVE = 'profittracker_avviso_nascosto'
 
 export default function AvvisoManuale() {
@@ -29,19 +29,19 @@ export default function AvvisoManuale() {
   return (
     <Link href="/profit-tracker/manuale" target="_blank" rel="noopener" title="Apri il manuale operativo"
       className="pt-matrix-alert"
-      style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', background: '#020804', border: '1px solid #00ff66', borderRadius: 8, padding: '7px 10px', margin: '0 0 12px', overflow: 'hidden', boxShadow: '0 0 10px rgba(0,255,102,.28), inset 0 0 16px rgba(0,255,102,.05)', position: 'relative' }}>
+      style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', background: 'transparent', border: 0, padding: '4px 0', margin: '0 0 8px', overflow: 'hidden', position: 'relative' }}>
       <style>{`
         @keyframes ptScorri{from{transform:translateX(0)}to{transform:translateX(-100%)}}
         @keyframes ptMatrixPulse{0%,100%{opacity:.45}50%{opacity:1}}
         @keyframes ptMatrixScan{0%{transform:translateX(-120%)}100%{transform:translateX(120%)}}
         .pt-scorri:hover span{animation-play-state:paused}
-        .pt-matrix-alert:before{content:"01001101 01000001 01010100 01010010 01001001 01011000";position:absolute;inset:0;color:rgba(0,255,102,.055);font-family:monospace;font-size:10px;letter-spacing:5px;line-height:28px;overflow:hidden;pointer-events:none}
-        .pt-matrix-alert:after{content:"";position:absolute;top:0;bottom:0;width:22%;background:linear-gradient(90deg,transparent,rgba(0,255,102,.08),transparent);animation:ptMatrixScan 6s linear infinite;pointer-events:none}
+        .pt-matrix-alert:before{display:none;content:"01001101 01000001 01010100 01010010 01001001 01011000";position:absolute;inset:0;color:rgba(0,255,102,.055);font-family:monospace;font-size:10px;letter-spacing:5px;line-height:28px;overflow:hidden;pointer-events:none}
+        .pt-matrix-alert:after{display:none;content:"";position:absolute;top:0;bottom:0;width:22%;background:linear-gradient(90deg,transparent,rgba(0,255,102,.08),transparent);animation:ptMatrixScan 6s linear infinite;pointer-events:none}
       `}</style>
       <div className="pt-scorri" style={{ flex: 1, overflow: 'hidden', whiteSpace: 'nowrap', zIndex: 1 }}>
         <span style={{ display: 'inline-block', paddingLeft: '100%', animation: 'ptScorri 28s linear infinite', color: '#7CFF9B', textShadow: '0 0 7px rgba(0,255,102,.8)', fontFamily: 'monospace', fontWeight: 800, fontSize: 13, letterSpacing: '.25px' }}>{TESTO}</span>
       </div>
-      <button onClick={nascondi} title="Nascondi per 7 giorni" style={{ background: 'rgba(0,255,102,.06)', border: '1px solid rgba(0,255,102,.35)', borderRadius: 5, color: '#00ff66', textShadow: '0 0 6px #00ff66', fontFamily: 'monospace', fontSize: 13, cursor: 'pointer', flex: '0 0 auto', zIndex: 2 }}>✕</button>
+      <button onClick={nascondi} title="Nascondi per 7 giorni" style={{ background: 'transparent', border: 0, color: '#00ff66', textShadow: '0 0 6px #00ff66', fontFamily: 'monospace', fontSize: 13, cursor: 'pointer', flex: '0 0 auto', zIndex: 2 }}>✕</button>
     </Link>
   )
 }
