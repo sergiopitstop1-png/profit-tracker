@@ -576,8 +576,25 @@ function saldiDaAggiornare() {
   return out.sort((a, c) => String(a.book.intestatario || '').localeCompare(String(c.book.intestatario || '')) || String(a.book.nome).localeCompare(String(c.book.nome)))
 }
 // 28/09/2026 — AGENTE TELEFONI: apre un sito in Chrome sui telefoni di questi clienti (lo esegue lo script sul PC)
+// 15/10/2026 — siti principali fissi: l'agente apre sempre la home del book, non l'ultimo indirizzo visitato
+// (es. Snai finiva su areaprivata.snai.it, che dà 404). Solo i book non in elenco usano l'ultimo indirizzo visto.
+const SITO_PRINCIPALE_BOOK = {
+  snai: 'https://www.snai.it/',
+  sisal: 'https://www.sisal.it/',
+  eurobet: 'https://www.eurobet.it/',
+  lottomatica: 'https://www.lottomatica.it/',
+  planetwin365: 'https://www.planetwin365.it/',
+  pokerstars: 'https://www.pokerstars.it/',
+  bet365: 'https://www.bet365.it/',
+  daznbet: 'https://www.daznbet.it/',
+  eplay24: 'https://www.eplay24.it/',
+  netbet: 'https://www.netbet.it/',
+  quigioco: 'https://www.quigioco.it/',
+}
 function sitoBook(book) {
-  const righe = bookAttivita.filter(r => String(r.book_id) === String(book.id) && r.host).sort((a, c) => String(c.data).localeCompare(String(a.data)))
+  const fisso = SITO_PRINCIPALE_BOOK[String(book.nome || '').toLowerCase().replace(/[^a-z0-9]/g, '')]
+  if (fisso) return fisso
+  const righe =bookAttivita.filter(r => String(r.book_id) === String(book.id) && r.host).sort((a, c) => String(c.data).localeCompare(String(a.data)))
   if (righe.length) return `https://${righe[0].host}/`
   const altro = bookAttivita.find(r => r.host && books.some(b => String(b.id) === String(r.book_id) && normalizzaBookKey(b.nome) === normalizzaBookKey(book.nome)))
   return altro ? `https://${altro.host}/` : `https://www.${String(book.nome || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9-]/g, '')}.it/`
