@@ -7552,7 +7552,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
   if (loading) return <div style={loadingScreen}><div style={loadingCard}>Caricamento in corso...</div></div>
 
  return (
-    <div style={container}>
+    <div className="pt-mobile" style={container}>
       <AvvisoManuale />
      {message && (
   <div style={{

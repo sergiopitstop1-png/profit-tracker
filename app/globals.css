@@ -24,3 +24,17 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* 15/10/2026 — Profit Tracker utilizzabile da telefono (classe pt-mobile sul contenitore) */
+@media (max-width: 800px) {
+  .pt-mobile { padding: 12px 8px 40px !important; -webkit-text-size-adjust: 100%; overflow-x: hidden; }
+  .pt-mobile * { max-width: 100%; }
+  .pt-mobile table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .pt-mobile [style*="grid-template-columns"] { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .pt-mobile [style*="display: flex"] { flex-wrap: wrap; }
+  .pt-mobile input, .pt-mobile select, .pt-mobile textarea { font-size: 16px !important; min-width: 0 !important; }
+  .pt-mobile [style*="min-width"]:not(th):not(td):not(table) { min-width: 0 !important; }
+  .pt-mobile button { min-height: 34px; }
+  .pt-mobile pre, .pt-mobile code { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .pt-mobile [style*="position: fixed"] { max-width: 96vw; box-sizing: border-box; }
+}
