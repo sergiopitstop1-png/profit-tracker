@@ -8143,6 +8143,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             activeTabButton={activeTabButton}
             tabsBar={tabsBar}
             onTab={(t) => {
+              if (t === 'lucy-chat') { window.open('/profit-tracker/lucy-chat', '_blank'); return }   // 15/10/2026: chat con Lucy, pagina a parte
               if (t === 'stime-cassa') {
                 if (!canViewStimeCassa) { setAccessDenied('⛔ Accesso non consentito'); setTimeout(() => setAccessDenied(''), 2500); return }
                 setActiveTab('stime-cassa'); return
