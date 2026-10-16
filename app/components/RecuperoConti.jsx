@@ -285,7 +285,7 @@ export default function RecuperoContiPanel({ books, recuperi, setRecuperi, setBo
   const oggi = oggiISO()
   const attivi = lista.filter(recuperoAttivo)
   const coda = codaRecuperi(lista, getClasseBook)
-  if (lista.length === 0 && !(books || []).some(b => b.sport_bloccato)) return null
+  if (lista.length === 0 && !(books || []).some(b => b.sport_bloccato || nonScommetteDaNota(b.note))) return null
   const chiave = (it) => `${it.book.id}|${it.tipo}`
 
   async function assicuraRiga(it) {
@@ -372,8 +372,9 @@ export default function RecuperoContiPanel({ books, recuperi, setRecuperi, setBo
   // riepilogo per book: attivi, in coda, recuperati, non scommette più, giorni medi per recuperare, azioni fatte
   const riepilogo = (() => {
     const m = {}
-    const riga = (nome) => { const k = String(nome || '—').toLowerCase().trim(); return (m[k] = m[k] || { nome: nome || '—', attivi: 0, coda: 0, recuperati: 0, persi: 0, giorni: [], azioni: 0 }) }
+    const riga = (nome) => { const k = String(nome || '—').toLowerCase().trim(); return (m[k] = m[k] || { nome: nome || '—', attivi: 0, coda: 0, recuperati: 0, persi: 0, fermi: 0, giorni: [], azioni: 0 }) }
     for (const it of lista) riga(it.book.nome)[recuperoAttivo(it) ? 'attivi' : 'coda']++
+    for (const b of books || []) if (!b.sport_bloccato && nonScommetteDaNota(b.note)) riga(b.nome).fermi++   // 16/10/2026: sport fermo per ora (nota "non scommette")
     for (const e of esiti) { const r = riga(e.nome); if (e.esito === 'recuperato') { r.recuperati++; const da = e.attivo_dal || e.iniziato; if (da && e.chiuso_il) r.giorni.push(diffGiorni(da, e.chiuso_il)) } else r.persi++ }
     for (const a of avvisi || []) if (a.tipo === 'recupero' && a.stato === 'fatto') { const b = (books || []).find(x => String(x.id) === String(a.book_id)); if (b) riga(b.nome).azioni++ }
     return Object.values(m).sort((a, b) => (b.attivi + b.coda) - (a.attivi + a.coda))
@@ -396,15 +397,15 @@ export default function RecuperoContiPanel({ books, recuperi, setRecuperi, setBo
           {mostraRiepilogo && (
             <div style={{ overflowX: 'auto', background: 'rgba(11,18,32,0.75)', border: '1px solid rgba(51,65,85,0.7)', borderRadius: 12, padding: 8 }}>
               <table style={{ width: '100%', fontSize: 12, color: '#e2e8f0', borderCollapse: 'collapse' }}>
-                <thead><tr style={{ color: '#94a3b8', textAlign: 'right' }}><th style={{ textAlign: 'left', padding: 4 }}>Book</th><th>Attivi</th><th>In coda</th><th>Recuperati</th><th>Non scommettono più</th><th>Giorni medi</th><th>Azioni fatte</th></tr></thead>
+                <thead><tr style={{ color: '#94a3b8', textAlign: 'right' }}><th style={{ textAlign: 'left', padding: 4 }}>Book</th><th>Attivi</th><th>In coda</th><th>Recuperati</th><th>Non scommettono più</th><th title="Nota: LIMITATO SPORT NON SCOMMETTE. Si riprova ogni 60 giorni">Sport fermo (nota)</th><th>Giorni medi</th><th>Azioni fatte</th></tr></thead>
                 <tbody>{riepilogo.map(r => (
                   <tr key={r.nome} style={{ textAlign: 'right', borderTop: '1px solid rgba(51,65,85,0.5)' }}>
                     <td style={{ textAlign: 'left', padding: 4, fontWeight: 700 }}>{r.nome}</td><td>{r.attivi}</td><td>{r.coda}</td>
-                    <td style={{ color: r.recuperati ? '#22c55e' : undefined }}>{r.recuperati}</td><td style={{ color: r.persi ? '#f87171' : undefined }}>{r.persi}</td>
+                    <td style={{ color: r.recuperati ? '#22c55e' : undefined }}>{r.recuperati}</td><td style={{ color: r.persi ? '#f87171' : undefined }}>{r.persi}</td><td style={{ color: r.fermi ? '#fbbf24' : undefined }}>{r.fermi}</td>
                     <td>{r.giorni.length ? Math.round(r.giorni.reduce((x, y) => x + y, 0) / r.giorni.length) : '—'}</td><td style={{ paddingRight: 4 }}>{r.azioni}</td>
                   </tr>))}</tbody>
               </table>
-              <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>I recuperati e i "non scommettono più" si contano da oggi in poi. Giorni medi: da quando il recupero è attivo a quando è recuperato.</div>
+              <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>I recuperati e i "non scommettono più" si contano da oggi in poi. Giorni medi: da quando il recupero è attivo a quando è recuperato. "Sport fermo (nota)": conti con LIMITATO SPORT NON SCOMMETTE, solo casinò, nuovo tentativo ogni 60 giorni.</div>
             </div>
           )}
           {mostraCoda && (
