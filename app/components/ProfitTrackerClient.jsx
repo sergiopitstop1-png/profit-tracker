@@ -13,7 +13,7 @@ import { calcolaRoyalty, RoyaltyRiepilogo, RoyaltyBadge, RoyaltyModal, inserisci
 import { RisparmiCard, calcolaRisparmi, maturaInteressi, normalizza as normalizzaRisparmi } from './RisparmiPanel'
 import SlotConsigliate, { PulsanteSlot, parlaDiSlot, ListaSlotUnica } from './SlotConsigliate'
 import ProfiliamoOggi from './ProfiliamoOggi'
-import RecuperoContiPanel, { contiInRecupero, azioniRecuperoOggi, limitazioniDaNota, daPromuovere, recuperoSport } from './RecuperoConti'
+import RecuperoContiPanel, { contiInRecupero, azioniRecuperoOggi, limitazioniDaNota, daPromuovere, recuperoSport, sportBloccatoBook } from './RecuperoConti'
 import RecuperiPronoxPanel, { contiPerRecupero } from './RecuperiPronox'
 import PagellaPronox from './PagellaPronox'
 import SessioneLivePanel from './SessioneLive'
@@ -2305,7 +2305,7 @@ function getGiornoAssegnato(book, frequenzaSettimane) {
 // Per escludere dai livelli SOLO i limitati bonus (e lasciare i limitati sport com'erano): metti ['bonus']
 const LIMITATI_FUORI_DAI_LIVELLI = ['bonus', 'sport']
 function bookInRecuperoLimitato(book) {
-  return limitazioniDaNota(book?.note).some(t => LIMITATI_FUORI_DAI_LIVELLI.includes(t) && !(t === 'sport' && book?.sport_bloccato))
+  return limitazioniDaNota(book?.note).some(t => LIMITATI_FUORI_DAI_LIVELLI.includes(t) && !(t === 'sport' && sportBloccatoBook(book)))   // 16/10/2026: vale anche "limitato sport non scommette" in nota
 }
 // 26/09/2026: per i conti limitati sport / sport bloccato si tolgono dall'agenda le azioni solo-sport
 // (in mantenimento la bet diventa una sessione casinò/slot). Le azioni di recupero restano (vedi RecuperoConti).
