@@ -46,12 +46,30 @@ export function limitazioniDaNota(note) {
   return out
 }
 
+// 16/10/2026 (Sergio) — "LIMITATO SPORT NON SCOMMETTE" (o simili: "non può scommettere", "non scommette più"):
+// lo sport è bloccato, come col pulsante "non scommette più", ma NON per sempre: dopo 60 giorni compare un avviso
+// "riprova a scommettere". Nel frattempo il conto lavora solo sul casinò (azioni sport tolte, mai negli incroci sport).
+export const GIORNI_RIPROVA_SPORT = 60
+const RE_NON_SCOMMETTE = /\bnon\s+(?:puo\s+|riesce\s+a\s+|vuole\s+)?(?:piu\s+)?scommett/
+export function nonScommetteDaNota(note) {
+  if (!limitazioniDaNota(note).includes('sport')) return false   // serve "limitato sport" (e niente "chiuso")
+  return RE_NON_SCOMMETTE.test(String(note || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''))
+}
+// Sport bloccato: per sempre (books.sport_bloccato, a mano) oppure per ora (frase "non scommette" nella nota)
+export const sportBloccatoBook = (book) => !!book?.sport_bloccato || nonScommetteDaNota(book?.note)
+// Toglie dalla nota la frase "non scommette…" (resta il resto, es. "LIMITATO SPORT")
+export function togliNonScommette(note) {
+  const t = String(note || '').replace(/\\n/g, ' ').replace(/\s+/g, ' ')
+  const senza = t.replace(/\bnon\s+(?:può\s+|puo\s+|riesce\s+a\s+|vuole\s+)?(?:più\s+|piu\s+)?scommett\w*(?:\s+(?:più|piu)(?![a-zà-ü]))?/gi, ' ')
+  return senza.replace(/^[\s\-–,;:.()]+|[\s\-–,;:.()]+$/g, '').replace(/\s*[-–]\s*[-–]\s*/g, ' - ').replace(/\s+/g, ' ').trim().toUpperCase()
+}
+
 // Conti in recupero: [{ book, tipo, proto, stato }]
 export function contiInRecupero(books, recuperi, getRecuperoProtocollo) {
   const out = []
   for (const book of books || []) {
     for (const tipo of limitazioniDaNota(book.note)) {
-      if (tipo === 'sport' && book.sport_bloccato) continue   // sport bloccato per sempre: niente più recupero sport
+      if (tipo === 'sport' && sportBloccatoBook(book)) continue   // sport bloccato (per sempre o "non scommette" in nota): niente recupero sport
       const stato = (recuperi || []).find(r => String(r.book_id) === String(book.id) && r.tipo === tipo) || null
       out.push({ book, tipo, proto: getRecuperoProtocollo(book.nome, tipo), stato })
     }
@@ -177,6 +195,30 @@ export function avvisiRecupero(item, oggi = oggiISO()) {
       const d = new Date(new Date(inizioAtt + 'T00:00:00').getTime() + n * GIORNI_VERIFICA_SPORT * 86400000).toLocaleDateString('sv-SE')
       out.push({ chiave: `${base}|verifica|${d}`, tipo: 'recupero', data_prevista: d, titolo: 'verifica se la limitazione sport è stata tolta', sottotitolo: `🔧 Recupero limitato sport · controllo ogni ${GIORNI_VERIFICA_SPORT} giorni`, meta: { ...meta, azione: 'verifica_sport' } })
     }
+  }
+  return out
+}
+
+// 16/10/2026 — Avviso "riprova a scommettere" per i conti con "LIMITATO SPORT NON SCOMMETTE" in nota.
+// Conta 60 giorni dall'inizio del recupero sport (colonna iniziato, mai prima dell'azzeramento); se alla verifica
+// il conto non scommette ancora, il prossimo avviso arriva dopo altri 60 giorni.
+export function avvisiRiprovaSport(books, recuperi, oggi = oggiISO()) {
+  const out = []
+  for (const book of books || []) {
+    if (book.sport_bloccato || !nonScommetteDaNota(book.note)) continue   // bloccato per sempre: nessun nuovo tentativo
+    const stato = (recuperi || []).find(r => String(r.book_id) === String(book.id) && r.tipo === 'sport')
+    const inizio0 = stato?.iniziato
+    if (!inizio0) continue   // la riga del recupero la crea il client appena vede la nota
+    const inizio = inizio0 < AZZERAMENTO_RECUPERO ? AZZERAMENTO_RECUPERO : inizio0
+    const n = Math.floor(diffGiorni(inizio, oggi) / GIORNI_RIPROVA_SPORT)
+    if (n < 1) continue
+    const d = addGiorniISO(inizio, n * GIORNI_RIPROVA_SPORT)
+    out.push({
+      chiave: `rec|${book.id}|sport|riprova|${d}`, tipo: 'recupero', book_id: book.id, data_prevista: d,
+      titolo: 'riprova a scommettere sullo sport: la nota dice "non scommette" da almeno 60 giorni',
+      sottotitolo: `🔧 Limitato sport · nuovo tentativo ogni ${GIORNI_RIPROVA_SPORT} giorni`,
+      meta: { flusso: 'sport', book_id: String(book.id), azione: 'riprova_sport' },
+    })
   }
   return out
 }
