@@ -199,14 +199,15 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
     const etichetta = id => { const b = (books || []).find(x => String(x.id) === String(id)); return b ? `${b.nome} · ${b.intestatario || '—'}` : `conto ${id}` }
     // 05/10/2026: persona già nel gruppo con un altro conto → quel conto non si aggiunge
     const personaGiaNelGruppo = id => { if (!unaPersona) return null; const b = bookDi(id); const k = normNome(b?.intestatario); return k ? edit.conti.map(bookDi).find(x => x && normNome(x.intestatario) === k) : null }
-    const aggiungiConti = (ids) => {
+    // 16/10/2026: cliccando un singolo conto la ricerca resta (tieniRicerca) e l'elenco non sparisce: si possono scegliere più conti di fila
+    const aggiungiConti = (ids, tieniRicerca = false) => {
       let nuovi = ids.map(String).filter(id => !edit.conti.includes(id))
       // 05/10/2026: una persona = un conto: scarta chi è già nel gruppo e, tra i nuovi, tiene il primo conto di ogni persona
       const visti = new Set(edit.conti.map(bookDi).filter(Boolean).map(b => normNome(b.intestatario)))
       const scartati = []
       nuovi = nuovi.filter(id => { if (!unaPersona) return true; const k = normNome(bookDi(id)?.intestatario); if (k && visti.has(k)) { scartati.push(id); return false } if (k) visti.add(k); return true })
       if (scartati.length) onError(`⛔ Una persona = un conto per sessione. Non aggiunti: ${scartati.map(id => { const g = personaGiaNelGruppo(id); return `${etichetta(id)}${g ? ` (c'è già ${g.nome})` : ''}` }).join(', ')}`)
-      if (!nuovi.length) { setEdit({ ...edit, cerca: '' }); return }
+      if (!nuovi.length) { setEdit({ ...edit, cerca: tieniRicerca ? edit.cerca : '' }); return }
       const doppi = nuovi.filter(id => gruppiDi(id).length)
       let daAggiungere = nuovi
       if (doppi.length === 1 && nuovi.length === 1) {
@@ -216,7 +217,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
         const anche = window.confirm(`⚠️ ${doppi.length} di questi conti sono già in altre profilazioni mirate:\n\n${elenco}\n\nOK = aggiungo anche questi\nAnnulla = aggiungo solo i ${nuovi.length - doppi.length} conti nuovi`)
         if (!anche) daAggiungere = nuovi.filter(id => !doppi.includes(id))
       }
-      setEdit({ ...edit, conti: [...edit.conti, ...daAggiungere], cerca: '' })
+      setEdit({ ...edit, conti: [...edit.conti, ...daAggiungere], cerca: tieniRicerca ? edit.cerca : '' })
     }
     return (
       <div style={{ marginTop: 10, padding: 12, borderRadius: 12, border: '1px solid rgba(250,204,21,0.45)', background: 'rgba(250,204,21,0.05)' }}>
@@ -237,7 +238,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
         {trovati.length > 0 && (
           <div style={{ marginTop: 4, border: '1px solid #334155', borderRadius: 8, overflowY: 'auto', maxHeight: 320 }}>
             {trovati.map(b => {
-              return <div key={b.id} onClick={() => aggiungiConti([b.id])} style={{ padding: '5px 10px', cursor: 'pointer', display: 'flex', gap: 8, fontSize: 12, borderTop: '1px solid #1e293b' }}>
+              return <div key={b.id} onClick={() => aggiungiConti([b.id], true)} style={{ padding: '5px 10px', cursor: 'pointer', display: 'flex', gap: 8, fontSize: 12, borderTop: '1px solid #1e293b' }}>
                 <b>{b.nome}</b><span style={{ color: '#94a3b8' }}>{b.intestatario || '—'}</span>
                 {inAltri(b.id) && <span style={{ marginLeft: 'auto', color: '#fbbf24' }}>⚠️ già in {gruppiDi(b.id).join(', ')}</span>}
                 {personaGiaNelGruppo(b.id) && <span style={{ marginLeft: inAltri(b.id) ? 8 : 'auto', color: '#f87171', fontWeight: 700 }}>⛔ {b.intestatario} è già nel gruppo con {personaGiaNelGruppo(b.id).nome}</span>}
