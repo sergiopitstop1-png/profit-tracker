@@ -14,7 +14,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { supabase } from '../profit-tracker/supabaseClient'
 import { paroleChiave, motivoAssistenza, togliParola, aggiornaNotaBook, notaDaAttenzionare, pulisciNota, annullaAvvisiFlusso, aggiungiParola, soloParoleChiave, testoExtra, improntaNota, scadenzaNota } from './noteConti'
 import { pianoAvvisi, LIMITE_AVVISI_GIORNO } from './pianoAvvisi' // 03/10/2026: un avviso al giorno
-import { contiInRecupero, avvisiRecupero, avvisiRiprovaSport, nonScommetteDaNota, togliNonScommette, limitazioniDaNota, registraEsitoRecupero, MAX_RECUPERI_ATTIVI, recuperoSport } from './RecuperoConti'
+import { contiInRecupero, avvisiRecupero, avvisiRiprovaSport, nonScommetteDaNota, togliNonScommette, maxEuroDaNota, togliMaxEuro, limitazioniDaNota, registraEsitoRecupero, MAX_RECUPERI_ATTIVI, recuperoSport } from './RecuperoConti'
 
 // ─── PARAMETRI ──────────────────────────────────────────────────────
 export const RIAPERTURE_SETTIMANA = 2      // chiudere e riaprire: massimo 2 conti a settimana
@@ -78,6 +78,7 @@ function esitiDi(a) {
   const m = a.meta || {}
   if (a.tipo === 'recupero' && m.azione === 'contatto') return [{ k: 'attesa', l: 'In attesa di risposta' }, { k: 'no', l: 'Rifiutato' }, { k: 'ok', l: 'Sbloccato' }]
   if (a.tipo === 'recupero' && m.azione === 'verifica_sport') return [{ k: 'ancora', l: 'Ancora limitato' }, { k: 'tolta', l: 'Limitazione tolta' }]
+  if (a.tipo === 'recupero' && m.azione === 'riprova_max') return [{ k: 'ancora', l: 'Accetta solo il massimo (riprovo tra 60 gg)' }, { k: 'sale', l: 'Accetta di più: tolgo "max" dalla nota' }]
   if (a.tipo === 'recupero' && m.azione === 'riprova_sport') return [{ k: 'ancora', l: 'Non scommette ancora (riprovo tra 60 gg)' }, { k: 'scommette', l: 'Scommette: tolgo "non scommette" dalla nota' }]
   if (a.tipo === 'assistenza') return [{ k: 'risolto', l: 'Risolto' }, { k: 'attesa', l: `In attesa (ricontrollo tra ${GIORNI_ATTESA_ASSISTENZA} gg)` }, { k: 'rifiutato', l: `Rifiutato (riprovo tra ${GIORNI_RIFIUTO_ASSISTENZA} gg)` }]
   if (a.tipo === 'riapertura' && m.passo === 'login') return [{ k: 'ok', l: 'Si apre, tutto normale' }, { k: 'nonapre', l: 'Non si apre → riapertura' }, { k: 'strano', l: 'Avvisi strani → chiusura e riapertura' }]
@@ -229,12 +230,14 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
     const postiPieni = (recuperi || []).filter(x => x.attivo_dal).length >= MAX_RECUPERI_ATTIVI
     // …e per gli avvisi "riprova a scommettere" quando la frase "non scommette" non c'è più nella nota (o lo sport è bloccato per sempre)
     for (const a of aperti) {
-      if (a.meta?.azione !== 'riprova_sport') continue
+      if (a.meta?.azione !== 'riprova_sport' && a.meta?.azione !== 'riprova_max') continue
       const b = bookDi(a.book_id)
-      if (b && (b.sport_bloccato || !nonScommetteDaNota(b.note))) daAnnullare.push(a)
+      if (!b) continue
+      const ancora = a.meta.azione === 'riprova_sport' ? nonScommetteDaNota(b.note) : (maxEuroDaNota(b.note) != null && !nonScommetteDaNota(b.note))
+      if (b.sport_bloccato || !ancora) daAnnullare.push(a)
     }
     for (const a of aperti) {
-      if (a.tipo !== 'recupero' || daAnnullare.includes(a) || a.meta?.azione === 'riprova_sport') continue   // riprova_sport: il conto non è tra i recuperi attivi per costruzione
+      if (a.tipo !== 'recupero' || daAnnullare.includes(a) || (a.meta?.azione === 'riprova_sport' || a.meta?.azione === 'riprova_max')) continue   // riprova_*: il conto non è tra i recuperi attivi per costruzione
       const rr = (recuperi || []).find(x => String(x.book_id) === String(a.book_id) && x.tipo === a.meta?.flusso)
       if (!postiPieni && !rr?.in_attesa_manuale) continue
       const r = (recuperi || []).find(x => String(x.book_id) === String(a.book_id) && x.tipo === a.meta?.flusso)
@@ -345,6 +348,11 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
       return
     }
     if (a.tipo === 'recupero' && m.azione === 'verifica_sport' && book && esito === 'tolta') return chiudiRecupero(book, 'sport', `limitazione sport tolta, verificata il ${dataIt(oggi)}`)
+    // 16/10/2026: il conto accetta più del massimo → via "max X euro" dalla nota
+    if (a.tipo === 'recupero' && m.azione === 'riprova_max' && book && esito === 'sale') {
+      await aggiornaNotaBook(book, togliMaxEuro(book.note), `riprova importo riuscita il ${dataIt(oggi)}: accetta più del massimo`, setBooks)
+      return
+    }
     // 16/10/2026: il conto scommette di nuovo → via "non scommette" dalla nota, rientra nel recupero sport (testo originale nello storico)
     if (a.tipo === 'recupero' && m.azione === 'riprova_sport' && book && esito === 'scommette') {
       await aggiornaNotaBook(book, togliNonScommette(book.note), `riprova sport riuscita il ${dataIt(oggi)}: scommette di nuovo`, setBooks)

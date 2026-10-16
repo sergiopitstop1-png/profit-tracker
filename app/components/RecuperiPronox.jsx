@@ -12,7 +12,7 @@
 // ════════════════════════════════════════════════════════════════════
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '../profit-tracker/supabaseClient'
-import { contiInRecupero } from './RecuperoConti'
+import { contiInRecupero, maxEuroDaNota } from './RecuperoConti'
 import { MODEL_VERSION } from '../../lib/pronox/footballModel'
 import { PIANO_PILOTA, MASANIELLO_ATTIVO, statoPiano, schedaDelGiorno, dividiTraConti } from '../../lib/recupero/masanielloRecupero'
 
@@ -33,7 +33,7 @@ export function contiPerRecupero(books, recuperi, getRecuperoProtocollo) {
     if (ESCLUSI.some(x => norm(it.book.nome).includes(x))) continue
     const id = String(it.book.id)
     if (per.has(id) && per.get(id).tipo === 'sport') continue
-    per.set(id, { book_id: id, nome: it.book.nome, intestatario: it.book.intestatario, tipo: it.tipo === 'sport' ? 'sport' : 'bonus' })
+    per.set(id, { book_id: id, nome: it.book.nome, intestatario: it.book.intestatario, tipo: it.tipo === 'sport' ? 'sport' : 'bonus', maxEuro: it.tipo === 'sport' ? maxEuroDaNota(it.book.note) : null })
   }
   return [...per.values()]
 }

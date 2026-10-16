@@ -64,6 +64,24 @@ export function togliNonScommette(note) {
   return senza.replace(/^[\s\-–,;:.()]+|[\s\-–,;:.()]+$/g, '').replace(/\s*[-–]\s*[-–]\s*/g, ' - ').replace(/\s+/g, ' ').trim().toUpperCase()
 }
 
+// "LIMITATO SPORT - MAX 2 EURO" (anche "massimo 1,5 €", "max. 2€"): puntata massima del conto. null se non c'è (o se non è limitato sport).
+// Il recupero sport lavora con bet da 2 €: se il massimo è più basso si scende a quello. Dopo 60 giorni compare l'avviso "prova una bet più alta".
+const RE_MAX_EURO = /\b(?:max|massimo)\.?\s*:?\s*(\d+(?:[.,]\d+)?)\s*(?:€|eur)/
+export function maxEuroDaNota(note) {
+  if (!limitazioniDaNota(note).includes('sport')) return null
+  const m = String(note || '').toLowerCase().match(RE_MAX_EURO)
+  if (!m) return null
+  const v = Number(m[1].replace(',', '.'))
+  return Number.isFinite(v) && v > 0 ? v : null
+}
+// Toglie dalla nota la frase "max X euro" (resta il resto, es. "LIMITATO SPORT")
+export function togliMaxEuro(note) {
+  const t = String(note || '').replace(/\\n/g, ' ').replace(/\s+/g, ' ')
+  return t.replace(/\b(?:max|massimo)\.?\s*:?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)/gi, ' ')
+    .replace(/^[\s\-–,;:.()]+|[\s\-–,;:.()]+$/g, '').replace(/\s*[-–]\s*[-–]\s*/g, ' - ').replace(/\s+/g, ' ').trim().toUpperCase()
+}
+const fmtEuro = (v) => String(Math.round(v * 100) / 100).replace('.', ',')
+
 // Conti in recupero: [{ book, tipo, proto, stato }]
 export function contiInRecupero(books, recuperi, getRecuperoProtocollo) {
   const out = []
@@ -134,6 +152,12 @@ export function prossimoContatto(item, oggi = oggiISO()) {
   return { data: d, motivo: 'nuovo tentativo' }
 }
 
+// 16/10/2026: "da 2€" → "da X€" se la nota dice "max X euro" con X sotto i 2 €
+function testoConMax(testo, book) {
+  const mx = maxEuroDaNota(book?.note)
+  return mx != null && mx < 2 ? String(testo).replace(/da 2€/g, `da ${fmtEuro(mx)}€`) : testo
+}
+
 // Azioni di oggi per l'agenda
 export function azioniRecuperoOggi(item, oggi = oggiISO()) {
   const { book, tipo, proto } = item
@@ -149,7 +173,7 @@ export function azioniRecuperoOggi(item, oggi = oggiISO()) {
     if (giorno === g) {
       const sezioni = p.sezioni || []
       const sez = sezioni.length ? sezioni[hashStr(`${book.id}|${tipo}|sett${settimana}|sez`) % sezioni.length] : ''
-      azioni.push(`🔧 Recupero (${lbl}): ${p.testo}${sez ? ` — oggi ${sez}` : ''}`)
+      azioni.push(`🔧 Recupero (${lbl}): ${testoConMax(p.testo, book)}${sez ? ` — oggi ${sez}` : ''}`)
     }
   }
   if (p && p.frequenza === 'mensile') {
@@ -218,6 +242,25 @@ export function avvisiRiprovaSport(books, recuperi, oggi = oggiISO()) {
       titolo: 'riprova a scommettere sullo sport: la nota dice "non scommette" da almeno 60 giorni',
       sottotitolo: `🔧 Limitato sport · nuovo tentativo ogni ${GIORNI_RIPROVA_SPORT} giorni`,
       meta: { flusso: 'sport', book_id: String(book.id), azione: 'riprova_sport' },
+    })
+  }
+  // "MAX X EURO": dopo 60 giorni prova una bet più alta; se la accetta, la frase esce dalla nota
+  for (const book of books || []) {
+    if (sportBloccatoBook(book)) continue
+    const mx = maxEuroDaNota(book.note)
+    if (mx == null) continue
+    const stato = (recuperi || []).find(r => String(r.book_id) === String(book.id) && r.tipo === 'sport')
+    const inizio0 = stato?.iniziato
+    if (!inizio0) continue
+    const inizio = inizio0 < AZZERAMENTO_RECUPERO ? AZZERAMENTO_RECUPERO : inizio0
+    const n = Math.floor(diffGiorni(inizio, oggi) / GIORNI_RIPROVA_SPORT)
+    if (n < 1) continue
+    const d = addGiorniISO(inizio, n * GIORNI_RIPROVA_SPORT)
+    out.push({
+      chiave: `rec|${book.id}|sport|alza|${d}`, tipo: 'recupero', book_id: book.id, data_prevista: d,
+      titolo: `prova una bet più alta di ${fmtEuro(mx)} €: la nota dice "max ${fmtEuro(mx)} euro" da almeno 60 giorni`,
+      sottotitolo: `🔧 Limitato sport · nuovo tentativo ogni ${GIORNI_RIPROVA_SPORT} giorni`,
+      meta: { flusso: 'sport', book_id: String(book.id), azione: 'riprova_max' },
     })
   }
   return out
