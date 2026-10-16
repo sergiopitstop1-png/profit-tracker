@@ -341,7 +341,7 @@ const [puliziaSel, setPuliziaSel] = useState(null)   // { cerca, esclusi: Set(no
 const [apriTel, setApriTel] = useState(null)   // + modo: 'chrome' | 'app', parola: nome dell'app   // { cerca, key, url, esclusi: Set(id), filtri: {...} }
 // 27/09/2026 — registro di profilazione manuale
 const [registroAperto, setRegistroAperto] = useState(false)
-const [regForm, setRegForm] = useState({ cerca: '', bookId: '', data: new Date().toLocaleDateString('sv-SE'), tipoOp: 'Sport', importo: '', descrizione: '', copreGiorno: true, cosa: '' })
+const [regForm, setRegForm] = useState({ cerca: '', bookIds: [], data: new Date().toLocaleDateString('sv-SE'), tipoOp: 'Sport', importo: '', descrizione: '', copreGiorno: true, cosa: '' })
 const setPauseProf = (righe) => { PAUSE_PROF = righe || []; setPauseProfState(PAUSE_PROF) }
 // Appena un book ha "limitato bonus"/"limitato sport" nella nota, registra l'inizio del recupero (una volta sola).
 const recuperiRegistratiRef = React.useRef(new Set())
@@ -3387,6 +3387,32 @@ async function registraProfilazioneManuale({ book, data, tipoOp, importo, descri
   salvaLucyConfermate([...lucyConfermate, rec])
   if (cambia) await updateProfiloLivello(book.id, 'attivo')   // per i book con più profilazioni si apre la scelta
   setMessage(`✍️ Registrato: ${book.nome} (${book.intestatario || '—'})${cambia ? ' · ora in Profilazione' : ''}`)
+  return true
+}
+// 16/10/2026 — stessa operazione su più conti in un colpo solo (es. una superquota giocata su 19 conti):
+// una sola conferma e un solo salvataggio. I conti con più varianti di profilazione NON vengono spostati in
+// automatico (serve la scelta della variante): l'operazione si registra comunque e te lo dico nel messaggio.
+async function registraProfilazioneManualeMulti({ libri, data, tipoOp, importo, descrizione, copreGiorno, cosa = 'profilazione' }) {
+  if (!libri || !libri.length) { setErrorMessage('Scegli almeno un conto'); return false }
+  if (libri.length === 1) return registraProfilazioneManuale({ book: libri[0], data, tipoOp, importo, descrizione, copreGiorno, cosa })
+  const oggiIso = lucyOggi()
+  if (!data || data > oggiIso) { setErrorMessage('La data non può essere nel futuro'); return false }
+  const daCambiare = cosa === 'profilazione' ? libri.filter(b => b.profilo_livello !== 'attivo') : []
+  const conVarianti = daCambiare.filter(b => getVariantiProfilazione(b.nome))
+  const senzaVarianti = daCambiare.filter(b => !getVariantiProfilazione(b.nome))
+  const elenco = libri.slice(0, 25).map(b => `• ${b.nome} – ${b.intestatario || '—'}`).join('\n') + (libri.length > 25 ? `\n… e altri ${libri.length - 25}` : '')
+  const tot = Math.round(Number(importo || 0) * 100 * libri.length) / 100
+  if (!window.confirm(`${libri.length} conti\n${elenco}\n\n${data.split('-').reverse().join('/')} · ${tipoOp}${importo ? ` · ${importo}€ a conto (totale ${tot}€)` : ''}${descrizione ? `\n"${descrizione}"` : ''}\n\n${senzaVarianti.length ? `${senzaVarianti.length} conti passano a PROFILAZIONE.\n` : ''}${conVarianti.length ? `${conVarianti.length} conti hanno più profilazioni: restano dove sono (la variante va scelta a mano).\n` : ''}${cosa === 'profilazione' && copreGiorno ? 'Le bet di profilazione di quel giorno risultano fatte.' : 'Conta come una movimentazione, le bet del giorno restano da fare.'}\n\nRegistro?`)) return false
+  const adesso = Date.now()
+  const nuovi = libri.map(book => ({
+    key: `manprof|${data}|${book.id}|${adesso}`, data, creato: new Date().toISOString(), tipo: 'manuale',
+    manualeProf: true, copreGiorno: cosa === 'profilazione' && !!copreGiorno, tipoOp, tipoConto: cosa,
+    bookId: book.id, book: book.nome, intestatario: book.intestatario,
+    partita: descrizione || `Operazione manuale (${tipoOp})`, orario: '—', mercato: tipoOp, esito: '—', stake: Number(importo || 0), quota: 0
+  }))
+  salvaLucyConfermate([...lucyConfermate, ...nuovi])
+  for (const b of senzaVarianti) await updateProfiloLivello(b.id, 'attivo')
+  setMessage(`✍️ Registrate ${libri.length} operazioni${senzaVarianti.length ? ` · ${senzaVarianti.length} conti ora in Profilazione` : ''}${conVarianti.length ? ` · ${conVarianti.length} conti con più profilazioni da spostare a mano` : ''}`)
   return true
 }
 function annullaRegistrazioneManuale(rec) {
@@ -8101,8 +8127,12 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           const parole = q.split(/\s+/).filter(Boolean)   // 14/10/2026: tutte le parole devono comparire (nell'ordine che vuoi), fino a 80 conti con scorrimento
           const trovati = q.length < 2 ? [] : books.filter(b => { const t = `${b.nome} ${b.intestatario || ''}`.toLowerCase(); return parole.every(w => t.includes(w)) }).slice(0, 80)
           const cosaAuto = scelto => !scelto ? 'profilazione' : bookInRecuperoLimitato(scelto) ? 'recupero' : String(scelto.profilo_livello || '').startsWith('mantenimento') ? 'mantenimento' : 'profilazione'
+          const scelti = (regForm.bookIds || []).map(id => books.find(b => String(b.id) === String(id))).filter(Boolean)   // 16/10/2026: più conti insieme
+          const staScelto = b => scelti.some(x => String(x.id) === String(b.id))
+          const cambiaScelta = b => setRegForm({ ...regForm, bookIds: staScelto(b) ? scelti.filter(x => String(x.id) !== String(b.id)).map(x => x.id) : [...scelti.map(x => x.id), b.id] })
+          const aggiungiTrovati = () => setRegForm({ ...regForm, bookIds: [...scelti.map(x => x.id), ...trovati.filter(b => !staScelto(b)).map(b => b.id)] })
           const cosa = regForm.cosa || cosaAuto(scelto)
-          const scelto = books.find(b => String(b.id) === String(regForm.bookId))
+          const scelto = scelti[0]
           const reg = registroManualeProf().slice(0, 60)
           const inp = { background: '#020617', color: '#f8fafc', border: '1px solid #475569', borderRadius: 8, padding: '7px 9px', fontSize: 13 }
           const liv = b => bookInRecuperoLimitato(b) ? '🔧 Limitato - in recupero' : b.profilo_livello === 'attivo' ? '🟢 Profilazione' : String(b.profilo_livello || '').startsWith('mantenimento') ? '🟡 Mantenimento' : b.profilo_livello === 'dormiente' ? '⚫ Dormiente' : '— non impostato'
@@ -8116,12 +8146,21 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>Operazioni fatte a mano (es. una punta presa dal matcher). Scegli se contano come Mantenimento, Profilazione o Recupero: finiscono nell&apos;Archivio operazioni e il conto risulta mosso. Solo la Profilazione porta il conto in Profilazione.</div>
                 <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr', alignItems: 'center' }}>
                   <div style={{ gridColumn: '1 / -1', position: 'relative' }}>
-                    {scelto
-                      ? <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}><b style={{ color: '#f8fafc' }}>{scelto.nome}</b><span style={{ color: '#94a3b8' }}>{scelto.intestatario || '—'}</span><span style={{ fontSize: 12 }}>{liv(scelto)}</span><button onClick={() => setRegForm({ ...regForm, bookId: '', cerca: '' })} style={{ ...inp, cursor: 'pointer', padding: '3px 8px' }}>cambia</button></div>
-                      : <input autoFocus placeholder="Cerca conto: book o intestatario (es. eurobet ivan)" value={regForm.cerca} onChange={e => setRegForm({ ...regForm, cerca: e.target.value })} style={{ ...inp, width: '100%' }} />}
-                    {!scelto && trovati.length > 0 && (
+                    {scelti.length > 0 && (
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
+                        <b style={{ color: '#c084fc', fontSize: 12 }}>{scelti.length} {scelti.length === 1 ? 'conto scelto' : 'conti scelti'}</b>
+                        {scelti.map(b => <span key={b.id} style={{ background: '#1e293b', border: '1px solid #475569', borderRadius: 999, padding: '2px 4px 2px 10px', fontSize: 12, display: 'inline-flex', gap: 6, alignItems: 'center' }}><b>{b.nome}</b><span style={{ color: '#94a3b8' }}>{b.intestatario || '—'}</span><button onClick={() => cambiaScelta(b)} title="Togli" style={{ background: 'transparent', color: '#94a3b8', border: 0, cursor: 'pointer', fontSize: 12 }}>✕</button></span>)}
+                        {scelti.length > 1 && <button onClick={() => setRegForm({ ...regForm, bookIds: [] })} style={{ ...inp, cursor: 'pointer', padding: '2px 8px', fontSize: 12 }}>Svuota</button>}
+                      </div>
+                    )}
+                    <input autoFocus placeholder="Cerca conto: book o intestatario (es. bet365 ivan). Puoi sceglierne più di uno" value={regForm.cerca} onChange={e => setRegForm({ ...regForm, cerca: e.target.value })} style={{ ...inp, width: '100%' }} />
+                    {trovati.length > 0 && (
                       <div style={{ marginTop: 4, border: '1px solid #334155', borderRadius: 8, maxHeight: 300, overflowY: 'auto' }}>
-                        {trovati.map(b => <div key={b.id} onClick={() => setRegForm({ ...regForm, bookId: b.id, cerca: '' })} style={{ padding: '6px 10px', cursor: 'pointer', display: 'flex', gap: 8, fontSize: 13, borderTop: '1px solid #1e293b' }}><b>{b.nome}</b><span style={{ color: '#94a3b8' }}>{b.intestatario || '—'}</span><span style={{ marginLeft: 'auto', fontSize: 12 }}>{liv(b)}</span></div>)}
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '6px 10px', fontSize: 12, color: '#94a3b8', background: '#0b1220', position: 'sticky', top: 0 }}>
+                          <span>{trovati.length} trovati · clicca per scegliere o togliere</span>
+                          <button onClick={aggiungiTrovati} disabled={trovati.every(staScelto)} style={{ ...inp, marginLeft: 'auto', cursor: trovati.every(staScelto) ? 'default' : 'pointer', padding: '2px 8px', fontSize: 12 }}>Scegli tutti i {trovati.length} trovati</button>
+                        </div>
+                        {trovati.map(b => <div key={b.id} onClick={() => cambiaScelta(b)} style={{ padding: '6px 10px', cursor: 'pointer', display: 'flex', gap: 8, fontSize: 13, borderTop: '1px solid #1e293b', background: staScelto(b) ? 'rgba(147,51,234,0.22)' : 'transparent' }}><span style={{ width: 16 }}>{staScelto(b) ? '✔' : ''}</span><b>{b.nome}</b><span style={{ color: '#94a3b8' }}>{b.intestatario || '—'}</span><span style={{ marginLeft: 'auto', fontSize: 12 }}>{liv(b)}</span></div>)}
                       </div>
                     )}
                   </div>
@@ -8132,7 +8171,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                   <input placeholder="Partita e giocata (es. Inter-Milan, punta 1) · facoltativo" value={regForm.descrizione} onChange={e => setRegForm({ ...regForm, descrizione: e.target.value })} style={inp} />
                   {cosa === 'profilazione' && <label style={{ gridColumn: '1 / -1', display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: '#cbd5e1', cursor: 'pointer' }}><input type="checkbox" checked={regForm.copreGiorno} onChange={e => setRegForm({ ...regForm, copreGiorno: e.target.checked })} /> Copre la profilazione di quel giorno (Lucy non propone altre bet di profilazione su questo conto per quella data)</label>}
                   <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end' }}>
-                    <button disabled={!scelto} onClick={async () => { const ok = await registraProfilazioneManuale({ book: scelto, data: regForm.data, tipoOp: regForm.tipoOp, importo: Number(regForm.importo || 0), descrizione: regForm.descrizione.trim(), copreGiorno: regForm.copreGiorno, cosa }); if (ok) setRegForm({ ...regForm, bookId: '', cerca: '', importo: '', descrizione: '', cosa: '' }) }} style={{ background: scelto ? '#9333ea' : '#334155', color: 'white', border: 0, borderRadius: 10, padding: '9px 16px', fontWeight: 900, cursor: scelto ? 'pointer' : 'default' }}>✍️ Registra</button>
+                    <button disabled={!scelti.length} onClick={async () => { const ok = await registraProfilazioneManualeMulti({ libri: scelti, data: regForm.data, tipoOp: regForm.tipoOp, importo: Number(regForm.importo || 0), descrizione: regForm.descrizione.trim(), copreGiorno: regForm.copreGiorno, cosa }); if (ok) setRegForm({ ...regForm, bookIds: [], cerca: '', importo: '', descrizione: '', cosa: '' }) }} style={{ background: scelti.length ? '#9333ea' : '#334155', color: 'white', border: 0, borderRadius: 10, padding: '9px 16px', fontWeight: 900, cursor: scelti.length ? 'pointer' : 'default' }}>✍️ Registra{scelti.length > 1 ? ` ${scelti.length} conti` : ''}</button>
                   </div>
                 </div>
                 <div style={{ marginTop: 16, fontSize: 13, fontWeight: 800, color: '#cbd5e1' }}>Registrazioni · {registroManualeProf().length}</div>
