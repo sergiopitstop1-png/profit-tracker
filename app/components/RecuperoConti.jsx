@@ -60,7 +60,7 @@ export const sportBloccatoBook = (book) => !!book?.sport_bloccato || nonScommett
 // Toglie dalla nota la frase "non scommette…" (resta il resto, es. "LIMITATO SPORT")
 export function togliNonScommette(note) {
   const t = String(note || '').replace(/\\n/g, ' ').replace(/\s+/g, ' ')
-  const senza = t.replace(/\bnon\s+(?:può\s+|puo\s+|riesce\s+a\s+|vuole\s+)?(?:più\s+|piu\s+)?scommett\w*(?:\s+(?:più|piu)\b)?/gi, ' ')
+  const senza = t.replace(/\bnon\s+(?:può\s+|puo\s+|riesce\s+a\s+|vuole\s+)?(?:più\s+|piu\s+)?scommett\w*(?:\s+(?:più|piu)(?![a-zà-ü]))?/gi, ' ')
   return senza.replace(/^[\s\-–,;:.()]+|[\s\-–,;:.()]+$/g, '').replace(/\s*[-–]\s*[-–]\s*/g, ' - ').replace(/\s+/g, ' ').trim().toUpperCase()
 }
 
