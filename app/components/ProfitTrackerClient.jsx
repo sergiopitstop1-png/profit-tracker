@@ -478,6 +478,44 @@ const [importReport, setImportReport] = useState(null)
   loadData()
 }, [])
   useEffect(() => { caricaLucyDaSupabase() }, [])
+  // 20/10/2026: i saldi di book e wallet si rileggono dal database quando torni sulla scheda (o ci clicchi sopra)
+  // dopo almeno 1 minuto dall'ultima lettura, così una pagina lasciata aperta non mostra saldi vecchi.
+  // Si aggiorna solo il campo saldo: il resto dei dati (note, campi in modifica) resta com'è.
+  useEffect(() => {
+    let ultimaLettura = Date.now()
+    let inCorso = false
+    const aggiornaSaldi = async () => {
+      if (inCorso) return
+      inCorso = true
+      try {
+        const [b, w] = await Promise.all([
+          tutteLeRighe(() => supabase.from('books').select('id,saldo').order('id', { ascending: true })),
+          supabase.from('wallets').select('id,saldo').order('id', { ascending: true }),
+        ])
+        if (!b.error && b.data) {
+          const m = new Map(b.data.map(x => [x.id, x.saldo]))
+          setBooks(prev => prev.map(x => (m.has(x.id) ? { ...x, saldo: m.get(x.id) } : x)))
+        }
+        if (!w.error && w.data) {
+          const m = new Map(w.data.map(x => [x.id, x.saldo]))
+          setWallets(prev => prev.map(x => (m.has(x.id) ? { ...x, saldo: m.get(x.id) } : x)))
+        }
+        ultimaLettura = Date.now()
+      } catch (e) { /* se fallisce si riprova alla prossima occasione */ }
+      inCorso = false
+    }
+    const controlla = () => {
+      if (document.visibilityState !== 'visible') return
+      if (Date.now() - ultimaLettura < 60000) return
+      aggiornaSaldi()
+    }
+    document.addEventListener('visibilitychange', controlla)
+    window.addEventListener('focus', controlla)
+    return () => {
+      document.removeEventListener('visibilitychange', controlla)
+      window.removeEventListener('focus', controlla)
+    }
+  }, [])
 // 27/09/2026 — PAUSA PROFILAZIONE: caricamento; una pausa con data di ripresa passata si chiude da sola
 useEffect(() => {
   supabase.from('profilazione_pause').select('*').order('inizio', { ascending: true }).then(async ({ data, error }) => {
@@ -5472,8 +5510,11 @@ async function executeVoiceCommand(cmd) {
       )
       if (!wallet || !book) { errori.push(v.intestatario); continue }
       if (Number(wallet.saldo) < v.importo) { errori.push(`${v.intestatario} (saldo insufficiente)`); continue }
-      await updateSaldo('wallets', wallet.id, Number(wallet.saldo) - v.importo)
-      await updateSaldo('books', book.id, Number(book.saldo) + v.importo)
+      const rMov = await muoviDueSaldi(
+        { table: 'wallets', id: wallet.id, delta: -v.importo },
+        { table: 'books', id: book.id, delta: v.importo }
+      )
+      if (rMov.error) { errori.push(`${v.intestatario} (${rMov.error.message})`); continue }
       const r = await salvaLogTransazione({
         tipo: 'versa', importo: v.importo,
         riferimento: `wallet:${wallet.id}:${wallet.nome}:${wallet.intestatario} -> book:${book.id}:${book.nome}:${book.intestatario}`,
@@ -5481,8 +5522,8 @@ async function executeVoiceCommand(cmd) {
         azione: 'wallet_to_book'
       })
       if (r.data) nuoveTransazioni.push(r.data)
-      wallet.saldo = Number(wallet.saldo) - v.importo
-      book.saldo = Number(book.saldo) + v.importo
+      wallet.saldo = rMov.saldoA
+      book.saldo = rMov.saldoB
       risultati.push(`${v.intestatario} ${v.importo}€`)
     }
     if (risultati.length) {
@@ -5516,10 +5557,13 @@ async function executeVoiceCommand(cmd) {
   ) || books.find(b => (b.nome || '').toLowerCase().includes(cleanN(cmd.book_nome)))
     if (!wallet || !book || !cmd.importo) { setVoiceStatus('Wallet o book non trovato'); speak('Non ho trovato il wallet o il book'); return }
     if (Number(wallet.saldo) < cmd.importo) { speak('Saldo wallet insufficiente'); return }
-    const nuovoSaldoWallet1 = Number(wallet.saldo) - cmd.importo
-    const nuovoSaldoBook1 = Number(book.saldo) + cmd.importo
-    await updateSaldo('wallets', wallet.id, nuovoSaldoWallet1)
-    await updateSaldo('books', book.id, nuovoSaldoBook1)
+    const rMovVersa = await muoviDueSaldi(
+      { table: 'wallets', id: wallet.id, delta: -cmd.importo },
+      { table: 'books', id: book.id, delta: cmd.importo }
+    )
+    if (rMovVersa.error) { setVoiceStatus(`❌ Versamento non eseguito: ${rMovVersa.error.message}`); speak('Versamento non eseguito'); return }
+    const nuovoSaldoWallet1 = rMovVersa.saldoA
+    const nuovoSaldoBook1 = rMovVersa.saldoB
     const rVersa = await salvaLogTransazione({
       tipo: 'versa', importo: cmd.importo,
       riferimento: `wallet:${wallet.id}:${wallet.nome}:${wallet.intestatario} -> book:${book.id}:${book.nome}:${book.intestatario}`,
@@ -5564,10 +5608,13 @@ if (!walletFrom || !walletTo || !cmd.importo) {
 }
   if (String(walletFrom.id) === String(walletTo.id)) { speak('Origine e destinazione uguali'); return }
   if (Number(walletFrom.saldo) < cmd.importo) { speak('Saldo insufficiente'); return }
-  const nuovoSaldoFrom2 = Number(walletFrom.saldo) - cmd.importo
-  const nuovoSaldoTo2 = Number(walletTo.saldo) + cmd.importo
-  await updateSaldo('wallets', walletFrom.id, nuovoSaldoFrom2)
-  await updateSaldo('wallets', walletTo.id, nuovoSaldoTo2)
+  const rMovTrasf = await muoviDueSaldi(
+    { table: 'wallets', id: walletFrom.id, delta: -cmd.importo },
+    { table: 'wallets', id: walletTo.id, delta: cmd.importo }
+  )
+  if (rMovTrasf.error) { setVoiceStatus(`❌ Trasferimento non eseguito: ${rMovTrasf.error.message}`); speak('Trasferimento non eseguito'); return }
+  const nuovoSaldoFrom2 = rMovTrasf.saldoA
+  const nuovoSaldoTo2 = rMovTrasf.saldoB
   const rTrasf = await salvaLogTransazione({
     tipo: 'trasferisci', importo: cmd.importo,
     riferimento: `wallet:${walletFrom.id}:${walletFrom.nome}:${walletFrom.intestatario} -> wallet:${walletTo.id}:${walletTo.nome}:${walletTo.intestatario}`,
@@ -5593,10 +5640,13 @@ if (!walletFrom || !walletTo || !cmd.importo) {
     )
     if (!book || !wallet || !cmd.importo) { speak('Book o wallet non trovato'); return }
     if (Number(book.saldo) < cmd.importo) { speak('Saldo book insufficiente'); return }
-    const nuovoSaldoBook2 = Number(book.saldo) - cmd.importo
-    const nuovoSaldoWallet2 = Number(wallet.saldo) + cmd.importo
-    await updateSaldo('books', book.id, nuovoSaldoBook2)
-    await updateSaldo('wallets', wallet.id, nuovoSaldoWallet2)
+    const rMovPrel = await muoviDueSaldi(
+      { table: 'books', id: book.id, delta: -cmd.importo },
+      { table: 'wallets', id: wallet.id, delta: cmd.importo }
+    )
+    if (rMovPrel.error) { setVoiceStatus(`❌ Prelievo non eseguito: ${rMovPrel.error.message}`); speak('Prelievo non eseguito'); return }
+    const nuovoSaldoBook2 = rMovPrel.saldoA
+    const nuovoSaldoWallet2 = rMovPrel.saldoB
     const rPrelBook = await salvaLogTransazione({
       tipo: 'preleva', importo: cmd.importo,
       riferimento: `book:${book.id}:${book.nome}:${book.intestatario} -> wallet:${wallet.id}:${wallet.nome}:${wallet.intestatario}`,
@@ -5617,8 +5667,9 @@ if (!walletFrom || !walletTo || !cmd.importo) {
     )
     if (!wallet || !cmd.importo) { speak('Wallet non trovato o importo mancante'); return }
     if (Number(wallet.saldo) < cmd.importo) { speak('Saldo wallet insufficiente'); return }
-    const nuovoSaldoWallet3 = Number(wallet.saldo) - cmd.importo
-    await updateSaldo('wallets', wallet.id, nuovoSaldoWallet3)
+    const rMovEst = await muoviSaldo('wallets', wallet.id, -cmd.importo)
+    if (rMovEst.error) { setVoiceStatus(`❌ Prelievo non eseguito: ${rMovEst.error.message}`); speak('Prelievo non eseguito'); return }
+    const nuovoSaldoWallet3 = rMovEst.saldo
     const riferimento = `wallet:${wallet.id}:${wallet.nome}:${wallet.intestatario} -> esterno`
     const rPrelEst = await salvaLogTransazione({
       tipo: 'preleva', importo: cmd.importo, riferimento,
@@ -5869,6 +5920,28 @@ async function saveEditPostIt(id) {
 
   async function updateSaldo(table, id, saldo) {
     return supabase.from(table).update({ saldo }).eq('id', id)
+  }
+
+  // 20/10/2026: movimenti di saldo atomici. Il database fa "saldo = saldo + delta" (delta negativo = toglie) e
+  // restituisce il saldo vero: una pagina rimasta aperta con saldi vecchi non cancella più le operazioni fatte altrove.
+  // Se la riga non viene aggiornata dà errore (prima falliva in silenzio). Usa la funzione SQL cambia_saldo
+  // (supabase/cambia_saldo.sql). NON si ritenta in automatico: un secondo tentativo potrebbe contare due volte.
+  async function muoviSaldo(table, id, delta) {
+    const { data, error } = await supabase.rpc('cambia_saldo', { p_tabella: table, p_id: id, p_importo: delta })
+    if (error) return { error, saldo: null }
+    return { error: null, saldo: Number(data) }
+  }
+  // Due movimenti insieme (a poi b). Se il secondo fallisce, il primo viene annullato.
+  async function muoviDueSaldi(a, b) {
+    const ra = await muoviSaldo(a.table, a.id, a.delta)
+    if (ra.error) return { error: ra.error }
+    const rb = await muoviSaldo(b.table, b.id, b.delta)
+    if (rb.error) {
+      const undo = await muoviSaldo(a.table, a.id, -a.delta)
+      const msg = undo.error ? `${rb.error.message} (ATTENZIONE: il primo saldo non è stato ripristinato, controllalo)` : rb.error.message
+      return { error: { message: msg } }
+    }
+    return { error: null, saldoA: ra.saldo, saldoB: rb.saldo }
   }
 
   // Manda una richiesta di aggiornamento saldi al poller sul PC.
@@ -6290,21 +6363,14 @@ async function handleDeleteTransaction(tx) {
         throw new Error('Saldo book insufficiente per annullare il movimento')
       }
 
-      const nuovoSaldoBook = Number(book.saldo) - importo
-      const nuovoSaldoWallet = Number(wallet.saldo) + importo
-
-      await runWithRetry(
-        () => updateSaldo('books', book.id, nuovoSaldoBook),
-        'Rollback saldo book'
+      const rMov = await muoviDueSaldi(
+        { table: 'books', id: book.id, delta: -importo },
+        { table: 'wallets', id: wallet.id, delta: importo }
       )
+      if (rMov.error) throw new Error(`Rollback saldi: ${rMov.error.message}`)
 
-      await runWithRetry(
-        () => updateSaldo('wallets', wallet.id, nuovoSaldoWallet),
-        'Rollback saldo wallet'
-      )
-
-      applyLocalBookSaldo(book.id, nuovoSaldoBook)
-      applyLocalWalletSaldo(wallet.id, nuovoSaldoWallet)
+      applyLocalBookSaldo(book.id, rMov.saldoA)
+      applyLocalWalletSaldo(wallet.id, rMov.saldoB)
     }
 
     if (tx.azione === 'book_to_wallet') {
@@ -6318,21 +6384,14 @@ async function handleDeleteTransaction(tx) {
         throw new Error('Saldo wallet insufficiente per annullare il movimento')
       }
 
-      const nuovoSaldoWallet = Number(wallet.saldo) - importo
-      const nuovoSaldoBook = Number(book.saldo) + importo
-
-      await runWithRetry(
-        () => updateSaldo('wallets', wallet.id, nuovoSaldoWallet),
-        'Rollback saldo wallet'
+      const rMov = await muoviDueSaldi(
+        { table: 'wallets', id: wallet.id, delta: -importo },
+        { table: 'books', id: book.id, delta: importo }
       )
+      if (rMov.error) throw new Error(`Rollback saldi: ${rMov.error.message}`)
 
-      await runWithRetry(
-        () => updateSaldo('books', book.id, nuovoSaldoBook),
-        'Rollback saldo book'
-      )
-
-      applyLocalWalletSaldo(wallet.id, nuovoSaldoWallet)
-      applyLocalBookSaldo(book.id, nuovoSaldoBook)
+      applyLocalWalletSaldo(wallet.id, rMov.saldoA)
+      applyLocalBookSaldo(book.id, rMov.saldoB)
     }
 
     if (tx.azione === 'wallet_to_wallet') {
@@ -6346,21 +6405,14 @@ async function handleDeleteTransaction(tx) {
         throw new Error('Saldo wallet destinazione insufficiente per annullare il movimento')
       }
 
-      const nuovoSaldoTo = Number(toWallet.saldo) - importo
-      const nuovoSaldoFrom = Number(fromWallet.saldo) + importo
-
-      await runWithRetry(
-        () => updateSaldo('wallets', toWallet.id, nuovoSaldoTo),
-        'Rollback saldo wallet destinazione'
+      const rMov = await muoviDueSaldi(
+        { table: 'wallets', id: toWallet.id, delta: -importo },
+        { table: 'wallets', id: fromWallet.id, delta: importo }
       )
+      if (rMov.error) throw new Error(`Rollback saldi: ${rMov.error.message}`)
 
-      await runWithRetry(
-        () => updateSaldo('wallets', fromWallet.id, nuovoSaldoFrom),
-        'Rollback saldo wallet origine'
-      )
-
-      applyLocalWalletSaldo(toWallet.id, nuovoSaldoTo)
-      applyLocalWalletSaldo(fromWallet.id, nuovoSaldoFrom)
+      applyLocalWalletSaldo(toWallet.id, rMov.saldoA)
+      applyLocalWalletSaldo(fromWallet.id, rMov.saldoB)
     }
 
     if (tx.azione === 'wallet_to_external') {
@@ -6370,14 +6422,10 @@ async function handleDeleteTransaction(tx) {
         throw new Error('Wallet non trovato per il rollback')
       }
 
-      const nuovoSaldoWallet = Number(wallet.saldo) + importo
+      const rMov = await muoviSaldo('wallets', wallet.id, importo)
+      if (rMov.error) throw new Error(`Rollback saldo wallet: ${rMov.error.message}`)
 
-      await runWithRetry(
-        () => updateSaldo('wallets', wallet.id, nuovoSaldoWallet),
-        'Rollback saldo wallet'
-      )
-
-      applyLocalWalletSaldo(wallet.id, nuovoSaldoWallet)
+      applyLocalWalletSaldo(wallet.id, rMov.saldo)
 
       const contMatch = contabilita.find(
         (row) =>
@@ -6630,12 +6678,13 @@ if (nota === null) return
     let nuovoSaldoWallet, nuovoSaldoBook
     if (quickBookTxForm.tipo === 'versa') {
       if (Number(wallet.saldo || 0) < importo) return setErrorMessage('Saldo wallet insufficiente')
-      nuovoSaldoWallet = Number(wallet.saldo) - importo
-      nuovoSaldoBook = Number(book.saldo) + importo
-      r = await updateSaldo('wallets', wallet.id, nuovoSaldoWallet)
-      if (r.error) return setErrorMessage(r.error.message)
-      r = await updateSaldo('books', book.id, nuovoSaldoBook)
-      if (r.error) return setErrorMessage(r.error.message)
+      const rMov = await muoviDueSaldi(
+        { table: 'wallets', id: wallet.id, delta: -importo },
+        { table: 'books', id: book.id, delta: importo }
+      )
+      if (rMov.error) return setErrorMessage(rMov.error.message)
+      nuovoSaldoWallet = rMov.saldoA
+      nuovoSaldoBook = rMov.saldoB
       r = await salvaLogTransazione({
   tipo: 'versa',
   importo,
@@ -6646,12 +6695,13 @@ if (nota === null) return
       if (r.error) return setErrorMessage(r.error.message)
     } else {
       // book_to_wallet: il book può andare in negativo, nessun controllo saldo
-      nuovoSaldoBook = Number(book.saldo) - importo
-      nuovoSaldoWallet = Number(wallet.saldo) + importo
-      r = await updateSaldo('books', book.id, nuovoSaldoBook)
-      if (r.error) return setErrorMessage(r.error.message)
-      r = await updateSaldo('wallets', wallet.id, nuovoSaldoWallet)
-      if (r.error) return setErrorMessage(r.error.message)
+      const rMov = await muoviDueSaldi(
+        { table: 'books', id: book.id, delta: -importo },
+        { table: 'wallets', id: wallet.id, delta: importo }
+      )
+      if (rMov.error) return setErrorMessage(rMov.error.message)
+      nuovoSaldoBook = rMov.saldoA
+      nuovoSaldoWallet = rMov.saldoB
       r = await salvaLogTransazione({
   tipo: 'preleva',
   importo,
@@ -6707,13 +6757,13 @@ if (nota === null) return
       if (!isSameOwner(wallet.intestatario, book.intestatario)) return setErrorMessage('Wallet e book hanno intestatari diversi')
       if (Number(wallet.saldo || 0) < importo) return setErrorMessage('Saldo wallet insufficiente')
 
-      const nuovoSaldoWallet = Number(wallet.saldo) - importo
-      const nuovoSaldoBook = Number(book.saldo) + importo
-
-      r = await updateSaldo('wallets', wallet.id, nuovoSaldoWallet)
-      if (r.error) return setErrorMessage(r.error.message)
-      r = await updateSaldo('books', book.id, nuovoSaldoBook)
-      if (r.error) return setErrorMessage(r.error.message)
+      const rMov = await muoviDueSaldi(
+        { table: 'wallets', id: wallet.id, delta: -importo },
+        { table: 'books', id: book.id, delta: importo }
+      )
+      if (rMov.error) return setErrorMessage(rMov.error.message)
+      const nuovoSaldoWallet = rMov.saldoA
+      const nuovoSaldoBook = rMov.saldoB
       r = await salvaLogTransazione({
   tipo: 'versa',
   importo,
@@ -6749,13 +6799,13 @@ if (nota === null) return
         if (!book || !wallet) return setErrorMessage('Book o wallet non trovato')
         if (!isSameOwner(book.intestatario, wallet.intestatario)) return setErrorMessage('Book e wallet hanno intestatari diversi')
 
-        const nuovoSaldoBook = Number(book.saldo) - importo
-        const nuovoSaldoWallet = Number(wallet.saldo) + importo
-
-        r = await updateSaldo('books', book.id, nuovoSaldoBook)
-        if (r.error) return setErrorMessage(r.error.message)
-        r = await updateSaldo('wallets', wallet.id, nuovoSaldoWallet)
-        if (r.error) return setErrorMessage(r.error.message)
+        const rMov = await muoviDueSaldi(
+          { table: 'books', id: book.id, delta: -importo },
+          { table: 'wallets', id: wallet.id, delta: importo }
+        )
+        if (rMov.error) return setErrorMessage(rMov.error.message)
+        const nuovoSaldoBook = rMov.saldoA
+        const nuovoSaldoWallet = rMov.saldoB
         r = await salvaLogTransazione({
   tipo: 'preleva',
   importo,
@@ -6776,10 +6826,9 @@ if (nota === null) return
         if (!wallet) return setErrorMessage('Wallet non trovato')
         if (Number(wallet.saldo || 0) < importo) return setErrorMessage('Saldo wallet insufficiente')
 
-        const nuovoSaldoWallet = Number(wallet.saldo) - importo
-
-        r = await updateSaldo('wallets', wallet.id, nuovoSaldoWallet)
-        if (r.error) return setErrorMessage(r.error.message)
+        const rMov = await muoviSaldo('wallets', wallet.id, -importo)
+        if (rMov.error) return setErrorMessage(rMov.error.message)
+        const nuovoSaldoWallet = rMov.saldo
         const riferimento = `wallet:${wallet.id}:${wallet.nome}:${wallet.intestatario} -> esterno`
         r = await salvaLogTransazione({ tipo: 'preleva', importo, riferimento, note: txForm.note || `Prelievo esterno da wallet ${wallet.nome}`, azione: 'wallet_to_external', categoria_spesa: txForm.categoria_spesa || null })
         if (r.error) return setErrorMessage(r.error.message)
@@ -6802,13 +6851,13 @@ if (nota === null) return
       if (!from || !to) return setErrorMessage('Wallet non trovato')
       if (Number(from.saldo || 0) < importo) return setErrorMessage('Saldo wallet origine insufficiente')
 
-      const nuovoSaldoFrom = Number(from.saldo) - importo
-      const nuovoSaldoTo = Number(to.saldo) + importo
-
-      r = await updateSaldo('wallets', from.id, nuovoSaldoFrom)
-      if (r.error) return setErrorMessage(r.error.message)
-      r = await updateSaldo('wallets', to.id, nuovoSaldoTo)
-      if (r.error) return setErrorMessage(r.error.message)
+      const rMov = await muoviDueSaldi(
+        { table: 'wallets', id: from.id, delta: -importo },
+        { table: 'wallets', id: to.id, delta: importo }
+      )
+      if (rMov.error) return setErrorMessage(rMov.error.message)
+      const nuovoSaldoFrom = rMov.saldoA
+      const nuovoSaldoTo = rMov.saldoB
       r = await salvaLogTransazione({ tipo: 'trasferisci', importo, riferimento: `wallet:${from.id}:${from.nome}:${from.intestatario} -> wallet:${to.id}:${to.nome}:${to.intestatario}`, note: txForm.note || `Trasferimento da wallet ${from.nome} a wallet ${to.nome}`, azione: 'wallet_to_wallet' })
       if (r.error) return setErrorMessage(r.error.message)
 
