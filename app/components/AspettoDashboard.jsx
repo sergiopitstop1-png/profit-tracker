@@ -83,7 +83,7 @@ export function PannelloAspetto({ aspetto, setAspetto, stile }) {
 
 /* ---------- barra a gruppi ---------- */
 const PREFERITI = [
-  ['dashboard', 'Dashboard'], ['profilazione', 'Profilazione'], ['books', 'Books'], ['clienti', 'Clienti'],
+  ['dashboard', 'Dashboard'], ['profilazione', 'Profilazione'], ['books', 'Books'], ['wallets', '👛 Wallets'], ['transactions', '🔄 Transactions'], ['clienti', 'Clienti'],
   ['lucy-mail', '📬 Lucy Mail'], ['segnali', '📡 Segnali'], ['lucy-chat', '💬 Chat Lucy'],
 ]
 const GRUPPI = [
