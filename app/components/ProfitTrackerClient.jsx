@@ -630,6 +630,7 @@ const SITO_PRINCIPALE_BOOK = {
   eplay24: 'https://www.eplay24.it/',
   netbet: 'https://www.netbet.it/',
   quigioco: 'https://www.quigioco.it/',
+  giocodigitale: 'https://www.giocodigitale.it/it/games',   // 21/10/2026: prima usava l'ultimo indirizzo visto (mokabingo3.giocodigitale.it)
 }
 function sitoBook(book) {
   const fisso = SITO_PRINCIPALE_BOOK[String(book.nome || '').toLowerCase().replace(/[^a-z0-9]/g, '')]
