@@ -124,6 +124,8 @@ function Sezione({ id, titolo, badge, colore = '#38bdf8', aperta: apertaDefault 
 // 13/10/2026 — 🖥 MINI GRIGLIA: se è accesa sul PC dei telefoni (mini_griglia.py v7, porta 8765), "Apri telefoni" mostra SOLO i telefoni
 // dell'operazione e ogni bet confermata/saltata/rimandata toglie il telefono di quel cliente. Se la griglia non è accesa non succede nulla.
 const GRIGLIA_URL = 'http://127.0.0.1:8765'
+// 21/10/2026: false = la lettura saldi in sequenza NON usa la mini griglia (i telefoni si guardano su Kiwi). Rimettere true per riaverla anche lì.
+const GRIGLIA_NELLA_SEQUENZA = false
 const grigliaPendenti = new Map()   // nome normalizzato del cliente -> bet ancora da fare in questa operazione
 const normNomeGriglia = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '')
 async function grigliaChiama(percorso, params = {}) {
@@ -651,7 +653,7 @@ async function apriSuTelefoni(nomeBook, url, intestatari, azione = 'apri', silen
   if (!nomi.length) return silenzioso ? 'nessun telefono da aprire' : undefined
   const cosa = azione === 'app' ? `l'APP ${nomeBook} (parola "${url}")` : `${nomeBook} in Chrome (${url.replace(/^https?:\/\//, '').replace(/\/$/, '')})`
   if (!silenzioso && !window.confirm(`Apro ${cosa} sui telefoni di:\n${nomi.join('\n')}?`)) return
-  grigliaMostra(nomi).then(g => {
+  if (!silenzioso || GRIGLIA_NELLA_SEQUENZA) grigliaMostra(nomi).then(g => {   // 21/10/2026: nella sequenza (silenzioso) la minigriglia resta ferma
     if (g && g.mancanti && g.mancanti.length) setErrorMessage(`🖥 Griglia: non trovo il telefono di ${g.mancanti.join(', ')} (vedi alias_griglia.json)`)
   })
   const { data, error } = await supabase.from('comandi_telefoni').insert([{ azione, url, intestatari: nomi }]).select().single()
