@@ -126,6 +126,33 @@ function Sezione({ id, titolo, badge, colore = '#38bdf8', aperta: apertaDefault 
 const GRIGLIA_URL = 'http://127.0.0.1:8765'
 // 21/10/2026: false = la lettura saldi in sequenza NON usa la mini griglia (i telefoni si guardano su Kiwi). Rimettere true per riaverla anche lì.
 const GRIGLIA_NELLA_SEQUENZA = false
+
+// 21/10/2026 — PUNTI & MONETE: colonna SNAI. Si scrivono le monete e il bonus si calcola a scaglioni (2/5/10 €).
+// Sotto 1500 monete il bonus è 0 ma le monete restano. Tetto per ora 10 € (il gradino da 20 € a 10.000 monete si aggiungerà dopo).
+// Il saldo del book PUNTI E MONETE (id 2) = bonus punti Sisal + bonus monete Snai, meno il 10% sul totale.
+const PM_SNAI_SCAGLIONI = [[5500, 10], [3000, 5], [1500, 2]]
+const pmBonusSnai = (monete) => {
+  const m = Number(monete) || 0
+  for (const [soglia, euro] of PM_SNAI_SCAGLIONI) if (m >= soglia) return euro
+  return 0
+}
+const PM_SCONTO_BOOK = { sisal: 0.10, snai: 0.10 }   // 10% sul totale
+const PM_BOOK_ID_FISSO = { sisal: '2', snai: '2' }    // book ID 2 = PUNTI E MONETE
+const pmValoreCella = (book, punti) => book.id === 'snai' ? pmBonusSnai(punti) : Number(punti || 0) * Number(book.valorePunto || 0)
+const pmTargetBook = (book) => book.bookId || PM_BOOK_ID_FISSO[book.id] || null
+// Saldo del book collegato = somma dei totali (già scontati) di tutte le colonne che puntano a quel book
+const pmSaldoCollegato = (target, booksArr, saldi, nomiClienti) => booksArr
+  .filter(b => String(pmTargetBook(b)) === String(target))
+  .reduce((tot, b) => {
+    const somma = nomiClienti.reduce((x, nome) => x + pmValoreCella(b, saldi[`${b.id}__${nome}`] || 0), 0)
+    return tot + somma * (1 - (PM_SCONTO_BOOK[b.id] || 0))
+  }, 0)
+// Monete Snai iniziali (lette dai telefoni il 21/10/2026). Si caricano UNA volta sola, se non ci sono ancora righe Snai.
+const PM_SNAI_MONETE_INIZIALI = {
+  alfonso: 2965, annarosa: 3021, antonello: 1501, denis: 1485, elia: 3149, evaristo: 3058, federica: 164, federico: 3198,
+  gabriel: 178, italo: 1149, ivan: 2103, jonathan: 4739, laura: 2741, letizia: 2772, libero: 3306, luisa: 2355,
+  massi: 1487, michela: 1154, nicola: 1343, paolo: 1344, renato: 3098, samuele: 1627, sergio: 2851, tatiana: 3763, ugo: 1768,
+}
 const grigliaPendenti = new Map()   // nome normalizzato del cliente -> bet ancora da fare in questa operazione
 const normNomeGriglia = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '')
 async function grigliaChiama(percorso, params = {}) {
@@ -2587,6 +2614,7 @@ async function updateProfiloLivello(bookId, livello, variante = null) {
   async function loadPuntiMonete() {
     if (puntiMonetaCaricata) return
     setPmLoading(true)
+    if (!clienti || clienti.length === 0) return   // aspetto che i clienti siano caricati (serve per le monete Snai): si riprova quando arrivano
     const { data, error } = await supabase.from('punti_monete').select('*').order('book_nome').order('cliente_nome')
     if (!error && data && data.length > 0) {
       const bookMap = {}
@@ -2595,10 +2623,37 @@ async function updateProfiloLivello(bookId, livello, variante = null) {
         if (!bookMap[r.book_nome]) bookMap[r.book_nome] = { id: r.book_nome.toLowerCase(), nome: r.book_nome, valorePunto: Number(r.valore_punto), bookId: r.book_id ? String(r.book_id) : '' }
         saldiMap[`${r.book_nome.toLowerCase()}__${r.cliente_nome}`] = r.punti
       })
+      // 21/10/2026: colonna Snai
+      const snaiGiaSalvato = data.some(r => String(r.book_nome).toLowerCase() === 'snai')
+      let snaiAppenaCaricato = false
+      if (!snaiGiaSalvato) {
+        const righe = []
+        const nonTrovati = []
+        const usati = new Set()
+        Object.entries(PM_SNAI_MONETE_INIZIALI).forEach(([chiave, monete]) => {
+          const c = clienti.find(x => String(x.nome || '').trim().toLowerCase() === chiave) || clienti.find(x => String(x.nome || '').trim().toLowerCase().startsWith(chiave + ' '))
+          if (c && !usati.has(c.nome)) { usati.add(c.nome); righe.push({ book_nome: 'Snai', book_id: null, valore_punto: 0, cliente_nome: c.nome, punti: monete, updated_at: new Date().toISOString() }) }
+          else nonTrovati.push(chiave)
+        })
+        if (righe.length > 0) {
+          const { error: errSnai } = await supabase.from('punti_monete').upsert(righe, { onConflict: 'book_nome,cliente_nome' })
+          if (!errSnai) {
+            righe.forEach(r => { saldiMap[`snai__${r.cliente_nome}`] = r.punti })
+            snaiAppenaCaricato = true
+          } else { console.error('Snai monete iniziali:', errSnai) }
+        }
+        if (nonTrovati.length > 0) setMessage(`Monete Snai non assegnate (cliente non trovato): ${nonTrovati.join(', ')}`)
+      }
+      if (!bookMap['Snai'] && !Object.values(bookMap).some(b => b.id === 'snai')) bookMap['Snai'] = { id: 'snai', nome: 'Snai', valorePunto: 0, bookId: '' }
       const booksArr = Object.values(bookMap)
       setPuntiMoneteBooks(booksArr)
       setPmBooks(booksArr)
       setPmSaldi(saldiMap)
+      if (snaiAppenaCaricato) {
+        const nuovoSaldo = pmSaldoCollegato('2', booksArr, saldiMap, clienti.map(c => c.nome))
+        await supabase.from('books').update({ saldo: nuovoSaldo }).eq('id', 2)
+        setBooks(prev => prev.map(b => b.id === 2 ? { ...b, saldo: nuovoSaldo } : b))
+      }
     }
     setPmLoading(false)
     setPuntiMonetaCaricata(true)
@@ -2615,7 +2670,7 @@ async function updateProfiloLivello(bookId, livello, variante = null) {
     if (activeTab === 'matrice' || activeTab === 'credenziali') loadMatrice()
     else if (activeTab === 'punti-monete') loadPuntiMonete()
     else if (activeTab === 'sms') loadSms()
-  }, [activeTab])
+  }, [activeTab, clienti.length])
   const saveWeeklySnapshot = async () => {
     try {
       const snapshotDate = new Date().toISOString().split('T')[0]
@@ -10194,23 +10249,21 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 
   const calcolaTotaleBook = (book, applicaSconto = true) => {
     const totale = clientiOrdinati.reduce((sum, c) => {
-      const punti = Number(pmSaldi[getCellKey(book.id, c.nome)] || 0)
-      return sum + punti * Number(book.valorePunto)
+      return sum + pmValoreCella(book, pmSaldi[getCellKey(book.id, c.nome)] || 0)
     }, 0)
     const sconto = applicaSconto ? (SCONTO_BOOK?.[book.id] || 0) : 0
     return totale * (1 - sconto)
   }
 
-  const SCONTO_BOOK = { 'sisal': 0.10 } // 10% sconto sul totale Sisal
-  const BOOK_ID_FISSO = { 'sisal': '2' }  // book ID 2 = PUNTI E MONETE
+  const SCONTO_BOOK = PM_SCONTO_BOOK // 10% sul totale (Sisal e Snai)
 
-  const aggiornaSaldoBookInBooks = async (book, totale) => {
-    const bookId = book.bookId || BOOK_ID_FISSO[book.id] || null
+  // 21/10/2026: il book PUNTI E MONETE (id 2) vale la somma di TUTTE le colonne (Sisal + Snai) che puntano a lui
+  const aggiornaSaldoBookInBooks = async (book, booksArr, saldi) => {
+    const bookId = pmTargetBook(book)
     if (!bookId) return
-    const sconto = SCONTO_BOOK[book.id] || 0
-    const totaleScontato = totale * (1 - sconto)
-    await supabase.from('books').update({ saldo: totaleScontato }).eq('id', bookId)
-    setBooks(prev => prev.map(b => b.id === Number(bookId) ? { ...b, saldo: totaleScontato } : b))
+    const nuovoSaldo = pmSaldoCollegato(bookId, booksArr, saldi, clientiOrdinati.map(c => c.nome))
+    await supabase.from('books').update({ saldo: nuovoSaldo }).eq('id', bookId)
+    setBooks(prev => prev.map(b => b.id === Number(bookId) ? { ...b, saldo: nuovoSaldo } : b))
   }
 
   const handlePuntiChange = async (book, clienteNome, valore) => {
@@ -10226,12 +10279,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
       punti: nuoviPunti,
       updated_at: new Date().toISOString()
     }], { onConflict: 'book_nome,cliente_nome' })
-    // Aggiorna saldo book collegato
-    const totale = clientiOrdinati.reduce((sum, c) => {
-      const p = c.nome === clienteNome ? nuoviPunti : Number(pmSaldi[getCellKey(book.id, c.nome)] || 0)
-      return sum + p * Number(book.valorePunto)
-    }, 0)
-    aggiornaSaldoBookInBooks(book, totale)
+    // Aggiorna saldo book collegato (somma di tutte le colonne)
+    aggiornaSaldoBookInBooks(book, pmBooks, { ...pmSaldi, [getCellKey(book.id, clienteNome)]: nuoviPunti })
   }
 
   const handleValorePuntoChange = async (bookId, nuovoValore) => {
@@ -10241,12 +10290,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
     if (!book) return
     // Aggiorna valore_punto su tutte le righe del book
     await supabase.from('punti_monete').update({ valore_punto: Number(nuovoValore) }).eq('book_nome', book.nome)
-    if (book.bookId) {
-      const totale = clientiOrdinati.reduce((sum, c) => {
-        return sum + Number(pmSaldi[getCellKey(bookId, c.nome)] || 0) * Number(nuovoValore)
-      }, 0)
-      aggiornaSaldoBookInBooks(book, totale)
-    }
+    if (book.bookId) aggiornaSaldoBookInBooks(book, nuoviBooks, pmSaldi)
   }
 
   const handleAggiungiBook = async () => {
@@ -10294,7 +10338,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
       <div style={sectionTopBar}>
         <div>
           <h2 style={sectionTitle}>🏆 Punti & Monete</h2>
-          <p style={sectionDescription}>Saldo punti per cliente × bookmaker · il totale aggiorna automaticamente il saldo nel book</p>
+          <p style={sectionDescription}>Saldo punti per cliente × bookmaker · il totale (Sisal + monete Snai, meno il 10%) aggiorna automaticamente il saldo del book PUNTI E MONETE</p>
         </div>
         <button style={primaryButtonBlue} onClick={() => setPmShowAggiungi(true)}>+ Aggiungi Book</button>
       </div>
@@ -10311,11 +10355,13 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                       <span style={{ color: '#38bdf8', fontWeight: 900, fontSize: 13, textTransform: 'capitalize' }}>{book.nome}</span>
                       <button onClick={() => handleEliminaBook(book)} style={{ border: 'none', background: 'transparent', color: '#475569', cursor: 'pointer', fontSize: 13, padding: '0 2px' }}>×</button>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    {book.id === 'snai'
+                      ? <div style={{ fontSize: 10, color: '#64748b', textAlign: 'center', lineHeight: 1.3 }}>monete → bonus<br />1500 = 2€ · 3000 = 5€ · 5500 = 10€</div>
+                      : <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                       <span style={{ fontSize: 10, color: '#64748b' }}>€/punto:</span>
                       <input type="number" step="0.000001" min="0" value={book.valorePunto} onChange={e => handleValorePuntoChange(book.id, e.target.value)}
                         style={{ width: 72, background: '#0b1220', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 6, padding: '2px 6px', fontSize: 11, fontWeight: 800, textAlign: 'center', outline: 'none' }} />
-                    </div>
+                    </div>}
                     <div style={{ fontSize: 11, color: '#4ade80', fontWeight: 700 }}>
                       Tot: {calcolaTotaleBook(book).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
                       {SCONTO_BOOK[book.id] && <span style={{ fontSize: 10, color: '#f87171', marginLeft: 4 }}>(-{SCONTO_BOOK[book.id]*100}%)</span>}
@@ -10332,7 +10378,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 <td style={{ ...tdStrong, position: 'sticky', left: 0, background: idx % 2 === 0 ? '#020617' : '#0b1220', zIndex: 2, borderRight: '1px solid rgba(51,65,85,0.7)', fontSize: 13 }}>{c.nome}</td>
                 {pmBooks.map(book => {
                   const punti = pmSaldi[getCellKey(book.id, c.nome)] || 0
-                  const valore = Number(punti) * Number(book.valorePunto)
+                  const valore = pmValoreCella(book, punti)
                   return (
                     <td key={book.id} style={{ ...td, textAlign: 'center', padding: '8px 10px' }}>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
@@ -10342,7 +10388,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                           placeholder="0"
                           style={{ width: 90, background: '#0b1220', color: '#f8fafc', border: '1px solid rgba(51,65,85,0.6)', borderRadius: 8, padding: '5px 8px', fontSize: 13, fontWeight: 700, textAlign: 'center', outline: 'none' }}
                         />
-                        {punti > 0 && <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 700 }}>{valore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>}
+                        {punti > 0 && <span style={{ fontSize: 10, color: valore > 0 ? '#4ade80' : '#64748b', fontWeight: 700 }}>{valore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>}
                       </div>
                     </td>
                   )
