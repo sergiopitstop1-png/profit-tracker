@@ -54,6 +54,11 @@ export async function POST(req: NextRequest) {
     // un esito deciso non si cambia più (salvo correzione esplicita con un altro esito)
     if (prima && !vuoto(prima.esito) && vuoto(r?.esito)) { riga.esito = prima.esito; riga.data_esito = prima.data_esito ?? riga.data_esito }
 
+    // 22/10/2026: un segnale corretto/salvato a mano (esito_manuale) non viene più toccato dal lettore sul PC: esito, data e risultato restano quelli salvati
+    if (prima && prima.esito_manuale === true) {
+      for (const k of ['esito', 'data_esito', 'stato_match', 'score_casa_attuale', 'score_ospite_attuale'] as const) riga[k] = prima[k] ?? null
+    }
+
     if (!prima) { nuovi.push({ ...riga, aggiornato: new Date().toISOString() }); continue }
     const cambiato = CAMPI.some(k => k !== 'msg_id' && String(prima[k] ?? '') !== String(riga[k] ?? ''))
     if (!cambiato) { invariati++; continue }

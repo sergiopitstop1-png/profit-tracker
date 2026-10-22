@@ -162,9 +162,15 @@ function RigaHunter({ s, td, bf, cg, onSalvato }: { s: Hunter; td: any; bf?: Cel
       data_esito: esitoFinale && !s.data_esito ? new Date().toISOString() : s.data_esito, aggiornato: new Date().toISOString() }
     if (rFt) { patch.score_casa_attuale = rFt[0]; patch.score_ospite_attuale = rFt[1] }
     setStato('salvo…')
-    const { error } = await supabase.from('hunterbet_segnali').update(patch).eq('msg_id', s.msg_id)
-    if (error) { setStato('errore: ' + error.message + ' (hai lanciato hunterbet_manuale.sql?)'); return }
-    setStato('✓ salvato'); onSalvato({ ...s, ...patch })
+    // 22/10/2026: salva il server e restituisce la riga letta dal database: se non è stata scritta davvero, lo vedi qui (prima diceva «salvato» anche quando il database rifiutava la modifica)
+    let r: Response
+    try { r = await fetch('/api/segnali/hunterbet-esito', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ msg_id: s.msg_id, patch }) }) }
+    catch { setStato('errore: rete assente, NON salvato'); return }
+    const j = await r.json().catch(() => null)
+    if (!r.ok || !j?.riga) { setStato('NON salvato: ' + (j?.error || `errore ${r.status}`)); return }
+    const dopo = j.riga as Hunter
+    if ((dopo.esito ?? null) !== (patch.esito ?? null)) { setStato('NON salvato: il database ha tenuto un altro esito, ricarica la pagina'); onSalvato({ ...s, ...dopo }); return }
+    setStato('✓ salvato'); onSalvato({ ...s, ...dopo })
   }
   const inp = { background: '#020617', color: '#f8fafc', border: '1px solid #334155', borderRadius: 6, padding: '3px 6px', fontSize: 12, width: 52 }
   const live = (s.fase || (s.tipo_segnale?.startsWith('GOL_') ? 'LIVE' : 'PRE-LIVE')) === 'LIVE'
