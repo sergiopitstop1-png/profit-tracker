@@ -26,6 +26,7 @@ import AvvisiContiPanel, { pianoDelGiorno } from './AvvisiConti'
 import LucyAvvisoMail from './LucyAvvisoMail'   // 07/10/2026: avviso sottile nuove opportunità / bonus accreditati
 import PromoBonusPanel, { PromoScadenze } from './PromoBonus'   // 05/10/2026: tab Promo + striscia scadenze
 import BetfairStato from './BetfairStato'   // 06/10/2026: avviso "quote Betfair ferme" in Dashboard
+import MailCriticheOkVisto from './MailCriticheOkVisto'   // 22/10/2026: popup mail critiche (inibizione bonus, conto sospeso, KYC) finché non premi «Ok visto» (solo admin)
 import PromoNuovePopup from './PromoNuovePopup'   // 14/10/2026: popup promo segnalate nuove, finché non premi «Ok visto» (solo admin)
 import SceltaData from './SceltaData'   // 14/10/2026: calendario unico per scegliere le date (rimandi)
 import DiretteAvviso from './DiretteAvviso'   // 09/10/2026: prossima diretta Accademia (solo admin)
@@ -8372,7 +8373,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             striscePrima={<><LucyAvvisoMail />
 <BetfairStato />
 <DiretteAvviso />
-<PromoNuovePopup /></>}
+<PromoNuovePopup />
+<MailCriticheOkVisto /></>}
             strisceOggi={<>
 <LucyTrading Sezione={Sezione} />
 <PromoScadenze onApri={() => handleTabChange('promo')} Sezione={Sezione} />
