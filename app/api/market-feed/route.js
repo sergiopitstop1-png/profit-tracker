@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const maxDuration = 60;
 
 /*
 ============================================================
@@ -921,6 +922,30 @@ export async function POST(
       }
     } catch (watchdogError) {
       console.error("Prop Watchdog non bloccante:", watchdogError);
+    }
+
+
+    /*
+    ------------------------------------------------------------
+    REGISTRO SEGNALI (logger + evaluator)
+    ------------------------------------------------------------
+    Dal 26/08/2026 l'EA (v1.03) non chiama più market-signal-process,
+    quindi il registro era fermo. Lo avviamo qui, lato server, dopo ogni
+    salvataggio riuscito. Non blocca mai il feed: il process risponde
+    comunque 200 e gli errori restano nei log.
+    Il cron di Vercel (ogni 15 minuti) è la rete di sicurezza.
+    */
+    try {
+      const origin = new URL(request.url).origin;
+      await fetch(`${origin}/api/market-signal-process`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol: marketKey }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(25000)
+      });
+    } catch (signalError) {
+      console.error("Market Signal Process non bloccante:", signalError);
     }
 
 

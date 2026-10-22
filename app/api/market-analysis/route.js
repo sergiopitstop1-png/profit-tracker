@@ -3,6 +3,8 @@
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+import { rangeForecast } from "../../../lib/marketOdds";
+
 const MASSIVE_BASE = "https://api.massive.com";
 
 const SUPABASE_URL =
@@ -3410,6 +3412,18 @@ export async function GET(
 
       feed:
         feedMeta,
+
+      // Aggiunto: ampiezza attesa 3h (statistica storica XAUUSD, solo oro). Non modifica score/direzione.
+      rangeForecast:
+        symbol === "XAUUSD"
+          ? rangeForecast(
+              atrValue,
+              new Date(
+                m15Bars[m15Bars.length - 1]?.t ||
+                Date.now()
+              ).getUTCHours()
+            )
+          : null,
 
       /*
       ---------------------------------------------------------
