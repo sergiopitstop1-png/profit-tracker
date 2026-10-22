@@ -1,7 +1,7 @@
 'use client'
 // 22/10/2026 · Popup in Dashboard per le mail CRITICHE dei clienti (inibizione bonus, limitazione, conto sospeso/bloccato, KYC).
 // Compare a ogni caricamento, ogni 2 minuti e quando torni sulla scheda, e RESTA finché non premi «Ok visto».
-// Aprire la mail in Lucy Mail non lo fa sparire. Solo admin: per gli altri non appare nulla.
+// Aprire la mail in Lucy Mail non lo fa sparire. Lo vedono admin e VIP (collaboratori); il «visto» è personale. Per gli altri non appare nulla.
 import { useCallback, useEffect, useState } from 'react'
 
 const quando = iso => new Date(iso).toLocaleString('it-IT', { timeZone: 'Europe/Rome', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
