@@ -16,7 +16,7 @@ export const ASPETTO_PREDEFINITO = { numeriSu: true, oggiUnico: true, rossoCompa
 const VOCI = [
   ['numeriSu', '💶 Numeri in alto', 'Panoramica, Cassa e Accantonamenti subito sotto la barra; gli avvisi vanno sotto'],
   ['oggiUnico', '📋 Bottone "Oggi" accanto a Salva Periodo', 'Lucy Trading, promo in scadenza e profilazioni mirate in una finestra mobile; il bottone lampeggia in giallo se c\'è qualcosa da fare oggi'],
-  ['rossoCompatto', '🔔 Riquadro rosso corto', 'Mostra 3 avvisi e un tasto per vederli tutti'],
+  ['rossoCompatto', '🔔 Riquadro rosso compatto', 'Righe più strette e tasto per chiudere l\'elenco (parte sempre aperto con tutti gli avvisi)'],
   ['pulsantiGruppi', '🗂 Pulsanti in gruppi', 'I più usati restano in vista, gli altri stanno in 3 menu'],
   ['headerCompatto', '🏠 Intestazione compatta', 'Home, Esito manuale, Iscritti e © in un menu'],
 ]
@@ -263,7 +263,8 @@ export function OggiCard({ children, attiva, onApri }) {
 
 /* ---------- elenco che mostra solo le prime righe ---------- */
 export function ListaCompatta({ max = 3, children }) {
-  const [tutti, setTutti] = useState(false)
+  // 22/10/2026: parte APERTO (tutte le righe visibili) per non perdere nessuna scadenza; "mostra meno" lo chiude finché non ricarichi la pagina
+  const [tutti, setTutti] = useState(true)
   const voci = Children.toArray(children)
   if (!max || voci.length <= max) return <>{voci}</>
   return (
