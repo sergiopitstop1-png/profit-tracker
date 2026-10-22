@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import TradingViewChart from "./TradingViewChart";
+import { touchOdds, atrRegime, ODDS_META } from "../../lib/marketOdds";
 import {
   panel, panelHeader, panelTitle, panelSubtitle, input,
   primaryButtonBlue, secondaryButton, statCard, statLabel
@@ -116,6 +117,21 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
   const [ftLoading, setFtLoading] = useState(false);
   const [ftError, setFtError] = useState("");
   const [detailsOpen, setDetailsOpen] = useState(false);
+
+  // Modalità Prop: SENZA COPERTURA (default, la Prop segue il forecast) oppure
+  // CON COPERTURA (storica: la Prop va contro il forecast, il broker esterno segue il forecast).
+  const [propMode, setPropMode] = useState("SENZA");
+  useEffect(() => {
+    try {
+      const v = window.localStorage.getItem("marketEnginePropMode");
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (v === "SENZA" || v === "CON") setPropMode(v);
+    } catch {}
+  }, []);
+  const choosePropMode = mode => {
+    setPropMode(mode);
+    try { window.localStorage.setItem("marketEnginePropMode", mode); } catch {}
+  };
 
   // Operational Decision Engine — traduce target monetario + lotti in un piano operativo
   const [opTargetUsd, setOpTargetUsd] = useState(5000);
@@ -919,7 +935,12 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
   }
 
   const theme = biasTheme(data?.combined?.bias || "NEUTRAL");
-  const propDirection = data?.combined?.propDirection || "WAIT";
+  const contrarianPropDirection = data?.combined?.propDirection || "WAIT";
+  const rawForecastDirection = String(data?.combined?.forecastDirection || "WAIT").toUpperCase();
+  // SENZA COPERTURA: la Prop apre nella direzione del forecast. CON COPERTURA: direzione opposta (come prima).
+  const propDirection = propMode === "SENZA"
+    ? (rawForecastDirection === "BUY" || rawForecastDirection === "SELL" ? rawForecastDirection : "WAIT")
+    : contrarianPropDirection;
   const signalStrength = data?.combined?.signalStrength || "INSUFFICIENT";
 
   useEffect(() => {
@@ -1250,8 +1271,8 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
         {opError && <div style={{marginTop:9,color:"#fecaca",fontSize:10}}>⚠️ {opError}</div>}
 
         <div style={{display:"grid",gridTemplateColumns:isNarrow?"1fr":"repeat(4,minmax(160px,1fr))",gap:8,marginTop:12}}>
-          <div style={{padding:"11px",borderRadius:12,border:"1px solid rgba(71,85,105,.4)",background:"rgba(2,6,23,.38)"}}><div style={{fontSize:9,color:"#64748b",fontWeight:950}}>DIREZIONE PROP</div><div style={{fontSize:25,fontWeight:1000,color:propDirection==="BUY"?"#5eead4":propDirection==="SELL"?"#fb7185":"#fde68a",marginTop:3}}>{propDirection==="WAIT"?"ATTENDI":propDirection}</div><div style={{fontSize:9,color:"#64748b"}}>Opposta al forecast {forecastDirection}</div></div>
-          <div style={{padding:"11px",borderRadius:12,border:"1px solid rgba(71,85,105,.4)",background:"rgba(2,6,23,.38)"}}><div style={{fontSize:9,color:"#64748b",fontWeight:950}}>DIREZIONE BROKER</div><div style={{fontSize:25,fontWeight:1000,color:brokerDirection==="BUY"?"#5eead4":brokerDirection==="SELL"?"#fb7185":"#fde68a",marginTop:3}}>{brokerDirection==="WAIT"?"ATTENDI":brokerDirection}</div><div style={{fontSize:9,color:"#64748b"}}>Stessa direzione del forecast</div></div>
+          <div style={{padding:"11px",borderRadius:12,border:"1px solid rgba(71,85,105,.4)",background:"rgba(2,6,23,.38)"}}><div style={{fontSize:9,color:"#64748b",fontWeight:950}}>DIREZIONE PROP</div><div style={{fontSize:25,fontWeight:1000,color:propDirection==="BUY"?"#5eead4":propDirection==="SELL"?"#fb7185":"#fde68a",marginTop:3}}>{propDirection==="WAIT"?"ATTENDI":propDirection}</div><div style={{fontSize:9,color:"#64748b"}}>{propMode==="SENZA"?`Segue il forecast ${forecastDirection} (senza copertura)`:`Opposta al forecast ${forecastDirection}`}</div></div>
+          <div style={{padding:"11px",borderRadius:12,border:"1px solid rgba(71,85,105,.4)",background:"rgba(2,6,23,.38)"}}><div style={{fontSize:9,color:"#64748b",fontWeight:950}}>DIREZIONE BROKER</div><div style={{fontSize:25,fontWeight:1000,color:brokerDirection==="BUY"?"#5eead4":brokerDirection==="SELL"?"#fb7185":"#fde68a",marginTop:3}}>{brokerDirection==="WAIT"?"ATTENDI":brokerDirection}</div><div style={{fontSize:9,color:"#64748b"}}>{propMode==="SENZA"?"Non usata: nessuna copertura":"Stessa direzione del forecast"}</div></div>
           <div style={{padding:"11px",borderRadius:12,border:`1px solid ${opLabel.color}55`,background:"rgba(2,6,23,.38)"}}><div style={{fontSize:9,color:"#64748b",fontWeight:950}}>INDICAZIONE OPERATIVA</div><div style={{fontSize:16,fontWeight:1000,color:opLabel.color,marginTop:5}}>{opLabel.icon} {opLabel.text}</div><div style={{fontSize:9,color:"#64748b",marginTop:3}}>Indice orientativo, non certezza di mercato</div></div>
           <div style={{padding:"11px",borderRadius:12,border:"1px solid rgba(71,85,105,.4)",background:"rgba(2,6,23,.38)"}}>
             <div style={{fontSize:9,color:"#64748b",fontWeight:950}}>SCORE / STABILITÀ</div>
@@ -1267,6 +1288,60 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
             </div>
           </div>
         </div>
+
+        {(() => {
+          if (symbol !== "XAUUSD") return null;
+          const rf = data?.rangeForecast;
+          const tpUsd = operationalTarget ? operationalTarget.priceDistance : null;
+          const slUsd = (Math.max(1, Number(opSlPoints) || 1000)) * 0.01;
+          const oddsSide = propDirection === "BUY" || propDirection === "SELL" ? propDirection : "BUY";
+          const regime = rf ? rf.regime : atrRegime(NaN);
+          const rows = [1,2,3,6,12,24].map(h => ({ h, o: tpUsd ? touchOdds(regime, oddsSide, h, tpUsd, slUsd) : null }));
+          const reach = rf && tpUsd
+            ? tpUsd > rf.p90 ? { t:"TP oltre il 90° percentile dell'ampiezza 3h: in 3 ore è improbabile", c:"#fb7185" }
+              : tpUsd > rf.median ? { t:"TP oltre l'ampiezza tipica di 3 ore: serve una giornata più mossa del solito", c:"#fbbf24" }
+              : { t:"TP entro l'ampiezza tipica di 3 ore", c:"#4ade80" }
+            : null;
+          return (
+            <div style={{marginTop:12,padding:"12px",borderRadius:14,border:"1px solid rgba(250,204,21,.28)",background:"rgba(66,32,6,.14)"}}>
+              <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                <div style={{fontSize:12,fontWeight:1000,color:"#fde68a"}}>📏 AMPIEZZA ATTESA E PROBABILITÀ TP/SL (storico)</div>
+                <div style={{display:"flex",gap:6}}>
+                  <button style={{...secondaryButton,padding:"5px 9px",fontSize:10,opacity:propMode==="SENZA"?1:.55,border:propMode==="SENZA"?"1px solid rgba(250,204,21,.6)":undefined}} onClick={()=>choosePropMode("SENZA")}>SENZA COPERTURA</button>
+                  <button style={{...secondaryButton,padding:"5px 9px",fontSize:10,opacity:propMode==="CON"?1:.55,border:propMode==="CON"?"1px solid rgba(250,204,21,.6)":undefined}} onClick={()=>choosePropMode("CON")}>CON COPERTURA</button>
+                </div>
+              </div>
+              {rf ? (
+                <div style={{display:"grid",gridTemplateColumns:isNarrow?"1fr 1fr":"repeat(4,1fr)",gap:8,marginTop:9}}>
+                  <div><div style={{fontSize:8.5,color:"#64748b"}}>AMPIEZZA 3H TIPICA</div><b style={{fontSize:20,color:"#f8fafc"}}>${fmt(rf.median,1)}</b></div>
+                  <div><div style={{fontSize:8.5,color:"#64748b"}}>CASO CALMO (10°)</div><b style={{fontSize:16,color:"#cbd5e1"}}>${fmt(rf.p10,1)}</b></div>
+                  <div><div style={{fontSize:8.5,color:"#64748b"}}>CASO MOSSO (90°)</div><b style={{fontSize:16,color:"#cbd5e1"}}>${fmt(rf.p90,1)}</b></div>
+                  <div><div style={{fontSize:8.5,color:"#64748b"}}>ATR M15 / REGIME</div><b style={{fontSize:14,color:"#cbd5e1"}}>${fmt(rf.atrM15,2)} · {rf.regime==="low"?"basso":rf.regime==="mid"?"medio":"alto"}</b></div>
+                </div>
+              ) : <div style={{fontSize:10,color:"#64748b",marginTop:8}}>Ampiezza attesa non disponibile (serve il feed live).</div>}
+              {reach && <div style={{fontSize:10,fontWeight:900,color:reach.c,marginTop:8}}>🎯 Con TP ${fmt(tpUsd,0)}: {reach.t}.</div>}
+              {tpUsd ? (
+                <div style={{overflowX:"auto",marginTop:9}}>
+                  <table style={{width:"100%",minWidth:420,borderCollapse:"collapse",fontSize:10}}>
+                    <thead><tr style={{color:"#94a3b8",textAlign:"left"}}>
+                      <th style={{padding:"4px 6px"}}>{oddsSide} · TP ${fmt(tpUsd,0)} / SL ${fmt(slUsd,0)}</th>
+                      {rows.map(r=><th key={r.h} style={{padding:"4px 6px"}}>{r.h}H</th>)}
+                    </tr></thead>
+                    <tbody>
+                      <tr style={{color:"#cbd5e1"}}><td style={{padding:"4px 6px",color:"#4ade80"}}>TP prima dello SL</td>{rows.map(r=><td key={r.h} style={{padding:"4px 6px",fontWeight:900,color:"#4ade80"}}>{r.o?`${fmt(r.o.tp,1)}%`:"—"}</td>)}</tr>
+                      <tr style={{color:"#cbd5e1"}}><td style={{padding:"4px 6px",color:"#fb7185"}}>SL colpito</td>{rows.map(r=><td key={r.h} style={{padding:"4px 6px",fontWeight:900,color:"#fb7185"}}>{r.o?`${fmt(r.o.sl,1)}%`:"—"}</td>)}</tr>
+                      <tr style={{color:"#cbd5e1"}}><td style={{padding:"4px 6px",color:"#fde68a"}}>Ancora aperta</td>{rows.map(r=><td key={r.h} style={{padding:"4px 6px",color:"#fde68a"}}>{r.o?`${fmt(r.o.open,1)}%`:"—"}</td>)}</tr>
+                    </tbody>
+                  </table>
+                </div>
+              ) : <div style={{fontSize:10,color:"#64748b",marginTop:8}}>Imposta guadagno desiderato e lotti per calcolare il TP.</div>}
+              <div style={{fontSize:8.5,color:"#64748b",marginTop:7,lineHeight:1.5}}>
+                Statistica su {ODDS_META.signals?.toLocaleString("it-IT")} partenze M15 di XAUUSD ({String(ODDS_META.from).slice(0,10)} → {String(ODDS_META.to).slice(0,10)}), regime di volatilità attuale, entrata alla chiusura della candela, TP e SL nella stessa candela contano come SL.
+                Dice quanto spesso il prezzo ha raggiunto quel TP prima dello SL, non dove andrà adesso: nei test la direzione a 3 ore non è prevedibile, l&apos;ampiezza sì.
+              </div>
+            </div>
+          );
+        })()}
 
         <div style={{fontSize:9,fontWeight:950,color:"#64748b",marginTop:10,marginBottom:5}}>PRIME ORE</div>
         <div style={{display:"grid",gridTemplateColumns:isNarrow?"1fr":"repeat(3,minmax(190px,1fr))",gap:8}}>
@@ -1349,11 +1424,12 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
               Score {fmt(data?.combined?.score,1)}
             </div>
             <div style={{fontSize:13,fontWeight:900,color:"#cbd5e1"}}>
-              Confidence {fmt(data?.combined?.confidence,0)}/100
+              Forza score {fmt(data?.combined?.confidence,0)}/100
             </div>
           </div>
           <div style={{fontSize:10,color:"#94a3b8",marginTop:6}}>
-            Forza dello score, non probabilità statistica.
+            Misura quanto sono concordi gli indicatori, non la probabilità che il prezzo vada in quella direzione:
+            su 2,3 anni di storico il forecast a 3 ore ha indovinato la direzione ~50% delle volte, a qualsiasi livello.
           </div>
         </div>
 
@@ -1412,7 +1488,9 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
           }}>
             {propDirection === "WAIT"
               ? "Segnale insufficiente: nessuna direzione applicabile."
-              : "Direzione suggerita per la Prop con obiettivo movimento contrario verso SL."}
+              : propMode === "SENZA"
+                ? "Direzione Prop senza copertura: segue il forecast. Il forecast a 3 ore non ha un vantaggio statistico sulla direzione: conta di più la probabilità TP/SL qui sotto."
+                : "Direzione suggerita per la Prop con obiettivo movimento contrario verso SL."}
           </div>
         </div>
 
@@ -1435,7 +1513,7 @@ export default function MarketEnginePanel({ defaultAsset = "XAUUSD", challenges 
             {signalUi.label}
           </div>
           <div style={{fontSize:13,fontWeight:900,color:"#e2e8f0",marginTop:3}}>
-            Confidence {fmt(data?.combined?.confidence,0)}/100
+            Forza score {fmt(data?.combined?.confidence,0)}/100
           </div>
 
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4,marginTop:12}}>
