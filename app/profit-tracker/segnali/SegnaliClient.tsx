@@ -5,7 +5,7 @@
 // La vedono tutti gli utenti loggati, in tempo reale (aggiornamento ogni 30 secondi).
 // 04/10/2026: terza scheda PronoX (vista pronox_segnali, sola lettura).
 // ════════════════════════════════════════════════════════════════════
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '../supabaseClient'
 import { caricaBetfair, caricaCongelati, quotaPerSegnale, riassuntoBF } from './betfair'   // 06/10/2026: quota Betfair accanto ai segnali
@@ -140,7 +140,8 @@ function valutaHunter(s: Hunter, fc: number, fo: number): 'VINTA' | 'PERSA' | nu
 }
 const leggiRis = (t: string): [number, number] | null => { const m = t.trim().match(/^(\d{1,2})\s*[-–:]\s*(\d{1,2})$/); return m ? [Number(m[1]), Number(m[2])] : null }
 
-function RigaHunter({ s, td, bf, cg, onSalvato }: { s: Hunter; td: any; bf?: CellaBF; cg?: RigaCongelata; onSalvato: (r: Hunter) => void }) {
+type VoceSalva = { cambiato: boolean; salva: () => Promise<boolean> }
+function RigaHunter({ s, td, bf, cg, onSalvato, registra }: { s: Hunter; td: any; bf?: CellaBF; cg?: RigaCongelata; onSalvato: (r: Hunter) => void; registra?: (id: number, v: VoceSalva | null) => void }) {
   const fmt = (a?: number | null, b?: number | null) => a != null && b != null ? `${a}-${b}` : ''
   const [ft, setFt] = useState(fmt(s.ft_casa, s.ft_ospite))
   const [ht, setHt] = useState(fmt(s.ht_casa, s.ht_ospite))
@@ -151,12 +152,12 @@ function RigaHunter({ s, td, bf, cg, onSalvato }: { s: Hunter; td: any; bf?: Cel
   const auto = rFt ? valutaHunter(s, rFt[0], rFt[1]) : null
   const esitoFinale = esito === 'auto' ? (auto || s.esito || null) : (esito || null)
   const cambiato = ft !== fmt(s.ft_casa, s.ft_ospite) || ht !== fmt(s.ht_casa, s.ht_ospite) || quota !== (s.quota != null ? String(s.quota).replace('.', ',') : '') || (esito === 'auto' ? !!s.esito_manuale || (auto != null && auto !== s.esito) : esito !== (s.esito || ''))
-  async function salva() {
-    if (ft && !rFt) { setStato('risultato finale: scrivi es. 2-1'); return }
+  async function salva(): Promise<boolean> {
+    if (ft && !rFt) { setStato('risultato finale: scrivi es. 2-1'); return false }
     const rHt = ht ? leggiRis(ht) : null
-    if (ht && !rHt) { setStato('1° tempo: scrivi es. 1-0'); return }
+    if (ht && !rHt) { setStato('1° tempo: scrivi es. 1-0'); return false }
     const q = quota ? Number(quota.replace(',', '.')) : null
-    if (quota && !(q && q > 1)) { setStato('quota non valida'); return }
+    if (quota && !(q && q > 1)) { setStato('quota non valida'); return false }
     const patch: Record<string, any> = { ft_casa: rFt?.[0] ?? null, ft_ospite: rFt?.[1] ?? null, ht_casa: rHt?.[0] ?? null, ht_ospite: rHt?.[1] ?? null, quota: q,
       esito: esitoFinale, esito_manuale: esito !== 'auto', stato_match: rFt ? 'FINITA' : s.stato_match,
       data_esito: esitoFinale && !s.data_esito ? new Date().toISOString() : s.data_esito, aggiornato: new Date().toISOString() }
@@ -165,13 +166,14 @@ function RigaHunter({ s, td, bf, cg, onSalvato }: { s: Hunter; td: any; bf?: Cel
     // 22/10/2026: salva il server e restituisce la riga letta dal database: se non è stata scritta davvero, lo vedi qui (prima diceva «salvato» anche quando il database rifiutava la modifica)
     let r: Response
     try { r = await fetch('/api/segnali/hunterbet-esito', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ msg_id: s.msg_id, patch }) }) }
-    catch { setStato('errore: rete assente, NON salvato'); return }
+    catch { setStato('errore: rete assente, NON salvato'); return false }
     const j = await r.json().catch(() => null)
-    if (!r.ok || !j?.riga) { setStato('NON salvato: ' + (j?.error || `errore ${r.status}`)); return }
+    if (!r.ok || !j?.riga) { setStato('NON salvato: ' + (j?.error || `errore ${r.status}`)); return false }
     const dopo = j.riga as Hunter
-    if ((dopo.esito ?? null) !== (patch.esito ?? null)) { setStato('NON salvato: il database ha tenuto un altro esito, ricarica la pagina'); onSalvato({ ...s, ...dopo }); return }
-    setStato('✓ salvato'); onSalvato({ ...s, ...dopo })
+    if ((dopo.esito ?? null) !== (patch.esito ?? null)) { setStato('NON salvato: il database ha tenuto un altro esito, ricarica la pagina'); onSalvato({ ...s, ...dopo }); return false }
+    setStato('✓ salvato'); onSalvato({ ...s, ...dopo }); return true
   }
+  useEffect(() => { registra?.(s.msg_id, { cambiato, salva }); return () => registra?.(s.msg_id, null) })
   const inp = { background: '#020617', color: '#f8fafc', border: '1px solid #334155', borderRadius: 6, padding: '3px 6px', fontSize: 12, width: 52 }
   const live = (s.fase || (s.tipo_segnale?.startsWith('GOL_') ? 'LIVE' : 'PRE-LIVE')) === 'LIVE'
   return (
@@ -340,6 +342,22 @@ function raggruppa(lista: Segnale[], chiave: (s: Segnale) => string): Riga[] {
 export default function SegnaliClient({ incorporato = false }: { incorporato?: boolean } = {}) {
   const [tab, setTab] = useState<'scoretrend'|'hunterbet'|'pronox'>('scoretrend')
   const [dati, setDati] = useState<Segnale[]>([])
+  // 22/10/2026: «Salva tutti» — ogni riga Hunterbet si registra qui con il suo salvataggio
+  const registroHunter = useRef(new Map<number, VoceSalva>())
+  const registraHunter = useCallback((id: number, v: VoceSalva | null) => { if (v) registroHunter.current.set(id, v); else registroHunter.current.delete(id) }, [])
+  const [salvaTuttiMsg, setSalvaTuttiMsg] = useState('')
+  async function salvaTuttiHunter() {
+    const da = [...registroHunter.current.values()].filter(r => r.cambiato)
+    if (!da.length) { setSalvaTuttiMsg('Niente da salvare: tutte le righe sono già salvate'); return }
+    let ok = 0, ko = 0
+    setSalvaTuttiMsg(`Salvo… 0 di ${da.length}`)
+    for (let i = 0; i < da.length; i += 6) {
+      const esiti = await Promise.all(da.slice(i, i + 6).map(r => r.salva().catch(() => false)))
+      esiti.forEach(e => { if (e) ok++; else ko++ })
+      setSalvaTuttiMsg(`Salvo… ${ok + ko} di ${da.length}`)
+    }
+    setSalvaTuttiMsg(ko ? `Salvate ${ok} righe, NON salvate ${ko} (guarda il messaggio rosso sulla riga)` : `✓ Salvate ${ok} righe`)
+  }
   const [hunter, setHunter] = useState<Hunter[]>([])
   const [pronox, setPronox] = useState<Pronox[]>([])
   const [errore, setErrore] = useState('')
@@ -454,12 +472,16 @@ export default function SegnaliClient({ incorporato = false }: { incorporato?: b
         </>
         ) : tab==='hunterbet' ? (
         <div style={{ background:'rgba(15,23,42,.6)', border:'1px solid #1e293b', borderRadius:14, padding:12, overflowX:'auto' }}>
-          <div style={{fontWeight:900,marginBottom:4}}>Hunterbet · {hunter.length}</div>
+          <div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',marginBottom:4}}>
+            <div style={{fontWeight:900}}>Hunterbet · {hunter.length}</div>
+            <button onClick={salvaTuttiHunter} style={{background:'#059669',color:'white',border:0,borderRadius:8,padding:'6px 14px',fontWeight:900,fontSize:12.5,cursor:'pointer'}}>💾 Salva tutti</button>
+            {salvaTuttiMsg && <span style={{fontSize:12,fontWeight:700,color:salvaTuttiMsg.startsWith('✓')?'#86efac':salvaTuttiMsg.startsWith('Salvo')?'#94a3b8':salvaTuttiMsg.startsWith('Niente')?'#94a3b8':'#fca5a5'}}>{salvaTuttiMsg}</span>}
+          </div>
           <DiagnosiBF canale="hunter" righe={hunter} celle={cellaHT} eventi={eventiBF} />
           <div style={{fontSize:11.5,color:'#94a3b8',marginBottom:8}}>Scrivi il risultato finale (es. 2-1) e, se lo sai, quello del 1° tempo: l'esito si calcola da solo ("auto"). Puoi sceglierlo a mano se il mercato non viene riconosciuto. La quota serve per la pagella; arriverà da Betfair quando sarà collegato.</div>
           <table style={{borderCollapse:'collapse',width:'100%'}}>
             <thead><tr>{['Arrivato','Fase','Partita','Competizione','Segnale','Ris. al segnale','1° tempo','Finale','Quota','Betfair','Al segnale','Esito',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
-            <tbody>{hunter.map(s=><RigaHunter key={s.msg_id} s={s} td={td} bf={cellaHT.get(s.msg_id)} cg={congelati.get('hunter|' + s.msg_id)} onSalvato={r=>setHunter((v:Hunter[])=>v.map(x=>x.msg_id===r.msg_id?r:x))} />)}</tbody>
+            <tbody>{hunter.map(s=><RigaHunter key={s.msg_id} s={s} td={td} bf={cellaHT.get(s.msg_id)} cg={congelati.get('hunter|' + s.msg_id)} onSalvato={r=>setHunter((v:Hunter[])=>v.map(x=>x.msg_id===r.msg_id?r:x))} registra={registraHunter} />)}</tbody>
           </table>
         </div>
         ) : (<>
