@@ -23,3 +23,9 @@ SUL PC FISSO
 
 CONTROLLARE CHE FUNZIONI
   risultati_partite.log (stessa cartella) racconta ogni esecuzione. Per lanciarlo subito a mano: doppio clic su risultati_partite.bat.
+
+MINUTI (23/10/2026)
+  Per i segnali Hunterbet "Gol casa/ospiti" il programma legge anche i gol della partita (una chiamata ad API-Football per partita, max 150 a esecuzione)
+  e salva: il minuto del gol che ha fatto vincere la bet e il minuto STIMATO del segnale (dall'orario del messaggio, approssimato).
+  Una volta sola, in Supabase > SQL Editor: supabase/hunterbet_minuti.sql. Poi sostituisci risultati_partite.py sul PC.
+  Le partite vecchie si recuperano a piccoli passi: ogni esecuzione ne legge fino a 150.

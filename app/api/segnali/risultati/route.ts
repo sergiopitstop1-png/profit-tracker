@@ -38,7 +38,18 @@ export async function GET(req: NextRequest) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     for (const r of data || []) out.push({ tabella: 'hunterbet', ...r })
   }
-  return NextResponse.json({ mancanti: out })
+  // 23/10/2026 · partite Hunterbet «Gol casa/ospiti» già finite di cui non sono ancora stati letti i minuti (gol vincente e minuto del segnale).
+  // Se le colonne nuove non esistono ancora (hunterbet_minuti.sql non lanciato) la parte risultati funziona lo stesso.
+  let minuti: any[] = [], minutiErrore: string | null = null
+  {
+    const novantaGiorniFa = new Date(Date.now() - 90 * 86400 * 1000).toISOString()
+    const { data, error } = await supabase.from('hunterbet_segnali')
+      .select('msg_id,data_msg,tipo_segnale,score_casa_segnale,score_ospite_segnale,ft_casa,ft_ospite,af_fixture_id,fixture_id,minuto_segnale')
+      .not('ft_casa', 'is', null).is('minuti_letti_il', null).in('tipo_segnale', ['GOL_CASA', 'GOL_OSPITI']).gte('data_msg', novantaGiorniFa)
+      .or('af_fixture_id.not.is.null,fixture_id.not.is.null').order('data_msg', { ascending: false }).limit(500)
+    if (error) minutiErrore = error.message; else minuti = data || []
+  }
+  return NextResponse.json({ mancanti: out, minuti, minuti_errore: minutiErrore })
 }
 
 export async function POST(req: NextRequest) {
@@ -46,6 +57,7 @@ export async function POST(req: NextRequest) {
   let corpo: any
   try { corpo = await req.json() } catch { return NextResponse.json({ error: 'JSON non valido' }, { status: 400 }) }
   if (corpo?.azione === 'chiudi_esiti') return chiudiEsiti()
+  if (corpo?.azione === 'minuti') return scriviMinuti(corpo?.righe)
   const tabella = TABELLE[corpo?.tabella as keyof typeof TABELLE]
   if (!tabella) return NextResponse.json({ error: 'tabella non valida' }, { status: 400 })
   const righe = Array.isArray(corpo?.righe) ? corpo.righe.slice(0, 1000) : []
@@ -100,4 +112,21 @@ async function chiudiEsiti() {
     chiusi++
   }
   return NextResponse.json({ chiusi })
+}
+
+// 23/10/2026 · minuto del gol vincente e minuto stimato del segnale (calcolati dal programma sul PC con gli eventi di API-Football)
+async function scriviMinuti(righe: any) {
+  const supabase = db()
+  const lista = Array.isArray(righe) ? righe.slice(0, 1000) : []
+  const intero = (v: any) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v))) ? null : Math.round(Number(v))
+  let aggiornati = 0
+  for (const r of lista) {
+    const id = Number(r?.msg_id)
+    if (!Number.isFinite(id)) continue
+    const patch = { minuto_gol: intero(r.minuto_gol), minuto_gol_extra: intero(r.minuto_gol_extra), minuto_segnale_stimato: intero(r.minuto_segnale_stimato), minuti_letti_il: new Date().toISOString() }
+    const { error } = await supabase.from('hunterbet_segnali').update(patch).eq('msg_id', id)
+    if (error) return NextResponse.json({ error: error.message, aggiornati }, { status: 500 })
+    aggiornati++
+  }
+  return NextResponse.json({ aggiornati })
 }

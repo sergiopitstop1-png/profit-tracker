@@ -33,6 +33,7 @@ QUI = os.path.dirname(os.path.abspath(__file__))
 FILE_CONFIG = os.path.join(QUI, 'risultati_config.json')
 FILE_LOG = os.path.join(QUI, 'risultati_partite.log')
 
+MAX_MINUTI_API = 150           # chiamate per leggere i gol (una per partita) in ogni esecuzione: le partite vecchie si recuperano a piccoli passi
 MAX_CHIAMATE_API = 40          # tetto di sicurezza per ogni esecuzione (il piano Pro ne concede 7.500 al giorno)
 SOGLIA_NOME = 0.55             # somiglianza minima di ciascuna squadra
 SOGLIA_COPPIA = 0.72           # somiglianza media minima della partita
@@ -129,6 +130,7 @@ class ApiFootball:
     def __init__(self, cfg):
         self.base, self.chiave = cfg['API_FOOTBALL_URL'], cfg['API_FOOTBALL_KEY']
         self.chiamate = 0
+        self.minuti = 0
         self.per_data = {}
 
     def partite_del(self, giorno):
@@ -145,6 +147,20 @@ class ApiFootball:
             raise ErroreRete('API-Football ha risposto: ' + testo[:300])
         self.per_data[giorno] = j.get('response') or []
         return self.per_data[giorno]
+
+
+    def partita_con_eventi(self, fixture_id):
+        """Una partita con i suoi eventi (gol): una chiamata per partita."""
+        if self.minuti >= MAX_MINUTI_API:
+            raise ErroreRete('raggiunto il tetto di chiamate per leggere i gol (le altre partite alla prossima esecuzione)')
+        self.minuti += 1
+        j = chiama(f'{self.base}/fixtures?id={fixture_id}', intestazioni={'x-apisports-key': self.chiave})
+        errori = j.get('errors')
+        if errori:
+            testo = json.dumps(errori, ensure_ascii=False) if isinstance(errori, (dict, list)) else str(errori)
+            raise ErroreRete('API-Football ha risposto: ' + testo[:300])
+        r = j.get('response') or []
+        return r[0] if r else None
 
 
 # ───────────────────────── confronto dei nomi ─────────────────────────
@@ -228,6 +244,100 @@ def nome(r):
     return f"{r.get('casa') or '?'} – {r.get('ospite') or '?'}"
 
 
+# ───────────────────────── minuti: gol vincente e minuto del segnale ─────────────────────────
+def gol_dei_90(partita):
+    """Gol dei 90 minuti in ordine: [(minuto, recupero, 'casa'|'ospite')]. None se non tornano col risultato finale (allora non si fida)."""
+    ft = (partita.get('score') or {}).get('fulltime') or {}
+    fc, fo = ft.get('home'), ft.get('away')
+    if fc is None or fo is None:
+        return None
+    id_casa = ((partita.get('teams') or {}).get('home') or {}).get('id')
+
+    def costruisci(autogol_invertito):
+        out = []
+        for e in partita.get('events') or []:
+            if e.get('type') != 'Goal':
+                continue
+            det = e.get('detail') or ''
+            if 'Missed' in det:                         # rigore sbagliato: non e' un gol
+                continue
+            t = e.get('time') or {}
+            m = t.get('elapsed')
+            if m is None or m > 90:                     # supplementari: il mercato vale 90 minuti
+                continue
+            casa = (e.get('team') or {}).get('id') == id_casa
+            if 'Own' in det and autogol_invertito:      # l'autogol conta per la squadra avversaria
+                casa = not casa
+            out.append((m, t.get('extra') or 0, 'casa' if casa else 'ospite'))
+        out.sort(key=lambda g: (g[0], g[1]))
+        return out
+
+    for invertito in (True, False):                     # API-Football non e' coerente sugli autogol: vale la lettura che torna col risultato
+        g = costruisci(invertito)
+        if (sum(1 for x in g if x[2] == 'casa'), sum(1 for x in g if x[2] == 'ospite')) == (fc, fo):
+            return g
+    return None
+
+
+def minuti_segnale(riga, partita):
+    """(minuto_gol, extra, minuto_stimato_segnale) per un segnale Gol casa/ospiti. Valori None quando non si puo' dire."""
+    gol = gol_dei_90(partita)
+    sc, so = riga.get('score_casa_segnale'), riga.get('score_ospite_segnale')
+    if gol is None or sc is None or so is None:
+        return None, None, None
+    n0 = int(sc) + int(so)                              # gol gia' segnati quando e' arrivato il segnale
+    if n0 > len(gol) or (sum(1 for x in gol[:n0] if x[2] == 'casa'), sum(1 for x in gol[:n0] if x[2] == 'ospite')) != (int(sc), int(so)):
+        return None, None, None                         # il punteggio al segnale non torna con la sequenza dei gol
+    lato = 'casa' if riga.get('tipo_segnale') == 'GOL_CASA' else 'ospite'
+    vincente = next((g for g in gol[n0:] if g[2] == lato), None)
+    mg, ex = (vincente[0], vincente[1] or None) if vincente else (None, None)
+
+    # minuto del segnale: dall'orario del messaggio rispetto al calcio d'inizio (15' di intervallo), tenuto fra il gol precedente e il successivo
+    stima = None
+    inizio = parse_data((partita.get('fixture') or {}).get('date'))
+    msg = parse_data(riga.get('data_msg'))
+    if inizio and msg:
+        d = (msg - inizio).total_seconds() / 60
+        if d >= 0:
+            m = d if d <= 46 else (45 if d <= 62 else d - 15)
+            lo = gol[n0 - 1][0] if n0 > 0 else 0
+            hi = gol[n0][0] if n0 < len(gol) else 95
+            stima = int(round(max(lo, min(hi, m), 1)))
+    return mg, ex, stima
+
+
+def fase_minuti(cfg, api, elenco, prova):
+    """Legge i gol delle partite gia' chiuse e scrive minuto del gol vincente e minuto stimato del segnale. Non blocca mai il resto."""
+    if not elenco:
+        return
+    log(f'Minuti da leggere (partite Gol casa/ospiti gia\' finite): {len(elenco)}')
+    righe, fatti = [], 0
+    try:
+        for r in elenco:
+            fid = r.get('af_fixture_id') or r.get('fixture_id')
+            partita = api.partita_con_eventi(fid)
+            if not partita:
+                righe.append({'msg_id': r['msg_id']})
+                continue
+            mg, ex, stima = minuti_segnale(r, partita)
+            righe.append({'msg_id': r['msg_id'], 'minuto_gol': mg, 'minuto_gol_extra': ex, 'minuto_segnale_stimato': stima})
+            fatti += 1
+            if mg is not None or stima is not None:
+                g = f"gol vincente al {mg}'" + (f"+{ex}" if ex else '') if mg is not None else 'nessun gol dopo il segnale'
+                log(f"  {nome(r)}: {g}" + (f" · segnale ≈ {stima}'" if stima is not None else ''), solo_file=True)
+    except ErroreRete as e:
+        log('Minuti: mi fermo qui (' + str(e) + ')')
+    log(f'Minuti letti: {len(righe)} partite' + ('  (PROVA: non scrivo)' if prova else ''))
+    if prova or not righe:
+        return
+    try:
+        for i in range(0, len(righe), 500):
+            esito = sito(cfg, '/api/segnali/risultati', 'POST', {'azione': 'minuti', 'righe': righe[i:i + 500]})
+            log(f"Sito (minuti): {esito.get('aggiornati', 0)} righe aggiornate", solo_file=True)
+    except ErroreRete as e:
+        log('Errore scrivendo i minuti sul sito: ' + str(e))
+
+
 # ───────────────────────── programma ─────────────────────────
 def main(argv):
     try:
@@ -245,7 +355,11 @@ def main(argv):
     log(f"=== {'PROVA (non scrive niente)' if prova else 'Avvio'} ===", solo_file=not prova)
     log(f"Leggo i segnali dal sito ({cfg['SITO_URL']})…")
     try:
-        elenco = sito(cfg, '/api/segnali/risultati').get('mancanti') or []
+        letti = sito(cfg, '/api/segnali/risultati')
+        elenco = letti.get('mancanti') or []
+        da_minuti = letti.get('minuti') or []
+        if letti.get('minuti_errore'):
+            log('Minuti non letti (lancia hunterbet_minuti.sql in Supabase): ' + str(letti['minuti_errore'])[:200])
     except ErroreRete as e:
         log('Non riesco a leggere i segnali dal sito: ' + str(e))
         return 1
@@ -286,6 +400,7 @@ def main(argv):
 
     log(f'Riepilogo: {trovati} con risultato, {non_finiti} non finite, {non_trovati} non trovate  ({api.chiamate} chiamate ad API-Football)')
     if prova:
+        fase_minuti(cfg, api, da_minuti, True)
         print('PROVA: non ho scritto niente sul sito.')
         return 0
 
@@ -299,6 +414,7 @@ def main(argv):
     except ErroreRete as e:
         log('Errore scrivendo sul sito: ' + str(e))
         return 1
+    fase_minuti(cfg, api, da_minuti, False)
     return 0
 
 

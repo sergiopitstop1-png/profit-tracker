@@ -115,6 +115,7 @@ type Hunter = {
   score_casa_segnale:number|null; score_ospite_segnale:number|null; minuto_segnale:number|null; fixture_id:number|null;
   score_casa_attuale:number|null; score_ospite_attuale:number|null; stato_match:string|null; esito:string|null; data_esito:string|null; minuti_al_gol:number|null
   fase?:string|null; quota?:number|null; ht_casa?:number|null; ht_ospite?:number|null; ft_casa?:number|null; ft_ospite?:number|null; esito_manuale?:boolean; giocata?:boolean|null
+  minuto_gol?:number|null; minuto_gol_extra?:number|null; minuto_segnale_stimato?:number|null
 }
 
 // ─── 04/10/2026 · HUNTERBET: risultati, quota ed esito inseriti a mano ───
@@ -172,7 +173,8 @@ function RigaHunter({ s, td, bf, cg, onSalvato, registra }: { s: Hunter; td: any
       <td style={{ ...td, color: '#94a3b8' }}>{s.competizione}</td>
       <td style={td}>{s.tipo_segnale === 'GOL_CASA' ? '🏠 Gol casa' : s.tipo_segnale === 'GOL_OSPITI' ? '✈️ Gol ospiti' : <b>{s.tipo_segnale}</b>}</td>
       <td style={td}>{s.score_casa_segnale != null ? `${s.score_casa_segnale}–${s.score_ospite_segnale}` : '—'}</td>
-      <td style={{ ...td, fontWeight: 800 }} title="minuto di gioco in cui è arrivato il segnale (23/10/2026)">{live && s.minuto_segnale != null ? `${s.minuto_segnale}'` : '—'}</td>
+      <td style={{ ...td, fontWeight: 800 }} title={s.minuto_segnale != null ? 'minuto di gioco in cui è arrivato il segnale' : 'minuto stimato dall\'orario del messaggio (può sbagliare di qualche minuto)'}>{!live ? '—' : s.minuto_segnale != null ? `${s.minuto_segnale}'` : s.minuto_segnale_stimato != null ? <span style={{ color: '#94a3b8' }}>≈{s.minuto_segnale_stimato}'</span> : '—'}</td>
+      <td style={{ ...td, fontWeight: 800, color: '#86efac' }} title="minuto del gol che ha fatto vincere la bet">{live && s.minuto_gol != null ? `${s.minuto_gol}${s.minuto_gol_extra ? '+' + s.minuto_gol_extra : ''}'` : <span style={{ color: '#475569' }}>—</span>}</td>
       <td style={td}><input style={inp} placeholder="1-0" value={ht} onChange={e => setHt(e.target.value)} /></td>
       <td style={td}><input style={{ ...inp, borderColor: rFt || !ft ? '#334155' : '#f87171' }} placeholder="2-1" value={ft} onChange={e => setFt(e.target.value)} /></td>
       <td style={td}><input style={inp} placeholder="1,70" value={quota} onChange={e => { const v = e.target.value.replace(/[^0-9.,]/g, ''); setQuota(v); if (v && !quota && s.giocata == null) setGiocata(true) }} /></td>
@@ -474,7 +476,7 @@ export default function SegnaliClient({ incorporato = false }: { incorporato?: b
           <DiagnosiBF canale="hunter" righe={hunter} celle={cellaHT} eventi={eventiBF} />
           <div style={{fontSize:11.5,color:'#94a3b8',marginBottom:8}}>Scrivi il risultato finale (es. 2-1) e, se lo sai, quello del 1° tempo: l'esito si calcola da solo ("auto"). Puoi sceglierlo a mano se il mercato non viene riconosciuto. La quota è quella che hai trovato dal bookmaker: scrivila qui e spunta «Giocata» solo sulle partite che hai davvero giocato. Le giocate con quota entrano nei conti reali dell'Analisi.</div>
           <table style={{borderCollapse:'collapse',width:'100%'}}>
-            <thead><tr>{['Arrivato','Fase','Partita','Competizione','Segnale','Ris. al segnale','Min.','1° tempo','Finale','Quota','Giocata','Betfair','Al segnale','Esito',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+            <thead><tr>{['Arrivato','Fase','Partita','Competizione','Segnale','Ris. al segnale','Min.','Min. gol','1° tempo','Finale','Quota','Giocata','Betfair','Al segnale','Esito',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
             <tbody>{hunter.filter(s => filtroHB === 'giocate' ? s.giocata === true : filtroHB === 'da_segnare' ? s.giocata !== true : true).map(s=><RigaHunter key={s.msg_id} s={s} td={td} bf={cellaHT.get(s.msg_id)} cg={congelati.get('hunter|' + s.msg_id)} onSalvato={r=>setHunter((v:Hunter[])=>v.map(x=>x.msg_id===r.msg_id?r:x))} registra={registraHunter} />)}</tbody>
           </table>
         </div>

@@ -178,7 +178,8 @@ function normalizza(canale: Canale, x: any): Riga {
     quota: x.quota != null ? Number(x.quota) : null,
     profitto: x.quota != null && x.esito ? (x.esito === 'VINTA' ? Number(x.quota) - 1 : x.esito === 'PERSA' ? -1 : 0) : null, unita: 1,
     live: (x.fase || (String(x.tipo_segnale || '').startsWith('GOL_') ? 'LIVE' : 'PRE-LIVE')) === 'LIVE' ? 'live' : 'prepartita',
-    minuto: x.minuto_segnale, mercato: x.tipo_segnale === 'GOL_CASA' ? 'Gol casa' : x.tipo_segnale === 'GOL_OSPITI' ? 'Gol ospiti' : `Pre-live · ${x.tipo_segnale || '?'}`,
+    minuto: x.minuto_segnale ?? x.minuto_segnale_stimato ?? null,   // 23/10/2026: se manca quello vero vale la stima dall'orario del messaggio
+    mercato: x.tipo_segnale === 'GOL_CASA' ? 'Gol casa' : x.tipo_segnale === 'GOL_OSPITI' ? 'Gol ospiti' : `Pre-live · ${x.tipo_segnale || '?'}`,
     casaOspiti: x.tipo_segnale === 'GOL_CASA' ? 'Casa' : x.tipo_segnale === 'GOL_OSPITI' ? 'Ospiti' : 'Pre-live',
     risultato: x.score_casa_segnale != null ? `${x.score_casa_segnale}-${x.score_ospite_segnale}` : null, minutiAlGol: x.minuti_al_gol,
     tipo: x.tipo_segnale === 'GOL_CASA' ? 'Gol casa' : x.tipo_segnale === 'GOL_OSPITI' ? 'Gol ospiti' : `Pre-live · ${x.tipo_segnale || '?'}`,
