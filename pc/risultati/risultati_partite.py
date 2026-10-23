@@ -414,6 +414,11 @@ def main(argv):
     except ErroreRete as e:
         log('Errore scrivendo sul sito: ' + str(e))
         return 1
+    # 24/10/2026: i minuti si leggono DOPO aver scritto i risultati, cosi' le partite appena chiuse in questa stessa esecuzione sono gia' incluse
+    try:
+        da_minuti = sito(cfg, '/api/segnali/risultati').get('minuti') or da_minuti
+    except ErroreRete:
+        pass
     fase_minuti(cfg, api, da_minuti, False)
     return 0
 
