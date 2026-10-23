@@ -47,7 +47,7 @@ export default function AvvisoHunterbet({ onApri, ogniMs = 60000 }) {
         if (nuovi.length) {
           nuovi.forEach(x => avvisati.current.add(String(x.msg_id))); salva(avvisati.current)
           beep()
-          try { if (typeof Notification !== 'undefined' && Notification.permission === 'granted') new Notification('🎯 Hunterbet Pre-live', { body: `${nuovi[0].partita} · ${ORA_IT(nuovi[0].event_start)} · 12 + Multigol 1-3`, tag: 'hb-' + nuovi[0].msg_id }) } catch { /* notifica non supportata */ }
+          try { if (typeof Notification !== 'undefined' && Notification.permission === 'granted') new Notification('🎯 Hunterbet Pre-live', { body: `${nuovi[0].partita} · ${ORA_IT(nuovi[0].event_start)} · 12 + Multigol 1-3`, tag: 'hb-' + nuovi[0].msg_id, requireInteraction: true, renotify: true }) } catch { /* notifica non supportata */ }
         }
       } catch { /* rete assente o tabelle non ancora create: riprovo al prossimo giro */ }
     }
