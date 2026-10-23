@@ -476,7 +476,7 @@ export default function SegnaliClient({ incorporato = false }: { incorporato?: b
           <DiagnosiBF canale="hunter" righe={hunter} celle={cellaHT} eventi={eventiBF} />
           <div style={{fontSize:11.5,color:'#94a3b8',marginBottom:8}}>Scrivi il risultato finale (es. 2-1) e, se lo sai, quello del 1° tempo: l'esito si calcola da solo ("auto"). Puoi sceglierlo a mano se il mercato non viene riconosciuto. La quota è quella che hai trovato dal bookmaker: scrivila qui e spunta «Giocata» solo sulle partite che hai davvero giocato. Le giocate con quota entrano nei conti reali dell'Analisi.</div>
           <table style={{borderCollapse:'collapse',width:'100%'}}>
-            <thead><tr>{['Arrivato','Fase','Partita','Competizione','Segnale','Ris. al segnale','Min.','Min. gol','1° tempo','Finale','Quota','Giocata','Betfair','Al segnale','Esito',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+            <thead><tr>{['Arrivato','Fase','Partita','Competizione','Segnale','Ris. al segnale','Minuto di gioco al segnale','Minuto gol vincente','1° tempo','Finale','Quota','Giocata','Betfair','Al segnale','Esito',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
             <tbody>{hunter.filter(s => filtroHB === 'giocate' ? s.giocata === true : filtroHB === 'da_segnare' ? s.giocata !== true : true).map(s=><RigaHunter key={s.msg_id} s={s} td={td} bf={cellaHT.get(s.msg_id)} cg={congelati.get('hunter|' + s.msg_id)} onSalvato={r=>setHunter((v:Hunter[])=>v.map(x=>x.msg_id===r.msg_id?r:x))} registra={registraHunter} />)}</tbody>
           </table>
         </div>
