@@ -20,6 +20,20 @@ import { turniCampionato, risultatiCampionato, totaliTurno } from '../../lib/cam
 export const SESTINE = [[1,2,3,4,5,6],[4,5,6,7,8,9],[7,8,9,10,11,12],[10,11,12,13,14,15],[13,14,15,16,17,18],[16,17,18,19,20,21],[19,20,21,22,23,24],[22,23,24,25,26,27],[25,26,27,28,29,30],[28,29,30,31,32,33],[31,32,33,34,35,36]]
 export const soloSestine = (b) => /lottomatica|goldbet/i.test(String(b?.nome || ''))
 
+// 23/10/2026: PAYOUT della roulette "1:p" (default 1:35 = la puntata torna più 35 volte; roulette particolari: 29, 21…).
+// A ogni giro esce un numero: il conto con n numeri a s € l'uno vince (p + 1 − n) × s se il numero uscito è tra i suoi, altrimenti perde n × s.
+// Le sestine di Lottomatica/GoldBet contano come 6 numeri. Esportata per i test e per la correzione dei numeri usciti nel gruppo.
+export const PAGA_STANDARD = 35
+export function plRoulette(numeri, stake, paga, usciti) {
+  const n = (numeri || []).length, s = Number(stake) || 0, p = Number(paga) > 0 ? Number(paga) : PAGA_STANDARD
+  let tot = 0
+  for (const u of usciti || []) {
+    if (!Number.isInteger(u) || u < 0 || u > 36) continue
+    tot += (numeri || []).includes(u) ? (p + 1 - n) * s : -n * s
+  }
+  return Math.round(tot * 100) / 100
+}
+
 function generatore(seedText) {
   let s = 2166136261
   for (const ch of String(seedText)) { s ^= ch.charCodeAt(0); s = Math.imul(s, 16777619) }
@@ -90,6 +104,9 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
   const [stake, setStake] = useState(10)
   const [giri, setGiri] = useState(3)
   const [mescolata, setMescolata] = useState(0)
+  const [paga, setPaga] = useState('35')           // 23/10/2026: payout roulette 1:paga (35 = standard)
+  const [usciti, setUsciti] = useState([])          // 23/10/2026: numero uscito a ogni giro (testo) → P/L di ogni conto
+  const [seedFisso, setSeedFisso] = useState(null)  // 23/10/2026: 🔁 rigiocare gli stessi numeri: tiene il seed della sessione appena salvata
   const [gioco, setGioco] = useState('roulette')        // 'roulette' | 'baccarat'
   const [operazione, setOperazione] = useState('spot')  // baccarat: 'spot' | 'campionato'
   const [esitiCamp, setEsitiCamp] = useState({})   // campionato: { 'turno:id': 'V' | 'P' } chi ha vinto / perso in ogni turno
@@ -123,7 +140,8 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
   }, [books, contoUsabile, cerca, scelti, giocatoOggi])
 
   const numeroSessione = (sessioni.reduce((a, s) => Math.max(a, Number(s.numero) || 0), 0)) + 1
-  const seedText = `${oggiIso()}|sessione${numeroSessione}|${mescolata}|${scelti.map(s => s.id).join(',')}`
+  const seedBase = `${oggiIso()}|sessione${numeroSessione}|${mescolata}|${scelti.map(s => s.id).join(',')}`
+  const seedText = seedFisso || seedBase
   const roulette = gioco === 'roulette'
 
   // ── ROULETTE: numeri distribuiti, € a numero anche diverso per ogni conto
@@ -131,7 +149,15 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
   const euroNumero = (x) => Number(x?.euroNum || stake || 0)
   const aGiro = (r) => (r.numeri?.length || 0) * euroNumero(r)
   const totaleGiro = righe.reduce((a, r) => a + aGiro(r), 0)
-  const rientri = righe.flatMap(r => (r.numeri || []).map(() => 36 * euroNumero(r)))
+  const pagaDefault = Number(paga) > 0 ? Number(paga) : PAGA_STANDARD
+  const pagaDi = (x) => Number(x?.pagaConto) > 0 ? Number(x.pagaConto) : pagaDefault   // payout del conto (vuoto = quello generale)
+  const rientri = righe.flatMap(r => (r.numeri || []).map(() => (pagaDi(r) + 1) * euroNumero(r)))
+  const costoGiro = righe.reduce((a, r) => a + aGiro(r) * (36 - pagaDi(r)) / 37, 0)   // costo teorico di un giro (con payout 35 = 1/37 del puntato)
+  // numeri usciti: uno per giro, 0-36; il P/L di ogni conto si calcola da quelli
+  const nGiri = Math.min(Math.max(parseInt(giri, 10) || 0, 0), 30)
+  const validi = usciti.slice(0, nGiri).map(v => (v === '' || v == null ? null : Number(v))).filter(v => Number.isInteger(v) && v >= 0 && v <= 36)
+  const plRiga = (r) => validi.length ? plRoulette(r.numeri, euroNumero(r), pagaDi(r), validi) : null
+  const plSessione = Math.round(righe.reduce((a, r) => a + (plRiga(r) || 0), 0) * 100) / 100
   const rientroMin = rientri.length ? Math.min(...rientri) : 0, rientroMax = rientri.length ? Math.max(...rientri) : 0
 
   // ── BACCARAT: ogni conto su Banco o Giocatore (alternati se non scegli), importo a mano
@@ -153,8 +179,8 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
   const errore = roulette ? erroreR : erroreB
   const pronta = roulette ? (!errore && righe.length >= 2) : !errore
 
-  const aggiungi = (b) => { setEsitiCamp({}); setLatiCamp({}); setScelti(v => [...v, { id: b.id, nome: b.nome, intestatario: b.intestatario, aMano: '', euroNum: '', lato: null, importo: '' }].sort(perNome)) }
-  const togli = (id) => { setEsitiCamp({}); setLatiCamp({}); setScelti(v => v.filter(s => s.id !== id)) }
+  const aggiungi = (b) => { setSeedFisso(null); setEsitiCamp({}); setLatiCamp({}); setScelti(v => [...v, { id: b.id, nome: b.nome, intestatario: b.intestatario, aMano: '', euroNum: '', lato: null, importo: '' }].sort(perNome)) }
+  const togli = (id) => { setSeedFisso(null); setEsitiCamp({}); setLatiCamp({}); setScelti(v => v.filter(s => s.id !== id)) }
   const cambia = (id, campo, val) => { if (campo === 'lato' || campo === 'importo') { setEsitiCamp({}); setLatiCamp({}) }; setScelti(v => v.map(s => s.id === id ? { ...s, [campo]: val } : s)) }
   // campionato: segna un conto vincente (V) o perdente (P) nel turno k; i turni dopo si ricalcolano
   const tieniFinoA = (e, k) => Object.fromEntries(Object.entries(e).filter(([chiave]) => Number(chiave.split(':')[0]) <= k))
@@ -171,19 +197,24 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
   const soloNum = (t) => t.replace(/[^0-9]/g, '')
   const soloEuro = (t) => t.replace(/[^0-9.,]/g, '').replace(',', '.')
 
-  async function conferma() {
+  async function conferma(rigioca = false) {
     if (!pronta) return
     const parola = roulette ? 'giri' : 'mani'
     if (campionato && !campFinito) return err('Campionato: segna prima chi vince e chi perde in ogni turno, fino al vincitore')
     let n
     if (campionato) n = turni.length   // le mani giocate sono i turni del campionato
-    else {
+    else if (roulette && validi.length) {
+      n = validi.length   // 23/10/2026: i giri giocati sono quelli per cui hai scritto il numero uscito
+      if (validi.length < nGiri && !window.confirm(`Hai scritto ${validi.length} numeri usciti su ${nGiri} giri previsti.\n\nSalvo ${validi.length} ${validi.length === 1 ? 'giro giocato' : 'giri giocati'}?`)) return
+    } else {
       const fatti = window.prompt(`Sessione ${numeroSessione}: quante ${parola === 'giri' ? 'volte (giri)' : 'mani'} avete giocato davvero?`, String(giri))
       if (fatti === null) return
       n = Math.max(0, parseInt(fatti, 10) || 0)
     }
+    const conRisultato = roulette && validi.length > 0
     const partecipanti = roulette
-      ? righe.map(r => ({ id: r.id, nome: r.nome, intestatario: r.intestatario, tipo: r.tipo, numeri: r.numeri, stake: euroNumero(r) }))
+      ? righe.map(r => ({ id: r.id, nome: r.nome, intestatario: r.intestatario, tipo: r.tipo, numeri: r.numeri, stake: euroNumero(r), paga: pagaDi(r),
+          ...(conRisultato ? { usciti: validi, risultato: plRiga(r), puntato_totale: Math.round((r.numeri?.length || 0) * euroNumero(r) * n * 100) / 100 } : {}) }))
       : campionato
         ? bac.map(x => { const r = perConto.get(x.id) || {}; return { id: x.id, nome: x.nome, intestatario: x.intestatario, tipo: x.tipo, importo: x.puntata, campionato: true, puntato_totale: r.puntato ?? 0, risultato: r.risultato ?? 0, esito: r.campione ? 'vincitore' : 'eliminato', turno_uscita: r.uscita ?? null } })
         : bac.map(x => ({ id: x.id, nome: x.nome, intestatario: x.intestatario, tipo: x.tipo, importo: x.puntata }))
@@ -192,9 +223,11 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
       gioco, operazione: roulette ? null : operazione, partecipanti,
     }])
     if (error) return err(error.message + ' (hai lanciato sessioni_live_baccarat.sql?)')
-    msg(`🎰 Sessione ${numeroSessione} salvata: ${roulette ? 'roulette' : `baccarat ${operazione}`}, ${partecipanti.length} conti, ${n} ${parola}`)
-    if (onSalvata) { onSalvata(); return }
-    setScelti([]); setMescolata(0); setEsitiCamp({}); setLatiCamp({}); carica()
+    msg(`🎰 Sessione ${numeroSessione} salvata: ${roulette ? `roulette${conRisultato ? ` · P/L ${segno(plSessione)}` : ''}` : `baccarat ${operazione}`}, ${partecipanti.length} conti, ${n} ${parola}`)
+    // 23/10/2026: 🔁 rigioca gli stessi numeri: stessa distribuzione e stessi importi, numeri usciti da riscrivere
+    if (rigioca && roulette) { setSeedFisso(seedText); setUsciti([]); await carica(); if (onSalvata) onSalvata({ rigioca: true }); return }
+    if (onSalvata) { onSalvata({ rigioca: false }); return }
+    setScelti([]); setMescolata(0); setSeedFisso(null); setUsciti([]); setEsitiCamp({}); setLatiCamp({}); carica()
   }
 
   const box = { background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(148,163,184,0.25)', borderRadius: 12, padding: '10px 12px', marginBottom: 10 }
@@ -242,29 +275,33 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
         <div style={box}>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8, fontSize: 12, color: '#cbd5e1' }}>
             <span>{roulette ? '€ a numero (per tutti)' : '€ a mano (per tutti)'} <input style={{ ...inp, width: 60 }} value={stake} onChange={e => setStake(soloEuro(e.target.value))} /></span>
+            {roulette && <span title="Quanto paga la roulette: 35 = 35 a 1 (standard). Per le roulette particolari scrivi 29, 21… Si può cambiare anche per un solo conto.">paga 1: <input style={{ ...inp, width: 50 }} value={paga} onChange={e => setPaga(soloEuro(e.target.value))} /></span>}
             {!campionato && <span>{roulette ? 'giri' : 'mani'} <input style={{ ...inp, width: 50 }} value={giri} onChange={e => setGiri(soloNum(e.target.value))} /></span>}
-            {roulette && <button onClick={() => setMescolata(m => m + 1)} style={btn('#6d28d9')}>🔀 Rimescola numeri</button>}
+            {roulette && <button onClick={() => { setSeedFisso(null); setMescolata(m => m + 1) }} style={btn('#6d28d9')}>🔀 Rimescola numeri</button>}
             <button onClick={() => apriContiSuTelefoni(scelti.map(s => (books || []).find(b => String(b.id) === String(s.id)) || s), `la sessione live ${numeroSessione}`)} style={btn('#0ea5e9')}>📱 Apri tutti ({scelti.length})</button>
           </div>
           {errore && <div style={{ color: '#fca5a5', fontSize: 12, marginBottom: 6 }}>⚠️ {errore}</div>}
 
           {roulette ? (
             <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-              <thead><tr><th style={th}>Book</th><th style={th}>Intestatario</th><th style={th}>Quanti numeri</th><th style={th}>€ a numero</th><th style={th}>Tipo</th><th style={th}>Numeri</th><th style={th}>A giro</th><th style={th}>Totale</th><th style={th}></th></tr></thead>
+              <thead><tr><th style={th}>Book</th><th style={th}>Intestatario</th><th style={th}>Quanti numeri</th><th style={th}>€ a numero</th><th style={th}>Paga 1:</th><th style={th}>Tipo</th><th style={th}>Numeri</th><th style={th}>A giro</th><th style={th}>Totale</th>{validi.length > 0 && <th style={th}>P/L</th>}<th style={th}></th></tr></thead>
               <tbody>
                 {scelti.map(s => {
                   const r = righe.find(x => x.id === s.id) || {}
                   const gia = giocatoOggi.get(String(s.id))
+                  const pl = plRiga(r)
                   return (
                     <tr key={s.id}>
                       <td style={{ ...td, fontWeight: 800 }}>{s.nome}</td>
                       <td style={td}>{s.intestatario}{gia ? <span style={{ color: '#fbbf24', fontSize: 10 }}> · già sessione {gia}</span> : null}</td>
                       <td style={td}>{soloSestine(s) ? <span style={{ color: '#94a3b8' }}>6 (sestina)</span> : <input style={{ ...inp, width: 46 }} placeholder="auto" value={s.aMano} onChange={e => cambia(s.id, 'aMano', soloNum(e.target.value))} />}</td>
                       <td style={td}><input style={{ ...inp, width: 52 }} placeholder={String(stake)} value={s.euroNum} onChange={e => cambia(s.id, 'euroNum', soloEuro(e.target.value))} /></td>
+                      <td style={td}><input style={{ ...inp, width: 44 }} placeholder={String(pagaDefault)} value={s.pagaConto ?? ''} onChange={e => cambia(s.id, 'pagaConto', soloEuro(e.target.value))} title="Payout di questo conto (vuoto = quello generale)" /></td>
                       <td style={td}>{r.tipo || ''}</td>
                       <td style={{ ...td, fontWeight: 800 }}>{(r.numeri || []).join(', ') || (r.numeri ? <span style={{ color: '#94a3b8', fontWeight: 400 }}>nessun numero in questo giro</span> : '')}</td>
                       <td style={td}>{r.numeri ? euro(aGiro(r)) : ''}</td>
                       <td style={td}>{r.numeri ? euro(aGiro(r) * Number(giri || 0)) : ''}</td>
+                      {validi.length > 0 && <td style={{ ...td, fontWeight: 800, color: pl < 0 ? '#fca5a5' : pl > 0 ? '#86efac' : '#cbd5e1' }}>{r.numeri ? segno(pl) : ''}</td>}
                       <td style={td}>
                         <button onClick={() => apriContiSuTelefoni([(books || []).find(b => String(b.id) === String(s.id)) || s], `${s.nome} di ${s.intestatario}`)} style={btn('#0ea5e9')}>📱</button>
                         <button onClick={() => togli(s.id)} style={{ ...btn('#64748b'), marginLeft: 4 }}>✕</button>
@@ -378,20 +415,37 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
                   <div style={{ marginTop: 6 }}>{bac.map(x => { const r = perConto.get(x.id); return r ? <div key={x.id}>{r.campione ? '🏆' : '❌'} {x.nome} · {x.intestatario}: {segno(r.risultato)} (puntato in tutto {euro(r.puntato)}{r.uscita ? `, uscito al turno ${r.uscita}` : ''})</div> : null })}</div>
                 </div>
               )}
-              <button onClick={conferma} disabled={!campFinito} style={{ ...btn('#059669', campFinito), marginTop: 4 }}>✓ Sessione giocata{campFinito ? '' : ' (segna prima tutti i turni)'}</button>
+              <button onClick={() => conferma()} disabled={!campFinito} style={{ ...btn('#059669', campFinito), marginTop: 4 }}>✓ Sessione giocata{campFinito ? '' : ' (segna prima tutti i turni)'}</button>
             </div>
           )}
 
           {pronta && !campionato && (
             <div style={{ marginTop: 8, fontSize: 12, color: '#cbd5e1' }}>
+              {roulette && (
+                <div style={{ ...box, marginBottom: 8, borderColor: 'rgba(167,139,250,0.5)' }}>
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <b style={{ color: '#c4b5fd' }}>🎯 Numeri usciti</b>
+                    {Array.from({ length: nGiri }, (_, i) => (
+                      <label key={i} style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>giro {i + 1}
+                        <input inputMode="numeric" placeholder="0-36" style={{ ...inp, width: 46, textAlign: 'center' }} value={usciti[i] ?? ''}
+                          onChange={e => { const v = soloNum(e.target.value).slice(0, 2); if (v !== '' && Number(v) > 36) return; setUsciti(u => { const n = [...u]; while (n.length < nGiri) n.push(''); n[i] = v; return n }) }} />
+                      </label>))}
+                    {validi.length > 0 && <button onClick={() => setUsciti([])} style={{ ...btn('#64748b'), padding: '3px 8px' }}>svuota</button>}
+                  </div>
+                  {validi.length > 0
+                    ? <div style={{ marginTop: 6 }}>Usciti: <b>{validi.join(', ')}</b> · P/L della sessione <b style={{ color: plSessione < 0 ? '#fca5a5' : '#86efac' }}>{segno(plSessione)}</b> (somma dei conti){validi.length < nGiri ? <span style={{ color: '#fbbf24' }}> · {validi.length} giri su {nGiri} previsti</span> : null}</div>
+                    : <div style={{ marginTop: 6, color: '#94a3b8' }}>Scrivi il numero uscito a ogni giro: il P/L di ogni conto si calcola da solo (paga 1:{pagaDefault}). Puoi anche aggiungerli dopo dalla finestra del gruppo.</div>}
+                </div>
+              )}
               {roulette ? (
                 rientroMin === rientroMax
-                  ? <>✅ Tutti i 37 numeri coperti · puntati {euro(totaleGiro)} a giro, rientro {euro(rientroMin)} qualunque numero esca · costo teorico <b>{euro(totaleGiro / 37)}</b> a giro, <b>{euro(totaleGiro / 37 * Number(giri || 0))}</b> su {giri} giri</>
-                  : <>✅ Tutti i 37 numeri coperti · puntati {euro(totaleGiro)} a giro · rientro da {euro(rientroMin)} a {euro(rientroMax)} a seconda del numero (risultato da {segno(rientroMin - totaleGiro)} a {segno(rientroMax - totaleGiro)}) · costo teorico medio <b>{euro(totaleGiro / 37)}</b> a giro, <b>{euro(totaleGiro / 37 * Number(giri || 0))}</b> su {giri} giri</>
+                  ? <>✅ Tutti i 37 numeri coperti · puntati {euro(totaleGiro)} a giro, rientro {euro(rientroMin)} qualunque numero esca · costo teorico <b>{euro(costoGiro)}</b> a giro, <b>{euro(costoGiro * Number(giri || 0))}</b> su {giri} giri</>
+                  : <>✅ Tutti i 37 numeri coperti · puntati {euro(totaleGiro)} a giro · rientro da {euro(rientroMin)} a {euro(rientroMax)} a seconda del numero (risultato da {segno(rientroMin - totaleGiro)} a {segno(rientroMax - totaleGiro)}) · costo teorico medio <b>{euro(costoGiro)}</b> a giro, <b>{euro(costoGiro * Number(giri || 0))}</b> su {giri} giri</>
               ) : (
                 <>🃏 Baccarat {operazione} · Banco {euro(B)} · Giocatore {euro(P)} a mano · se vince il Banco {segno(vinceBanco)} · se vince il Giocatore {segno(vinceGiocatore)} · pareggio 0 (puntate restituite) · costo medio <b>{euro(costoMano)}</b> a mano, <b>{euro(costoMano * Number(giri || 0))}</b> su {giri} mani</>
               )}
-              <button onClick={conferma} style={{ ...btn('#059669'), marginLeft: 10 }}>✓ Sessione giocata</button>
+              <button onClick={() => conferma()} style={{ ...btn('#059669'), marginLeft: 10 }}>✓ Sessione giocata</button>
+              {roulette && <button onClick={() => conferma(true)} title="Salva questa sessione e ne apre un'altra con gli stessi numeri e gli stessi importi, per rigiocarli" style={{ ...btn('#7c3aed'), marginLeft: 6 }}>🔁 Salva e rigioca gli stessi numeri</button>}
             </div>
           )}
         </div>

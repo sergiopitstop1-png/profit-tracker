@@ -15,7 +15,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../profit-tracker/supabaseClient'
 import SceltaData from './SceltaData' // 14/10/2026: calendario unico per scegliere le date
-import SessioneLivePanel from './SessioneLive' // 02/10/2026: numeri a conto nella profilazione mirata
+import SessioneLivePanel, { plRoulette } from './SessioneLive' // 02/10/2026: numeri a conto nella profilazione mirata
 
 const oggiISO = () => new Date().toLocaleDateString('sv-SE')
 const addGiorni = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('sv-SE') }
@@ -59,12 +59,12 @@ export function prossimaMirata(g, fatte, giorniPausa) {
 
 // 23/10/2026 — PAUSA DELLA PROFILAZIONE MIRATA: posizione di ogni conto e avviso quando un conto ha raggiunto la soglia.
 //  • Casinò live · baccarat campionato: 4 sessioni (risultato reale di ogni conto, già salvato in live_sessioni).
-//  • Casinò live · roulette: 4 sessioni (il risultato reale per conto non c'è: si mostrano puntato e costo teorico, 1/37 del puntato).
-//    Un conto messo a 0 numeri in un giro non ha giocato: quel giro non conta.
+//  • Casinò live · roulette: 12 sessioni (ognuna da 3 giri). Il P/L reale viene dai numeri usciti scritti nella sessione (payout 1:35 o quello scelto);
+//    il costo teorico considera il puntato e il payout (con 1:35 è 1/37). Un conto messo a 0 numeri in un giro non ha giocato: quel giro non conta.
 //  • Sport e Slot: 1.000 € giocati in totale per conto (si sommano gli importi indicati in ✅ Fatta).
 // Il conteggio parte da g.conteggio_dal (se l'hai azzerato con 🔄), altrimenti da sempre. Il gruppo di casinò live si riconosce dal nome.
 export const SOGLIA_BACCARAT = 4
-export const SOGLIA_ROULETTE = 4
+export const SOGLIA_ROULETTE = 12
 export const SOGLIA_EURO = 1000   // sport e slot
 const arrotonda2 = n => Math.round(n * 100) / 100
 export const euroIt = n => (Number(n) || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
@@ -78,7 +78,7 @@ export function posizioneGruppo(g, sessioni, fatte, datiConto) {
   const per = new Map()
   const conto = (id, p) => {
     const k = String(id)
-    if (!per.has(k)) { const d = p || (datiConto && datiConto(k)) || {}; per.set(k, { id: k, nome: d.nome, intestatario: d.intestatario, bacc: { sessioni: 0, puntato: 0, netto: 0 }, roul: { sessioni: 0, puntato: 0, costo: 0 }, giocato: 0, operazioni: 0, senzaImporto: 0 }) }
+    if (!per.has(k)) { const d = p || (datiConto && datiConto(k)) || {}; per.set(k, { id: k, nome: d.nome, intestatario: d.intestatario, bacc: { sessioni: 0, puntato: 0, netto: 0 }, roul: { sessioni: 0, puntato: 0, costo: 0, netto: 0, conNumeri: 0 }, giocato: 0, operazioni: 0, senzaImporto: 0 }) }
     return per.get(k)
   }
   let operazioni = 0
@@ -97,7 +97,9 @@ export function posizioneGruppo(g, sessioni, fatte, datiConto) {
           const n = (p?.numeri || []).length
           if (!n) continue   // 0 numeri = quel conto in questo giro non ha giocato
           const puntato = n * (Number(p.stake) || 0) * giri
-          const r = conto(p.id, p); r.roul.sessioni += 1; r.roul.puntato += puntato; r.roul.costo += puntato / 37; giocata = true
+          const paga = Number(p.paga) > 0 ? Number(p.paga) : 35   // roulette particolari: 1:29, 1:21…
+          const r = conto(p.id, p); r.roul.sessioni += 1; r.roul.puntato += puntato; r.roul.costo += puntato * (36 - paga) / 37; giocata = true
+          if (Array.isArray(p.usciti) && p.usciti.length && Number.isFinite(Number(p.risultato))) { r.roul.netto += Number(p.risultato); r.roul.conNumeri += 1 }
         }
         if (giocata) operazioni += 1
       }
@@ -113,10 +115,10 @@ export function posizioneGruppo(g, sessioni, fatte, datiConto) {
   }
   const verbo = tipo === 'slot' ? 'girati' : 'scommessi'
   const righe = [...per.values()].map(r => {
-    const x = { ...r, bacc: { ...r.bacc, puntato: arrotonda2(r.bacc.puntato), netto: arrotonda2(r.bacc.netto) }, roul: { ...r.roul, puntato: arrotonda2(r.roul.puntato), costo: arrotonda2(r.roul.costo) }, giocato: arrotonda2(r.giocato) }
+    const x = { ...r, bacc: { ...r.bacc, puntato: arrotonda2(r.bacc.puntato), netto: arrotonda2(r.bacc.netto) }, roul: { ...r.roul, puntato: arrotonda2(r.roul.puntato), costo: arrotonda2(r.roul.costo), netto: arrotonda2(r.roul.netto) }, giocato: arrotonda2(r.giocato) }
     x.motivi = []
     if (x.bacc.sessioni >= SOGLIA_BACCARAT) x.motivi.push(`${x.bacc.sessioni} campionati baccarat · netto ${segnoEuro(x.bacc.netto)}`)
-    if (x.roul.sessioni >= SOGLIA_ROULETTE) x.motivi.push(`${x.roul.sessioni} sessioni roulette · puntato ${euroIt(x.roul.puntato)}, costo teorico ${euroIt(x.roul.costo)}`)
+    if (x.roul.sessioni >= SOGLIA_ROULETTE) x.motivi.push(`${x.roul.sessioni} sessioni roulette · puntato ${euroIt(x.roul.puntato)}, ${x.roul.conNumeri ? `P/L ${segnoEuro(x.roul.netto)} (${x.roul.conNumeri}/${x.roul.sessioni} con numeri usciti)` : `costo teorico ${euroIt(x.roul.costo)}`}`)
     if ((tipo === 'sport' || tipo === 'slot') && x.giocato >= SOGLIA_EURO) x.motivi.push(`${euroIt(x.giocato)} ${verbo} in ${x.operazioni} ${x.operazioni === 1 ? 'operazione' : 'operazioni'}`)
     x.daPausare = x.motivi.length > 0
     return x
@@ -125,7 +127,7 @@ export function posizioneGruppo(g, sessioni, fatte, datiConto) {
   return {
     tipo, operazioni, righe, daPausare: righe.filter(r => r.daPausare),
     haBacc: righe.some(r => r.bacc.sessioni > 0), haRoul: righe.some(r => r.roul.sessioni > 0),
-    totBacc: somma(r => r.bacc.netto), totRoul: somma(r => r.roul.costo), totRoulPuntato: somma(r => r.roul.puntato), totGiocato: somma(r => r.giocato),
+    totBacc: somma(r => r.bacc.netto), totRoul: somma(r => r.roul.costo), totRoulNetto: somma(r => r.roul.netto), totRoulPuntato: somma(r => r.roul.puntato), totGiocato: somma(r => r.giocato),
     senzaImporto: righe.reduce((a, r) => a + r.senzaImporto, 0),
   }
 }
@@ -150,6 +152,24 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
     return data || []
   }, [])
   useEffect(() => { caricaSessioniMirate() }, [caricaSessioniMirate])
+  // 23/10/2026: numeri usciti di una roulette già salvata (scritti dopo, o corretti): ricalcola il P/L di ogni conto e aggiorna la sessione
+  const [numeriOggi, setNumeriOggi] = useState({})   // { idSessione: ['12', '5', '30'] } in modifica
+  async function salvaNumeriUsciti(sess, valori) {
+    const giri = Number(sess.giri_fatti) || 0
+    const validi = Array.from({ length: giri }, (_, i) => { const v = valori?.[i]; return v === '' || v == null ? NaN : Number(v) })
+    if (!giri || validi.some(v => !Number.isInteger(v) || v < 0 || v > 36)) { onError(`Scrivi tutti i ${giri || ''} numeri usciti (da 0 a 36)`); return }
+    const nuovi = (sess.partecipanti || []).map(p => {
+      const n = (p?.numeri || []).length
+      if (!n) return p
+      const stake = Number(p.stake) || 0, paga = Number(p.paga) > 0 ? Number(p.paga) : 35
+      return { ...p, paga, usciti: validi, risultato: plRoulette(p.numeri, stake, paga, validi), puntato_totale: arrotonda2(n * stake * giri) }
+    })
+    const { data, error } = await supabase.from('live_sessioni').update({ partecipanti: nuovi }).eq('id', sess.id).select('id')
+    if (error || !data?.length) { onError('Numeri non salvati' + (error ? ': ' + error.message : ': la tabella live_sessioni non permette la modifica (lancia live_sessioni_modifica.sql)')); return }
+    await caricaSessioniMirate()
+    setNumeriOggi(prev => { const n = { ...prev }; delete n[sess.id]; return n })
+    onMessage(`🎯 Sessione ${sess.numero}: numeri usciti salvati, P/L dei conti aggiornato`)
+  }
   // dopo ogni sessione salvata o ✅ Fatta: se qualche conto ha raggiunto la soglia, te lo dice con la sua posizione
   async function avvisoPausa(g, fatteAgg) {
     const p = posizioneGruppo(g, await caricaSessioniMirate(), fatteAgg || fatte, bookDi)
@@ -451,7 +471,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
                 const td = (v, extra = {}) => ({ padding: '3px 8px', fontSize: 12, textAlign: 'right', color: '#cbd5e1', ...extra })
                 const colNetto = n => n < 0 ? '#fca5a5' : n > 0 ? '#86efac' : '#cbd5e1'
                 const intestazioni = sp ? ['Conto', 'Operazioni', `${tipoMirata(g) === 'slot' ? 'Girato' : 'Scommesso'} (pausa a ${euroIt(SOGLIA_EURO)})`]
-                  : ['Conto', ...(pos.haBacc ? ['Campionati', 'Netto'] : []), ...(pos.haRoul ? ['Roulette', 'Puntato', 'Costo teorico'] : [])]
+                  : ['Conto', ...(pos.haBacc ? ['Campionati', 'Netto'] : []), ...(pos.haRoul ? ['Roulette', 'Puntato', 'P/L reale', 'Costo teorico'] : [])]
                 return (
                 <div style={{ marginTop: 8, padding: '8px 10px', borderRadius: 10, border: `1px solid ${pos.daPausare.length ? 'rgba(245,158,11,0.7)' : 'rgba(51,65,85,0.7)'}`, background: pos.daPausare.length ? 'rgba(245,158,11,0.08)' : 'rgba(11,18,32,0.5)' }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -483,6 +503,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
                             {pos.haRoul && <>
                               <td style={td(0, { color: r.roul.sessioni >= SOGLIA_ROULETTE ? '#fbbf24' : '#cbd5e1', fontWeight: r.roul.sessioni >= SOGLIA_ROULETTE ? 800 : 400 })}>{r.roul.sessioni || '—'}</td>
                               <td style={td(0, { color: '#94a3b8' })}>{r.roul.sessioni ? euroIt(r.roul.puntato) : '—'}</td>
+                              <td style={td(0, { fontWeight: 800, color: colNetto(r.roul.netto) })}>{r.roul.conNumeri ? <>{segnoEuro(r.roul.netto)} <span style={{ color: '#64748b', fontWeight: 400 }}>({r.roul.conNumeri}/{r.roul.sessioni})</span></> : '—'}</td>
                               <td style={td(0, { color: r.roul.sessioni ? '#fca5a5' : '#cbd5e1' })}>{r.roul.sessioni ? `-${euroIt(r.roul.costo)}` : '—'}</td>
                             </>}
                           </>}
@@ -494,19 +515,42 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
                           <td style={td(0, { fontWeight: 900, borderTop: '1px solid #334155' })}>{euroIt(pos.totGiocato)}</td>
                         </> : <>
                           {pos.haBacc && <><td style={{ borderTop: '1px solid #334155' }} /><td style={td(0, { fontWeight: 900, borderTop: '1px solid #334155', color: colNetto(pos.totBacc) })}>{segnoEuro(pos.totBacc)}</td></>}
-                          {pos.haRoul && <><td style={{ borderTop: '1px solid #334155' }} /><td style={td(0, { borderTop: '1px solid #334155', color: '#94a3b8' })}>{euroIt(pos.totRoulPuntato)}</td><td style={td(0, { fontWeight: 900, borderTop: '1px solid #334155', color: '#fca5a5' })}>-{euroIt(pos.totRoul)}</td></>}
+                          {pos.haRoul && <><td style={{ borderTop: '1px solid #334155' }} /><td style={td(0, { borderTop: '1px solid #334155', color: '#94a3b8' })}>{euroIt(pos.totRoulPuntato)}</td><td style={td(0, { fontWeight: 900, borderTop: '1px solid #334155', color: colNetto(pos.totRoulNetto) })}>{pos.totRoulNetto ? segnoEuro(pos.totRoulNetto) : '—'}</td><td style={td(0, { fontWeight: 900, borderTop: '1px solid #334155', color: '#fca5a5' })}>-{euroIt(pos.totRoul)}</td></>}
                         </>}
                       </tr>
                     </tbody>
                   </table>
-                  {!sp && pos.haRoul && <div style={{ marginTop: 4, fontSize: 11, color: '#64748b' }}>Roulette: il risultato reale di ogni conto non viene registrato, il costo è teorico (1/37 del puntato).</div>}
+                  {!sp && pos.haRoul && <div style={{ marginTop: 4, fontSize: 11, color: '#64748b' }}>Roulette: il P/L reale viene dai numeri usciti scritti nelle sessioni (tra parentesi: sessioni con i numeri su quelle giocate). Il costo teorico considera tutto il puntato e il payout di ogni sessione (con 1:35 è 1/37).</div>}
                 </div>)
+              })()}
+              {/* 23/10/2026 · 🎯 numeri usciti delle roulette di oggi: da scrivere o correggere dopo il salvataggio */}
+              {tipoMirata(g) === 'casino live' && (() => {
+                const oggiR = (sessioniMirate || []).filter(x => x.gruppo === g.nome && x.giorno === oggi && x.gioco !== 'baccarat' && (x.partecipanti || []).some(p => (p?.numeri || []).length)).sort((a, b) => (Number(a.numero) || 0) - (Number(b.numero) || 0))
+                if (!oggiR.length) return null
+                return (
+                  <div style={{ marginTop: 8, padding: '8px 10px', borderRadius: 10, border: '1px solid rgba(167,139,250,0.5)', background: 'rgba(167,139,250,0.06)' }}>
+                    <b style={{ fontSize: 12.5, color: '#c4b5fd' }}>🎯 Numeri usciti · roulette di oggi</b>
+                    {oggiR.map(x => {
+                      const giri = Number(x.giri_fatti) || 0
+                      const salvati = (x.partecipanti || []).find(p => Array.isArray(p?.usciti))?.usciti || []
+                      const completa = giri > 0 && salvati.length === giri
+                      const val = numeriOggi[x.id] ?? Array.from({ length: giri }, (_, i) => salvati[i] !== undefined ? String(salvati[i]) : '')
+                      const paga = (x.partecipanti || []).find(p => Number(p?.paga) > 0)?.paga
+                      return (
+                        <div key={x.id} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 6, fontSize: 12 }}>
+                          <span style={{ color: '#e2e8f0', minWidth: 120 }}>Sessione {x.numero} · {giri} {giri === 1 ? 'giro' : 'giri'}{paga ? ` · paga 1:${paga}` : ''}</span>
+                          {val.map((v, i) => <input key={i} inputMode="numeric" placeholder="0-36" value={v} onChange={e => { const t = e.target.value.replace(/[^0-9]/g, '').slice(0, 2); if (t !== '' && Number(t) > 36) return; setNumeriOggi(prev => { const n = [...val]; n[i] = t; return { ...prev, [x.id]: n } }) }} style={{ ...inp, width: 46, textAlign: 'center', padding: '4px 6px' }} />)}
+                          <button style={{ ...btn('#a78bfa'), padding: '3px 10px' }} onClick={() => salvaNumeriUsciti(x, val)}>💾 Salva</button>
+                          <span style={{ color: completa ? '#86efac' : '#fbbf24' }}>{completa ? '✓ numeri inseriti' : '⚠️ numeri mancanti: il P/L non è calcolato'}</span>
+                        </div>)
+                    })}
+                  </div>)
               })()}
               {numeri === g.id && (
                 <div style={{ marginTop: 8 }}>
                   <SessioneLivePanel books={books} contiIniziali={conti} origine="mirata" gruppo={g.nome}
                     apriContiSuTelefoni={apriSuTelefoni} onMessage={onMessage} onError={onError}
-                    onSalvata={async () => { setNumeri(null); await fatta(g, true); await avvisoPausa(g) }} />
+                    onSalvata={async (opz) => { if (!opz?.rigioca) setNumeri(null); if (!(fatte || []).some(f => String(f.gruppo_id) === String(g.id) && f.data === oggi)) await fatta(g, true); await avvisoPausa(g) }} />
                 </div>
               )}
               {nonProf.length > 0 && (

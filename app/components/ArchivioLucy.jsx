@@ -112,12 +112,13 @@ export function righeLive(rows) {
         continue
       }
       const n = (p.numeri || []).length, st = num(p.stake) ?? stake
+      const conNumeri = Array.isArray(p.usciti) && p.usciti.length > 0 && num(p.risultato) != null   // 23/10/2026: numeri usciti registrati → P/L reale
       out.push({
         quando: s.creato, data: s.giorno, origine: 'Casino live', tipo: `${orig} · roulette`, cliente: p.intestatario, book: p.nome,
         evento: `Roulette · sessione ${s.numero}${s.gruppo ? ` · ${s.gruppo}` : ''}`,
         giocata: `${p.tipo || 'Numeri'}: ${(p.numeri || []).join(', ')}`,
-        importo: Math.round(n * st * giri * 100) / 100, quota: null, stato: 'GIOCATA', esito: '', pl: null,
-        note: `${giri} giri × ${n} numeri × ${euro(st)}`,
+        importo: Math.round(n * st * giri * 100) / 100, quota: null, stato: 'GIOCATA', esito: '', pl: conNumeri ? num(p.risultato) : null,
+        note: `${giri} giri × ${n} numeri × ${euro(st)}${conNumeri ? ` · usciti ${p.usciti.join(', ')} · paga 1:${p.paga || 35} · P/L ${euro(num(p.risultato))}` : ''}`,
       })
     }
   }
