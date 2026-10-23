@@ -57,29 +57,77 @@ export function prossimaMirata(g, fatte, giorniPausa) {
   return { ultima, prossima: addGiorni(ultima, n + (giorniPausa ? giorniPausa(ultima, oggiISO()) : 0)) }
 }
 
-// 23/10/2026 — CAMPIONATI BACCARAT di un gruppo: posizione netta di ogni conto e avviso di pausa.
-// I risultati stanno già in live_sessioni (partecipanti[].risultato, per ogni sessione di campionato salvata con 🎰 Numeri):
-// qui si sommano per conto. Dopo SOGLIA_CAMPIONATI sessioni lo stesso conto va messo in pausa dalla profilazione mirata.
-// Il conteggio parte da g.conteggio_dal (se l'hai azzerato con 🔄), altrimenti da sempre. Il gruppo si riconosce dal nome.
-export const SOGLIA_CAMPIONATI = 4
+// 23/10/2026 — PAUSA DELLA PROFILAZIONE MIRATA: posizione di ogni conto e avviso quando un conto ha raggiunto la soglia.
+//  • Casinò live · baccarat campionato: 4 sessioni (risultato reale di ogni conto, già salvato in live_sessioni).
+//  • Casinò live · roulette: 4 sessioni (il risultato reale per conto non c'è: si mostrano puntato e costo teorico, 1/37 del puntato).
+//    Un conto messo a 0 numeri in un giro non ha giocato: quel giro non conta.
+//  • Sport e Slot: 1.000 € giocati in totale per conto (si sommano gli importi indicati in ✅ Fatta).
+// Il conteggio parte da g.conteggio_dal (se l'hai azzerato con 🔄), altrimenti da sempre. Il gruppo di casinò live si riconosce dal nome.
+export const SOGLIA_BACCARAT = 4
+export const SOGLIA_ROULETTE = 4
+export const SOGLIA_EURO = 1000   // sport e slot
 const arrotonda2 = n => Math.round(n * 100) / 100
 export const euroIt = n => (Number(n) || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
 export const segnoEuro = n => (n > 0 ? '+' : '') + euroIt(n)
-export function posizioneCampionati(g, sessioni, soglia = SOGLIA_CAMPIONATI) {
-  const dal = g?.conteggio_dal ? new Date(g.conteggio_dal).getTime() : 0
-  const mie = (sessioni || []).filter(s => s?.gruppo === g?.nome && (!dal || new Date(s.creato || s.giorno).getTime() >= dal))
+// sessioni = righe di live_sessioni delle mirate · fatte = profilazioni_mirate_fatte · datiConto(id) = { nome, intestatario }
+export function posizioneGruppo(g, sessioni, fatte, datiConto) {
+  const tipo = tipoMirata(g)
+  const dal = g?.conteggio_dal ? new Date(g.conteggio_dal) : null
+  const dalT = dal ? dal.getTime() : 0
+  const dalGiorno = dal ? dal.toLocaleDateString('sv-SE') : ''
   const per = new Map()
-  for (const s of mie) for (const p of s.partecipanti || []) {
-    if (!p?.campionato) continue
-    const k = String(p.id)
-    const r = per.get(k) || { id: k, nome: p.nome, intestatario: p.intestatario, sessioni: 0, netto: 0, puntato: 0 }
-    r.sessioni += 1; r.netto += Number(p.risultato) || 0; r.puntato += Number(p.puntato_totale) || 0
-    per.set(k, r)
+  const conto = (id, p) => {
+    const k = String(id)
+    if (!per.has(k)) { const d = p || (datiConto && datiConto(k)) || {}; per.set(k, { id: k, nome: d.nome, intestatario: d.intestatario, bacc: { sessioni: 0, puntato: 0, netto: 0 }, roul: { sessioni: 0, puntato: 0, costo: 0 }, giocato: 0, operazioni: 0, senzaImporto: 0 }) }
+    return per.get(k)
   }
-  const righe = [...per.values()].map(r => ({ ...r, netto: arrotonda2(r.netto), puntato: arrotonda2(r.puntato) }))
-    .sort((a, b) => String(a.intestatario || '').localeCompare(String(b.intestatario || ''), 'it', { sensitivity: 'base' }) || String(a.nome || '').localeCompare(String(b.nome || ''), 'it', { sensitivity: 'base' }))
-  const daPausare = righe.filter(r => r.sessioni >= soglia)
-  return { sessioni: mie.length, righe, daPausare, nettoTotale: arrotonda2(righe.reduce((a, r) => a + r.netto, 0)), nettoDaPausare: arrotonda2(daPausare.reduce((a, r) => a + r.netto, 0)) }
+  let operazioni = 0
+  if (tipo === 'casino live') {
+    const mie = (sessioni || []).filter(s => s?.gruppo === g?.nome && (!dalT || new Date(s.creato || s.giorno).getTime() >= dalT))
+    for (const s of mie) {
+      if (s.gioco === 'baccarat') {
+        if (s.operazione !== 'campionato') continue   // il baccarat spot non ha un risultato per conto
+        let giocata = false
+        for (const p of s.partecipanti || []) { if (!p?.campionato) continue; const r = conto(p.id, p); r.bacc.sessioni += 1; r.bacc.netto += Number(p.risultato) || 0; r.bacc.puntato += Number(p.puntato_totale) || 0; giocata = true }
+        if (giocata) operazioni += 1
+      } else {   // roulette (le righe vecchie senza "gioco" sono roulette)
+        const giri = Number(s.giri_fatti) || 0
+        let giocata = false
+        for (const p of s.partecipanti || []) {
+          const n = (p?.numeri || []).length
+          if (!n) continue   // 0 numeri = quel conto in questo giro non ha giocato
+          const puntato = n * (Number(p.stake) || 0) * giri
+          const r = conto(p.id, p); r.roul.sessioni += 1; r.roul.puntato += puntato; r.roul.costo += puntato / 37; giocata = true
+        }
+        if (giocata) operazioni += 1
+      }
+    }
+  } else if (tipo === 'sport' || tipo === 'slot') {
+    const mie = (fatte || []).filter(f => String(f.gruppo_id) === String(g?.id) && (!dalGiorno || String(f.data) >= dalGiorno))
+    operazioni = mie.length
+    for (const f of mie) for (const id of f.conti || []) {
+      const r = conto(id); r.operazioni += 1
+      const imp = Number(f.importo_per_conto)
+      if (Number.isFinite(imp) && imp > 0) r.giocato += imp; else r.senzaImporto += 1
+    }
+  }
+  const verbo = tipo === 'slot' ? 'girati' : 'scommessi'
+  const righe = [...per.values()].map(r => {
+    const x = { ...r, bacc: { ...r.bacc, puntato: arrotonda2(r.bacc.puntato), netto: arrotonda2(r.bacc.netto) }, roul: { ...r.roul, puntato: arrotonda2(r.roul.puntato), costo: arrotonda2(r.roul.costo) }, giocato: arrotonda2(r.giocato) }
+    x.motivi = []
+    if (x.bacc.sessioni >= SOGLIA_BACCARAT) x.motivi.push(`${x.bacc.sessioni} campionati baccarat · netto ${segnoEuro(x.bacc.netto)}`)
+    if (x.roul.sessioni >= SOGLIA_ROULETTE) x.motivi.push(`${x.roul.sessioni} sessioni roulette · puntato ${euroIt(x.roul.puntato)}, costo teorico ${euroIt(x.roul.costo)}`)
+    if ((tipo === 'sport' || tipo === 'slot') && x.giocato >= SOGLIA_EURO) x.motivi.push(`${euroIt(x.giocato)} ${verbo} in ${x.operazioni} ${x.operazioni === 1 ? 'operazione' : 'operazioni'}`)
+    x.daPausare = x.motivi.length > 0
+    return x
+  }).sort((a, b) => String(a.intestatario || '').localeCompare(String(b.intestatario || ''), 'it', { sensitivity: 'base' }) || String(a.nome || '').localeCompare(String(b.nome || ''), 'it', { sensitivity: 'base' }))
+  const somma = f => arrotonda2(righe.reduce((a, r) => a + f(r), 0))
+  return {
+    tipo, operazioni, righe, daPausare: righe.filter(r => r.daPausare),
+    haBacc: righe.some(r => r.bacc.sessioni > 0), haRoul: righe.some(r => r.roul.sessioni > 0),
+    totBacc: somma(r => r.bacc.netto), totRoul: somma(r => r.roul.costo), totRoulPuntato: somma(r => r.roul.puntato), totGiocato: somma(r => r.giocato),
+    senzaImporto: righe.reduce((a, r) => a + r.senzaImporto, 0),
+  }
 }
 
 export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setGruppi, fatte, setFatte, giorniPausa, onProfilazione, onProfilazioneTutti, onApri, sitoBook, onMessage, onError }) {
@@ -93,30 +141,30 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
   const [scegliData, setScegliData] = useState(null) // 14/10/2026: { g, valore } calendario per la data della prossima
   const oggi = oggiISO()
   const bookDi = id => (books || []).find(b => String(b.id) === String(id))
-  // 23/10/2026: sessioni di campionato baccarat delle profilazioni mirate (per la posizione netta e l'avviso di pausa)
-  const [sessioniCamp, setSessioniCamp] = useState([])
-  const caricaSessioniCamp = useCallback(async () => {
-    const { data, error } = await supabase.from('live_sessioni').select('id,giorno,numero,creato,gruppo,partecipanti')
-      .eq('origine', 'mirata').eq('gioco', 'baccarat').eq('operazione', 'campionato')
+  // 23/10/2026: sessioni (campionati baccarat e roulette) delle profilazioni mirate, per la posizione e l'avviso di pausa
+  const [sessioniMirate, setSessioniMirate] = useState([])
+  const caricaSessioniMirate = useCallback(async () => {
+    const { data, error } = await supabase.from('live_sessioni').select('id,giorno,numero,creato,gruppo,gioco,operazione,giri_fatti,partecipanti').eq('origine', 'mirata')
     if (error) return []
-    setSessioniCamp(data || [])
+    setSessioniMirate(data || [])
     return data || []
   }, [])
-  useEffect(() => { caricaSessioniCamp() }, [caricaSessioniCamp])
-  // dopo ogni sessione salvata: se qualche conto ha raggiunto la soglia, te lo dice con la posizione netta
-  async function avvisoPausa(g) {
-    const p = posizioneCampionati(g, await caricaSessioniCamp())
+  useEffect(() => { caricaSessioniMirate() }, [caricaSessioniMirate])
+  // dopo ogni sessione salvata o ✅ Fatta: se qualche conto ha raggiunto la soglia, te lo dice con la sua posizione
+  async function avvisoPausa(g, fatteAgg) {
+    const p = posizioneGruppo(g, await caricaSessioniMirate(), fatteAgg || fatte, bookDi)
     if (!p.daPausare.length) return
-    window.alert(`⏸ ${g.nome}: ${p.daPausare.length} ${p.daPausare.length === 1 ? 'conto ha fatto' : 'conti hanno fatto'} ${SOGLIA_CAMPIONATI} campionati o più.\n\nMetti in pausa la profilazione mirata per ${p.daPausare.length === 1 ? 'questo conto' : 'questi conti'}. Posizione netta:\n\n${p.daPausare.map(r => `${r.nome} – ${r.intestatario || '—'}: ${segnoEuro(r.netto)} in ${r.sessioni} sessioni`).join('\n')}\n\nTotale: ${segnoEuro(p.nettoDaPausare)}`)
+    const n = p.daPausare.length
+    window.alert(`⏸ ${g.nome}: ${n} ${n === 1 ? 'conto ha raggiunto' : 'conti hanno raggiunto'} la soglia.\n\nMetti in pausa la profilazione mirata per ${n === 1 ? 'questo conto' : 'questi conti'}:\n\n${p.daPausare.map(r => `${r.nome} – ${r.intestatario || '—'}: ${r.motivi.join(' + ')}`).join('\n')}`)
   }
-  // 🔄 dopo la pausa, quando i conti ripartono: il conteggio dei campionati riparte da zero (le sessioni restano in Archivio)
+  // 🔄 dopo la pausa, quando i conti ripartono: il conteggio riparte da zero (le sessioni e le operazioni restano in Archivio)
   async function ripartiConteggio(g) {
-    if (!window.confirm(`Riparto da zero il conteggio dei campionati di "${g.nome}"?\n\nLe sessioni già giocate restano in Archivio: da adesso si contano solo le nuove.`)) return
+    if (!window.confirm(`Riparto da zero il conteggio di "${g.nome}"?\n\nLe sessioni e le operazioni già fatte restano in Archivio: da adesso si contano solo le nuove.`)) return
     const dal = new Date().toISOString()
     const { error } = await supabase.from('profilazioni_mirate').update({ conteggio_dal: dal }).eq('id', g.id)
     if (error) { onError('Conteggio non azzerato: lancia profilazioni_mirate_conteggio.sql (' + error.message + ')'); return }
     setGruppi(prev => prev.map(x => x.id === g.id ? { ...x, conteggio_dal: dal } : x))
-    onMessage(`🔄 ${g.nome}: conteggio dei campionati ripartito da zero`)
+    onMessage(`🔄 ${g.nome}: conteggio ripartito da zero`)
   }
 
   const righe = (gruppi || []).map(g => ({ g, ...prossimaMirata(g, fatte || [], giorniPausa) }))
@@ -210,7 +258,8 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
     // 02/10/2026: l'importo resta nell'archivio. Se arrivi da 🎰 Numeri gli importi sono già nella sessione salvata.
     let importo = null
     if (!daSessione) {
-      const t = window.prompt(`Quanto ha giocato OGNI conto di "${g.nome}" in questa operazione? (€)\nServe per l'archivio. Lascia vuoto se non vuoi indicarlo.`, '')
+      const contaPausa = tipoMirata(g) === 'sport' || tipoMirata(g) === 'slot'
+      const t = window.prompt(`Quanto ha ${tipoMirata(g) === 'slot' ? 'girato' : 'giocato'} OGNI conto di "${g.nome}" in questa operazione? (€)\n${contaPausa ? `Serve all'archivio e a contare i ${euroIt(SOGLIA_EURO)} dopo i quali il conto va in pausa: scrivilo sempre.` : 'Serve per l\'archivio. Lascia vuoto se non vuoi indicarlo.'}`, '')
       if (t === null) return
       const v = Number(String(t).replace(',', '.'))
       importo = String(t).trim() && Number.isFinite(v) && v > 0 ? v : null
@@ -225,6 +274,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
     // i conti del gruppo non ancora in profilazione: chiedo se metterli dentro (così entrano anche nel giro sport)
     const fuori = g.conti.map(bookDi).filter(b => b && b.profilo_livello !== 'attivo')
     if (fuori.length && onProfilazioneTutti && window.confirm(`${fuori.length} conti del gruppo non sono in profilazione:\n${fuori.map(b => `${b.nome} – ${b.intestatario || '—'}`).join('\n')}\n\nLi metto in profilazione?`)) await onProfilazioneTutti(fuori.map(b => b.id))
+    if (!daSessione) await avvisoPausa(g, [...(fatte || []), data])   // 23/10/2026: sport e slot arrivano alla soglia con le operazioni registrate qui (le sessioni live avvisano al salvataggio)
   }
   async function annullaFatta(f) {
     if (!window.confirm(`Tolgo dallo storico l'operazione del ${dataIt(f.data)}?`)) return
@@ -327,7 +377,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
           const colore = tra <= 0 ? '#f87171' : tra === 1 ? '#fbbf24' : '#64748b'
           const quando = tra < 0 ? `in ritardo di ${-tra} gg` : tra === 0 ? 'OGGI' : tra === 1 ? 'domani' : `tra ${tra} gg`
           const problemi = (doppie.length ? 1 : 0) + (nonProf.length ? 1 : 0)
-          const pos = posizioneCampionati(g, sessioniCamp)   // 23/10/2026: campionati baccarat del gruppo
+          const pos = posizioneGruppo(g, sessioniMirate, fatte, bookDi)   // 23/10/2026: posizione dei conti e soglie di pausa
           return (
             <React.Fragment key={g.id}>
             <div onClick={() => setDettaglio(g.id)} title="Clic per aprire tutti i dettagli"
@@ -340,7 +390,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
               <span style={{ fontSize: 12.5, color: '#94a3b8' }}>{conti.length} conti</span>
               <span style={{ fontSize: 12, color: '#fde68a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {problemi > 0 && <span style={{ color: doppie.length ? '#f87171' : '#fbbf24', marginRight: 8 }}>{doppie.length ? '⛔' : '⚠️'}</span>}
-                {pos.daPausare.length > 0 && <span title={`${pos.daPausare.length} conti con ${SOGLIA_CAMPIONATI} campionati o più: metti in pausa la profilazione mirata`} style={{ color: '#f59e0b', fontWeight: 800, marginRight: 8 }}>⏸ {pos.daPausare.length} in pausa?</span>}
+                {pos.daPausare.length > 0 && <span title={`${pos.daPausare.length} conti hanno raggiunto la soglia: metti in pausa la profilazione mirata`} style={{ color: '#f59e0b', fontWeight: 800, marginRight: 8 }}>⏸ {pos.daPausare.length} in pausa?</span>}
                 {g.note ? `📝 ${g.note.replace(/\s+/g, ' ')}` : ''}
               </span>
             </div>
@@ -394,34 +444,64 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
                   ⛔ {doppie.map(x => `${x.persona} ha ${x.conti.length} conti in questo gruppo (${x.conti.map(b => b.nome).join(' + ')})`).join(' · ')}: al casinò live solo un conto per persona. Correggi con ✏️.
                 </div>
               )}
-              {/* 23/10/2026 · 🏁 campionati baccarat: posizione netta per conto e avviso di pausa */}
-              {pos.righe.length > 0 && (
+              {/* 23/10/2026 · posizione per conto e avviso di pausa (campionati baccarat, roulette, sport, slot) */}
+              {pos.righe.length > 0 && (() => {
+                const sp = pos.tipo === 'sport' || pos.tipo === 'slot'
+                const th = (t, i) => <th key={t} style={{ textAlign: i ? 'right' : 'left', padding: '3px 8px', color: '#94a3b8', fontSize: 11, borderBottom: '1px solid #334155' }}>{t}</th>
+                const td = (v, extra = {}) => ({ padding: '3px 8px', fontSize: 12, textAlign: 'right', color: '#cbd5e1', ...extra })
+                const colNetto = n => n < 0 ? '#fca5a5' : n > 0 ? '#86efac' : '#cbd5e1'
+                const intestazioni = sp ? ['Conto', 'Operazioni', `${tipoMirata(g) === 'slot' ? 'Girato' : 'Scommesso'} (pausa a ${euroIt(SOGLIA_EURO)})`]
+                  : ['Conto', ...(pos.haBacc ? ['Campionati', 'Netto'] : []), ...(pos.haRoul ? ['Roulette', 'Puntato', 'Costo teorico'] : [])]
+                return (
                 <div style={{ marginTop: 8, padding: '8px 10px', borderRadius: 10, border: `1px solid ${pos.daPausare.length ? 'rgba(245,158,11,0.7)' : 'rgba(51,65,85,0.7)'}`, background: pos.daPausare.length ? 'rgba(245,158,11,0.08)' : 'rgba(11,18,32,0.5)' }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <b style={{ fontSize: 12.5, color: '#fde68a' }}>🏁 Campionati baccarat · posizione netta per conto</b>
-                    <span style={{ fontSize: 11, color: '#94a3b8' }}>{pos.sessioni} {pos.sessioni === 1 ? 'sessione' : 'sessioni'}{g.conteggio_dal ? ` dal ${dataIt(String(g.conteggio_dal).slice(0, 10))}` : ''}</span>
+                    <b style={{ fontSize: 12.5, color: '#fde68a' }}>{sp ? (tipoMirata(g) === 'slot' ? '🎲 Slot · girato per conto' : '⚽ Sport · scommesso per conto') : '🏁 Campionati e roulette · posizione per conto'}</b>
+                    <span style={{ fontSize: 11, color: '#94a3b8' }}>{pos.operazioni} {sp ? (pos.operazioni === 1 ? 'operazione' : 'operazioni') : (pos.operazioni === 1 ? 'sessione' : 'sessioni')}{g.conteggio_dal ? ` dal ${dataIt(String(g.conteggio_dal).slice(0, 10))}` : ''}</span>
                     <button style={{ ...btn('#94a3b8'), marginLeft: 'auto', padding: '2px 8px', fontSize: 11 }} title="Dopo la pausa, quando i conti ripartono: il conteggio riparte da zero" onClick={() => ripartiConteggio(g)}>🔄 Riparto da zero</button>
                   </div>
                   {pos.daPausare.length > 0 && (
                     <div style={{ marginTop: 6, fontSize: 12.5, fontWeight: 800, color: '#fbbf24' }}>
-                      ⏸ Metti in pausa la profilazione mirata per {pos.daPausare.length} {pos.daPausare.length === 1 ? 'conto' : 'conti'}: {pos.daPausare.length === 1 ? 'ha' : 'hanno'} fatto {SOGLIA_CAMPIONATI} campionati o più · posizione netta {segnoEuro(pos.nettoDaPausare)}
+                      ⏸ Metti in pausa la profilazione mirata per {pos.daPausare.length} {pos.daPausare.length === 1 ? 'conto' : 'conti'}:
+                      {pos.daPausare.map(r => <div key={r.id} style={{ fontWeight: 600, color: '#fde68a' }}>• {r.nome} · {r.intestatario || '—'}: {r.motivi.join(' + ')}</div>)}
                     </div>
                   )}
+                  {pos.senzaImporto > 0 && <div style={{ marginTop: 4, fontSize: 11.5, color: '#fbbf24' }}>⚠️ {pos.senzaImporto} {pos.senzaImporto === 1 ? 'registrazione senza importo non conta' : 'registrazioni senza importo non contano'} nel totale: indica sempre quanto ha giocato ogni conto in ✅ Fatta.</div>}
                   <table style={{ borderCollapse: 'collapse', width: '100%', marginTop: 6 }}>
-                    <thead><tr>{['Conto', 'Sessioni', 'Puntato', 'Netto'].map((h, i) => <th key={h} style={{ textAlign: i ? 'right' : 'left', padding: '3px 8px', color: '#94a3b8', fontSize: 11, borderBottom: '1px solid #334155' }}>{h}</th>)}</tr></thead>
+                    <thead><tr>{intestazioni.map(th)}</tr></thead>
                     <tbody>
                       {pos.righe.map(r => (
                         <tr key={r.id}>
-                          <td style={{ padding: '3px 8px', fontSize: 12, color: '#e2e8f0' }}>{r.sessioni >= SOGLIA_CAMPIONATI ? '⏸ ' : ''}<b>{r.nome}</b> · {r.intestatario || '—'}</td>
-                          <td style={{ padding: '3px 8px', fontSize: 12, textAlign: 'right', color: r.sessioni >= SOGLIA_CAMPIONATI ? '#fbbf24' : '#cbd5e1', fontWeight: r.sessioni >= SOGLIA_CAMPIONATI ? 800 : 400 }}>{r.sessioni}</td>
-                          <td style={{ padding: '3px 8px', fontSize: 12, textAlign: 'right', color: '#94a3b8' }}>{euroIt(r.puntato)}</td>
-                          <td style={{ padding: '3px 8px', fontSize: 12, textAlign: 'right', fontWeight: 800, color: r.netto < 0 ? '#fca5a5' : r.netto > 0 ? '#86efac' : '#cbd5e1' }}>{segnoEuro(r.netto)}</td>
+                          <td style={{ padding: '3px 8px', fontSize: 12, color: '#e2e8f0' }}>{r.daPausare ? '⏸ ' : ''}<b>{r.nome}</b> · {r.intestatario || '—'}</td>
+                          {sp ? <>
+                            <td style={td()}>{r.operazioni}</td>
+                            <td style={td(0, { fontWeight: 800, color: r.giocato >= SOGLIA_EURO ? '#fbbf24' : '#cbd5e1' })}>{euroIt(r.giocato)}</td>
+                          </> : <>
+                            {pos.haBacc && <>
+                              <td style={td(0, { color: r.bacc.sessioni >= SOGLIA_BACCARAT ? '#fbbf24' : '#cbd5e1', fontWeight: r.bacc.sessioni >= SOGLIA_BACCARAT ? 800 : 400 })}>{r.bacc.sessioni || '—'}</td>
+                              <td style={td(0, { fontWeight: 800, color: colNetto(r.bacc.netto) })}>{r.bacc.sessioni ? segnoEuro(r.bacc.netto) : '—'}</td>
+                            </>}
+                            {pos.haRoul && <>
+                              <td style={td(0, { color: r.roul.sessioni >= SOGLIA_ROULETTE ? '#fbbf24' : '#cbd5e1', fontWeight: r.roul.sessioni >= SOGLIA_ROULETTE ? 800 : 400 })}>{r.roul.sessioni || '—'}</td>
+                              <td style={td(0, { color: '#94a3b8' })}>{r.roul.sessioni ? euroIt(r.roul.puntato) : '—'}</td>
+                              <td style={td(0, { color: r.roul.sessioni ? '#fca5a5' : '#cbd5e1' })}>{r.roul.sessioni ? `-${euroIt(r.roul.costo)}` : '—'}</td>
+                            </>}
+                          </>}
                         </tr>))}
-                      <tr><td colSpan={3} style={{ padding: '4px 8px', fontSize: 12, textAlign: 'right', color: '#94a3b8', borderTop: '1px solid #334155' }}>Totale gruppo</td><td style={{ padding: '4px 8px', fontSize: 12, textAlign: 'right', fontWeight: 900, borderTop: '1px solid #334155', color: pos.nettoTotale < 0 ? '#fca5a5' : '#86efac' }}>{segnoEuro(pos.nettoTotale)}</td></tr>
+                      <tr>
+                        <td style={{ padding: '4px 8px', fontSize: 12, textAlign: 'right', color: '#94a3b8', borderTop: '1px solid #334155' }}>Totale gruppo</td>
+                        {sp ? <>
+                          <td style={{ borderTop: '1px solid #334155' }} />
+                          <td style={td(0, { fontWeight: 900, borderTop: '1px solid #334155' })}>{euroIt(pos.totGiocato)}</td>
+                        </> : <>
+                          {pos.haBacc && <><td style={{ borderTop: '1px solid #334155' }} /><td style={td(0, { fontWeight: 900, borderTop: '1px solid #334155', color: colNetto(pos.totBacc) })}>{segnoEuro(pos.totBacc)}</td></>}
+                          {pos.haRoul && <><td style={{ borderTop: '1px solid #334155' }} /><td style={td(0, { borderTop: '1px solid #334155', color: '#94a3b8' })}>{euroIt(pos.totRoulPuntato)}</td><td style={td(0, { fontWeight: 900, borderTop: '1px solid #334155', color: '#fca5a5' })}>-{euroIt(pos.totRoul)}</td></>}
+                        </>}
+                      </tr>
                     </tbody>
                   </table>
-                </div>
-              )}
+                  {!sp && pos.haRoul && <div style={{ marginTop: 4, fontSize: 11, color: '#64748b' }}>Roulette: il risultato reale di ogni conto non viene registrato, il costo è teorico (1/37 del puntato).</div>}
+                </div>)
+              })()}
               {numeri === g.id && (
                 <div style={{ marginTop: 8 }}>
                   <SessioneLivePanel books={books} contiIniziali={conti} origine="mirata" gruppo={g.nome}
