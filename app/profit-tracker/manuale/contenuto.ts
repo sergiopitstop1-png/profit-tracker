@@ -256,6 +256,7 @@ export const PARTI: Parte[] = [
       ] },
       { nota: { tipo: 'attenzione', testo: 'Quando crei o modifichi un gruppo, se aggiungi un conto che è già in un\'altra profilazione mirata il sistema te lo segnala ("⚠️ già in Profilazione 2") e chiede conferma. Con "Aggiungi tutti": OK aggiunge anche i doppi, Annulla aggiunge solo i conti nuovi.' } },
       { nota: { tipo: 'consiglio', testo: 'Se premi direttamente ✅ Fatta (senza 🎰 Numeri) il sistema chiede quanto ha giocato ogni conto: scrivilo sempre, serve all\'archivio.' } },
+      { nota: { tipo: 'regola', testo: 'Campionati baccarat: ogni sessione salva il risultato di ogni conto (in Archivio e nella finestra del gruppo, 🏁 posizione netta per conto). Dopo 4 campionati lo stesso conto va messo in pausa dalla profilazione mirata: il sistema te lo dice quando salvi la sessione (avviso con la posizione netta) e lo segnala sul gruppo con "⏸ in pausa?". Quando i conti ripartono, 🔄 Riparto da zero fa ricominciare il conteggio (serve aver lanciato profilazioni_mirate_conteggio.sql). Il gruppo si riconosce dal nome: se lo rinomini, il conteggio riparte.' } },
     ] },
   { id: 'avvisi', titolo: 'Avvisi e chat con l\'assistenza',
     blocchi: [
