@@ -23,6 +23,7 @@ import json
 import os
 import re
 import sys
+import time
 import unicodedata
 import urllib.error
 import urllib.request
@@ -90,24 +91,34 @@ class ErroreRete(Exception):
     pass
 
 
-def chiama(url, metodo='GET', intestazioni=None, corpo=None):
+def chiama(url, metodo='GET', intestazioni=None, corpo=None, tentativi=3):
+    """Chiamata HTTP con riprova: un'esitazione della rete (handshake lento, timeout) non deve far saltare l'esecuzione.
+    Gli errori veri (401, 500, chiave rifiutata) NON si ripetono: si riprova solo quando la rete non risponde."""
     dati = json.dumps(corpo).encode('utf-8') if corpo is not None else None
     h = {'User-Agent': 'risultati-partite/1.0', 'Accept': 'application/json'}
     if dati is not None:
         h['Content-Type'] = 'application/json'
     h.update(intestazioni or {})
-    req = urllib.request.Request(url, data=dati, headers=h, method=metodo)
-    try:
-        with urllib.request.urlopen(req, timeout=40) as r:
-            return json.loads(r.read().decode('utf-8'))
-    except urllib.error.HTTPError as e:
+    ultimo = ''
+    for n in range(1, tentativi + 1):
+        req = urllib.request.Request(url, data=dati, headers=h, method=metodo)
         try:
-            testo = e.read().decode('utf-8', 'replace')[:300]
-        except Exception:
-            testo = ''
-        raise ErroreRete(f'errore {e.code} da {url.split("?")[0]} {testo}')
-    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as e:
-        raise ErroreRete(f'rete non raggiungibile ({url.split("?")[0]}): {e}')
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return json.loads(r.read().decode('utf-8'))
+        except urllib.error.HTTPError as e:
+            try:
+                testo = e.read().decode('utf-8', 'replace')[:300]
+            except Exception:
+                testo = ''
+            raise ErroreRete(f'errore {e.code} da {url.split("?")[0]} {testo}')
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            ultimo = f'rete non raggiungibile ({url.split("?")[0]}): {e}'
+            if n < tentativi:
+                log(f'  la rete non ha risposto (tentativo {n} di {tentativi}), riprovo tra {5 * n} secondi…')
+                time.sleep(5 * n)
+        except ValueError as e:
+            raise ErroreRete(f'risposta non valida da {url.split("?")[0]}: {e}')
+    raise ErroreRete(ultimo)
 
 
 def sito(cfg, percorso, metodo='GET', corpo=None):
@@ -232,6 +243,7 @@ def main(argv):
         return 2
 
     log(f"=== {'PROVA (non scrive niente)' if prova else 'Avvio'} ===", solo_file=not prova)
+    log(f"Leggo i segnali dal sito ({cfg['SITO_URL']})…")
     try:
         elenco = sito(cfg, '/api/segnali/risultati').get('mancanti') or []
     except ErroreRete as e:
