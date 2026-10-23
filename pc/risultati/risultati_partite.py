@@ -44,7 +44,7 @@ ALIAS = {   # nomi che API-Football scrive in modo molto diverso da Hunterbet
     'spurs': 'tottenham', 'inter': 'internazionale', 'atletico madrid': 'atletico madrid', 'atl madrid': 'atletico madrid',
     'psg': 'paris saint germain', 'paris sg': 'paris saint germain', 'bayern': 'bayern munich', 'bayern munchen': 'bayern munich',
     'leverkusen': 'bayer leverkusen', 'gladbach': 'borussia monchengladbach', 'sheffield utd': 'sheffield united', 'west brom': 'west bromwich albion',
-    'milton keynes dons': 'milton keynes dons', 'mk dons': 'milton keynes dons', 'qpr': 'queens park rangers', 'brighton': 'brighton and hove albion',
+    'milton keynes dons': 'milton keynes dons', 'mk dons': 'milton keynes dons', 'agf': 'aarhus', 'qpr': 'queens park rangers', 'brighton': 'brighton and hove albion',
 }
 GENERICHE = {'fc', 'cf', 'sc', 'ac', 'afc', 'cd', 'ud', 'sd', 'fk', 'sk', 'club', 'the'}
 
