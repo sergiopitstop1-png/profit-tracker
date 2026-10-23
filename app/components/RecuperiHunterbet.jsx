@@ -147,6 +147,20 @@ export default function RecuperiHunterbetPanel({ books, recuperi, getRecuperoPro
     carica()
   }
 
+  // 📞 prova della telefonata: chiama subito il tuo numero con una partita di finta (stesso testo e stessi limiti: 5 al giorno, 4 minuti tra una e l'altra)
+  async function provaChiamata() {
+    if (!window.confirm('Faccio partire ADESSO una telefonata di prova al tuo cellulare (costa pochi centesimi se rispondi)?')) return
+    setLavoro(true)
+    try {
+      const r = await fetch('/api/avvisi/chiamata', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ partita: 'Prova Casa – Prova Ospite', inizio: new Date(Date.now() + 3600000).toISOString() }) })
+      const j = await r.json().catch(() => ({}))
+      if (r.ok && j.ok) msg('📞 Chiamata partita: tra qualche secondo ti squilla il telefono')
+      else if (r.status === 503) err('Telefonata non configurata: mancano le variabili Twilio su Vercel (o manca il Redeploy)')
+      else err('Chiamata non partita: ' + (j.error || r.status))
+    } catch (e) { err('Chiamata non partita: ' + String(e.message || e)) }
+    setLavoro(false)
+  }
+
   // ─── viste ──────────────────────────────────────────────────────────
   const ora = Date.now()
   const daFare = bets.filter(b => b.stato === 'da_fare' && ora - new Date(b.creato || ora).getTime() < 18 * 3600000)
@@ -270,6 +284,7 @@ export default function RecuperiHunterbetPanel({ books, recuperi, getRecuperoPro
             </details>
           )}
           <button onClick={carica} style={btn('#334155')}>↻ Aggiorna</button>
+          <button disabled={lavoro} onClick={provaChiamata} style={btn('#7c3aed')}>📞 Prova la telefonata</button>
         </div>
       )}
     </div>
