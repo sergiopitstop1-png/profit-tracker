@@ -352,6 +352,12 @@ export default function SegnaliClient({ incorporato = false }: { incorporato?: b
   }
   const [hunter, setHunter] = useState<Hunter[]>([])
   const [filtroHB, setFiltroHB] = useState<'tutti' | 'giocate' | 'da_segnare'>('tutti')   // 23/10/2026
+  // 24/10/2026 · riepilogo con filtri anche per Hunterbet (come ScoreTrend e PronoX)
+  const [periodoHB, setPeriodoHB] = useState('tutto')
+  const [statoHB, setStatoHB] = useState('')
+  const [tipoHB, setTipoHB] = useState('')
+  const [mercatoHB, setMercatoHB] = useState('')
+  const [cercaHB, setCercaHB] = useState('')
   const [pronox, setPronox] = useState<Pronox[]>([])
   const [errore, setErrore] = useState('')
   const [aggiornato, setAggiornato] = useState<Date | null>(null)
@@ -410,6 +416,29 @@ export default function SegnaliClient({ incorporato = false }: { incorporato?: b
   const cellaST = useMemo(() => { const mp = new Map<number, CellaBF>(); for (const s of visibili) mp.set(s.msg_id, quotaPerSegnale('scoretrend', s, eventiBF)); return mp }, [visibili, eventiBF])
   const cellaHT = useMemo(() => { const mp = new Map<number, CellaBF>(); for (const s of hunter) mp.set(s.msg_id, quotaPerSegnale('hunter', s, eventiBF)); return mp }, [hunter, eventiBF])
 
+  const eLiveHB = (s: Hunter) => (s.fase || (s.tipo_segnale?.startsWith('GOL_') ? 'LIVE' : 'PRE-LIVE')) === 'LIVE'
+  const mercatoDiHB = (s: Hunter) => s.tipo_segnale === 'GOL_CASA' ? 'Gol casa' : s.tipo_segnale === 'GOL_OSPITI' ? 'Gol ospiti' : `Pre-live · ${s.tipo_segnale || '?'}`
+  const mercatiHB = useMemo(() => [...new Set(hunter.map(mercatoDiHB))].sort(), [hunter])
+  const hunterVisibili = useMemo(() => {
+    const q = cercaHB.trim().toLowerCase()
+    const da = periodoHB === 'tutto' ? 0 : Date.now() - Number(periodoHB) * 86400000
+    return hunter.filter(s =>
+      (!da || (s.data_msg && new Date(s.data_msg).getTime() >= da)) &&
+      (!statoHB || (statoHB === 'corso' ? !s.esito : s.esito === statoHB)) &&
+      (!tipoHB || (tipoHB === 'live') === eLiveHB(s)) && (!mercatoHB || mercatoDiHB(s) === mercatoHB) &&
+      (filtroHB === 'giocate' ? s.giocata === true : filtroHB === 'da_segnare' ? s.giocata !== true : true) &&
+      (!q || `${s.competizione} ${s.casa} ${s.ospite} ${s.tipo_segnale}`.toLowerCase().includes(q)))
+  }, [hunter, periodoHB, statoHB, tipoHB, mercatoHB, cercaHB, filtroHB])
+  // riepilogo: solo le bet chiuse; unità e quota media contano solo dove hai scritto la quota vera (1 unità = 1 bet)
+  const riepHB = useMemo(() => {
+    const chiuse = hunterVisibili.filter(s => s.esito === 'VINTA' || s.esito === 'PERSA')
+    const vinte = chiuse.filter(s => s.esito === 'VINTA').length
+    const conQ = chiuse.filter(s => s.quota != null && Number(s.quota) > 1)
+    const unita = conQ.reduce((a, s) => a + (s.esito === 'VINTA' ? Number(s.quota) - 1 : -1), 0)
+    const quotaMedia = conQ.length ? conQ.reduce((a, s) => a + Number(s.quota), 0) / conQ.length : null
+    return { chiuse: chiuse.length, vinte, conQ: conQ.length, unita, quotaMedia, inCorso: hunterVisibili.filter(s => !s.esito).length }
+  }, [hunterVisibili])
+
   const totale = raggruppa(visibili, () => 'Totale')[0]
   const blocchi: [string, Riga[]][] = [
     ['Per mercato', raggruppa(visibili, mercatoDi)],
@@ -464,22 +493,52 @@ export default function SegnaliClient({ incorporato = false }: { incorporato?: b
             : <SchedaPronox dati={pronox} sel={sel} th={th} td={td} tabellaPagella={tabellaPagella} eventiBF={eventiBF} congelati={congelati} />}
         </>
         ) : tab==='hunterbet' ? (
+        <>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
+          <select style={sel} value={periodoHB} onChange={e => setPeriodoHB(e.target.value)}>
+            <option value="1">Ultime 24 ore</option><option value="7">Ultimi 7 giorni</option><option value="30">Ultimi 30 giorni</option><option value="90">Ultimi 90 giorni</option><option value="tutto">Tutto lo storico</option>
+          </select>
+          <select style={sel} value={statoHB} onChange={e => setStatoHB(e.target.value)}>
+            <option value="">Tutti gli esiti</option><option value="corso">In corso</option><option value="VINTA">Vinte</option><option value="PERSA">Perse</option><option value="NULLA">Nulle</option>
+          </select>
+          <select style={sel} value={tipoHB} onChange={e => setTipoHB(e.target.value)}>
+            <option value="">Live e prepartita</option><option value="live">Solo live</option><option value="prepartita">Solo prepartita</option>
+          </select>
+          <select style={sel} value={mercatoHB} onChange={e => setMercatoHB(e.target.value)}>
+            <option value="">Tutti i mercati</option>{mercatiHB.map(m => <option key={m}>{m}</option>)}
+          </select>
+          <select style={sel} value={filtroHB} onChange={e => setFiltroHB(e.target.value as any)} title="Mostra solo le partite che hai giocato o quelle ancora da segnare">
+            <option value="tutti">Giocate e non</option><option value="giocate">Solo giocate ({hunter.filter(x => x.giocata === true).length})</option><option value="da_segnare">Non giocate ({hunter.filter(x => x.giocata !== true).length})</option>
+          </select>
+          <input style={{ ...sel, width: 220 }} placeholder="🔎 Squadra, competizione…" value={cercaHB} onChange={e => setCercaHB(e.target.value)} />
+          <button style={{ ...sel, cursor: 'pointer', fontWeight: 800 }} onClick={carica}>↻ Aggiorna</button>
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+          {[['Bet chiuse', String(riepHB.chiuse)],
+            ['Vinte', riepHB.chiuse ? `${riepHB.vinte} (${(100 * riepHB.vinte / riepHB.chiuse).toFixed(1).replace('.', ',')}%)` : '—'],
+            ['Quota media', riepHB.quotaMedia != null ? riepHB.quotaMedia.toFixed(2).replace('.', ',') : '—'],
+            ['Unità (con quota)', riepHB.conQ ? `${riepHB.unita >= 0 ? '+' : ''}${n2(riepHB.unita)}` : '—'],
+            ['Rendimento', riepHB.conQ ? `${riepHB.unita >= 0 ? '+' : ''}${(100 * riepHB.unita / riepHB.conQ).toFixed(1).replace('.', ',')}%` : '—'],
+            ['In corso', String(riepHB.inCorso)]].map(([tit, v]) => (
+            <div key={tit} style={{ background: 'rgba(15,23,42,.8)', border: '1px solid #1e293b', borderRadius: 12, padding: '10px 14px', minWidth: 120 }} title={tit.startsWith('Unità') || tit === 'Rendimento' || tit === 'Quota media' ? `calcolato sulle ${riepHB.conQ} bet chiuse di cui hai scritto la quota` : undefined}>
+              <div style={{ fontSize: 11, color: '#94a3b8' }}>{tit}</div>
+              <div style={{ fontSize: 20, fontWeight: 900, color: (tit.startsWith('Unità') || tit === 'Rendimento') && riepHB.conQ ? (riepHB.unita >= 0 ? '#86efac' : '#fca5a5') : '#f8fafc' }}>{v}</div>
+            </div>))}
+        </div>
         <div style={{ background:'rgba(15,23,42,.6)', border:'1px solid #1e293b', borderRadius:14, padding:12, overflowX:'auto' }}>
           <div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',marginBottom:4}}>
-            <div style={{fontWeight:900}}>Hunterbet · {hunter.length}</div>
+            <div style={{fontWeight:900}}>Hunterbet · {hunterVisibili.length}{hunterVisibili.length !== hunter.length ? ` di ${hunter.length}` : ''}</div>
             <button onClick={salvaTuttiHunter} style={{background:'#059669',color:'white',border:0,borderRadius:8,padding:'6px 14px',fontWeight:900,fontSize:12.5,cursor:'pointer'}}>💾 Salva tutti</button>
-            <select style={sel} value={filtroHB} onChange={e => setFiltroHB(e.target.value as any)} title="Mostra solo le partite che hai giocato o quelle ancora da segnare">
-              <option value="tutti">Tutti ({hunter.length})</option><option value="giocate">Giocate ({hunter.filter(x => x.giocata === true).length})</option><option value="da_segnare">Non giocate ({hunter.filter(x => x.giocata !== true).length})</option>
-            </select>
             {salvaTuttiMsg && <span style={{fontSize:12,fontWeight:700,color:salvaTuttiMsg.startsWith('✓')?'#86efac':salvaTuttiMsg.startsWith('Salvo')?'#94a3b8':salvaTuttiMsg.startsWith('Niente')?'#94a3b8':'#fca5a5'}}>{salvaTuttiMsg}</span>}
           </div>
           <DiagnosiBF canale="hunter" righe={hunter} celle={cellaHT} eventi={eventiBF} />
           <div style={{fontSize:11.5,color:'#94a3b8',marginBottom:8}}>Scrivi il risultato finale (es. 2-1) e, se lo sai, quello del 1° tempo: l'esito si calcola da solo ("auto"). Puoi sceglierlo a mano se il mercato non viene riconosciuto. La quota è quella che hai trovato dal bookmaker: scrivila qui e spunta «Giocata» solo sulle partite che hai davvero giocato. Le giocate con quota entrano nei conti reali dell'Analisi.</div>
           <table style={{borderCollapse:'collapse',width:'100%'}}>
             <thead><tr>{['Arrivato','Fase','Partita','Competizione','Segnale','Ris. al segnale','Minuto di gioco al segnale','Minuto gol vincente','1° tempo','Finale','Quota','Giocata','Betfair','Al segnale','Esito',''].map(h=><th key={h} style={h.startsWith('Minuto') ? { ...th, whiteSpace: 'normal', width: 78, lineHeight: 1.2 } : th}>{h}</th>)}</tr></thead>
-            <tbody>{hunter.filter(s => filtroHB === 'giocate' ? s.giocata === true : filtroHB === 'da_segnare' ? s.giocata !== true : true).map(s=><RigaHunter key={s.msg_id} s={s} td={td} bf={cellaHT.get(s.msg_id)} cg={congelati.get('hunter|' + s.msg_id)} onSalvato={r=>setHunter((v:Hunter[])=>v.map(x=>x.msg_id===r.msg_id?r:x))} registra={registraHunter} />)}</tbody>
+            <tbody>{hunterVisibili.map(s=><RigaHunter key={s.msg_id} s={s} td={td} bf={cellaHT.get(s.msg_id)} cg={congelati.get('hunter|' + s.msg_id)} onSalvato={r=>setHunter((v:Hunter[])=>v.map(x=>x.msg_id===r.msg_id?r:x))} registra={registraHunter} />)}</tbody>
           </table>
         </div>
+        </>
         ) : (<>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
           <select style={sel} value={periodo} onChange={e => setPeriodo(e.target.value)}>
