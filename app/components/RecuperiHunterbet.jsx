@@ -147,6 +147,16 @@ export default function RecuperiHunterbetPanel({ books, recuperi, getRecuperoPro
     carica()
   }
 
+  // 🔔 notifiche del browser (quelle di Windows): si abilitano una volta sola
+  const [notifiche, setNotifiche] = useState(() => { try { return typeof Notification === 'undefined' ? 'no' : Notification.permission } catch { return 'no' } })
+  async function attivaNotifiche() {
+    try {
+      const r = await Notification.requestPermission(); setNotifiche(r)
+      if (r === 'granted') { try { new Notification('🎯 Notifiche attive', { body: 'Così ti avviso quando arriva una partita Hunterbet da giocare.' }) } catch { /* notifica di prova non mostrata */ } msg('🔔 Notifiche attivate') }
+      else err('Notifiche non attivate: abilitale dal lucchetto accanto all\'indirizzo del sito (Impostazioni sito → Notifiche → Consenti)')
+    } catch (e) { err('Notifiche non supportate da questo browser') }
+  }
+
   // 📞 prova della telefonata: chiama subito il tuo numero con una partita di finta (stesso testo e stessi limiti: 5 al giorno, 4 minuti tra una e l'altra)
   async function provaChiamata() {
     if (!window.confirm('Faccio partire ADESSO una telefonata di prova al tuo cellulare (costa pochi centesimi se rispondi)?')) return
@@ -285,6 +295,9 @@ export default function RecuperiHunterbetPanel({ books, recuperi, getRecuperoPro
           )}
           <button onClick={carica} style={btn('#334155')}>↻ Aggiorna</button>
           <button disabled={lavoro} onClick={provaChiamata} style={btn('#7c3aed')}>📞 Prova la telefonata</button>
+          {notifiche === 'default' && <button onClick={attivaNotifiche} style={btn('#0ea5e9')}>🔔 Attiva notifiche</button>}
+          {notifiche === 'granted' && <span style={{ marginLeft: 8, fontSize: 12, color: '#6ee7b7' }}>🔔 notifiche attive</span>}
+          {notifiche === 'denied' && <span style={{ marginLeft: 8, fontSize: 12, color: '#fcd34d' }}>🔕 notifiche bloccate dal browser: sblocca dal lucchetto accanto all'indirizzo (Notifiche → Consenti)</span>}
         </div>
       )}
     </div>
