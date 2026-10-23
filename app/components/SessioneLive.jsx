@@ -27,6 +27,8 @@ function generatore(seedText) {
 }
 function mescola(arr, rnd) { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [a[i], a[j]] = [a[j], a[i]] } return a }
 
+const haMano = (p) => String(p?.aMano ?? '').trim() !== '' && Number.isFinite(Number(p.aMano))
+
 // Distribuzione dei 37 numeri. partecipanti: [{ id, nome, intestatario, aMano: numero|'' }]
 // Restituisce { righe:[{...p, tipo, numeri}], errore }  — esportata per i test
 export function distribuisci(partecipanti, seedText) {
@@ -54,7 +56,8 @@ export function distribuisci(partecipanti, seedText) {
   // 2. numeri a mano, poi 3. il resto diviso tra gli altri
   const liberi = mescola([...Array(37).keys()].filter(n => !occupati.has(n)), rnd)
   const normali = P.filter(p => !soloSestine(p))
-  const fissi = normali.filter(p => Number(p.aMano) > 0), automatici = normali.filter(p => !(Number(p.aMano) > 0))
+  // 23/10/2026: campo vuoto = automatico; qualunque numero scritto, ANCHE 0, è un'assegnazione a mano (0 = quel conto in questo giro non copre nessun numero)
+  const fissi = normali.filter(haMano), automatici = normali.filter(p => !haMano(p))
   const sommaFissi = fissi.reduce((a, p) => a + Number(p.aMano), 0)
   if (sommaFissi > liberi.length) return { righe: [], errore: `Hai assegnato a mano ${sommaFissi} numeri, ma ne restano solo ${liberi.length}` }
   if (!normali.length) return { righe: [], errore: 'Serve almeno un conto che non sia Lottomatica/GoldBet: le sestine non coprono lo 0 e i numeri rimasti' }
@@ -69,7 +72,7 @@ export function distribuisci(partecipanti, seedText) {
   const righe = P.map(p => ({ ...p, ...out.get(p.id) }))
   const coperti = new Set(righe.flatMap(r => r.numeri || []))
   if (coperti.size !== 37 || righe.reduce((a, r) => a + (r.numeri?.length || 0), 0) !== 37) return { righe, errore: 'Copertura non valida' }
-  const vuoti = righe.filter(r => !r.numeri?.length)
+  const vuoti = righe.filter(r => !r.numeri?.length && !haMano(r))   // 0 scritto a mano = voluto, non è un errore
   if (vuoti.length) return { righe, errore: `${vuoti.map(r => r.intestatario).join(', ')} resterebbe senza numeri: troppi conti per i numeri liberi` }
   return { righe, errore: '' }
 }
@@ -259,7 +262,7 @@ export default function SessioneLivePanel({ books, contoUsabile, apriContiSuTele
                       <td style={td}>{soloSestine(s) ? <span style={{ color: '#94a3b8' }}>6 (sestina)</span> : <input style={{ ...inp, width: 46 }} placeholder="auto" value={s.aMano} onChange={e => cambia(s.id, 'aMano', soloNum(e.target.value))} />}</td>
                       <td style={td}><input style={{ ...inp, width: 52 }} placeholder={String(stake)} value={s.euroNum} onChange={e => cambia(s.id, 'euroNum', soloEuro(e.target.value))} /></td>
                       <td style={td}>{r.tipo || ''}</td>
-                      <td style={{ ...td, fontWeight: 800 }}>{(r.numeri || []).join(', ')}</td>
+                      <td style={{ ...td, fontWeight: 800 }}>{(r.numeri || []).join(', ') || (r.numeri ? <span style={{ color: '#94a3b8', fontWeight: 400 }}>nessun numero in questo giro</span> : '')}</td>
                       <td style={td}>{r.numeri ? euro(aGiro(r)) : ''}</td>
                       <td style={td}>{r.numeri ? euro(aGiro(r) * Number(giri || 0)) : ''}</td>
                       <td style={td}>
