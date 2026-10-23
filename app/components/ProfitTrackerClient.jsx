@@ -3461,6 +3461,18 @@ function ultimoMantEffettivoLucy(book, regola) {
 // 27/09/2026 — REGISTRO DI PROFILAZIONE MANUALE: operazioni profilative fatte a mano su un conto.
 // Il conto passa in Profilazione (qualunque stato avesse) ed entra nel giro con gli altri; se "copre la giornata",
 // le bet di profilazione di quel giorno risultano fatte (niente doppioni negli incroci, niente arretrate).
+// 23/10/2026: l'importo del registro manuale può essere un numero (10) oppure un intervallo (5/15, 5-15):
+// per il mantenimento conta che ci sia stata una bet, non quanto. Con l'intervallo si salva la media (per i totali) e il testo "5-15".
+function leggiImportoManuale(valore) {
+  const s = String(valore ?? '').replace(',', '.').trim()
+  const m = s.match(/^(\d+(?:\.\d+)?)\s*[\/\-–]\s*(\d+(?:\.\d+)?)$/)
+  if (m) {
+    const lo = Math.min(Number(m[1]), Number(m[2])), hi = Math.max(Number(m[1]), Number(m[2]))
+    return { stake: Math.round((lo + hi) / 2 * 100) / 100, testo: `${lo}-${hi}`, intervallo: true }
+  }
+  const n = Number(s)
+  return { stake: Number.isFinite(n) && n > 0 ? n : 0, testo: '', intervallo: false }
+}
 function giornoCopertoManuale(bookId, data) {
   return lucyConfermate.some(x => x?.manualeProf && x.copreGiorno && String(x.bookId) === String(bookId) && x.data === data)
 }
@@ -3471,15 +3483,17 @@ async function registraProfilazioneManuale({ book, data, tipoOp, importo, descri
   if (!book) { setErrorMessage('Scegli il conto'); return false }
   const oggiIso = lucyOggi()
   if (!data || data > oggiIso) { setErrorMessage('La data non può essere nel futuro'); return false }
+  const imp = leggiImportoManuale(importo)
+  if (String(importo || '').trim() && !imp.stake) { setErrorMessage('Importo non valido: scrivi un numero (10) o un intervallo (5/15)'); return false }
   // 14/10/2026: l'operazione può contare come mantenimento, profilazione o recupero. Solo la profilazione porta il conto in Profilazione.
   const cambia = cosa === 'profilazione' && book.profilo_livello !== 'attivo'
   const stati = { dormiente: 'Dormiente', mantenimento: 'Mantenimento', attivo: 'Profilazione' }
-  if (!window.confirm(`${book.nome} – ${book.intestatario || '—'}\n${data.split('-').reverse().join('/')} · ${tipoOp}${importo ? ` · ${importo}€` : ''}${descrizione ? `\n"${descrizione}"` : ''}\n\n${cambia ? `Il conto passa da ${stati[String(book.profilo_livello || '').startsWith('mantenimento') ? 'mantenimento' : book.profilo_livello] || 'non impostato'} a PROFILAZIONE.\n` : ''}${copreGiorno ? 'Le bet di profilazione di quel giorno risultano fatte.' : 'Conta come una movimentazione, le bet del giorno restano da fare.'}\n\nRegistro?`)) return false
+  if (!window.confirm(`${book.nome} – ${book.intestatario || '—'}\n${data.split('-').reverse().join('/')} · ${tipoOp}${imp.stake ? ` · ${imp.testo || imp.stake}€` : ''}${descrizione ? `\n"${descrizione}"` : ''}\n\n${cambia ? `Il conto passa da ${stati[String(book.profilo_livello || '').startsWith('mantenimento') ? 'mantenimento' : book.profilo_livello] || 'non impostato'} a PROFILAZIONE.\n` : ''}${copreGiorno ? 'Le bet di profilazione di quel giorno risultano fatte.' : 'Conta come una movimentazione, le bet del giorno restano da fare.'}\n\nRegistro?`)) return false
   const rec = {
     key: `manprof|${data}|${book.id}|${Date.now()}`, data, creato: new Date().toISOString(), tipo: 'manuale',
     manualeProf: true, copreGiorno: cosa === 'profilazione' && !!copreGiorno, tipoOp, tipoConto: cosa,
     bookId: book.id, book: book.nome, intestatario: book.intestatario,
-    partita: descrizione || `Operazione manuale (${tipoOp})`, orario: '—', mercato: tipoOp, esito: '—', stake: Number(importo || 0), quota: 0
+    partita: descrizione || `Operazione manuale (${tipoOp})`, orario: '—', mercato: tipoOp, esito: '—', stake: imp.stake, quota: 0, ...(imp.testo ? { stakeTesto: imp.testo } : {})
   }
   salvaLucyConfermate([...lucyConfermate, rec])
   if (cambia) await updateProfiloLivello(book.id, 'attivo')   // per i book con più profilazioni si apre la scelta
@@ -3498,14 +3512,16 @@ async function registraProfilazioneManualeMulti({ libri, data, tipoOp, importo, 
   const conVarianti = daCambiare.filter(b => getVariantiProfilazione(b.nome))
   const senzaVarianti = daCambiare.filter(b => !getVariantiProfilazione(b.nome))
   const elenco = libri.slice(0, 25).map(b => `• ${b.nome} – ${b.intestatario || '—'}`).join('\n') + (libri.length > 25 ? `\n… e altri ${libri.length - 25}` : '')
-  const tot = Math.round(Number(importo || 0) * 100 * libri.length) / 100
-  if (!window.confirm(`${libri.length} conti\n${elenco}\n\n${data.split('-').reverse().join('/')} · ${tipoOp}${importo ? ` · ${importo}€ a conto (totale ${tot}€)` : ''}${descrizione ? `\n"${descrizione}"` : ''}\n\n${senzaVarianti.length ? `${senzaVarianti.length} conti passano a PROFILAZIONE.\n` : ''}${conVarianti.length ? `${conVarianti.length} conti hanno più profilazioni: restano dove sono (la variante va scelta a mano).\n` : ''}${cosa === 'profilazione' && copreGiorno ? 'Le bet di profilazione di quel giorno risultano fatte.' : 'Conta come una movimentazione, le bet del giorno restano da fare.'}\n\nRegistro?`)) return false
+  const imp = leggiImportoManuale(importo)
+  if (String(importo || '').trim() && !imp.stake) { setErrorMessage('Importo non valido: scrivi un numero (10) o un intervallo (5/15)'); return false }
+  const tot = Math.round(imp.stake * 100 * libri.length) / 100
+  if (!window.confirm(`${libri.length} conti\n${elenco}\n\n${data.split('-').reverse().join('/')} · ${tipoOp}${imp.stake ? ` · ${imp.testo || imp.stake}€ a conto${imp.intervallo ? '' : ` (totale ${tot}€)`}` : ''}${descrizione ? `\n"${descrizione}"` : ''}\n\n${senzaVarianti.length ? `${senzaVarianti.length} conti passano a PROFILAZIONE.\n` : ''}${conVarianti.length ? `${conVarianti.length} conti hanno più profilazioni: restano dove sono (la variante va scelta a mano).\n` : ''}${cosa === 'profilazione' && copreGiorno ? 'Le bet di profilazione di quel giorno risultano fatte.' : 'Conta come una movimentazione, le bet del giorno restano da fare.'}\n\nRegistro?`)) return false
   const adesso = Date.now()
   const nuovi = libri.map(book => ({
     key: `manprof|${data}|${book.id}|${adesso}`, data, creato: new Date().toISOString(), tipo: 'manuale',
     manualeProf: true, copreGiorno: cosa === 'profilazione' && !!copreGiorno, tipoOp, tipoConto: cosa,
     bookId: book.id, book: book.nome, intestatario: book.intestatario,
-    partita: descrizione || `Operazione manuale (${tipoOp})`, orario: '—', mercato: tipoOp, esito: '—', stake: Number(importo || 0), quota: 0
+    partita: descrizione || `Operazione manuale (${tipoOp})`, orario: '—', mercato: tipoOp, esito: '—', stake: imp.stake, quota: 0, ...(imp.testo ? { stakeTesto: imp.testo } : {})
   }))
   salvaLucyConfermate([...lucyConfermate, ...nuovi])
   for (const b of senzaVarianti) await updateProfiloLivello(b.id, 'attivo')
@@ -8275,11 +8291,11 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                   <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>Data <input type="date" value={regForm.data} max={lucyOggi()} onChange={e => setRegForm({ ...regForm, data: e.target.value })} style={inp} /></label>
                   <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>Tipo <select value={regForm.tipoOp} onChange={e => setRegForm({ ...regForm, tipoOp: e.target.value })} style={inp}><option>Sport</option><option>Casinò / slot</option><option>Ricarica</option><option>Promo / VXT</option><option>Altro</option></select></label>
                   <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }} title="Mantenimento e Recupero non cambiano lo stato del conto: contano solo come operazione fatta. Profilazione porta il conto in Profilazione.">Conta come <select value={cosa} onChange={e => setRegForm({ ...regForm, cosa: e.target.value })} style={inp}><option value="mantenimento">Mantenimento</option><option value="profilazione">Profilazione</option><option value="recupero">Recupero</option></select></label>
-                  <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>Importo € <input inputMode="decimal" value={regForm.importo} onChange={e => setRegForm({ ...regForm, importo: e.target.value.replace(',', '.') })} style={{ ...inp, width: 90 }} /></label>
+                  <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>Importo € <input placeholder="10 oppure 5/15" title="Un importo (10) oppure un intervallo se hai fatto bet diverse (5/15)" value={regForm.importo} onChange={e => setRegForm({ ...regForm, importo: e.target.value.replace(',', '.') })} style={{ ...inp, width: 120 }} /></label>
                   <input placeholder="Partita e giocata (es. Inter-Milan, punta 1) · facoltativo" value={regForm.descrizione} onChange={e => setRegForm({ ...regForm, descrizione: e.target.value })} style={inp} />
                   {cosa === 'profilazione' && <label style={{ gridColumn: '1 / -1', display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: '#cbd5e1', cursor: 'pointer' }}><input type="checkbox" checked={regForm.copreGiorno} onChange={e => setRegForm({ ...regForm, copreGiorno: e.target.checked })} /> Copre la profilazione di quel giorno (Lucy non propone altre bet di profilazione su questo conto per quella data)</label>}
                   <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end' }}>
-                    <button disabled={!scelti.length} onClick={async () => { const ok = await registraProfilazioneManualeMulti({ libri: scelti, data: regForm.data, tipoOp: regForm.tipoOp, importo: Number(regForm.importo || 0), descrizione: regForm.descrizione.trim(), copreGiorno: regForm.copreGiorno, cosa }); if (ok) setRegForm({ ...regForm, bookIds: [], cerca: '', importo: '', descrizione: '', cosa: '' }) }} style={{ background: scelti.length ? '#9333ea' : '#334155', color: 'white', border: 0, borderRadius: 10, padding: '9px 16px', fontWeight: 900, cursor: scelti.length ? 'pointer' : 'default' }}>✍️ Registra{scelti.length > 1 ? ` ${scelti.length} conti` : ''}</button>
+                    <button disabled={!scelti.length} onClick={async () => { const ok = await registraProfilazioneManualeMulti({ libri: scelti, data: regForm.data, tipoOp: regForm.tipoOp, importo: regForm.importo, descrizione: regForm.descrizione.trim(), copreGiorno: regForm.copreGiorno, cosa }); if (ok) setRegForm({ ...regForm, bookIds: [], cerca: '', importo: '', descrizione: '', cosa: '' }) }} style={{ background: scelti.length ? '#9333ea' : '#334155', color: 'white', border: 0, borderRadius: 10, padding: '9px 16px', fontWeight: 900, cursor: scelti.length ? 'pointer' : 'default' }}>✍️ Registra{scelti.length > 1 ? ` ${scelti.length} conti` : ''}</button>
                   </div>
                 </div>
                 <div style={{ marginTop: 16, fontSize: 13, fontWeight: 800, color: '#cbd5e1' }}>Registrazioni · {registroManualeProf().length}</div>
@@ -8289,7 +8305,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                     <div key={r.key} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12, padding: '6px 8px', borderRadius: 8, background: 'rgba(11,18,32,0.75)', border: '1px solid rgba(51,65,85,0.6)' }}>
                       <span style={{ color: '#94a3b8', width: 78 }}>{String(r.data).split('-').reverse().join('/')}</span>
                       <b style={{ color: '#f8fafc' }}>{r.book}</b><span style={{ color: '#94a3b8' }}>{r.intestatario || '—'}</span>
-                      <span style={{ color: '#c084fc' }}>{r.tipoOp}</span>{r.stake ? <span>{r.stake}€</span> : null}<span style={{ background: '#1e293b', borderRadius: 6, padding: '1px 7px', fontSize: 11, color: '#fcd34d', fontWeight: 800 }}>{r.tipoConto === 'mantenimento' ? '🟡 mantenimento' : r.tipoConto === 'recupero' ? '🔧 recupero' : '🟢 profilazione'}</span>
+                      <span style={{ color: '#c084fc' }}>{r.tipoOp}</span>{(r.stakeTesto || r.stake) ? <span>{r.stakeTesto || r.stake}€</span> : null}<span style={{ background: '#1e293b', borderRadius: 6, padding: '1px 7px', fontSize: 11, color: '#fcd34d', fontWeight: 800 }}>{r.tipoConto === 'mantenimento' ? '🟡 mantenimento' : r.tipoConto === 'recupero' ? '🔧 recupero' : '🟢 profilazione'}</span>
                       <span style={{ color: '#cbd5e1', flex: 1, minWidth: 120 }}>{r.partita}</span>
                       {r.copreGiorno && <span style={{ color: '#22c55e' }}>✓ giornata coperta</span>}
                       <button onClick={() => annullaRegistrazioneManuale(r)} title="Togli dal registro" style={{ ...inp, cursor: 'pointer', padding: '2px 8px', fontSize: 12 }}>✕</button>

@@ -41,7 +41,7 @@ export function righeSport(rows) {
     quando: x.creato || x.data, data: x.data, origine: 'Sport Lucy', tipo: x.manualeProf ? `${x.tipoConto || 'profilazione'} (manuale)` : x.recupero ? `${x.tipo} (recupero bet)` : x.tipo,
     cliente: x.intestatario, book: x.book, evento: [x.partita, x.sport].filter(Boolean).join(' · '),
     giocata: [x.mercato, x.esito].filter(v => v && v !== '—').join(': '), importo: num(x.stake), quota: num(x.quota) || null,
-    stato: 'CONFERMATA', esito: '', pl: null, note: x.betNumero ? `bet ${x.betNumero}/${x.betRichieste || '?'}` : '',
+    stato: 'CONFERMATA', esito: '', pl: null, note: x.stakeTesto ? `importo tra ${x.stakeTesto}€ (nei totali vale la media)` : x.betNumero ? `bet ${x.betNumero}/${x.betRichieste || '?'}` : '',
   }))
 }
 export function righeDecisioni(rows) {
