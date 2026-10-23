@@ -16,6 +16,7 @@ import ProfiliamoOggi from './ProfiliamoOggi'
 import RecuperoContiPanel, { contiInRecupero, azioniRecuperoOggi, limitazioniDaNota, daPromuovere, recuperoSport, sportBloccatoBook } from './RecuperoConti'
 import RecuperiPronoxPanel, { contiPerRecupero } from './RecuperiPronox'
 import RecuperiHunterbetPanel from './RecuperiHunterbet'
+import AvvisoHunterbet from './AvvisoHunterbet'
 import PagellaPronox from './PagellaPronox'
 import SessioneLivePanel from './SessioneLive'
 import ArchivioLucy from './ArchivioLucy'
@@ -7726,6 +7727,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
  return (
     <div className="pt-mobile" style={container}>
       <AvvisoManuale />
+      <AvvisoHunterbet onApri={() => apriSezioneProfilazione('hunterbet-masaniello')} />
      {message && (
   <div style={{
     position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)',
