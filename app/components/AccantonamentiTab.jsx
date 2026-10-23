@@ -297,7 +297,7 @@ export default function AccantonamentiTab({
           <div style={panelHeader}>
             <div>
               <h2 style={panelTitle}>Servizi software</h2>
-              <p style={panelSubtitle}>22 € al mese ciascuno · scadenze automatiche</p>
+              <p style={panelSubtitle}>{serviziSchedule.some(s => s.amount !== 22) ? '22 € al mese ciascuno (API-Football 19 €)' : '22 € al mese ciascuno'} · scadenze automatiche</p>
             </div>
           </div>
           <BigValue>{fmt(accantonamentoServizi)}</BigValue>

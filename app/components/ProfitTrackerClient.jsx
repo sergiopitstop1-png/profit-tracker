@@ -7582,12 +7582,16 @@ const rateMichelaDaPagare = rateMichela.daPagare
 
 // Servizi software: 22 € al mese ciascuno. L'intero importo è accantonato dal 1° del mese;
 // quando viene segnato Pagato sparisce dagli accantonamenti perché l'uscita reale è già nei wallet.
-const SERVIZI_SCHEDULE = [
+// 23/10/2026: aggiunto API-Football (19 € al mese, scade il 23), conta dal mese di novembre 2026 ('dal' = primo mese in cui compare).
+const SERVIZI_TUTTI = [
   { day: 9, amount: 22, key: 'anthropic_claude_pagato_mese', label: 'giorno 9', nome: 'Anthropic / Claude' },
   { day: 11, amount: 22, key: 'chatgpt_openai_pagato_mese', label: 'giorno 11', nome: 'ChatGPT / OpenAI' },
   { day: 17, amount: 22, key: 'supabase_database_pagato_mese', label: 'giorno 17', nome: 'Supabase Database' },
+  { day: 23, amount: 19, key: 'api_football_pagato_mese', label: 'giorno 23', nome: 'API-Football', dal: '2026-11' },
   { day: 30, amount: 22, key: 'vercel_deployment_pagato_mese', label: 'giorno 30', nome: 'Vercel Deployment' },
 ]
+const MESE_ORA_SERVIZI = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
+const SERVIZI_SCHEDULE = SERVIZI_TUTTI.filter(x => !x.dal || x.dal <= MESE_ORA_SERVIZI)
 const rateServizi = calcolaRateAccantonamento(SERVIZI_SCHEDULE, dashboardSettings)
 const totaleMensileServizi = rateServizi.totale
 const rateServiziDaPagare = rateServizi.daPagare
