@@ -30,7 +30,7 @@ def main():
         pass
     cfg = carica_config()
     if not cfg.get('API_FOOTBALL_KEY'):
-        print(f'Apri con il Blocco note il file risultati_config.json e compila api_football_key')
+        print('Apri con il Blocco note il file risultati_config.json e compila api_football_key')
         return 2
     h = {'x-apisports-key': cfg['API_FOOTBALL_KEY']}
     base = cfg['API_FOOTBALL_URL']
@@ -39,9 +39,11 @@ def main():
         if j.get('errors'):
             dico('Risposta con errori: ' + str(j['errors'])[:300])
         bets = j.get('response') or []
-        dico(f'== MERCATI IN DIRETTA DISPONIBILI: {len(bets)} ==')
+        parole = ('goal', 'score', 'gol', 'scorer')
+        dico(f'== MERCATI IN DIRETTA DISPONIBILI: {len(bets)} (qui sotto solo quelli che parlano di gol) ==')
         for b in bets:
-            dico(f"  {b.get('id')}: {b.get('name')}")
+            if any(x in str(b.get('name') or '').lower() for x in parole):
+                dico(f"  {b.get('id')}: {b.get('name')}")
         dico()
         j = chiama(f'{base}/odds/live', intestazioni=h)
         if j.get('errors'):
@@ -50,14 +52,14 @@ def main():
         dico(f'== PARTITE IN CORSO CON QUOTE: {len(resp)} ==')
         if not resp:
             dico('Nessuna partita in corso con quote: riprova mentre ci sono partite.')
-        for r in resp[:8]:
+        for r in resp[:3]:
             f, t = r.get('fixture') or {}, r.get('teams') or {}
             st = f.get('status') or r.get('status') or {}
             dico(f"\n-- {(t.get('home') or {}).get('name')} - {(t.get('away') or {}).get('name')}   minuto {st.get('elapsed')}   (fixture {f.get('id')})")
             for m in r.get('odds') or []:
                 nome = str(m.get('name') or '')
-                if any(x in nome.lower() for x in ('goal', 'score', 'gol')):
-                    vals = ', '.join(f"{v.get('value')} {v.get('handicap') or ''} @{v.get('odd')}" + (' [sospesa]' if v.get('suspended') else '') for v in (m.get('values') or [])[:8])
+                if any(x in nome.lower() for x in parole):
+                    vals = ', '.join(f"{v.get('value')} {v.get('handicap') or ''} @{v.get('odd')}" + (' [sospesa]' if v.get('suspended') else '') for v in (m.get('values') or [])[:6])
                     dico(f"   {m.get('id')} {nome}: {vals}")
     except ErroreRete as e:
         dico('Errore: ' + str(e))
