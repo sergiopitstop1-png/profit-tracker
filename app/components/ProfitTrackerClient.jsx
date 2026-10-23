@@ -15,6 +15,7 @@ import SlotConsigliate, { PulsanteSlot, parlaDiSlot, ListaSlotUnica } from './Sl
 import ProfiliamoOggi from './ProfiliamoOggi'
 import RecuperoContiPanel, { contiInRecupero, azioniRecuperoOggi, limitazioniDaNota, daPromuovere, recuperoSport, sportBloccatoBook } from './RecuperoConti'
 import RecuperiPronoxPanel, { contiPerRecupero } from './RecuperiPronox'
+import RecuperiHunterbetPanel from './RecuperiHunterbet'
 import PagellaPronox from './PagellaPronox'
 import SessioneLivePanel from './SessioneLive'
 import ArchivioLucy from './ArchivioLucy'
@@ -8973,6 +8974,19 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         apriContiSuTelefoni={apriContiSuTelefoni}
         />
         </>
+      ))}
+      {/* 23/10/2026 — Masaniello Hunterbet Pre-live (RecuperiHunterbet.jsx): nasce SPENTO, lo accende Sergio dal pannello */}
+      {conSezione({ nascosta: true, id: 'hunterbet-masaniello', titolo: '🎯 Masaniello Hunterbet Pre-live', badge: '', colore: '#38bdf8', aperta: false }, (
+        <RecuperiHunterbetPanel
+          books={books}
+          recuperi={recuperiConti}
+          getRecuperoProtocollo={getRecuperoProtocollo}
+          sitoBook={sitoBook}
+          apriSuTelefoni={apriSuTelefoni}
+          onMessage={setMessage}
+          onError={setErrorMessage}
+          apriContiSuTelefoni={apriContiSuTelefoni}
+        />
       ))}
       {/* 01/10/2026 — SESSIONI LIVE LIBERE (dal file Randomizzatori) */}
       {conSezione({ nascosta: true, id: 'live', titolo: '🎰 Sessioni live · copertura roulette a scelta', badge: '', colore: '#a78bfa', aperta: false }, (
