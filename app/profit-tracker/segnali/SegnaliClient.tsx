@@ -10,6 +10,7 @@ import Link from 'next/link'
 import { supabase } from '../supabaseClient'
 import { caricaBetfair, caricaCongelati, quotaPerSegnale, riassuntoBF } from './betfair'   // 06/10/2026: quota Betfair accanto ai segnali
 import type { CellaBF, EventoBF, RigaCongelata } from './betfair'
+import { valutaHunter } from '../../../lib/valutaHunter'   // 23/10/2026: stessa regola usata dal server
 import SchedaTennis from './SchedaTennis'   // 07/10/2026: tennis PronoX
 
 type Segnale = {
@@ -119,25 +120,7 @@ type Hunter = {
 // ─── 04/10/2026 · HUNTERBET: risultati, quota ed esito inseriti a mano ───
 // L'esito si calcola dal risultato finale: "Gol casa/ospiti" = la squadra ha segnato DOPO il segnale
 // (gol finali > gol al momento del segnale); per i PRE-LIVE si leggono i mercati (es. "12 + MG 1-3").
-function valutaHunter(s: Hunter, fc: number, fo: number): 'VINTA' | 'PERSA' | null {
-  if (s.tipo_segnale === 'GOL_CASA') return fc > (s.score_casa_segnale ?? 0) ? 'VINTA' : 'PERSA'
-  if (s.tipo_segnale === 'GOL_OSPITI') return fo > (s.score_ospite_segnale ?? 0) ? 'VINTA' : 'PERSA'
-  const tot = fc + fo
-  const pezzi = String(s.tipo_segnale || '').toUpperCase().split('+').map(x => x.trim()).filter(Boolean)
-  if (!pezzi.length) return null
-  for (const p of pezzi) {
-    let ok: boolean | null = null, m: RegExpMatchArray | null
-    if (p === '1') ok = fc > fo; else if (p === 'X') ok = fc === fo; else if (p === '2') ok = fc < fo
-    else if (p === '12') ok = fc !== fo; else if (p === '1X') ok = fc >= fo; else if (p === 'X2') ok = fc <= fo
-    else if (/^(GG|GOAL)$/.test(p)) ok = fc > 0 && fo > 0; else if (/^(NG|NO ?GOAL)$/.test(p)) ok = !(fc > 0 && fo > 0)
-    else if ((m = p.match(/^(?:OVER|O)\s*(\d+(?:[.,]5)?)$/))) ok = tot > Number(m[1].replace(',', '.'))
-    else if ((m = p.match(/^(?:UNDER|U)\s*(\d+(?:[.,]5)?)$/))) ok = tot < Number(m[1].replace(',', '.'))
-    else if ((m = p.match(/^(?:MG|MULTIGOL)\s*(\d+)\s*-\s*(\d+)$/))) ok = tot >= Number(m[1]) && tot <= Number(m[2])
-    if (ok === null) return null          // mercato non riconosciuto: esito da scegliere a mano
-    if (!ok) return 'PERSA'
-  }
-  return 'VINTA'
-}
+// valutaHunter (regola dell'esito) sta in lib/valutaHunter.ts: la usa anche il server quando arriva il risultato
 const leggiRis = (t: string): [number, number] | null => { const m = t.trim().match(/^(\d{1,2})\s*[-–:]\s*(\d{1,2})$/); return m ? [Number(m[1]), Number(m[2])] : null }
 
 type VoceSalva = { cambiato: boolean; salva: () => Promise<boolean> }

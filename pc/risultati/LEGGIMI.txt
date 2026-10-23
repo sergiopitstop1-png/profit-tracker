@@ -1,0 +1,25 @@
+RISULTATI PARTITE SUL PC  (23/10/2026)
+======================================
+Agli orari decisi cerca su API-Football il risultato finale delle partite dei segnali (Hunterbet e ScoreTrend) che ne sono ancora senza
+e lo scrive sul Profit Tracker. Il sito chiude da solo vinta/persa; gli esiti che hai corretto a mano non vengono toccati.
+
+PRIMA DI TUTTO (una volta sola, sul sito)
+  Pubblica il sito con la nuova versione di app/api/segnali/risultati (stessa chiave SEGNALI_SECRET del lettore Hunterbet).
+  In Supabase > SQL Editor esegui supabase/hunterbet_risultati.sql (aggiunge solo le colonne che mancano: si puo' rilanciare senza danni).
+
+SUL PC FISSO
+  1. Copia questa cartella (pc/risultati) sul PC. Serve Python (python.org, con "Add Python to PATH"). Non serve installare altro.
+  2. Doppio clic su risultati_partite.bat -> crea risultati_config.json e si ferma. Aprilo col Blocco note e compila:
+       segreto            = il valore di SEGNALI_SECRET su Vercel (lo stesso di accademia_config.json)
+       api_football_key   = la chiave dalla dashboard di API-Football
+       sito_url           = https://sergioapicella.it
+  3. PROVA, senza scrivere niente sul sito: da Prompt dei comandi nella cartella
+       python risultati_partite.py --prova
+     Mostra riga per riga la partita trovata e il risultato. Le righe "non trovata" sono i campionati che API-Football non copre
+     (o nomi squadra troppo diversi: il programma elenca le partite piu' simili).
+  4. Se la prova e' buona: tasto destro su installa_pianificazione.ps1 > Esegui con PowerShell.
+     Crea l'attivita' "Risultati Profit Tracker" agli orari scritti nella riga $Orari del file (si cambiano e si rilancia).
+     Se il PC e' spento all'orario, l'attivita' parte appena lo riaccendi.
+
+CONTROLLARE CHE FUNZIONI
+  risultati_partite.log (stessa cartella) racconta ogni esecuzione. Per lanciarlo subito a mano: doppio clic su risultati_partite.bat.
