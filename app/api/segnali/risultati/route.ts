@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
   {
     const novantaGiorniFa = new Date(Date.now() - 90 * 86400 * 1000).toISOString()
     const { data, error } = await supabase.from('hunterbet_segnali')
-      .select('msg_id,data_msg,tipo_segnale,score_casa_segnale,score_ospite_segnale,ft_casa,ft_ospite,af_fixture_id,fixture_id,minuto_segnale')
+      .select('msg_id,data_msg,casa,ospite,tipo_segnale,score_casa_segnale,score_ospite_segnale,ft_casa,ft_ospite,af_fixture_id,fixture_id,minuto_segnale')
       .not('ft_casa', 'is', null).is('minuti_letti_il', null).in('tipo_segnale', ['GOL_CASA', 'GOL_OSPITI']).gte('data_msg', novantaGiorniFa)
       .or('af_fixture_id.not.is.null,fixture_id.not.is.null').order('data_msg', { ascending: false }).limit(500)
     if (error) minutiErrore = error.message; else minuti = data || []
