@@ -19,6 +19,24 @@ const euro = (n) => (Number(n) || 0).toLocaleString('it-IT', { minimumFractionDi
 const quando = (iso) => new Date(iso).toLocaleString('it-IT', { timeZone: 'Europe/Rome', weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 const virg = (n) => Number(n).toFixed(2).replace('.', ',')
 
+// Scelta libera di UN conto (per giocare tutto da un solo telefono): cerca per nome del book o del cliente
+function SceltaConto({ books, onScegli, onAnnulla, btn }) {
+  const [q, setQ] = useState('')
+  const norm = (x) => String(x || '').toLowerCase()
+  const trovati = (books || []).filter(b => !norm(b.note).includes('chiuso') && norm(`${b.nome} ${b.intestatario}`).includes(norm(q).trim())).slice(0, 8)
+  return (
+    <div style={{ background: 'rgba(15,23,42,.8)', border: '1px solid #475569', borderRadius: 10, padding: 8, marginTop: 6 }}>
+      <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Cerca conto: nome del book o del cliente…" style={{ width: '100%', boxSizing: 'border-box', background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 8, padding: '5px 8px', fontSize: 12 }} />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+        {trovati.map(b => <button key={b.id} onClick={() => onScegli(b)} style={btn('#0369a1')}>{b.nome} · {b.intestatario || '—'}</button>)}
+        {!trovati.length && <span style={{ color: '#94a3b8', fontSize: 12 }}>Nessun conto trovato</span>}
+        <button onClick={onAnnulla} style={btn('#64748b')}>Annulla</button>
+      </div>
+      <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>Il conto scelto da te non ha i controlli di Lucy (tetto settimanale, stato del recupero): decidi tu.</div>
+    </div>
+  )
+}
+
 const pianoDaDb = (p) => p ? { capitale: Number(p.capitale), N: Number(p.n_eventi), K: Number(p.k_vincite), quotaRif: Number(p.quota_rif), eventi_extra: Number(p.eventi_extra || 0), attivo: !!p.attivo, saltati: Array.isArray(p.saltati) ? p.saltati : [] } : null
 const PIANO_NUOVO = { attivo: false, capitale: PIANO_HB.capitale, n_eventi: PIANO_HB.N, k_vincite: PIANO_HB.K, quota_rif: PIANO_HB.quotaRif, eventi_extra: 0, saltati: [] }
 
@@ -31,6 +49,8 @@ export default function RecuperiHunterbetPanel({ books, recuperi, getRecuperoPro
   const [carico, setCarico] = useState(true)
   const [lavoro, setLavoro] = useState(false)
   const [mancaSql, setMancaSql] = useState(false)
+  const [contoScelto, setContoScelto] = useState({})   // msg_id → conto scelto da te per giocare tutto lì (prima di confermare)
+  const [sceglieOra, setSceglieOra] = useState(null)      // msg_id (proposta) o 'sposta|msg_id' (bet già confermate) per cui sto scegliendo il conto
   const msg = onMessage || (() => {}), err = onError || ((e) => console.error(e))
 
   const carica = useCallback(async () => {
@@ -92,11 +112,15 @@ export default function RecuperiHunterbetPanel({ books, recuperi, getRecuperoPro
   async function confermaScheda() {
     if (!scheda.bets.length) return
     const rows = []
-    for (const bet of scheda.bets) for (const z of bet.pezzi) rows.push({
+    for (const bet0 of scheda.bets) {
+      const c = contoScelto[bet0.msg_id]
+      const bet = c ? { ...bet0, pezzi: [{ book_id: c.id, nome: c.nome, intestatario: c.intestatario || '', tipo: 'libero', importo: bet0.puntata }] } : bet0
+      for (const z of bet.pezzi) rows.push({
       msg_id: bet.msg_id, event_start: bet.event_start, partita: bet.partita, competizione: bet.competition, tipo_segnale: '12 + MG 1-3',
       book_id: String(z.book_id), book_nome: z.nome, intestatario: z.intestatario, tipo: z.tipo, importo: z.importo,
       puntata_evento: bet.puntata, quota_minima: bet.quotaMinima,
     })
+    }
     if (!rows.length) return err('Nessun conto libero per questa puntata: non posso confermare la scheda')
     if (!window.confirm(`Confermo la scheda: ${scheda.bets.length} partita, ${rows.length} bet, ${euro(scheda.bets.reduce((a, b) => a + b.puntata, 0))}?`)) return
     setLavoro(true)
@@ -126,7 +150,36 @@ export default function RecuperiHunterbetPanel({ books, recuperi, getRecuperoPro
     if (q < Number(b.quota_minima) && !window.confirm(`La quota ${virg(q)} è sotto la minima (${virg(b.quota_minima)}): il valore atteso è negativo. La segno comunque?`)) return
     const { error } = await supabase.from('recupero_hb_bets').update({ stato: 'piazzata', quota_reale: q, piazzata_at: new Date().toISOString() }).eq('id', b.id)
     if (error) return err(error.message)
-    setBets(prev => prev.map(x => x.id === b.id ? { ...x, stato: 'piazzata', quota_reale: q } : x))
+    const nuove = bets.map(x => x.id === b.id ? { ...x, stato: 'piazzata', quota_reale: q } : x)
+    setBets(nuove)
+    salvaQuotaSegnale(b.msg_id, nuove)
+  }
+  // la quota che scrivi qui finisce anche nel riquadro «Quota giocata» dei Segnali: media pesata sugli importi delle bet piazzate di quella partita
+  async function salvaQuotaSegnale(msgId, lista) {
+    const pz = lista.filter(x => String(x.msg_id) === String(msgId) && x.stato === 'piazzata' && Number(x.quota_reale) > 1)
+    const tot = pz.reduce((a, x) => a + Number(x.importo), 0)
+    if (!tot) return
+    const media = Math.round(pz.reduce((a, x) => a + Number(x.importo) * Number(x.quota_reale), 0) / tot * 100) / 100
+    try {
+      const r = await fetch('/api/segnali/hunterbet-esito', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ msg_id: msgId, patch: { quota: media, giocata: true } }) })
+      if (!r.ok) { const j = await r.json().catch(() => ({})); err('Quota non riportata nei Segnali: ' + (/giocata/i.test(j.error || '') ? 'lancia hunterbet_quota_giocata.sql in Supabase' : (j.error || r.status))) }
+      else msg(`Quota media ${virg(media)} riportata nei Segnali`)
+    } catch (e) { err('Quota non riportata nei Segnali: ' + String(e.message || e)) }
+  }
+  // sposta TUTTA la puntata di una partita (bet ancora da fare) su un solo conto scelto da te
+  async function spostaTutto(gr, conto) {
+    const tot = gr.reduce((a, x) => a + Number(x.importo), 0)
+    if (!window.confirm(`Sposto tutta la puntata (${euro(tot)}) su ${conto.nome} · ${conto.intestatario || '—'}? Le ${gr.length} bet attuali vengono annullate.`)) return
+    setLavoro(true)
+    try {
+      const ids = gr.map(x => x.id)
+      for (const id of ids) { const { error } = await supabase.from('recupero_hb_bets').update({ stato: 'saltata' }).eq('id', id); if (error) throw new Error(error.message) }
+      const g0 = gr[0]
+      const { error: e2 } = await supabase.from('recupero_hb_bets').insert([{ msg_id: g0.msg_id, event_start: g0.event_start, partita: g0.partita, competizione: g0.competizione, tipo_segnale: g0.tipo_segnale, puntata_evento: g0.puntata_evento, quota_minima: g0.quota_minima, book_id: String(conto.id), book_nome: conto.nome, intestatario: conto.intestatario || '', tipo: 'libero', importo: tot }])
+      if (e2) throw new Error(e2.message)
+      setSceglieOra(null); msg(`✅ Puntata spostata su ${conto.nome}`); await carica()
+    } catch (e) { err(String(e.message || e)) }
+    setLavoro(false)
   }
   async function saltata(b) {
     if (!window.confirm(`Segno come SALTATA la bet di ${euro(b.importo)} su ${b.book_nome} (${b.intestatario})?`)) return
@@ -240,7 +293,11 @@ export default function RecuperiHunterbetPanel({ books, recuperi, getRecuperoPro
                   <div style={{ marginTop: 4 }}>
                     <button disabled={lavoro || !b.pezzi.length} onClick={confermaScheda} style={btn('#059669')}>✓ Conferma scheda</button>
                     <button disabled={lavoro} onClick={() => nonGioco(b.msg_id)} style={btn('#64748b')}>✗ Non gioco questa</button>
+                    <button disabled={lavoro} onClick={() => setSceglieOra(b.msg_id)} style={btn('#0369a1')}>🔀 Gioca tutto su un altro conto</button>
+                    {contoScelto[b.msg_id] && <button disabled={lavoro} onClick={() => setContoScelto(p => { const n = { ...p }; delete n[b.msg_id]; return n })} style={btn('#475569')}>↩ Torna ai conti di Lucy</button>}
                   </div>
+                  {contoScelto[b.msg_id] && <div style={{ color: '#7dd3fc', marginTop: 4 }}>✔ Tutta la puntata ({euro(b.puntata)}) sarà giocata su <b>{contoScelto[b.msg_id].nome} · {contoScelto[b.msg_id].intestatario || '—'}</b></div>}
+                  {sceglieOra === b.msg_id && <SceltaConto books={books} btn={btn} onAnnulla={() => setSceglieOra(null)} onScegli={(c) => { setContoScelto(p => ({ ...p, [b.msg_id]: c })); setSceglieOra(null) }} />}
                 </div>
               ))}
             </div>
@@ -253,7 +310,9 @@ export default function RecuperiHunterbetPanel({ books, recuperi, getRecuperoPro
               <div style={{ fontSize: 13, color: '#e2e8f0', marginBottom: 4, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <span><b>{quando(gr[0].event_start)}</b> · {gr[0].partita} · <b>12 + Multigol 1-3</b> · quota min <b>{virg(gr[0].quota_minima)}</b></span>
                 {apriContiSuTelefoni && gr.length > 1 && <button onClick={() => apriContiSuTelefoni(gr.map(b => bookDi(b)), `${gr[0].partita} (${gr.length} conti)`)} style={btn('#0ea5e9')}>📱 Apri tutti ({gr.length})</button>}
+                <button disabled={lavoro} onClick={() => setSceglieOra('sposta|' + gr[0].msg_id)} style={btn('#0369a1')}>🔀 Sposta tutto su un altro conto</button>
               </div>
+              {sceglieOra === 'sposta|' + gr[0].msg_id && <SceltaConto books={books} btn={btn} onAnnulla={() => setSceglieOra(null)} onScegli={(c) => spostaTutto(gr, c)} />}
               {gr.map(b => (
                 <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: '#cbd5e1', padding: '3px 0' }}>
                   <span>{b.book_nome} · {b.intestatario} · <b>{euro(b.importo)}</b>{b.tipo === 'sport' ? ' (sport)' : ''}</span>
