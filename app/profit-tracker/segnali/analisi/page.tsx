@@ -17,7 +17,7 @@ type Gol = { m: number; s: 'casa' | 'ospite'; autogol?: boolean }
 type Riga = { id: number; data: string; competizione: string; esito: string | null; quota: number | null; profitto: number | null; unita: number
   live: string; minuto: number | null; mercato: string; casaOspiti: string | null; risultato: string | null; minutiAlGol: number | null
   tipo: string; ht: [number, number] | null; ft: [number, number] | null; gol: Gol[] | null
-  pG?: number | null; pC?: number | null; pM?: number | null; value?: boolean; forte?: boolean }
+  pG?: number | null; pC?: number | null; pM?: number | null; value?: boolean; forte?: boolean; giocata?: boolean | null }
 type Canale = 'scoretrend' | 'hunterbet' | 'pronox' | 'tennis'
 const NOMI: Record<Canale, string> = { scoretrend: 'ScoreTrend', hunterbet: 'Hunterbet', pronox: 'PronoX', tennis: 'PronoX 🎾 Tennis' }
 
@@ -182,7 +182,7 @@ function normalizza(canale: Canale, x: any): Riga {
     casaOspiti: x.tipo_segnale === 'GOL_CASA' ? 'Casa' : x.tipo_segnale === 'GOL_OSPITI' ? 'Ospiti' : 'Pre-live',
     risultato: x.score_casa_segnale != null ? `${x.score_casa_segnale}-${x.score_ospite_segnale}` : null, minutiAlGol: x.minuti_al_gol,
     tipo: x.tipo_segnale === 'GOL_CASA' ? 'Gol casa' : x.tipo_segnale === 'GOL_OSPITI' ? 'Gol ospiti' : `Pre-live · ${x.tipo_segnale || '?'}`,
-    ht: htR, ft: ftR, gol: Array.isArray(x.gol) ? x.gol : null,
+    ht: htR, ft: ftR, gol: Array.isArray(x.gol) ? x.gol : null, giocata: x.giocata ?? null,
   }
   // 07/10/2026 — TENNIS PronoX (tabella pronox_tennis_segnali): 1 unità per segnale con quota; nessun risultato partita (ht/ft)
   if (canale === 'tennis') {
@@ -276,6 +276,14 @@ export default function AnalisiSegnali() {
   const metà = Math.floor(chiuse.length / 2)
   const prima = segmenta(chiuse.slice(0, metà), () => 'tutti')[0], seconda = segmenta(chiuse.slice(metà), () => 'tutti')[0]
   const totale = segmenta(chiuse, () => 'tutti')[0]
+
+  // 23/10/2026 · cassa REALE (solo Hunterbet): bet chiuse con la quota che hai trovato dal bookmaker (riquadro «Quota giocata» nella pagina Segnali),
+  // escluse quelle segnate come «non giocate». Nessuna quota inventata: il profitto è quota − 1 se vinta, −1 se persa.
+  const reali = useMemo(() => canale === 'hunterbet' ? chiuse.filter(r => r.quota != null && r.quota > 1 && r.giocata !== false) : [], [chiuse, canale])
+  const realiTot = segmenta(reali, () => 'tutti')[0]
+  const realiTipi = segmenta(reali, r => r.casaOspiti || 'n.d.')
+  const simReali = simula(reali, null)
+  const nonGiocate = canale === 'hunterbet' ? chiuse.filter(r => r.giocata === false).length : 0
 
   // 14/10/2026 · CLV: la quota del segnale contro la quota GIUSTA di chiusura su Betfair (senza margine).
   // Sopra zero in media = il servizio batte il mercato. Servono 300-500 segnali per fidarsi.
@@ -405,6 +413,37 @@ export default function AnalisiSegnali() {
           </div>
         )}
         {totale && totale.n < 100 && <div style={{ fontSize: 12, color: '#fbbf24', marginBottom: 12 }}>⚠️ {totale.n} bet chiuse: i numeri sono ancora molto incerti (guarda il margine). Diventano affidabili da circa 100 bet, e per i singoli segmenti da {MIN_N} in su.</div>}
+
+        {canale === 'hunterbet' && (
+          <div style={{ background: 'rgba(15,23,42,.6)', border: '1px solid rgba(52,211,153,.35)', borderRadius: 14, padding: 12, marginBottom: 14 }}>
+            <div style={{ fontWeight: 900, marginBottom: 6, color: '#6ee7b7' }}>💶 Con le quote che hai giocato davvero</div>
+            {!realiTot ? (
+              <div style={{ fontSize: 12, color: '#94a3b8' }}>Ancora nessuna bet chiusa con la tua quota. Scrivila nel riquadro «Quota giocata» della pagina Segnali (Hunterbet): da lì in poi questo conto usa le quote vere al posto dell'1,70 ipotetico.</div>
+            ) : (<>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 8 }}>
+                {card('Bet con quota giocata', String(realiTot.n), '#f8fafc', `su ${chiuse.length} chiuse${nonGiocate ? ` · ${nonGiocate} segnate non giocate` : ''}`)}
+                {card('% vinte', pct(realiTot.p), '#f8fafc', `margine ${pct(realiTot.lo, 0)} – ${pct(realiTot.hi, 0)}`)}
+                {card('Quota media giocata', n2(realiTot.n ? reali.reduce((a, r) => a + (r.quota || 0), 0) / realiTot.n : 0))}
+                {card('Unità', `${realiTot.unita >= 0 ? '+' : ''}${n2(realiTot.unita)}`, realiTot.unita >= 0 ? '#86efac' : '#fca5a5', `rendimento ${pct(realiTot.n ? realiTot.unita / realiTot.n : 0)}`)}
+                {card('Quota minima per guadagnare', Number.isFinite(realiTot.quotaPareggio) ? n2(realiTot.quotaPareggio) : '—', '#fbbf24', 'con la tua % vinte reale')}
+                {card('Calo massimo', `${n2(simReali.drawdown)} unità`, '#fca5a5', 'dal punto più alto')}
+              </div>
+              {realiTipi.length > 1 && (
+                <table style={{ borderCollapse: 'collapse', marginBottom: 8 }}>
+                  <thead><tr>{['Tipo', 'Bet', '% vinte', 'Quota media', 'Unità'].map(h => <th key={h} style={{ textAlign: 'left', padding: '4px 10px 4px 0', fontSize: 11, color: '#94a3b8', borderBottom: '1px solid #334155' }}>{h}</th>)}</tr></thead>
+                  <tbody>{realiTipi.map(t => {
+                    const gr = reali.filter(r => (r.casaOspiti || 'n.d.') === t.voce)
+                    return (<tr key={t.voce}>
+                      <td style={{ padding: '3px 10px 3px 0', fontSize: 12.5, fontWeight: 700 }}>{t.voce}</td><td style={{ padding: '3px 10px 3px 0', fontSize: 12.5 }}>{t.n}</td>
+                      <td style={{ padding: '3px 10px 3px 0', fontSize: 12.5 }}>{pct(t.p)}</td><td style={{ padding: '3px 10px 3px 0', fontSize: 12.5 }}>{n2(gr.reduce((a, r) => a + (r.quota || 0), 0) / t.n)}</td>
+                      <td style={{ padding: '3px 0', fontSize: 12.5, fontWeight: 800, color: t.unita >= 0 ? '#86efac' : '#fca5a5' }}>{t.unita >= 0 ? '+' : ''}{n2(t.unita)}</td></tr>)
+                  })}</tbody>
+                </table>)}
+              <div style={{ fontSize: 12, color: realiTot.n < 100 ? '#fbbf24' : '#94a3b8' }}>
+                {realiTot.n < 100 ? `⚠️ ${realiTot.n} bet con quota vera: ancora poche per concludere (ne servono almeno 100, meglio 300). Guarda il margine.` : realiTot.lo * (reali.reduce((a, r) => a + (r.quota || 0), 0) / realiTot.n) > 1 ? '✅ Anche con il margine d\'errore basso, la tua % vinte × la tua quota media è sopra 1: la strategia regge con le quote vere.' : 'Con il margine d\'errore, la tua % vinte × quota media non è ancora sicuramente sopra 1: servono più bet.'}
+              </div>
+            </>)}
+          </div>)}
 
         {(
           <div style={{ background: 'rgba(15,23,42,.6)', border: '1px solid #1e293b', borderRadius: 14, padding: 12, marginBottom: 14 }}>

@@ -29,7 +29,7 @@ async function abilitato(req: NextRequest) {
 }
 
 // solo questi campi si possono scrivere da qui
-const CAMPI = ['ft_casa', 'ft_ospite', 'ht_casa', 'ht_ospite', 'quota', 'esito', 'esito_manuale', 'stato_match', 'data_esito', 'score_casa_attuale', 'score_ospite_attuale'] as const
+const CAMPI = ['ft_casa', 'ft_ospite', 'ht_casa', 'ht_ospite', 'quota', 'esito', 'esito_manuale', 'stato_match', 'data_esito', 'score_casa_attuale', 'score_ospite_attuale', 'giocata'] as const
 const ESITI = new Set(['VINTA', 'PERSA', 'NULLA'])
 
 export async function POST(req: NextRequest) {
@@ -41,6 +41,8 @@ export async function POST(req: NextRequest) {
     const arrivato = body?.patch && typeof body.patch === 'object' ? body.patch : {}
     const patch: Record<string, any> = {}
     for (const k of CAMPI) if (Object.prototype.hasOwnProperty.call(arrivato, k)) patch[k] = arrivato[k]
+    if (patch.quota !== undefined && patch.quota !== null && !(Number(patch.quota) > 1 && Number(patch.quota) < 100)) return NextResponse.json({ error: 'quota non valida' }, { status: 400 })   // 23/10/2026
+    if (patch.giocata !== undefined && patch.giocata !== null && typeof patch.giocata !== 'boolean') return NextResponse.json({ error: 'giocata non valida' }, { status: 400 })
     if (patch.esito !== undefined && patch.esito !== null && !ESITI.has(String(patch.esito))) return NextResponse.json({ error: 'esito non valido' }, { status: 400 })
     if (!Object.keys(patch).length) return NextResponse.json({ error: 'niente da salvare' }, { status: 400 })
     patch.aggiornato = new Date().toISOString()
