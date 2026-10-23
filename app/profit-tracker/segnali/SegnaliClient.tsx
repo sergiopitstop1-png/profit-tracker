@@ -116,6 +116,7 @@ type Hunter = {
   score_casa_attuale:number|null; score_ospite_attuale:number|null; stato_match:string|null; esito:string|null; data_esito:string|null; minuti_al_gol:number|null
   fase?:string|null; quota?:number|null; ht_casa?:number|null; ht_ospite?:number|null; ft_casa?:number|null; ft_ospite?:number|null; esito_manuale?:boolean; giocata?:boolean|null
   minuto_gol?:number|null; minuto_gol_extra?:number|null; minuto_segnale_stimato?:number|null
+  quota_b365?:number|null; quota_b365_linea?:number|null; quota_b365_il?:string|null; quota_b365_stato?:string|null
 }
 
 // ─── 04/10/2026 · HUNTERBET: risultati, quota ed esito inseriti a mano ───
@@ -178,6 +179,7 @@ function RigaHunter({ s, td, bf, cg, onSalvato, registra }: { s: Hunter; td: any
       <td style={td}><input style={inp} placeholder="1-0" value={ht} onChange={e => setHt(e.target.value)} /></td>
       <td style={td}><input style={{ ...inp, borderColor: rFt || !ft ? '#334155' : '#f87171' }} placeholder="2-1" value={ft} onChange={e => setFt(e.target.value)} /></td>
       <td style={td}><input style={inp} placeholder="1,70" value={quota} onChange={e => { const v = e.target.value.replace(/[^0-9.,]/g, ''); setQuota(v); if (v && !quota && s.giocata == null) setGiocata(true) }} /></td>
+      <td style={{ ...td, whiteSpace: 'nowrap' }} title={s.quota_b365 != null ? `Bet365 · Over ${String(s.quota_b365_linea ?? '').replace('.', ',')} letta${s.quota_b365_il ? ' alle ' + new Date(s.quota_b365_il).toLocaleTimeString('it-IT', { timeZone: 'Europe/Rome' }) : ''}${s.quota_b365_il && s.data_msg ? ` (${Math.max(0, Math.round((new Date(s.quota_b365_il).getTime() - new Date(s.data_msg).getTime()) / 60000))} min dopo il segnale)` : ''}${s.quota_b365_stato === 'sospesa' ? ' · era sospesa: ultimo prezzo visto' : ''}` : s.quota_b365_stato === 'fallita' ? 'quota Bet365 non trovata' : s.quota_b365_stato === 'riprova' ? 'sto riprovando a leggerla' : 'letta in automatico da API-Football quando arriva un segnale live'}>{s.quota_b365 != null ? <span style={{ color: '#7dd3fc', fontWeight: 800 }}>≈{String(s.quota_b365).replace('.', ',')}{s.quota_b365_stato === 'sospesa' ? '*' : ''}</span> : <span style={{ color: '#475569' }}>{s.quota_b365_stato === 'riprova' ? '…' : '—'}</span>}</td>
       <td style={{ ...td, textAlign: 'center' }}><input type="checkbox" title="Spunta se l'hai davvero giocata: solo queste entrano nei conti reali dell'Analisi" checked={giocata} onChange={e => setGiocata(e.target.checked)} /></td>
       <CellaBetfair c={bf} td={td} />
       <CellaCongelata r={cg} td={td} />
@@ -436,7 +438,11 @@ export default function SegnaliClient({ incorporato = false }: { incorporato?: b
     const conQ = chiuse.filter(s => s.quota != null && Number(s.quota) > 1)
     const unita = conQ.reduce((a, s) => a + (s.esito === 'VINTA' ? Number(s.quota) - 1 : -1), 0)
     const quotaMedia = conQ.length ? conQ.reduce((a, s) => a + Number(s.quota), 0) / conQ.length : null
-    return { chiuse: chiuse.length, vinte, conQ: conQ.length, unita, quotaMedia, inCorso: hunterVisibili.filter(s => !s.esito).length }
+    // stima con la quota Bet365 letta in automatico: vale la quota scritta da te se c'è, altrimenti quella di Bet365
+    const conS = chiuse.map(s => ({ s, q: s.quota != null && Number(s.quota) > 1 ? Number(s.quota) : s.quota_b365 != null && Number(s.quota_b365) > 1 ? Number(s.quota_b365) : null })).filter(x => x.q != null) as { s: Hunter; q: number }[]
+    const unitaS = conS.reduce((a, x) => a + (x.s.esito === 'VINTA' ? x.q - 1 : -1), 0)
+    const stima = { n: conS.length, unita: unitaS, quotaMedia: conS.length ? conS.reduce((a, x) => a + x.q, 0) / conS.length : null }
+    return { chiuse: chiuse.length, vinte, conQ: conQ.length, unita, quotaMedia, stima, inCorso: hunterVisibili.filter(s => !s.esito).length }
   }, [hunterVisibili])
 
   const totale = raggruppa(visibili, () => 'Totale')[0]
@@ -519,10 +525,14 @@ export default function SegnaliClient({ incorporato = false }: { incorporato?: b
             ['Quota media', riepHB.quotaMedia != null ? riepHB.quotaMedia.toFixed(2).replace('.', ',') : '—'],
             ['Unità (con quota)', riepHB.conQ ? `${riepHB.unita >= 0 ? '+' : ''}${n2(riepHB.unita)}` : '—'],
             ['Rendimento', riepHB.conQ ? `${riepHB.unita >= 0 ? '+' : ''}${(100 * riepHB.unita / riepHB.conQ).toFixed(1).replace('.', ',')}%` : '—'],
+            ...(riepHB.stima.n ? [
+              ['≈ Quota media (B365)', riepHB.stima.quotaMedia != null ? riepHB.stima.quotaMedia.toFixed(2).replace('.', ',') : '—'],
+              ['≈ Unità (B365)', `${riepHB.stima.unita >= 0 ? '+' : ''}${n2(riepHB.stima.unita)}`],
+              ['≈ Rendimento (B365)', `${riepHB.stima.unita >= 0 ? '+' : ''}${(100 * riepHB.stima.unita / riepHB.stima.n).toFixed(1).replace('.', ',')}%`]] : []),
             ['In corso', String(riepHB.inCorso)]].map(([tit, v]) => (
-            <div key={tit} style={{ background: 'rgba(15,23,42,.8)', border: '1px solid #1e293b', borderRadius: 12, padding: '10px 14px', minWidth: 120 }} title={tit.startsWith('Unità') || tit === 'Rendimento' || tit === 'Quota media' ? `calcolato sulle ${riepHB.conQ} bet chiuse di cui hai scritto la quota` : undefined}>
+            <div key={tit} style={{ background: 'rgba(15,23,42,.8)', border: '1px solid #1e293b', borderRadius: 12, padding: '10px 14px', minWidth: 120 }} title={tit.startsWith('≈') ? `stima su ${riepHB.stima.n} bet chiuse: la tua quota se l'hai scritta, altrimenti quella Bet365 letta al segnale` : tit.startsWith('Unità') || tit === 'Rendimento' || tit === 'Quota media' ? `calcolato sulle ${riepHB.conQ} bet chiuse di cui hai scritto la quota` : undefined}>
               <div style={{ fontSize: 11, color: '#94a3b8' }}>{tit}</div>
-              <div style={{ fontSize: 20, fontWeight: 900, color: (tit.startsWith('Unità') || tit === 'Rendimento') && riepHB.conQ ? (riepHB.unita >= 0 ? '#86efac' : '#fca5a5') : '#f8fafc' }}>{v}</div>
+              <div style={{ fontSize: 20, fontWeight: 900, color: tit.startsWith('≈ Unità') || tit.startsWith('≈ Rend') ? (riepHB.stima.unita >= 0 ? '#86efac' : '#fca5a5') : (tit.startsWith('Unità') || tit === 'Rendimento') && riepHB.conQ ? (riepHB.unita >= 0 ? '#86efac' : '#fca5a5') : '#f8fafc' }}>{v}</div>
             </div>))}
         </div>
         <div style={{ background:'rgba(15,23,42,.6)', border:'1px solid #1e293b', borderRadius:14, padding:12, overflowX:'auto' }}>
@@ -534,7 +544,7 @@ export default function SegnaliClient({ incorporato = false }: { incorporato?: b
           <DiagnosiBF canale="hunter" righe={hunter} celle={cellaHT} eventi={eventiBF} />
           <div style={{fontSize:11.5,color:'#94a3b8',marginBottom:8}}>Scrivi il risultato finale (es. 2-1) e, se lo sai, quello del 1° tempo: l'esito si calcola da solo ("auto"). Puoi sceglierlo a mano se il mercato non viene riconosciuto. La quota è quella che hai trovato dal bookmaker: scrivila qui e spunta «Giocata» solo sulle partite che hai davvero giocato. Le giocate con quota entrano nei conti reali dell'Analisi.</div>
           <table style={{borderCollapse:'collapse',width:'100%'}}>
-            <thead><tr>{['Arrivato','Fase','Partita','Competizione','Segnale','Ris. al segnale','Minuto di gioco al segnale','Minuto gol vincente','1° tempo','Finale','Quota','Giocata','Betfair','Al segnale','Esito',''].map(h=><th key={h} style={h.startsWith('Minuto') ? { ...th, whiteSpace: 'normal', width: 78, lineHeight: 1.2 } : th}>{h}</th>)}</tr></thead>
+            <thead><tr>{['Arrivato','Fase','Partita','Competizione','Segnale','Ris. al segnale','Minuto di gioco al segnale','Minuto gol vincente','1° tempo','Finale','Quota','Quota B365','Giocata','Betfair','Al segnale','Esito',''].map(h=><th key={h} style={h.startsWith('Minuto') ? { ...th, whiteSpace: 'normal', width: 78, lineHeight: 1.2 } : th}>{h}</th>)}</tr></thead>
             <tbody>{hunterVisibili.map(s=><RigaHunter key={s.msg_id} s={s} td={td} bf={cellaHT.get(s.msg_id)} cg={congelati.get('hunter|' + s.msg_id)} onSalvato={r=>setHunter((v:Hunter[])=>v.map(x=>x.msg_id===r.msg_id?r:x))} registra={registraHunter} />)}</tbody>
           </table>
         </div>
