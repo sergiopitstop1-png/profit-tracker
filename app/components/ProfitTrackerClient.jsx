@@ -8233,7 +8233,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         {registroAperto && (() => {
           const q = regForm.cerca.trim().toLowerCase()
           const parole = q.split(/\s+/).filter(Boolean)   // 14/10/2026: tutte le parole devono comparire (nell'ordine che vuoi), fino a 80 conti con scorrimento
-          const trovati = q.length < 2 ? [] : books.filter(b => { const t = `${b.nome} ${b.intestatario || ''}`.toLowerCase(); return parole.every(w => t.includes(w)) }).slice(0, 80)
+          const trovati = q.length < 2 ? [] : books.filter(b => { const t = `${b.nome} ${b.intestatario || ''}`.toLowerCase(); return parole.every(w => t.includes(w)) }).sort((a, b) => String(a.intestatario || '').localeCompare(String(b.intestatario || ''), 'it', { sensitivity: 'base' }) || String(a.nome || '').localeCompare(String(b.nome || ''), 'it', { sensitivity: 'base' })).slice(0, 80)   // 23/10/2026: elenco in ordine alfabetico dal nome dell'intestatario, poi per book
           const cosaAuto = scelto => !scelto ? 'profilazione' : bookInRecuperoLimitato(scelto) ? 'recupero' : String(scelto.profilo_livello || '').startsWith('mantenimento') ? 'mantenimento' : 'profilazione'
           const scelti = (regForm.bookIds || []).map(id => books.find(b => String(b.id) === String(id))).filter(Boolean)   // 16/10/2026: più conti insieme
           const staScelto = b => scelti.some(x => String(x.id) === String(b.id))
