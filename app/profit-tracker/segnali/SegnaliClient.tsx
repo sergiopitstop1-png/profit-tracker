@@ -123,84 +123,22 @@ type Hunter = {
 // valutaHunter (regola dell'esito) sta in lib/valutaHunter.ts: la usa anche il server quando arriva il risultato
 const leggiRis = (t: string): [number, number] | null => { const m = t.trim().match(/^(\d{1,2})\s*[-–:]\s*(\d{1,2})$/); return m ? [Number(m[1]), Number(m[2])] : null }
 
-// 23/10/2026 · «Quota giocata»: gli ultimi segnali Hunterbet con una casella per la quota che hai trovato dal bookmaker
-// (Invio o clic fuori per salvare) e la spunta «giocata». L'Analisi usa queste quote vere al posto dell'1,70 ipotetico,
-// e solo per i segnali che risultano giocati. Si salva con la stessa route del tasto «Salva» (/api/segnali/hunterbet-esito).
-function QuotaGiocata({ hunter, sel, th, td, onSalvato }: { hunter: Hunter[]; sel: any; th: any; td: any; onSalvato: (r: Hunter) => void }) {
-  const [quanti, setQuanti] = useState(10)
-  const [testi, setTesti] = useState<Record<number, string>>({})
-  const [stati, setStati] = useState<Record<number, string>>({})
-  const ultimi = useMemo(() => [...hunter].sort((a, b) => String(b.data_msg || '').localeCompare(String(a.data_msg || ''))).slice(0, quanti), [hunter, quanti])
-  const giocate = hunter.filter(x => x.quota != null && Number(x.quota) > 1 && x.giocata !== false)
-  const messaggio = (id: number, t: string) => setStati(v => ({ ...v, [id]: t }))
-  async function scrivi(r: Hunter, patch: Record<string, any>) {
-    messaggio(r.msg_id, 'salvo…')
-    let risp: Response
-    try { risp = await fetch('/api/segnali/hunterbet-esito', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ msg_id: r.msg_id, patch }) }) }
-    catch { messaggio(r.msg_id, 'errore: rete assente, NON salvata'); return }
-    const j = await risp.json().catch(() => null)
-    if (!risp.ok || !j?.riga) {
-      const e = String(j?.error || `errore ${risp.status}`)
-      messaggio(r.msg_id, 'NON salvata: ' + (/giocata/i.test(e) ? 'manca la colonna «giocata»: lancia hunterbet_quota_giocata.sql in Supabase' : e)); return
-    }
-    onSalvato({ ...r, ...(j.riga as Hunter) })
-    setTesti(v => { const n = { ...v }; delete n[r.msg_id]; return n })
-    messaggio(r.msg_id, '✓ salvata')
-  }
-  function salvaQuota(r: Hunter) {
-    const t = testi[r.msg_id]
-    if (t === undefined) return
-    const g = t.trim()
-    if (g === '') { if (r.quota != null) scrivi(r, { quota: null }); else setTesti(v => { const n = { ...v }; delete n[r.msg_id]; return n }); return }
-    const q = Number(g.replace(',', '.'))
-    if (!(q > 1 && q < 100)) { messaggio(r.msg_id, 'quota non valida (es. 1,75)'); return }
-    if (q === Number(r.quota)) { setTesti(v => { const n = { ...v }; delete n[r.msg_id]; return n }); return }
-    scrivi(r, { quota: q, giocata: r.giocata === false ? false : true })
-  }
-  const inp = { background: '#020617', color: '#f8fafc', border: '1px solid #334155', borderRadius: 6, padding: '3px 6px', fontSize: 12, width: 64 }
-  return (
-    <div style={{ border: '1px solid rgba(56,189,248,.35)', background: 'rgba(56,189,248,.05)', borderRadius: 12, padding: '10px 12px', margin: '8px 0 12px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
-        <div style={{ fontWeight: 900, color: '#7dd3fc' }}>🎯 Quota giocata</div>
-        <div style={{ fontSize: 11.5, color: '#94a3b8' }}>{giocate.length} {giocate.length === 1 ? 'segnale' : 'segnali'} con la tua quota vera</div>
-      </div>
-      <div style={{ fontSize: 11.5, color: '#94a3b8', marginBottom: 8 }}>Scrivi la quota che hai trovato dal bookmaker e premi Invio. Togli la spunta «giocata» sui segnali che NON hai giocato: restano fuori dai conti reali dell'Analisi.</div>
-      <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-        <thead><tr>{['Arrivato', 'Fase', 'Partita', 'Segnale', 'Quota giocata', 'Giocata', ''].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
-        <tbody>{ultimi.map(r => {
-          const live = (r.fase || (r.tipo_segnale?.startsWith('GOL_') ? 'LIVE' : 'PRE-LIVE')) === 'LIVE'
-          const st = stati[r.msg_id] || ''
-          return (
-            <tr key={r.msg_id}>
-              <td style={td}>{quando(r.data_msg)}</td>
-              <td style={{ ...td, fontWeight: 800, color: live ? '#f87171' : '#a78bfa' }}>{live ? 'LIVE' : 'PRE-LIVE'}</td>
-              <td style={{ ...td, fontWeight: 800 }}>{r.casa} – {r.ospite}</td>
-              <td style={td}>{r.tipo_segnale === 'GOL_CASA' ? '🏠 Gol casa' : r.tipo_segnale === 'GOL_OSPITI' ? '✈️ Gol ospiti' : <b>{r.tipo_segnale}</b>}</td>
-              <td style={td}><input style={inp} placeholder="1,75" inputMode="decimal" value={testi[r.msg_id] ?? (r.quota != null ? String(r.quota).replace('.', ',') : '')}
-                onChange={e => setTesti(v => ({ ...v, [r.msg_id]: e.target.value.replace(/[^0-9.,]/g, '') }))}
-                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); salvaQuota(r) } }} onBlur={() => salvaQuota(r)} /></td>
-              <td style={td}><input type="checkbox" checked={r.giocata !== false} onChange={e => scrivi(r, { giocata: e.target.checked })} /></td>
-              <td style={{ ...td, fontSize: 10.5, color: st.startsWith('✓') ? '#86efac' : st === 'salvo…' ? '#94a3b8' : '#fca5a5' }}>{st}</td>
-            </tr>)
-        })}</tbody>
-      </table>
-      {quanti < hunter.length && <button onClick={() => setQuanti(q => q + 20)} style={{ ...sel, cursor: 'pointer', marginTop: 8, fontSize: 11.5 }}>Mostra altri 20</button>}
-    </div>)
-}
-
 type VoceSalva = { cambiato: boolean; salva: () => Promise<boolean> }
 function RigaHunter({ s, td, bf, cg, onSalvato, registra }: { s: Hunter; td: any; bf?: CellaBF; cg?: RigaCongelata; onSalvato: (r: Hunter) => void; registra?: (id: number, v: VoceSalva | null) => void }) {
   const fmt = (a?: number | null, b?: number | null) => a != null && b != null ? `${a}-${b}` : ''
   const [ft, setFt] = useState(fmt(s.ft_casa, s.ft_ospite))
   const [ht, setHt] = useState(fmt(s.ht_casa, s.ht_ospite))
   const [quota, setQuota] = useState(s.quota != null ? String(s.quota).replace('.', ',') : '')
-  useEffect(() => { setQuota(s.quota != null ? String(s.quota).replace('.', ',') : '') }, [s.quota])   // 23/10/2026: segue la quota salvata dal riquadro «Quota giocata»
+  useEffect(() => { setQuota(s.quota != null ? String(s.quota).replace('.', ',') : '') }, [s.quota])   // 23/10/2026: segue la quota salvata dalla colonna «Quota» (es. dal Masaniello)
+  // 23/10/2026: «giocata» = l'hai davvero giocata. Parte SPENTA: conta come giocata solo se la spunti tu (o se la quota arriva dal Masaniello).
+  const [giocata, setGiocata] = useState(s.giocata === true)
+  useEffect(() => { setGiocata(s.giocata === true) }, [s.giocata])
   const [esito, setEsito] = useState<string>(s.esito_manuale ? (s.esito || '') : 'auto')
   const [stato, setStato] = useState('')
   const rFt = leggiRis(ft)
   const auto = rFt ? valutaHunter(s, rFt[0], rFt[1]) : null
   const esitoFinale = esito === 'auto' ? (auto || s.esito || null) : (esito || null)
-  const cambiato = ft !== fmt(s.ft_casa, s.ft_ospite) || ht !== fmt(s.ht_casa, s.ht_ospite) || quota !== (s.quota != null ? String(s.quota).replace('.', ',') : '') || (esito === 'auto' ? !!s.esito_manuale || (auto != null && auto !== s.esito) : esito !== (s.esito || ''))
+  const cambiato = ft !== fmt(s.ft_casa, s.ft_ospite) || ht !== fmt(s.ht_casa, s.ht_ospite) || quota !== (s.quota != null ? String(s.quota).replace('.', ',') : '') || giocata !== (s.giocata === true) || (esito === 'auto' ? !!s.esito_manuale || (auto != null && auto !== s.esito) : esito !== (s.esito || ''))
   async function salva(): Promise<boolean> {
     if (ft && !rFt) { setStato('risultato finale: scrivi es. 2-1'); return false }
     const rHt = ht ? leggiRis(ht) : null
@@ -210,6 +148,7 @@ function RigaHunter({ s, td, bf, cg, onSalvato, registra }: { s: Hunter; td: any
     const patch: Record<string, any> = { ft_casa: rFt?.[0] ?? null, ft_ospite: rFt?.[1] ?? null, ht_casa: rHt?.[0] ?? null, ht_ospite: rHt?.[1] ?? null, quota: q,
       esito: esitoFinale, esito_manuale: esito !== 'auto', stato_match: rFt ? 'FINITA' : s.stato_match,
       data_esito: esitoFinale && !s.data_esito ? new Date().toISOString() : s.data_esito, aggiornato: new Date().toISOString() }
+    if (giocata !== (s.giocata === true)) patch.giocata = giocata   // solo se cambiata: se la colonna non esiste ancora, gli altri salvataggi funzionano lo stesso
     if (rFt) { patch.score_casa_attuale = rFt[0]; patch.score_ospite_attuale = rFt[1] }
     setStato('salvo…')
     // 22/10/2026: salva il server e restituisce la riga letta dal database: se non è stata scritta davvero, lo vedi qui (prima diceva «salvato» anche quando il database rifiutava la modifica)
@@ -217,7 +156,7 @@ function RigaHunter({ s, td, bf, cg, onSalvato, registra }: { s: Hunter; td: any
     try { r = await fetch('/api/segnali/hunterbet-esito', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ msg_id: s.msg_id, patch }) }) }
     catch { setStato('errore: rete assente, NON salvato'); return false }
     const j = await r.json().catch(() => null)
-    if (!r.ok || !j?.riga) { setStato('NON salvato: ' + (j?.error || `errore ${r.status}`)); return false }
+    if (!r.ok || !j?.riga) { const e = String(j?.error || `errore ${r.status}`); setStato('NON salvato: ' + (/giocata/i.test(e) ? 'manca la colonna «giocata»: lancia hunterbet_quota_giocata.sql in Supabase' : e)); return false }
     const dopo = j.riga as Hunter
     if ((dopo.esito ?? null) !== (patch.esito ?? null)) { setStato('NON salvato: il database ha tenuto un altro esito, ricarica la pagina'); onSalvato({ ...s, ...dopo }); return false }
     setStato('✓ salvato'); onSalvato({ ...s, ...dopo }); return true
@@ -235,7 +174,8 @@ function RigaHunter({ s, td, bf, cg, onSalvato, registra }: { s: Hunter; td: any
       <td style={td}>{s.score_casa_segnale != null ? `${s.score_casa_segnale}–${s.score_ospite_segnale}` : '—'}</td>
       <td style={td}><input style={inp} placeholder="1-0" value={ht} onChange={e => setHt(e.target.value)} /></td>
       <td style={td}><input style={{ ...inp, borderColor: rFt || !ft ? '#334155' : '#f87171' }} placeholder="2-1" value={ft} onChange={e => setFt(e.target.value)} /></td>
-      <td style={td}><input style={inp} placeholder="1,70" value={quota} onChange={e => setQuota(e.target.value.replace(/[^0-9.,]/g, ''))} /></td>
+      <td style={td}><input style={inp} placeholder="1,70" value={quota} onChange={e => { const v = e.target.value.replace(/[^0-9.,]/g, ''); setQuota(v); if (v && !quota && s.giocata == null) setGiocata(true) }} /></td>
+      <td style={{ ...td, textAlign: 'center' }}><input type="checkbox" title="Spunta se l'hai davvero giocata: solo queste entrano nei conti reali dell'Analisi" checked={giocata} onChange={e => setGiocata(e.target.checked)} /></td>
       <CellaBetfair c={bf} td={td} />
       <CellaCongelata r={cg} td={td} />
       <td style={td}>
@@ -408,6 +348,7 @@ export default function SegnaliClient({ incorporato = false }: { incorporato?: b
     setSalvaTuttiMsg(ko ? `Salvate ${ok} righe, NON salvate ${ko} (guarda il messaggio rosso sulla riga)` : `✓ Salvate ${ok} righe`)
   }
   const [hunter, setHunter] = useState<Hunter[]>([])
+  const [filtroHB, setFiltroHB] = useState<'tutti' | 'giocate' | 'da_segnare'>('tutti')   // 23/10/2026
   const [pronox, setPronox] = useState<Pronox[]>([])
   const [errore, setErrore] = useState('')
   const [aggiornato, setAggiornato] = useState<Date | null>(null)
@@ -524,14 +465,16 @@ export default function SegnaliClient({ incorporato = false }: { incorporato?: b
           <div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',marginBottom:4}}>
             <div style={{fontWeight:900}}>Hunterbet · {hunter.length}</div>
             <button onClick={salvaTuttiHunter} style={{background:'#059669',color:'white',border:0,borderRadius:8,padding:'6px 14px',fontWeight:900,fontSize:12.5,cursor:'pointer'}}>💾 Salva tutti</button>
+            <select style={sel} value={filtroHB} onChange={e => setFiltroHB(e.target.value as any)} title="Mostra solo le partite che hai giocato o quelle ancora da segnare">
+              <option value="tutti">Tutti ({hunter.length})</option><option value="giocate">Giocate ({hunter.filter(x => x.giocata === true).length})</option><option value="da_segnare">Non giocate ({hunter.filter(x => x.giocata !== true).length})</option>
+            </select>
             {salvaTuttiMsg && <span style={{fontSize:12,fontWeight:700,color:salvaTuttiMsg.startsWith('✓')?'#86efac':salvaTuttiMsg.startsWith('Salvo')?'#94a3b8':salvaTuttiMsg.startsWith('Niente')?'#94a3b8':'#fca5a5'}}>{salvaTuttiMsg}</span>}
           </div>
-          <QuotaGiocata hunter={hunter} sel={sel} th={th} td={td} onSalvato={r => setHunter((v: Hunter[]) => v.map(x => x.msg_id === r.msg_id ? r : x))} />
           <DiagnosiBF canale="hunter" righe={hunter} celle={cellaHT} eventi={eventiBF} />
-          <div style={{fontSize:11.5,color:'#94a3b8',marginBottom:8}}>Scrivi il risultato finale (es. 2-1) e, se lo sai, quello del 1° tempo: l'esito si calcola da solo ("auto"). Puoi sceglierlo a mano se il mercato non viene riconosciuto. La quota è quella che hai trovato dal bookmaker: la scrivi qui o nel riquadro «Quota giocata» e serve per la pagella reale dell'Analisi.</div>
+          <div style={{fontSize:11.5,color:'#94a3b8',marginBottom:8}}>Scrivi il risultato finale (es. 2-1) e, se lo sai, quello del 1° tempo: l'esito si calcola da solo ("auto"). Puoi sceglierlo a mano se il mercato non viene riconosciuto. La quota è quella che hai trovato dal bookmaker: scrivila qui e spunta «Giocata» solo sulle partite che hai davvero giocato. Le giocate con quota entrano nei conti reali dell'Analisi.</div>
           <table style={{borderCollapse:'collapse',width:'100%'}}>
-            <thead><tr>{['Arrivato','Fase','Partita','Competizione','Segnale','Ris. al segnale','1° tempo','Finale','Quota','Betfair','Al segnale','Esito',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
-            <tbody>{hunter.map(s=><RigaHunter key={s.msg_id} s={s} td={td} bf={cellaHT.get(s.msg_id)} cg={congelati.get('hunter|' + s.msg_id)} onSalvato={r=>setHunter((v:Hunter[])=>v.map(x=>x.msg_id===r.msg_id?r:x))} registra={registraHunter} />)}</tbody>
+            <thead><tr>{['Arrivato','Fase','Partita','Competizione','Segnale','Ris. al segnale','1° tempo','Finale','Quota','Giocata','Betfair','Al segnale','Esito',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+            <tbody>{hunter.filter(s => filtroHB === 'giocate' ? s.giocata === true : filtroHB === 'da_segnare' ? s.giocata !== true : true).map(s=><RigaHunter key={s.msg_id} s={s} td={td} bf={cellaHT.get(s.msg_id)} cg={congelati.get('hunter|' + s.msg_id)} onSalvato={r=>setHunter((v:Hunter[])=>v.map(x=>x.msg_id===r.msg_id?r:x))} registra={registraHunter} />)}</tbody>
           </table>
         </div>
         ) : (<>

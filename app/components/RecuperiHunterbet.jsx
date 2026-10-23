@@ -154,7 +154,7 @@ export default function RecuperiHunterbetPanel({ books, recuperi, getRecuperoPro
     setBets(nuove)
     salvaQuotaSegnale(b.msg_id, nuove)
   }
-  // la quota che scrivi qui finisce anche nel riquadro «Quota giocata» dei Segnali: media pesata sugli importi delle bet piazzate di quella partita
+  // la quota che scrivi qui finisce anche nella colonna «Quota» dei Segnali (e spunta «Giocata»): media pesata sugli importi delle bet piazzate di quella partita
   async function salvaQuotaSegnale(msgId, lista) {
     const pz = lista.filter(x => String(x.msg_id) === String(msgId) && x.stato === 'piazzata' && Number(x.quota_reale) > 1)
     const tot = pz.reduce((a, x) => a + Number(x.importo), 0)

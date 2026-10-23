@@ -277,13 +277,13 @@ export default function AnalisiSegnali() {
   const prima = segmenta(chiuse.slice(0, metà), () => 'tutti')[0], seconda = segmenta(chiuse.slice(metà), () => 'tutti')[0]
   const totale = segmenta(chiuse, () => 'tutti')[0]
 
-  // 23/10/2026 · cassa REALE (solo Hunterbet): bet chiuse con la quota che hai trovato dal bookmaker (riquadro «Quota giocata» nella pagina Segnali),
-  // escluse quelle segnate come «non giocate». Nessuna quota inventata: il profitto è quota − 1 se vinta, −1 se persa.
-  const reali = useMemo(() => canale === 'hunterbet' ? chiuse.filter(r => r.quota != null && r.quota > 1 && r.giocata !== false) : [], [chiuse, canale])
+  // 23/10/2026 · cassa REALE (solo Hunterbet): bet chiuse con la quota che hai trovato dal bookmaker (colonna «Quota» nella pagina Segnali),
+  // solo quelle che hai spuntato «Giocata». Nessuna quota inventata: il profitto è quota − 1 se vinta, −1 se persa.
+  const reali = useMemo(() => canale === 'hunterbet' ? chiuse.filter(r => r.quota != null && r.quota > 1 && r.giocata === true) : [], [chiuse, canale])
   const realiTot = segmenta(reali, () => 'tutti')[0]
   const realiTipi = segmenta(reali, r => r.casaOspiti || 'n.d.')
   const simReali = simula(reali, null)
-  const nonGiocate = canale === 'hunterbet' ? chiuse.filter(r => r.giocata === false).length : 0
+  const nonGiocate = canale === 'hunterbet' ? chiuse.filter(r => r.giocata !== true).length : 0
 
   // 14/10/2026 · CLV: la quota del segnale contro la quota GIUSTA di chiusura su Betfair (senza margine).
   // Sopra zero in media = il servizio batte il mercato. Servono 300-500 segnali per fidarsi.
@@ -418,10 +418,10 @@ export default function AnalisiSegnali() {
           <div style={{ background: 'rgba(15,23,42,.6)', border: '1px solid rgba(52,211,153,.35)', borderRadius: 14, padding: 12, marginBottom: 14 }}>
             <div style={{ fontWeight: 900, marginBottom: 6, color: '#6ee7b7' }}>💶 Con le quote che hai giocato davvero</div>
             {!realiTot ? (
-              <div style={{ fontSize: 12, color: '#94a3b8' }}>Ancora nessuna bet chiusa con la tua quota. Scrivila nel riquadro «Quota giocata» della pagina Segnali (Hunterbet): da lì in poi questo conto usa le quote vere al posto dell'1,70 ipotetico.</div>
+              <div style={{ fontSize: 12, color: '#94a3b8' }}>Ancora nessuna bet chiusa con la tua quota. Scrivila nella colonna «Quota» della pagina Segnali (Hunterbet) e spunta «Giocata»: da lì in poi questo conto usa le quote vere al posto dell'1,70 ipotetico.</div>
             ) : (<>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 8 }}>
-                {card('Bet con quota giocata', String(realiTot.n), '#f8fafc', `su ${chiuse.length} chiuse${nonGiocate ? ` · ${nonGiocate} segnate non giocate` : ''}`)}
+                {card('Bet con quota giocata', String(realiTot.n), '#f8fafc', `su ${chiuse.length} chiuse${nonGiocate ? ` · ${nonGiocate} non giocate` : ''}`)}
                 {card('% vinte', pct(realiTot.p), '#f8fafc', `margine ${pct(realiTot.lo, 0)} – ${pct(realiTot.hi, 0)}`)}
                 {card('Quota media giocata', n2(realiTot.n ? reali.reduce((a, r) => a + (r.quota || 0), 0) / realiTot.n : 0))}
                 {card('Unità', `${realiTot.unita >= 0 ? '+' : ''}${n2(realiTot.unita)}`, realiTot.unita >= 0 ? '#86efac' : '#fca5a5', `rendimento ${pct(realiTot.n ? realiTot.unita / realiTot.n : 0)}`)}
