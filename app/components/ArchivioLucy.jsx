@@ -35,6 +35,16 @@ async function tutte(query) {
   return out
 }
 
+// 24/10/2026 · tipo di giocata per il filtro: Sport, Slot, Casino live (roulette, baccarat…) oppure Altro (avvisi, note, promo…)
+export function categoriaGiocata(r) {
+  const t = `${r.tipo || ''} ${r.giocata || ''}`.toLowerCase()
+  if (r.origine === 'Casino live' || /roulette|baccarat|casino|live/.test(t)) return 'Casino live'
+  if (/slot/.test(t)) return 'Slot'
+  if (r.origine === 'Sport Lucy' || r.origine === 'Masaniello' || /\bsport\b/.test(t)) return 'Sport'
+  return 'Altro'
+}
+const CATEGORIE = ['Sport', 'Slot', 'Casino live', 'Altro']
+
 // ─── normalizzazione: una riga per operazione (esportate per i test) ──
 export function righeSport(rows) {
   return (rows || []).map(r => r.rec || r).filter(x => x && (x.tipo !== 'manuale' || x.manualeProf)).map(x => ({   // 14/10/2026: anche le operazioni del Registro manuale
@@ -219,6 +229,9 @@ export default function ArchivioLucy({ books }) {
   const [origine, setOrigine] = useState('')
   const [stato, setStato] = useState('')
   const [cerca, setCerca] = useState('')
+  const [clienteF, setClienteF] = useState('')   // 24/10/2026: filtri per cliente, book e tipo di giocata
+  const [bookF, setBookF] = useState('')
+  const [categoriaF, setCategoriaF] = useState('')
   const [righe, setRighe] = useState([])
   const [avvisi, setAvvisi] = useState([])
   const [carico, setCarico] = useState(false)
@@ -257,8 +270,11 @@ export default function ArchivioLucy({ books }) {
   const visibili = useMemo(() => {
     const q = cerca.trim().toLowerCase()
     return righe.filter(r => (!origine || r.origine === origine) && (!stato || r.stato === stato)
+      && (!clienteF || r.cliente === clienteF) && (!bookF || r.book === bookF) && (!categoriaF || categoriaGiocata(r) === categoriaF)
       && (!q || [r.cliente, r.book, r.evento, r.giocata, r.tipo, r.note].join(' ').toLowerCase().includes(q)))
-  }, [righe, origine, stato, cerca])
+  }, [righe, origine, stato, cerca, clienteF, bookF, categoriaF])
+  const clienti = useMemo(() => [...new Set(righe.map(r => r.cliente).filter(Boolean))].sort((x, y) => x.localeCompare(y, 'it')), [righe])
+  const bookLista = useMemo(() => [...new Set(righe.map(r => r.book).filter(Boolean))].sort((x, y) => x.localeCompare(y, 'it')), [righe])
   const totImporto = visibili.reduce((a, r) => a + (r.importo || 0) * (['SALTATA', 'RIMANDATA', 'DA FARE', 'NON GIOCATA'].includes(r.stato) ? 0 : 1), 0)
   const plNoti = visibili.filter(r => r.pl != null)
   const totPl = plNoti.reduce((a, r) => a + r.pl, 0)
@@ -291,6 +307,15 @@ export default function ArchivioLucy({ books }) {
         </select>
         <select style={sel} value={stato} onChange={e => setStato(e.target.value)}>
           <option value="">Tutti gli stati</option>{STATI.map(o => <option key={o}>{o}</option>)}
+        </select>
+        <select style={sel} value={categoriaF} onChange={e => setCategoriaF(e.target.value)}>
+          <option value="">Tutti i tipi di giocata</option>{CATEGORIE.map(o => <option key={o}>{o}</option>)}
+        </select>
+        <select style={sel} value={clienteF} onChange={e => setClienteF(e.target.value)}>
+          <option value="">Tutti i clienti</option>{clienti.map(o => <option key={o}>{o}</option>)}
+        </select>
+        <select style={sel} value={bookF} onChange={e => setBookF(e.target.value)}>
+          <option value="">Tutti i book</option>{bookLista.map(o => <option key={o}>{o}</option>)}
         </select>
         <input style={{ ...sel, width: 220 }} placeholder="Cerca cliente, book, partita…" value={cerca} onChange={e => setCerca(e.target.value)} />
         <button style={{ ...sel, cursor: 'pointer', fontWeight: 700 }} onClick={carica}>↻ Aggiorna</button>
