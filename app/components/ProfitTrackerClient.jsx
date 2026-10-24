@@ -391,6 +391,39 @@ useEffect(() => {
   } catch {}
   return () => window.removeEventListener('keydown', tasto, true)
 }, [])
+
+// 24/10/2026 — Registra al volo dal PC (Alt+R, programma registra_rapido.py): le voci arrivano nella tabella registra_coda e le prende questa pagina,
+// una alla volta, scrivendole nel Registro manuale con la stessa funzione del modulo (così non si sovrascrivono mai a vicenda).
+// Una scheda che trova la voce già "presa" da un'altra scheda si ferma. Se la tabella non esiste ancora o non sei loggato, non fa niente.
+const codaRef = useRef(null)
+codaRef.current = async () => {
+  if (!books.length) return
+  let r
+  try {
+    const { data, error } = await supabase.from('registra_coda').select('*').eq('stato', 'attesa').order('id', { ascending: true }).limit(1)
+    if (error) return
+    r = (data || [])[0]
+  } catch { return }
+  if (!r) return
+  const { data: presa } = await supabase.from('registra_coda').update({ stato: 'preso', preso_il: new Date().toISOString() }).eq('id', r.id).eq('stato', 'attesa').select('id')
+  if (!presa || !presa.length) return
+  const ids = Array.isArray(r.book_ids) ? r.book_ids.map(String) : []
+  const libri = ids.map(id => books.find(b => String(b.id) === id)).filter(Boolean)
+  let ok = false, motivo = ''
+  if (!libri.length || libri.length !== ids.length) motivo = 'conto non trovato (forse eliminato)'
+  else {
+    const cosa = bookInRecuperoLimitato(libri[0]) ? 'recupero' : String(libri[0].profilo_livello || '').startsWith('mantenimento') ? 'mantenimento' : 'profilazione'
+    ok = await registraProfilazioneManualeMulti({ libri, data: new Date(r.creato).toLocaleDateString('sv-SE'), tipoOp: r.tipo_op || 'Sport', importo: r.importo || '', descrizione: r.nota || '', copreGiorno: true, cosa, senzaConferma: true })
+    if (!ok) motivo = 'registrazione non riuscita (controlla importo e data)'
+  }
+  await supabase.from('registra_coda').update({ stato: ok ? 'fatto' : 'errore', messaggio: motivo || null }).eq('id', r.id)
+  setTimeout(() => { if (codaRef.current) codaRef.current() }, 2000)   // altre voci in coda: dopo che la pagina ha aggiornato il registro
+}
+useEffect(() => {
+  const t0 = setTimeout(() => { if (codaRef.current) codaRef.current() }, 5000)
+  const t = setInterval(() => { if (codaRef.current) codaRef.current() }, 60000)
+  return () => { clearTimeout(t0); clearInterval(t) }
+}, [])
 const setPauseProf = (righe) => { PAUSE_PROF = righe || []; setPauseProfState(PAUSE_PROF) }
 // Appena un book ha "limitato bonus"/"limitato sport" nella nota, registra l'inizio del recupero (una volta sola).
 const recuperiRegistratiRef = React.useRef(new Set())

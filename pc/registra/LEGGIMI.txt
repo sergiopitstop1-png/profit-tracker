@@ -1,0 +1,26 @@
+REGISTRA AL VOLO — programmino sul desktop (24/10/2026)
+=======================================================
+Premi ALT+R da qualsiasi programma: si apre una finestra con 3 dati (conto, importo, tipo). Salva con Invio.
+La voce va al Profit Tracker, che la scrive nel Registro manuale (entro un minuto, se la pagina è aperta; se è chiusa
+la voce aspetta e entra appena la apri: non si perde).
+
+INSTALLAZIONE (una volta sola)
+1) Su Supabase, SQL Editor: incolla il contenuto di  supabase/registra_coda.sql  e premi Run (si può rilanciare senza danni).
+2) Copia questi 2 file NELLA STESSA CARTELLA di book_lavorati.py (dove c'è config.json):
+      registra_rapido.py
+      avvia_registra_rapido.bat
+3) Doppio clic su avvia_registra_rapido.bat  (parte nascosto: nessuna finestra nera).
+4) Premi ALT+R: deve aprirsi la finestra. Se compare un avviso "tasto già usato", scrivi in config.json la riga
+      "registra_scorciatoia": "ctrl+alt+g"      (o un'altra combinazione) e riavvia.
+5) Per averlo sempre attivo all'accensione del PC: Win+R, scrivi  shell:startup , Invio, e metti lì un collegamento
+   a avvia_registra_rapido.bat.
+
+USO
+- Scrivi parte del nome del book e/o dell'intestatario (es. "giocodigitale emil"); Invio sceglie il primo risultato.
+  Puoi scegliere più conti insieme (stessa operazione su tutti).
+- Importo: 10 oppure un intervallo 5/15. Tipo: Sport, Casinò / slot, Ricarica, Promo / VXT, Altro. Nota facoltativa.
+- Invio = Salva · Esc = chiudi.
+- Il "conta come" (mantenimento / profilazione / recupero) lo decide il Profit Tracker dallo stato del conto.
+- Se il sito non risponde, la voce resta in registra_rapido_in_attesa.json e si rimanda da sola ogni minuto.
+
+FILE CHE CREA: registra_rapido.log, registra_rapido_conti.json (copia dell'elenco conti), registra_rapido_in_attesa.json.
