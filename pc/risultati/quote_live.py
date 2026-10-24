@@ -93,6 +93,11 @@ def main(argv):
     except Exception:
         pass
     prova = '--prova' in argv
+    try:   # impronta dell'ultima esecuzione: se la data di questo file non cambia, l'attivita' pianificata non sta girando
+        with open(os.path.join(QUI, 'quote_live_ultima.txt'), 'w', encoding='utf-8') as f:
+            f.write(datetime.now().strftime('%d/%m/%Y %H:%M:%S'))
+    except OSError:
+        pass
     cfg = carica_config()
     if not cfg.get('SEGNALI_SECRET') or not cfg.get('API_FOOTBALL_KEY'):
         print('Apri con il Blocco note il file risultati_config.json e compila segreto e api_football_key')
@@ -103,6 +108,8 @@ def main(argv):
         log('Non riesco a leggere i segnali dal sito: ' + str(e))
         return 1
     if not segnali:
+        if sys.stdout.isatty():
+            print('Tutto a posto: nessun segnale live degli ultimi 15 minuti senza quota Bet365.')
         return 0                                         # niente da fare: nessuna chiamata ad API-Football
     h = {'x-apisports-key': cfg['API_FOOTBALL_KEY']}
     base = cfg['API_FOOTBALL_URL']

@@ -65,7 +65,7 @@ export default function AvvisoHunterbet({ onApri, ogniMs = 60000, giroMs = 20000
         if (nuovi.length) {
           nuovi.forEach(x => avvisati.current.add(String(x.msg_id))); salva(avvisati.current)
           beep()
-          try { if (typeof Notification !== 'undefined' && Notification.permission === 'granted') new Notification('🎯 Hunterbet Pre-live', { body: `${nuovi[0].partita} · ${ORA_IT(nuovi[0].event_start)} · 12 + Multigol 1-3`, tag: 'hb-' + nuovi[0].msg_id, requireInteraction: true, renotify: true }) } catch { /* notifica non supportata */ }
+          try { if (typeof Notification !== 'undefined' && Notification.permission === 'granted') new Notification('🎯 Hunterbet Pre-live', { body: `${nuovi[0].partita} · arrivato alle ${ORA_IT(nuovi[0].event_start)} · 12 + Multigol 1-3`, tag: 'hb-' + nuovi[0].msg_id, requireInteraction: true, renotify: true }) } catch { /* notifica non supportata */ }
         }
       } catch { /* rete assente o tabelle non ancora create: riprovo al prossimo giro */ }
     }
@@ -95,7 +95,7 @@ export default function AvvisoHunterbet({ onApri, ogniMs = 60000, giroMs = 20000
         const adesso = Date.now()
         const pronti = cand.filter(x => {
           const r = reg[x.msg_id]
-          return r && !nascostoRef.current.has(String(x.msg_id)) && r.n < TENTATIVI_MAX && adesso - r.primo >= ATTESA_MS * (r.n + 1) && new Date(x.event_start).getTime() > adesso
+          return r && !nascostoRef.current.has(String(x.msg_id)) && r.n < TENTATIVI_MAX && adesso - r.primo >= ATTESA_MS * (r.n + 1)   // 24/10/2026: tolto «partita non ancora iniziata»: event_start è l'ora di ARRIVO del segnale (sempre nel passato), per questo la telefonata automatica non partiva mai
         })
         if (!pronti.length) return
         const x = pronti[0]
@@ -103,7 +103,7 @@ export default function AvvisoHunterbet({ onApri, ogniMs = 60000, giroMs = 20000
         if (!vivo || !fresco || !fresco.some(y => String(y.msg_id) === String(x.msg_id))) return
         if (nascostoRef.current.has(String(x.msg_id))) return
         const reg2 = leggiChiamate(); reg2[x.msg_id] = { ...(reg2[x.msg_id] || { primo: adesso }), n: (reg2[x.msg_id]?.n || 0) + 1, ultimo: adesso }; salvaChiamate(reg2)   // segno PRIMA: due giri non chiamano due volte
-        const r = await fetch('/api/avvisi/chiamata', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ partita: x.partita, inizio: x.event_start }) })
+        const r = await fetch('/api/avvisi/chiamata', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ partita: x.partita }) })
         if (r.status === 503) setTelefonata('no')
         ridisegna(v => v + 1)
       } catch { /* rete assente: ritento al prossimo giro (il tentativo è già segnato, quindi non si chiama più di due volte) */ }
@@ -129,7 +129,7 @@ export default function AvvisoHunterbet({ onApri, ogniMs = 60000, giroMs = 20000
     <div role="alert" style={{ position: 'fixed', top: 70, right: 16, zIndex: 9998, maxWidth: 340, background: 'rgba(15,23,42,0.98)', border: '2px solid #38bdf8', borderRadius: 14, padding: '12px 14px', boxShadow: '0 6px 28px rgba(0,0,0,.6)', color: '#e2e8f0', fontSize: 13 }}>
       <div style={{ fontWeight: 900, color: '#7dd3fc', marginBottom: 4 }}>🎯 Hunterbet Pre-live: partita da giocare</div>
       <div><b>{c.partita}</b></div>
-      <div style={{ color: '#94a3b8', fontSize: 12 }}>{c.competition ? c.competition + ' · ' : ''}ore {ORA_IT(c.event_start)} · 12 + Multigol 1-3 · quota min 1,60</div>
+      <div style={{ color: '#94a3b8', fontSize: 12 }}>{c.competition ? c.competition + ' · ' : ''}arrivato alle {ORA_IT(c.event_start)} · 12 + Multigol 1-3 · quota min 1,60</div>
       {(() => {
         const r = leggiChiamate()[c.msg_id]
         if (telefonata === 'no') return <div style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>📞 telefonata non attiva (mancano le chiavi Twilio)</div>
