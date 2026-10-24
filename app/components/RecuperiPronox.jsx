@@ -18,7 +18,8 @@ import { PIANO_PILOTA, MASANIELLO_ATTIVO, statoPiano, schedaDelGiorno, dividiTra
 
 // book dove il recupero NON passa dalle scommesse sport
 // 10/10/2026 (rettifica di Sergio): i limitati del gruppo E-play24 (eplay24, sportium, betwin360) fanno scommettere 1 €, quindi restano utilizzabili
-const ESCLUSI = ['bet365', 'betfair', 'admiral']
+// 24/10/2026 (Sergio): 888 (888sport) si recupera solo col casino (slot e casino offline, 2 volte al mese, 10-20 € a sessione): mai scommesse sport
+const ESCLUSI = ['bet365', 'betfair', 'admiral', '888']
 const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '')
 const euro = (n) => (Number(n) || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
 const quando = (iso) => new Date(iso).toLocaleString('it-IT', { timeZone: 'Europe/Rome', weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
