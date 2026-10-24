@@ -36,6 +36,7 @@ import LucyTrading from './LucyTrading'   // 06/10/2026: scheda Lucy · trading 
 import ProfilazioniMiratePanel, { prossimaMirata, tipoMirata } from './ProfilazioniMirate'   // 05/10/2026: prossimaMirata per il banner in Dashboard
 import { impostaPausaRecupero, impostaMovimentiRecupero } from './RecuperoConti'
 import PulsanteRegistra from './PulsanteRegistra'   // 24/10/2026: pulsante tondo trascinabile "Registra al volo" (apre il Registro manuale)
+import RegistraRapido from './RegistraRapido'   // 24/10/2026: finestra piccola "Registra al volo" (3 dati + Salva)
 import CalendarioAperture from './CalendarioAperture'
 import { useAspetto, PannelloAspetto, NavRaggruppata, MenuIntestazione } from './AspettoDashboard'   // 12/10/2026: Dashboard meno affollata, con interruttori
 // 12/10/2026 — Lucy Mail e Segnali ora si aprono dentro il Profit Tracker (barra sempre in alto), caricati solo quando servono
@@ -374,17 +375,18 @@ const [puliziaSel, setPuliziaSel] = useState(null)   // { cerca, esclusi: Set(no
 const [apriTel, setApriTel] = useState(null)   // + modo: 'chrome' | 'app', parola: nome dell'app   // { cerca, key, url, esclusi: Set(id), filtri: {...} }
 // 27/09/2026 — registro di profilazione manuale
 const [registroAperto, setRegistroAperto] = useState(false)
+const [rapidoAperto, setRapidoAperto] = useState(false)   // 24/10/2026: Registra al volo
 const [regFBook, setRegFBook] = useState('')   // 24/10/2026: filtri sull'elenco Registrazioni del Registro manuale
 const [regFNome, setRegFNome] = useState('')
 const [regFTipo, setRegFTipo] = useState('')
 const [regForm, setRegForm] = useState({ cerca: '', bookIds: [], data: new Date().toLocaleDateString('sv-SE'), tipoOp: 'Sport', importo: '', descrizione: '', copreGiorno: true, cosa: '' })
 // 24/10/2026 — "Registra al volo": Alt+R apre il Registro manuale; anche il link /profit-tracker?registra=1 (collegamento sul desktop di Windows)
 useEffect(() => {
-  const tasto = e => { if (e.altKey && !e.metaKey && (e.code === 'KeyR' || String(e.key).toLowerCase() === 'r')) { e.preventDefault(); setRegistroAperto(true) } }
+  const tasto = e => { if (e.altKey && !e.metaKey && (e.code === 'KeyR' || String(e.key).toLowerCase() === 'r')) { e.preventDefault(); setRapidoAperto(true) } }
   window.addEventListener('keydown', tasto, true)
   try {
     const u = new URL(window.location.href)
-    if (u.searchParams.get('registra') === '1') { setRegistroAperto(true); u.searchParams.delete('registra'); window.history.replaceState(null, '', u.pathname + (u.search || '') + u.hash) }
+    if (u.searchParams.get('registra') === '1') { setRapidoAperto(true); u.searchParams.delete('registra'); window.history.replaceState(null, '', u.pathname + (u.search || '') + u.hash) }
   } catch {}
   return () => window.removeEventListener('keydown', tasto, true)
 }, [])
@@ -3499,7 +3501,7 @@ function giornoCopertoManuale(bookId, data) {
 function registroManualeProf() {
   return lucyConfermate.filter(x => x?.manualeProf).sort((a, b) => String(b.data).localeCompare(String(a.data)) || String(b.creato).localeCompare(String(a.creato)))
 }
-async function registraProfilazioneManuale({ book, data, tipoOp, importo, descrizione, copreGiorno, cosa = 'profilazione' }) {
+async function registraProfilazioneManuale({ book, data, tipoOp, importo, descrizione, copreGiorno, cosa = 'profilazione', senzaConferma = false }) {
   if (!book) { setErrorMessage('Scegli il conto'); return false }
   const oggiIso = lucyOggi()
   if (!data || data > oggiIso) { setErrorMessage('La data non può essere nel futuro'); return false }
@@ -3508,7 +3510,7 @@ async function registraProfilazioneManuale({ book, data, tipoOp, importo, descri
   // 14/10/2026: l'operazione può contare come mantenimento, profilazione o recupero. Solo la profilazione porta il conto in Profilazione.
   const cambia = cosa === 'profilazione' && book.profilo_livello !== 'attivo'
   const stati = { dormiente: 'Dormiente', mantenimento: 'Mantenimento', attivo: 'Profilazione' }
-  if (!window.confirm(`${book.nome} – ${book.intestatario || '—'}\n${data.split('-').reverse().join('/')} · ${tipoOp}${imp.stake ? ` · ${imp.testo || imp.stake}€` : ''}${descrizione ? `\n"${descrizione}"` : ''}\n\n${cambia ? `Il conto passa da ${stati[String(book.profilo_livello || '').startsWith('mantenimento') ? 'mantenimento' : book.profilo_livello] || 'non impostato'} a PROFILAZIONE.\n` : ''}${copreGiorno ? 'Le bet di profilazione di quel giorno risultano fatte.' : 'Conta come una movimentazione, le bet del giorno restano da fare.'}\n\nRegistro?`)) return false
+  if (!senzaConferma && !window.confirm(`${book.nome} – ${book.intestatario || '—'}\n${data.split('-').reverse().join('/')} · ${tipoOp}${imp.stake ? ` · ${imp.testo || imp.stake}€` : ''}${descrizione ? `\n"${descrizione}"` : ''}\n\n${cambia ? `Il conto passa da ${stati[String(book.profilo_livello || '').startsWith('mantenimento') ? 'mantenimento' : book.profilo_livello] || 'non impostato'} a PROFILAZIONE.\n` : ''}${copreGiorno ? 'Le bet di profilazione di quel giorno risultano fatte.' : 'Conta come una movimentazione, le bet del giorno restano da fare.'}\n\nRegistro?`)) return false
   const rec = {
     key: `manprof|${data}|${book.id}|${Date.now()}`, data, creato: new Date().toISOString(), tipo: 'manuale',
     manualeProf: true, copreGiorno: cosa === 'profilazione' && !!copreGiorno, tipoOp, tipoConto: cosa,
@@ -3523,9 +3525,9 @@ async function registraProfilazioneManuale({ book, data, tipoOp, importo, descri
 // 16/10/2026 — stessa operazione su più conti in un colpo solo (es. una superquota giocata su 19 conti):
 // una sola conferma e un solo salvataggio. I conti con più varianti di profilazione NON vengono spostati in
 // automatico (serve la scelta della variante): l'operazione si registra comunque e te lo dico nel messaggio.
-async function registraProfilazioneManualeMulti({ libri, data, tipoOp, importo, descrizione, copreGiorno, cosa = 'profilazione' }) {
+async function registraProfilazioneManualeMulti({ libri, data, tipoOp, importo, descrizione, copreGiorno, cosa = 'profilazione', senzaConferma = false }) {
   if (!libri || !libri.length) { setErrorMessage('Scegli almeno un conto'); return false }
-  if (libri.length === 1) return registraProfilazioneManuale({ book: libri[0], data, tipoOp, importo, descrizione, copreGiorno, cosa })
+  if (libri.length === 1) return registraProfilazioneManuale({ book: libri[0], data, tipoOp, importo, descrizione, copreGiorno, cosa, senzaConferma })
   const oggiIso = lucyOggi()
   if (!data || data > oggiIso) { setErrorMessage('La data non può essere nel futuro'); return false }
   const daCambiare = cosa === 'profilazione' ? libri.filter(b => b.profilo_livello !== 'attivo') : []
@@ -3535,7 +3537,7 @@ async function registraProfilazioneManualeMulti({ libri, data, tipoOp, importo, 
   const imp = leggiImportoManuale(importo)
   if (String(importo || '').trim() && !imp.stake) { setErrorMessage('Importo non valido: scrivi un numero (10) o un intervallo (5/15)'); return false }
   const tot = Math.round(imp.stake * 100 * libri.length) / 100
-  if (!window.confirm(`${libri.length} conti\n${elenco}\n\n${data.split('-').reverse().join('/')} · ${tipoOp}${imp.stake ? ` · ${imp.testo || imp.stake}€ a conto${imp.intervallo ? '' : ` (totale ${tot}€)`}` : ''}${descrizione ? `\n"${descrizione}"` : ''}\n\n${senzaVarianti.length ? `${senzaVarianti.length} conti passano a PROFILAZIONE.\n` : ''}${conVarianti.length ? `${conVarianti.length} conti hanno più profilazioni: restano dove sono (la variante va scelta a mano).\n` : ''}${cosa === 'profilazione' && copreGiorno ? 'Le bet di profilazione di quel giorno risultano fatte.' : 'Conta come una movimentazione, le bet del giorno restano da fare.'}\n\nRegistro?`)) return false
+  if (!senzaConferma && !window.confirm(`${libri.length} conti\n${elenco}\n\n${data.split('-').reverse().join('/')} · ${tipoOp}${imp.stake ? ` · ${imp.testo || imp.stake}€ a conto${imp.intervallo ? '' : ` (totale ${tot}€)`}` : ''}${descrizione ? `\n"${descrizione}"` : ''}\n\n${senzaVarianti.length ? `${senzaVarianti.length} conti passano a PROFILAZIONE.\n` : ''}${conVarianti.length ? `${conVarianti.length} conti hanno più profilazioni: restano dove sono (la variante va scelta a mano).\n` : ''}${cosa === 'profilazione' && copreGiorno ? 'Le bet di profilazione di quel giorno risultano fatte.' : 'Conta come una movimentazione, le bet del giorno restano da fare.'}\n\nRegistro?`)) return false
   const adesso = Date.now()
   const nuovi = libri.map(book => ({
     key: `manprof|${data}|${book.id}|${adesso}`, data, creato: new Date().toISOString(), tipo: 'manuale',
@@ -8272,7 +8274,12 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             </div>
           )
         })()}
-        <PulsanteRegistra onClick={() => setRegistroAperto(true)} />
+        <PulsanteRegistra onClick={() => setRapidoAperto(true)} />
+        {rapidoAperto && <RegistraRapido books={books}
+          cosaAuto={b => bookInRecuperoLimitato(b) ? 'recupero' : String(b.profilo_livello || '').startsWith('mantenimento') ? 'mantenimento' : 'profilazione'}
+          onSalva={({ libri, tipoOp, importo, descrizione, cosa }) => registraProfilazioneManualeMulti({ libri, data: lucyOggi(), tipoOp, importo, descrizione, copreGiorno: true, cosa, senzaConferma: true })}
+          onClose={() => setRapidoAperto(false)}
+          onCompleto={() => { setRapidoAperto(false); setRegistroAperto(true) }} />}
         {registroAperto && (() => {
           const q = regForm.cerca.trim().toLowerCase()
           const parole = q.split(/\s+/).filter(Boolean)   // 14/10/2026: tutte le parole devono comparire (nell'ordine che vuoi), fino a 80 conti con scorrimento
