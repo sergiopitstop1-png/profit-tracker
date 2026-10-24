@@ -95,7 +95,7 @@ export default function AvvisoHunterbet({ onApri, ogniMs = 60000, giroMs = 20000
         const adesso = Date.now()
         const pronti = cand.filter(x => {
           const r = reg[x.msg_id]
-          return r && !nascostoRef.current.has(String(x.msg_id)) && r.n < TENTATIVI_MAX && adesso - r.primo >= ATTESA_MS * (r.n + 1)   // 24/10/2026: tolto «partita non ancora iniziata»: event_start è l'ora di ARRIVO del segnale (sempre nel passato), per questo la telefonata automatica non partiva mai
+          return r && !nascostoRef.current.has(String(x.msg_id)) && r.n < TENTATIVI_MAX && adesso - r.primo >= ATTESA_MS * (r.n + 1) && adesso - new Date(x.event_start).getTime() < 30 * 60000   // 24/10/2026: niente telefonate per segnali arrivati da piu' di 30 minuti (es. scheda riaperta ore dopo) · : tolto «partita non ancora iniziata»: event_start è l'ora di ARRIVO del segnale (sempre nel passato), per questo la telefonata automatica non partiva mai
         })
         if (!pronti.length) return
         const x = pronti[0]
