@@ -4,7 +4,7 @@
 // Stesso schema del pilota PronoX (RecuperiPronox.jsx), ma le partite sono i segnali Pre-live
 // «12 + MG 1-3» di Hunterbet. Nasce SPENTO: lo accende Sergio col tasto in alto.
 //   ▸ capitale 500 €, 30 vincite su 50 partite, quota di riferimento 1,60, stop a −200 €
-//   ▸ una partita al giorno, il primo segnale arrivato; si gioca solo se la quota trovata è ≥ 1,60
+//   ▸ tutte le pre-live che arrivano (dal 24/10/2026); si gioca solo se la quota trovata è ≥ 1,60
 //   ▸ per ogni bet: 📱 apre il book · ✓ piazzata (quota reale) · ✗ saltata
 //   ▸ l'esito arriva da solo (il programma sul PC scrive il risultato, il sito chiude vinta/persa)
 // Tabelle: recupero_hb_piano, recupero_hb_bets (supabase/recupero_hunterbet.sql). Calcoli: lib/recupero/masanielloHunterbet.js
@@ -96,7 +96,7 @@ export default function RecuperiHunterbetPanel({ books, recuperi, getRecuperoPro
   }
   async function accendi(si) {
     const testo = si
-      ? `Accendo il Masaniello Hunterbet Pre-live?\n\nCapitale ${euro(PIANO_HB.capitale)}, ${PIANO_HB.K} vincite su ${PIANO_HB.N} partite, quota di riferimento ${virg(PIANO_HB.quotaRif)}, stop a −${PIANO_HB.perditaMax} €.\nDa adesso Lucy propone una partita al giorno.`
+      ? `Accendo il Masaniello Hunterbet Pre-live?\n\nCapitale ${euro(PIANO_HB.capitale)}, ${PIANO_HB.K} vincite su ${PIANO_HB.N} partite, quota di riferimento ${virg(PIANO_HB.quotaRif)}, stop a −${PIANO_HB.perditaMax} €.\nDa adesso Lucy propone tutte le partite pre-live che arrivano.`
       : 'Spengo il piano? Le bet già fatte restano e si chiudono, ma Lucy non propone più partite nuove.'
     if (!window.confirm(testo)) return
     setLavoro(true)
@@ -254,7 +254,7 @@ export default function RecuperiHunterbetPanel({ books, recuperi, getRecuperoPro
         <button disabled={lavoro || carico || mancaSql} onClick={() => accendi(spento)} style={btn(spento ? '#059669' : '#64748b')}>{spento ? '▶ Accendi il piano' : '⏸ Spegni il piano'}</button>
       </div>
 
-      {spento && !carico && !mancaSql && <div style={{ background: 'rgba(251,191,36,.12)', border: '1px solid #b45309', borderRadius: 10, padding: '6px 10px', margin: '8px 0', fontSize: 12, color: '#fcd34d', fontWeight: 800 }}>⏸ Piano SPENTO: nessuna partita proposta finché non lo accendi. Regole: {euro(PIANO_HB.capitale)}, {PIANO_HB.K} vincite su {PIANO_HB.N}, quota di riferimento {virg(PIANO_HB.quotaRif)}, una partita al giorno, stop a −{PIANO_HB.perditaMax} €.</div>}
+      {spento && !carico && !mancaSql && <div style={{ background: 'rgba(251,191,36,.12)', border: '1px solid #b45309', borderRadius: 10, padding: '6px 10px', margin: '8px 0', fontSize: 12, color: '#fcd34d', fontWeight: 800 }}>⏸ Piano SPENTO: nessuna partita proposta finché non lo accendi. Regole: {euro(PIANO_HB.capitale)}, {PIANO_HB.K} vincite su {PIANO_HB.N}, quota di riferimento {virg(PIANO_HB.quotaRif)}, tutte le pre-live che arrivano, stop a −{PIANO_HB.perditaMax} €.</div>}
       {mancaSql && !carico && <div style={{ color: '#fca5a5', marginTop: 8 }}>Tabelle non trovate: lancia supabase/recupero_hunterbet.sql nel SQL Editor di Supabase, poi aggiorna la pagina.</div>}
 
       {carico ? <div style={{ color: '#94a3b8', marginTop: 8 }}>Carico piano, segnali ed esiti…</div> : !mancaSql && (
