@@ -134,6 +134,7 @@ export default function AvvisoHunterbet({ onApri, ogniMs = 60000, giroMs = 20000
         const r = leggiChiamate()[c.msg_id]
         if (telefonata === 'no') return <div style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>📞 telefonata non attiva (mancano le chiavi Twilio)</div>
         if (telefonata !== 'si' || !r) return null
+        if (Date.now() - new Date(c.event_start).getTime() >= 30 * 60000) return <div style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>📞 segnale di più di 30 minuti fa: niente telefonata</div>
         if (r.n >= TENTATIVI_MAX) return <div style={{ color: '#fbbf24', fontSize: 11, marginTop: 4 }}>📞 ti ho già chiamato {r.n} volte</div>
         const quando = new Date(r.primo + ATTESA_MS * (r.n + 1)).toLocaleTimeString('it-IT', { timeZone: 'Europe/Rome', hour: '2-digit', minute: '2-digit' })
         return <div style={{ color: '#fbbf24', fontSize: 11, marginTop: 4 }}>📞 {r.n ? 'secondo avviso' : 'ti telefono'} alle {quando} se non confermi o non premi «Non gioco»/«Nascondi»</div>
