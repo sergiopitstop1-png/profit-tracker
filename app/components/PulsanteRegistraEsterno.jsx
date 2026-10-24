@@ -12,7 +12,7 @@ export default function PulsanteRegistraEsterno() {
   const principale = pathname === '/profit-tracker' || pathname === '/profit-tracker/'
   useEffect(() => {
     if (principale) return
-    const tasto = e => { if (e.altKey && !e.ctrlKey && !e.metaKey && String(e.key).toLowerCase() === 'r') { e.preventDefault(); vai() } }
+    const tasto = e => { if (e.altKey && !e.ctrlKey && !e.metaKey && (e.code === 'KeyR' || String(e.key).toLowerCase() === 'r')) { e.preventDefault(); vai() } }
     window.addEventListener('keydown', tasto)
     return () => window.removeEventListener('keydown', tasto)
   }, [principale])

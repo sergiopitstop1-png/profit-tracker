@@ -380,7 +380,7 @@ const [regFTipo, setRegFTipo] = useState('')
 const [regForm, setRegForm] = useState({ cerca: '', bookIds: [], data: new Date().toLocaleDateString('sv-SE'), tipoOp: 'Sport', importo: '', descrizione: '', copreGiorno: true, cosa: '' })
 // 24/10/2026 — "Registra al volo": Alt+R apre il Registro manuale; anche il link /profit-tracker?registra=1 (collegamento sul desktop di Windows)
 useEffect(() => {
-  const tasto = e => { if (e.altKey && !e.ctrlKey && !e.metaKey && String(e.key).toLowerCase() === 'r') { e.preventDefault(); setRegistroAperto(true) } }
+  const tasto = e => { if (e.altKey && !e.ctrlKey && !e.metaKey && (e.code === 'KeyR' || String(e.key).toLowerCase() === 'r')) { e.preventDefault(); setRegistroAperto(true) } }
   window.addEventListener('keydown', tasto)
   try {
     const u = new URL(window.location.href)
