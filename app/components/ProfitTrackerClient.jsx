@@ -376,6 +376,7 @@ const [apriTel, setApriTel] = useState(null)   // + modo: 'chrome' | 'app', paro
 // 27/09/2026 — registro di profilazione manuale
 const [registroAperto, setRegistroAperto] = useState(false)
 const [rapidoAperto, setRapidoAperto] = useState(false)   // 24/10/2026: Registra al volo
+const [rapidoSolo, setRapidoSolo] = useState(false)   // 24/10/2026: aperto dal collegamento sul desktop: si vede solo la finestrella, poi la finestra si chiude
 const [regFBook, setRegFBook] = useState('')   // 24/10/2026: filtri sull'elenco Registrazioni del Registro manuale
 const [regFNome, setRegFNome] = useState('')
 const [regFTipo, setRegFTipo] = useState('')
@@ -386,7 +387,7 @@ useEffect(() => {
   window.addEventListener('keydown', tasto, true)
   try {
     const u = new URL(window.location.href)
-    if (u.searchParams.get('registra') === '1') { setRapidoAperto(true); u.searchParams.delete('registra'); window.history.replaceState(null, '', u.pathname + (u.search || '') + u.hash) }
+    if (u.searchParams.get('registra') === '1') { setRapidoAperto(true); setRapidoSolo(true); u.searchParams.delete('registra'); window.history.replaceState(null, '', u.pathname + (u.search || '') + u.hash) }
   } catch {}
   return () => window.removeEventListener('keydown', tasto, true)
 }, [])
@@ -8278,8 +8279,19 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         {rapidoAperto && <RegistraRapido books={books}
           cosaAuto={b => bookInRecuperoLimitato(b) ? 'recupero' : String(b.profilo_livello || '').startsWith('mantenimento') ? 'mantenimento' : 'profilazione'}
           onSalva={({ libri, tipoOp, importo, descrizione, cosa }) => registraProfilazioneManualeMulti({ libri, data: lucyOggi(), tipoOp, importo, descrizione, copreGiorno: true, cosa, senzaConferma: true })}
-          onClose={() => setRapidoAperto(false)}
-          onCompleto={() => { setRapidoAperto(false); setRegistroAperto(true) }} />}
+          solo={rapidoSolo}
+          onClose={() => { setRapidoAperto(false); if (rapidoSolo) setTimeout(() => { try { window.close() } catch {} }, 3000) }}
+          onCompleto={() => { setRapidoAperto(false); setRapidoSolo(false); setRegistroAperto(true) }} />}
+        {rapidoSolo && !rapidoAperto && (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: '#020617', color: '#e2e8f0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, textAlign: 'center', padding: 20 }}>
+            <div style={{ fontSize: 18, fontWeight: 800 }}>✍️ Registrazione chiusa: questa finestra si chiude da sola</div>
+            <div style={{ fontSize: 13, color: '#94a3b8' }}>Se non si chiude, puoi chiuderla tu oppure aprire il Profit Tracker.</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setRapidoAperto(true)} style={{ background: '#9333ea', color: 'white', border: 0, borderRadius: 10, padding: '9px 16px', fontWeight: 900, cursor: 'pointer' }}>➕ Registra un'altra</button>
+              <button onClick={() => setRapidoSolo(false)} style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #475569', borderRadius: 10, padding: '9px 16px', fontWeight: 800, cursor: 'pointer' }}>Apri il Profit Tracker</button>
+            </div>
+          </div>
+        )}
         {registroAperto && (() => {
           const q = regForm.cerca.trim().toLowerCase()
           const parole = q.split(/\s+/).filter(Boolean)   // 14/10/2026: tutte le parole devono comparire (nell'ordine che vuoi), fino a 80 conti con scorrimento

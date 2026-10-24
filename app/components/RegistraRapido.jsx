@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 const TIPI = ['Sport', 'Casinò / slot', 'Ricarica', 'Promo / VXT', 'Altro']
 const COSA = [['mantenimento', 'Mantenimento'], ['profilazione', 'Profilazione'], ['recupero', 'Recupero']]
 
-export default function RegistraRapido({ books, cosaAuto, onSalva, onClose, onCompleto }) {
+export default function RegistraRapido({ books, cosaAuto, onSalva, onClose, onCompleto, solo = false }) {
   const [cerca, setCerca] = useState('')
   const [scelti, setScelti] = useState([])          // id dei conti scelti
   const [importo, setImporto] = useState('')
@@ -51,7 +51,7 @@ export default function RegistraRapido({ books, cosaAuto, onSalva, onClose, onCo
   const seg = (attivo) => ({ padding: '6px 10px', fontSize: 12, fontWeight: 800, border: '1px solid #475569', borderRadius: 8, cursor: 'pointer', background: attivo ? '#9333ea' : '#0b1220', color: attivo ? 'white' : '#cbd5e1' })
 
   return (
-    <div onClick={onClose} onKeyDown={tasti} style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.7)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '12vh 16px 16px' }}>
+    <div onClick={onClose} onKeyDown={tasti} style={{ position: 'fixed', inset: 0, background: solo ? '#020617' : 'rgba(2,6,23,0.7)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '12vh 16px 16px' }}>
       <div onClick={e => e.stopPropagation()} style={{ background: '#0f172a', border: '1px solid rgba(147,51,234,0.6)', borderRadius: 16, padding: 16, width: 'min(460px, 100%)', color: '#e2e8f0', boxShadow: '0 20px 50px rgba(0,0,0,0.6)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
           <b style={{ color: '#c084fc', fontSize: 15 }}>✍️ Registra al volo</b>
