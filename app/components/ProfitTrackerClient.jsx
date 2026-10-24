@@ -373,6 +373,9 @@ const [puliziaSel, setPuliziaSel] = useState(null)   // { cerca, esclusi: Set(no
 const [apriTel, setApriTel] = useState(null)   // + modo: 'chrome' | 'app', parola: nome dell'app   // { cerca, key, url, esclusi: Set(id), filtri: {...} }
 // 27/09/2026 — registro di profilazione manuale
 const [registroAperto, setRegistroAperto] = useState(false)
+const [regFBook, setRegFBook] = useState('')   // 24/10/2026: filtri sull'elenco Registrazioni del Registro manuale
+const [regFNome, setRegFNome] = useState('')
+const [regFTipo, setRegFTipo] = useState('')
 const [regForm, setRegForm] = useState({ cerca: '', bookIds: [], data: new Date().toLocaleDateString('sv-SE'), tipoOp: 'Sport', importo: '', descrizione: '', copreGiorno: true, cosa: '' })
 const setPauseProf = (righe) => { PAUSE_PROF = righe || []; setPauseProfState(PAUSE_PROF) }
 // Appena un book ha "limitato bonus"/"limitato sport" nella nota, registra l'inizio del recupero (una volta sola).
@@ -8264,7 +8267,11 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           const aggiungiTrovati = () => setRegForm({ ...regForm, bookIds: [...scelti.map(x => x.id), ...trovati.filter(b => !staScelto(b)).map(b => b.id)] })
           const cosa = regForm.cosa || cosaAuto(scelto)
           const scelto = scelti[0]
-          const reg = registroManualeProf().slice(0, 60)
+          const tutteReg = registroManualeProf()
+          const regFiltroAttivo = !!(regFBook || regFNome || regFTipo)
+          const regFiltrate = tutteReg.filter(r => (!regFBook || r.book === regFBook) && (!regFNome || r.intestatario === regFNome) && (!regFTipo || r.tipoOp === regFTipo))
+          const reg = regFiltrate.slice(0, regFiltroAttivo ? 300 : 60)
+          const regOpz = (campo) => [...new Set(tutteReg.map(r => r[campo]).filter(Boolean))].sort((x, y) => String(x).localeCompare(String(y), 'it'))
           const inp = { background: '#020617', color: '#f8fafc', border: '1px solid #475569', borderRadius: 8, padding: '7px 9px', fontSize: 13 }
           const liv = b => bookInRecuperoLimitato(b) ? '🔧 Limitato - in recupero' : b.profilo_livello === 'attivo' ? '🟢 Profilazione' : String(b.profilo_livello || '').startsWith('mantenimento') ? '🟡 Mantenimento' : b.profilo_livello === 'dormiente' ? '⚫ Dormiente' : '— non impostato'
           return (
@@ -8305,8 +8312,14 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                     <button disabled={!scelti.length} onClick={async () => { const ok = await registraProfilazioneManualeMulti({ libri: scelti, data: regForm.data, tipoOp: regForm.tipoOp, importo: regForm.importo, descrizione: regForm.descrizione.trim(), copreGiorno: regForm.copreGiorno, cosa }); if (ok) setRegForm({ ...regForm, bookIds: [], cerca: '', importo: '', descrizione: '', cosa: '' }) }} style={{ background: scelti.length ? '#9333ea' : '#334155', color: 'white', border: 0, borderRadius: 10, padding: '9px 16px', fontWeight: 900, cursor: scelti.length ? 'pointer' : 'default' }}>✍️ Registra{scelti.length > 1 ? ` ${scelti.length} conti` : ''}</button>
                   </div>
                 </div>
-                <div style={{ marginTop: 16, fontSize: 13, fontWeight: 800, color: '#cbd5e1' }}>Registrazioni · {registroManualeProf().length}</div>
-                {reg.length === 0 && <div style={{ fontSize: 12, color: '#64748b', marginTop: 6 }}>Ancora nessuna registrazione.</div>}
+                <div style={{ marginTop: 16, fontSize: 13, fontWeight: 800, color: '#cbd5e1' }}>Registrazioni · {regFiltroAttivo ? `${regFiltrate.length} di ${tutteReg.length}` : tutteReg.length}</div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 6 }}>
+                  <select value={regFBook} onChange={e => setRegFBook(e.target.value)} style={inp}><option value="">Tutti i book</option>{regOpz('book').map(o => <option key={o} value={o}>{o}</option>)}</select>
+                  <select value={regFNome} onChange={e => setRegFNome(e.target.value)} style={inp}><option value="">Tutti i nomi</option>{regOpz('intestatario').map(o => <option key={o} value={o}>{o}</option>)}</select>
+                  <select value={regFTipo} onChange={e => setRegFTipo(e.target.value)} style={inp}><option value="">Tutti i tipi di giocata</option>{regOpz('tipoOp').map(o => <option key={o} value={o}>{o}</option>)}</select>
+                  {regFiltroAttivo && <button onClick={() => { setRegFBook(''); setRegFNome(''); setRegFTipo('') }} style={{ ...inp, cursor: 'pointer', padding: '5px 10px', fontSize: 12 }}>✕ Azzera filtri</button>}
+                </div>
+                {reg.length === 0 && <div style={{ fontSize: 12, color: '#64748b', marginTop: 6 }}>{regFiltroAttivo ? 'Nessuna registrazione con questi filtri.' : 'Ancora nessuna registrazione.'}</div>}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
                   {reg.map(r => (
                     <div key={r.key} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12, padding: '6px 8px', borderRadius: 8, background: 'rgba(11,18,32,0.75)', border: '1px solid rgba(51,65,85,0.6)' }}>
