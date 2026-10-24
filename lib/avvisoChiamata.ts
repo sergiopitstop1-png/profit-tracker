@@ -1,5 +1,5 @@
 // 23/10/2026 · Funzioni pure per la telefonata di avviso Hunterbet (nessun accesso a rete o database: si testano da sole).
-export const MAX_CHIAMATE_GIORNO = 5          // tetto di sicurezza: se qualcosa va storto non si brucia il credito
+export const MAX_CHIAMATE_GIORNO = 10         // tetto di sicurezza: se qualcosa va storto non si brucia il credito
 export const PAUSA_MINIMA_MIN = 4             // tra due chiamate al tuo numero devono passare almeno 4 minuti (protegge anche da due schede aperte)
 
 const ENTITA: Record<string, string> = { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }

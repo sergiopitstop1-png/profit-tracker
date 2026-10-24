@@ -2,7 +2,7 @@
 // 23/10/2026 · Telefonata di avviso (Twilio) quando c'è una bet Hunterbet Pre-live da piazzare e non è stata confermata.
 // POST { partita, inizio } → chiama il TUO numero (variabile MIO_NUMERO) dal numero Twilio e legge il testo.
 // GET → dice solo se Twilio è configurato (la pagina mostra «telefonata non attiva» se mancano le chiavi).
-// Solo admin e VIP. Senza le variabili su Vercel non fa nulla. Tetto: 5 chiamate al giorno, almeno 4 minuti tra una e l'altra (controllati su Twilio stesso).
+// Solo admin e VIP. Senza le variabili su Vercel non fa nulla. Tetto: 10 chiamate al giorno, almeno 4 minuti tra una e l'altra (controllati su Twilio stesso).
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { puoChiamare, testoChiamata, twiml } from '../../../../lib/avvisoChiamata'
