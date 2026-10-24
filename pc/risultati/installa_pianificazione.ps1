@@ -2,7 +2,7 @@
 # Se il PC e' spento all'orario previsto, l'attivita' parte appena viene riacceso.
 # Per cambiare gli orari: modifica la riga $Orari e rilancia questo file (sostituisce l'attivita' esistente).
 # Come si lancia: tasto destro sul file > "Esegui con PowerShell"   (oppure da PowerShell:  .\installa_pianificazione.ps1)
-$Orari = @("08:00", "12:00", "16:00", "20:00", "00:30")
+$Orari = @("04:00", "08:00", "12:00", "16:00", "20:00", "00:30")
 
 $Python = (Get-Command python -ErrorAction SilentlyContinue).Source
 if (-not $Python) { $Python = (Get-Command py -ErrorAction SilentlyContinue).Source }
