@@ -30,6 +30,18 @@ export const AZZERAMENTO_RECUPERO = '2026-10-12'
 let PAUSA_REC = { giorni: () => 0, totale: () => false }
 export function impostaPausaRecupero(p) { PAUSA_REC = { ...PAUSA_REC, ...(p || {}) } }
 
+// 24/10/2026 (Sergio) — se il conto ha già mosso (bet di Lucy o registrate a mano) nella STESSA settimana del recupero,
+// il recupero settimanale non si ripropone: meglio farlo su chi non ha mosso il conto da più tempo. Impostato da ProfitTrackerClient.
+let MOV_REC = { ultimo: () => null }
+export function impostaMovimentiRecupero(m) { MOV_REC = { ...MOV_REC, ...(m || {}) } }
+// stessa suddivisione in settimane usata per il giorno del recupero (7 giorni dall'1 gennaio)
+const numSettimana = (iso) => { const d = new Date(iso + 'T00:00:00'); return d.getFullYear() * 100 + Math.floor((d - new Date(d.getFullYear(), 0, 1)) / (7 * 86400000)) }
+export function haMossoQuestaSettimana(bookId, oggi) {
+  let u = null
+  try { u = MOV_REC.ultimo(bookId) } catch { u = null }
+  return !!u && String(u) <= oggi && numSettimana(String(u).slice(0, 10)) === numSettimana(oggi)
+}
+
 const oggiISO = () => new Date().toLocaleDateString('sv-SE')
 const diffGiorni = (da, a) => Math.round((new Date(a + 'T00:00:00') - new Date(da + 'T00:00:00')) / 86400000)
 const addGiorniISO = (iso, n) => { if (!n) return iso; const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('sv-SE') }
@@ -170,7 +182,7 @@ export function azioniRecuperoOggi(item, oggi = oggiISO()) {
   const p = proto.periodica
   if (p && p.frequenza === 'settimanale') {
     const g = hashStr(`${book.id}|${tipo}|sett${settimana}|giorno`) % 7
-    if (giorno === g) {
+    if (giorno === g && !haMossoQuestaSettimana(book.id, oggi)) {
       const sezioni = p.sezioni || []
       const sez = sezioni.length ? sezioni[hashStr(`${book.id}|${tipo}|sett${settimana}|sez`) % sezioni.length] : ''
       azioni.push(`🔧 Recupero (${lbl}): ${testoConMax(p.testo, book)}${sez ? ` — oggi ${sez}` : ''}`)

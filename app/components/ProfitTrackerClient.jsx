@@ -34,7 +34,7 @@ import SceltaData from './SceltaData'   // 14/10/2026: calendario unico per sceg
 import DiretteAvviso from './DiretteAvviso'   // 09/10/2026: prossima diretta Accademia (solo admin)
 import LucyTrading from './LucyTrading'   // 06/10/2026: scheda Lucy · trading prematch
 import ProfilazioniMiratePanel, { prossimaMirata, tipoMirata } from './ProfilazioniMirate'   // 05/10/2026: prossimaMirata per il banner in Dashboard
-import { impostaPausaRecupero } from './RecuperoConti'
+import { impostaPausaRecupero, impostaMovimentiRecupero } from './RecuperoConti'
 import CalendarioAperture from './CalendarioAperture'
 import { useAspetto, PannelloAspetto, NavRaggruppata, MenuIntestazione } from './AspettoDashboard'   // 12/10/2026: Dashboard meno affollata, con interruttori
 // 12/10/2026 — Lucy Mail e Segnali ora si aprono dentro il Profit Tracker (barra sempre in alto), caricati solo quando servono
@@ -571,6 +571,10 @@ useEffect(() => {
     totale: () => pausaProfAttiva()?.modo === 'totale',
   })
 }, [pauseProf])
+// 24/10/2026 (Sergio): se un conto ha già mosso questa settimana (bet di Lucy o registrate a mano), il suo recupero settimanale non si ripropone
+useEffect(() => {
+  impostaMovimentiRecupero({ ultimo: (bookId) => ultimoMovimentoBookLucy(bookId) })
+}, [lucyConfermate])
 async function avviaPausaProf(modo, ripresa) {
   const oggiIso = new Date().toLocaleDateString('sv-SE')
   if (ripresa && ripresa <= oggiIso) { setErrorMessage('La data di ripresa deve essere da domani in poi'); return }
@@ -5074,10 +5078,11 @@ async function generaLucySport(agendaItemsTutti = [], forzaQuote = false) {
     // Ogni conto genera N "slot bet". Quindi Lottomatica 100€ su 3/4 bet compare su 4 partite diverse.
     // Le conferme della giornata diventano memoria operativa:
     // al secondo calcolo Lucy considera già eseguite quantità e numero di bet.
-    const giaFatte = confermateOggiLucy().filter(x=>!x.recupero && (x.tipo==='profilazione' || x.tipo==='extra' || x.tipo==='mantenimento' || x.tipo==='recupero'))
+    // 24/10/2026 (Sergio): anche una bet di RECUPERO registrata a mano (Registro manuale) vale come fatta oggi su quel conto
+    const giaFatte = confermateOggiLucy().filter(x=>!x.recupero && (x.tipo==='profilazione' || x.tipo==='extra' || x.tipo==='mantenimento' || x.tipo==='recupero' || (x.manualeProf && x.tipoConto==='recupero')))
     sportItems.forEach(item=>{
       const fatteConto=giaFatte.filter(x=>x.bookId===item.book.id)
-      const nFatte=fatteConto.filter(x=>x.tipo==='profilazione' || (item.tipoConto==='mantenimento' && x.tipo==='mantenimento') || (item.tipoConto==='recupero' && x.tipo==='recupero')).length
+      const nFatte=fatteConto.filter(x=>x.tipo==='profilazione' || (item.tipoConto==='mantenimento' && x.tipo==='mantenimento') || (item.tipoConto==='recupero' && (x.tipo==='recupero' || (x.manualeProf && x.tipoConto==='recupero')))).length
       const euroFatti=fatteConto.reduce((s,x)=>s+Number(x.stake||0),0)
       // 27/09/2026: se oggi il conto è stato profilato a mano (registro manuale), la giornata è coperta
       if (giornoCopertoManuale(item.book.id, lucyOggi()) && item.tipoConto!=='recupero') { item.betGiaFatte=item.betRichieste; item.betRichiesteResidue=0; item.budgetResiduo=0; item.stakeVariabili=[]; item.euroGiaFatti=euroFatti; return }
