@@ -280,7 +280,7 @@ export default function RecuperiHunterbetPanel({ books, recuperi, getRecuperoPro
               <div style={{ fontWeight: 800, color: '#7dd3fc', marginBottom: 6 }}>💡 Lucy propone {scheda.bets.length} partita · {euro(scheda.bets.reduce((a, b) => a + b.puntata, 0))}</div>
               {scheda.bets.map(b => (
                 <div key={b.msg_id} style={{ fontSize: 12, color: '#cbd5e1', marginBottom: 6 }}>
-                  <b>{quando(b.event_start)}</b> · {b.partita} · <b>{b.esito}</b> · quota min <b>{virg(b.quotaMinima)}</b> · puntata <b>{euro(b.puntata)}</b>
+                  <span style={{ color: '#94a3b8' }}>segnale di <b>{quando(b.event_start)}</b></span> · {b.partita} · <b>{b.esito}</b> · quota min <b>{virg(b.quotaMinima)}</b> · puntata <b>{euro(b.puntata)}</b>
                   {b.limitataDalTetto && <div style={{ color: '#fcd34d' }}>⚠️ Il Masaniello chiederebbe {euro(b.puntataMasaniello)}: limitata a {euro(b.puntata)} per non superare la perdita massima di {PIANO_HB.perditaMax} €.</div>}
                   <div style={{ color: '#94a3b8', display: 'flex', flexWrap: 'wrap', gap: '4px 10px', alignItems: 'center', marginTop: 3 }}>
                     {apriContiSuTelefoni && b.pezzi.length > 1 && <button onClick={() => apriContiSuTelefoni(b.pezzi.map(z => bookDi(z)), `${b.partita} (${b.pezzi.length} conti)`)} style={btn('#0ea5e9')}>📱 Apri tutti ({b.pezzi.length})</button>}
@@ -308,7 +308,7 @@ export default function RecuperiHunterbetPanel({ books, recuperi, getRecuperoPro
           {perPartita(daFare).map(gr => (
             <div key={gr[0].msg_id} style={box}>
               <div style={{ fontSize: 13, color: '#e2e8f0', marginBottom: 4, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <span><b>{quando(gr[0].event_start)}</b> · {gr[0].partita} · <b>12 + Multigol 1-3</b> · quota min <b>{virg(gr[0].quota_minima)}</b></span>
+                <span><span style={{ color: '#94a3b8' }}>segnale di <b>{quando(gr[0].event_start)}</b></span> · {gr[0].partita} · <b>12 + Multigol 1-3</b> · quota min <b>{virg(gr[0].quota_minima)}</b></span>
                 {apriContiSuTelefoni && gr.length > 1 && <button onClick={() => apriContiSuTelefoni(gr.map(b => bookDi(b)), `${gr[0].partita} (${gr.length} conti)`)} style={btn('#0ea5e9')}>📱 Apri tutti ({gr.length})</button>}
                 <button disabled={lavoro} onClick={() => setSceglieOra('sposta|' + gr[0].msg_id)} style={btn('#0369a1')}>🔀 Sposta tutto su un altro conto</button>
               </div>
@@ -333,7 +333,7 @@ export default function RecuperiHunterbetPanel({ books, recuperi, getRecuperoPro
               <div style={{ overflowX: 'auto', marginTop: 6 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, color: '#e2e8f0' }}>
                   <thead><tr style={{ color: '#94a3b8', textAlign: 'left' }}>
-                    {['Data', 'Partita', 'Quota', 'Importo', 'Esito', '+/−', 'Capitale'].map(h => <th key={h} style={{ padding: '3px 6px', borderBottom: '1px solid #334155', whiteSpace: 'nowrap' }}>{h}</th>)}
+                    {['Segnale del', 'Partita', 'Quota', 'Importo', 'Esito', '+/−', 'Capitale'].map(h => <th key={h} style={{ padding: '3px 6px', borderBottom: '1px solid #334155', whiteSpace: 'nowrap' }}>{h}</th>)}
                   </tr></thead>
                   <tbody>
                     {sviluppo.map(({ e, b0, quota, diff, cap }) => (
