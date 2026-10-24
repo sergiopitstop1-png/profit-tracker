@@ -117,8 +117,10 @@ export function pianoDelGiorno({ avvisi, books, lucyColloca, oggi = new Date().t
   const piu = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('sv-SE') }
   const dataEff = (a) => { const sc = scadenzaDi(a); const lim = sc ? piu(sc, -2) : null; return lim && lim < a.data_prevista ? (lim < oggi ? oggi : lim) : a.data_prevista }
   const candidati = (avvisi || []).filter(a => a.stato === 'aperto' && a.data_prevista && dataEff(a) <= oggi && !orfano(a) && !perLucy(a))
-  const fattiOggi = (avvisi || []).filter(a => a.stato === 'fatto' && a.fatto_il === oggi && !perLucy(a)).length
-  return { ...pianoAvvisi({ candidati, oggi, scadenzaDi, fattiOggi, limite: LIMITE_AVVISI_GIORNO }), scadenzaDi }
+  // 24/10/2026 (Sergio): un avviso RIMANDATO oggi vale come l'avviso del giorno: finché non decide lui (aprendo la coda) non ne propone altri
+  const rimandatiOggi = (avvisi || []).filter(a => a.stato === 'aperto' && a.meta?.rimandato_il === oggi && !perLucy(a)).length
+  const fattiOggi = (avvisi || []).filter(a => a.stato === 'fatto' && a.fatto_il === oggi && !perLucy(a)).length + rimandatiOggi
+  return { ...pianoAvvisi({ candidati, oggi, scadenzaDi, fattiOggi, limite: LIMITE_AVVISI_GIORNO }), scadenzaDi, rimandatiOggi }
 }
 
 export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, recuperi, setRecuperi, getRecuperoProtocollo, lucyColloca, onMessage, onError }) {
@@ -449,7 +451,7 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
     const sc = scadenzaDi(a)
     if (sc && data > sc && !window.confirm(`⏰ ATTENZIONE: va fatto ENTRO il ${dataIt(sc)}. Rimandarlo al ${dataIt(data)} vuol dire superare la scadenza. Confermi?`)) return
     setSalvando(true)
-    await aggiornaAvviso(a, { data_prevista: data, rimandi: (a.rimandi || 0) + 1 })
+    await aggiornaAvviso(a, { data_prevista: data, rimandi: (a.rimandi || 0) + 1, meta: { ...(a.meta || {}), rimandato_il: oggi } })
     setSalvando(false)
     setAzione(null)
     onMessage(`⏭ Rimandato al ${dataIt(data)}: ${a.titolo}`)
@@ -662,7 +664,7 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
             )}
             {aLucy.length > 0 && <div style={{ fontSize: 12, color: '#7dd3fc', background: 'rgba(14,165,233,0.08)', border: '1px solid rgba(14,165,233,0.3)', borderRadius: 10, padding: '6px 10px' }}>🎯 {new Set(aLucy.map(a => a.book_id)).size} recuperi sport in coda a Lucy{(() => { const v = aLucy.reduce((m, a) => a.data_prevista < m ? a.data_prevista : m, oggi); const g = diffGiorni(v, oggi); return g > 0 ? ` · il più vecchio aspetta da ${g} gg` : '' })()}. Li colloca lei negli incroci, prima quelli di oggi e poi i rimasti indietro; si chiudono da soli quando confermi la bet.</div>}
             <div style={{ fontSize: 11, color: '#64748b' }}>Regola: {piano.limite} avviso al giorno · prima chi ha una scadenza, poi il più vecchio. Gli altri aspettano in coda: se hai tempo, aprila e anticipane qualcuno.</div>
-            {piano.oggi.length === 0 && <div style={{ fontSize: 12, color: piano.fattiOggi >= piano.limite ? '#86efac' : '#64748b' }}>{piano.fattiOggi >= piano.limite ? `✅ Per oggi hai fatto l'avviso del giorno.${piano.coda.length ? ` Il prossimo è previsto il ${dataIt(piano.coda[0].giorno)}.` : ''}` : 'Nessun avviso da gestire oggi.'}</div>}
+            {piano.oggi.length === 0 && <div style={{ fontSize: 12, color: piano.fattiOggi >= piano.limite ? '#86efac' : '#64748b' }}>{piano.fattiOggi >= piano.limite ? `${piano.rimandatiOggi > 0 && piano.fattiOggi === piano.rimandatiOggi ? '⏭ Per oggi hai rimandato l\'avviso del giorno: non ne propongo altri.' : '✅ Per oggi hai fatto l\'avviso del giorno.'}${piano.coda.length ? ` Il prossimo è previsto il ${dataIt(piano.coda[0].giorno)}.` : ''}` : 'Nessun avviso da gestire oggi.'}</div>}
             {Object.entries(perFlusso).map(([tipo, lista]) => (
               <div key={tipo}>
                 <div style={{ fontSize: 12, fontWeight: 800, color: '#cbd5e1', margin: '2px 0 6px' }}>{ICONA[tipo]} {NOME_FLUSSO[tipo] || tipo} · {lista.length}</div>
