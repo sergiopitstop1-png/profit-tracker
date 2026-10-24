@@ -35,6 +35,7 @@ import DiretteAvviso from './DiretteAvviso'   // 09/10/2026: prossima diretta Ac
 import LucyTrading from './LucyTrading'   // 06/10/2026: scheda Lucy · trading prematch
 import ProfilazioniMiratePanel, { prossimaMirata, tipoMirata } from './ProfilazioniMirate'   // 05/10/2026: prossimaMirata per il banner in Dashboard
 import { impostaPausaRecupero, impostaMovimentiRecupero } from './RecuperoConti'
+import PulsanteRegistra from './PulsanteRegistra'   // 24/10/2026: pulsante tondo trascinabile "Registra al volo" (apre il Registro manuale)
 import CalendarioAperture from './CalendarioAperture'
 import { useAspetto, PannelloAspetto, NavRaggruppata, MenuIntestazione } from './AspettoDashboard'   // 12/10/2026: Dashboard meno affollata, con interruttori
 // 12/10/2026 — Lucy Mail e Segnali ora si aprono dentro il Profit Tracker (barra sempre in alto), caricati solo quando servono
@@ -377,6 +378,16 @@ const [regFBook, setRegFBook] = useState('')   // 24/10/2026: filtri sull'elenco
 const [regFNome, setRegFNome] = useState('')
 const [regFTipo, setRegFTipo] = useState('')
 const [regForm, setRegForm] = useState({ cerca: '', bookIds: [], data: new Date().toLocaleDateString('sv-SE'), tipoOp: 'Sport', importo: '', descrizione: '', copreGiorno: true, cosa: '' })
+// 24/10/2026 — "Registra al volo": Alt+R apre il Registro manuale; anche il link /profit-tracker?registra=1 (collegamento sul desktop di Windows)
+useEffect(() => {
+  const tasto = e => { if (e.altKey && !e.ctrlKey && !e.metaKey && String(e.key).toLowerCase() === 'r') { e.preventDefault(); setRegistroAperto(true) } }
+  window.addEventListener('keydown', tasto)
+  try {
+    const u = new URL(window.location.href)
+    if (u.searchParams.get('registra') === '1') { setRegistroAperto(true); u.searchParams.delete('registra'); window.history.replaceState(null, '', u.pathname + (u.search || '') + u.hash) }
+  } catch {}
+  return () => window.removeEventListener('keydown', tasto)
+}, [])
 const setPauseProf = (righe) => { PAUSE_PROF = righe || []; setPauseProfState(PAUSE_PROF) }
 // Appena un book ha "limitato bonus"/"limitato sport" nella nota, registra l'inizio del recupero (una volta sola).
 const recuperiRegistratiRef = React.useRef(new Set())
@@ -8261,6 +8272,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             </div>
           )
         })()}
+        <PulsanteRegistra onClick={() => setRegistroAperto(true)} />
         {registroAperto && (() => {
           const q = regForm.cerca.trim().toLowerCase()
           const parole = q.split(/\s+/).filter(Boolean)   // 14/10/2026: tutte le parole devono comparire (nell'ordine che vuoi), fino a 80 conti con scorrimento
