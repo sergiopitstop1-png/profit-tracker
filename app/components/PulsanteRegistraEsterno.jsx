@@ -12,9 +12,9 @@ export default function PulsanteRegistraEsterno() {
   const principale = pathname === '/profit-tracker' || pathname === '/profit-tracker/'
   useEffect(() => {
     if (principale) return
-    const tasto = e => { if (e.altKey && !e.ctrlKey && !e.metaKey && (e.code === 'KeyR' || String(e.key).toLowerCase() === 'r')) { e.preventDefault(); vai() } }
-    window.addEventListener('keydown', tasto)
-    return () => window.removeEventListener('keydown', tasto)
+    const tasto = e => { if (e.altKey && !e.metaKey && (e.code === 'KeyR' || String(e.key).toLowerCase() === 'r')) { e.preventDefault(); vai() } }
+    window.addEventListener('keydown', tasto, true)
+    return () => window.removeEventListener('keydown', tasto, true)
   }, [principale])
   if (principale) return null
   return <PulsanteRegistra onClick={vai} titolo="Registra al volo (Alt+R): apre il Registro manuale · trascinami dove vuoi" />

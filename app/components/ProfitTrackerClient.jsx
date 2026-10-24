@@ -380,13 +380,13 @@ const [regFTipo, setRegFTipo] = useState('')
 const [regForm, setRegForm] = useState({ cerca: '', bookIds: [], data: new Date().toLocaleDateString('sv-SE'), tipoOp: 'Sport', importo: '', descrizione: '', copreGiorno: true, cosa: '' })
 // 24/10/2026 — "Registra al volo": Alt+R apre il Registro manuale; anche il link /profit-tracker?registra=1 (collegamento sul desktop di Windows)
 useEffect(() => {
-  const tasto = e => { if (e.altKey && !e.ctrlKey && !e.metaKey && (e.code === 'KeyR' || String(e.key).toLowerCase() === 'r')) { e.preventDefault(); setRegistroAperto(true) } }
-  window.addEventListener('keydown', tasto)
+  const tasto = e => { if (e.altKey && !e.metaKey && (e.code === 'KeyR' || String(e.key).toLowerCase() === 'r')) { e.preventDefault(); setRegistroAperto(true) } }
+  window.addEventListener('keydown', tasto, true)
   try {
     const u = new URL(window.location.href)
     if (u.searchParams.get('registra') === '1') { setRegistroAperto(true); u.searchParams.delete('registra'); window.history.replaceState(null, '', u.pathname + (u.search || '') + u.hash) }
   } catch {}
-  return () => window.removeEventListener('keydown', tasto)
+  return () => window.removeEventListener('keydown', tasto, true)
 }, [])
 const setPauseProf = (righe) => { PAUSE_PROF = righe || []; setPauseProfState(PAUSE_PROF) }
 // Appena un book ha "limitato bonus"/"limitato sport" nella nota, registra l'inizio del recupero (una volta sola).
