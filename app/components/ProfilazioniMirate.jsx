@@ -13,9 +13,46 @@
 //   Sport, Slot e Bingo sono promemoria ricorrenti (ogni N giorni, ✅ Fatta, storico, note) che compaiono anche in Oggi da fare e in Dashboard.
 // ════════════════════════════════════════════════════════════════════
 import React, { useState, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { supabase } from '../profit-tracker/supabaseClient'
 import SceltaData from './SceltaData' // 14/10/2026: calendario unico per scegliere le date
 import SessioneLivePanel, { plRoulette } from './SessioneLive' // 02/10/2026: numeri a conto nella profilazione mirata
+
+// 26/10/2026 · Finestra dei dettagli: di solito è un pannello sopra la pagina; con "↗ Finestra" si apre in una
+// finestra vera del browser (win) che si può trascinare su un altro schermo. Il contenuto resta lo stesso e
+// continua a funzionare (React lo disegna nell'altra finestra), quindi pulsanti e salvataggi non cambiano.
+function FinestraDettaglio({ win, titolo, onChiudi, children }) {
+  const [cont, setCont] = useState(null)
+  useEffect(() => {
+    if (!win) { setCont(null); return }
+    let el = null
+    try {
+      const d = win.document
+      d.title = titolo || 'Profilazione'
+      d.head.innerHTML = ''
+      document.querySelectorAll('link[rel="stylesheet"], style').forEach(n => d.head.appendChild(n.cloneNode(true)))
+      const meta = d.createElement('meta'); meta.name = 'viewport'; meta.content = 'width=device-width, initial-scale=1'; d.head.appendChild(meta)
+      d.body.className = document.body.className
+      d.body.style.cssText = 'margin:0;padding:12px;background:#0b1220;color:#e2e8f0;font-family:' + (getComputedStyle(document.body).fontFamily || 'sans-serif')
+      d.body.innerHTML = ''
+      el = d.createElement('div')
+      d.body.appendChild(el)
+      setCont(el)
+    } catch (e) { onChiudi() }
+    const chiudiTutto = () => onChiudi()
+    win.addEventListener('pagehide', chiudiTutto)
+    return () => { try { win.removeEventListener('pagehide', chiudiTutto); win.close() } catch (e) {} }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [win])
+  if (win) return cont ? createPortal(children, cont) : null
+  return (
+    <div onClick={onChiudi} style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.75)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '6vh 16px', overflowY: 'auto' }}>
+      <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 980, background: '#0b1220', border: '1px solid rgba(250,204,21,0.45)', borderRadius: 16, padding: 16, boxShadow: '0 20px 60px rgba(0,0,0,.6)' }}>
+        {children}
+      </div>
+    </div>
+  )
+}
 
 const oggiISO = () => new Date().toLocaleDateString('sv-SE')
 const addGiorni = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('sv-SE') }
@@ -140,6 +177,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
   const [numeri, setNumeri] = useState(null)      // 02/10/2026: id gruppo con la tabella numeri aperta
   const [nota, setNota] = useState(null)          // 05/10/2026: { id, testo } nota in modifica
   const [dettaglio, setDettaglio] = useState(null) // 05/10/2026: id del gruppo aperto nella finestra
+  const [finestra, setFinestra] = useState(null)   // 26/10/2026: finestra del browser separata (null = pannello sopra la pagina)
   const [scegliData, setScegliData] = useState(null) // 14/10/2026: { g, valore } calendario per la data della prossima
   const oggi = oggiISO()
   const bookDi = id => (books || []).find(b => String(b.id) === String(id))
@@ -400,7 +438,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
           const pos = posizioneGruppo(g, sessioniMirate, fatte, bookDi)   // 23/10/2026: posizione dei conti e soglie di pausa
           return (
             <React.Fragment key={g.id}>
-            <div onClick={() => setDettaglio(g.id)} title="Clic per aprire tutti i dettagli"
+            <div onClick={() => { setFinestra(null); setDettaglio(g.id) }} title="Clic per aprire tutti i dettagli"
               style={{ display: 'grid', gridTemplateColumns: '14px minmax(110px,1.2fr) minmax(130px,1fr) minmax(120px,1.4fr) 70px minmax(0,2fr)', gap: 10, alignItems: 'center',
                 padding: '9px 12px', borderRadius: 10, cursor: 'pointer', background: 'rgba(11,18,32,0.75)', border: `1px solid ${tra <= 0 ? 'rgba(248,113,113,0.45)' : 'rgba(51,65,85,0.7)'}` }}>
               <span style={{ width: 11, height: 11, borderRadius: 6, background: colore, display: 'inline-block' }} />
@@ -415,10 +453,15 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
               </span>
             </div>
             {dettaglio === g.id && (
-            <div onClick={() => setDettaglio(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.75)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '6vh 16px', overflowY: 'auto' }}>
-            <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 980, background: '#0b1220', border: '1px solid rgba(250,204,21,0.45)', borderRadius: 16, padding: 16, boxShadow: '0 20px 60px rgba(0,0,0,.6)' }}>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
-              <button style={btn('#94a3b8')} onClick={() => setDettaglio(null)}>✕ Chiudi</button>
+            <FinestraDettaglio win={finestra} titolo={`Profilazione · ${g.nome}`} onChiudi={() => { setFinestra(null); setDettaglio(null) }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginBottom: 6 }}>
+              {!finestra && <button style={btn('#38bdf8')} title="Apre il pannello in una finestra separata: la trascini sull'altro schermo"
+                onClick={() => {
+                  const w = window.open('', 'pt-dettaglio-mirata', 'popup=yes,width=1050,height=820')
+                  if (!w) { window.alert('Il browser ha bloccato la nuova finestra: consenti i popup per questo sito (icona in alto a destra nella barra degli indirizzi) e riprova.'); return }
+                  setFinestra(w)
+                }}>↗ Finestra</button>}
+              <button style={btn('#94a3b8')} onClick={() => { setFinestra(null); setDettaglio(null) }}>✕ Chiudi</button>
             </div>
             <div style={{ background: 'rgba(11,18,32,0.75)', border: `1px solid ${prossima <= oggi ? 'rgba(248,113,113,0.5)' : 'rgba(51,65,85,0.7)'}`, borderRadius: 12, padding: '8px 12px' }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -570,8 +613,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
                 </div>
               )}
             </div>
-            </div>
-            </div>
+            </FinestraDettaglio>
             )}
             </React.Fragment>
           )
