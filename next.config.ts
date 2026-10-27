@@ -5,6 +5,8 @@ const nextConfig: NextConfig = {
     return [
       // Giochi: pagine HTML statiche in public/giochi con indirizzo pulito
       { source: '/giochi/salto-matto', destination: '/giochi/salto-matto.html' },
+      { source: '/giochi/occhio-di-lince', destination: '/giochi/occhio-di-lince.html' },
+      { source: '/giochi/falco-84', destination: '/giochi/falco-84.html' },
     ]
   },
   async headers() {

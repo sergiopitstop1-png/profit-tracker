@@ -17,6 +17,22 @@ const games = [
     image: "/giochi/salto-matto-anteprima.jpg",
     alt: "Salto Matto: un omino con i capelli grigi corre su un prato al tramonto verso delle monete",
   },
+  {
+    title: "Falco '84",
+    text: "Sparatutto anni '80: pilota il tuo aereo, abbatti le ondate di nemici, raccogli i bonus e affronta il boss.",
+    tags: ["Sparatutto", "Tastiera e touch"],
+    href: "/giochi/falco-84",
+    image: "/giochi/falco-84-anteprima.jpg",
+    alt: "Falco '84: un aereo bianco spara a un grande aereo nemico viola sopra il mare",
+  },
+  {
+    title: "Occhio di Lince",
+    text: "Trova le differenze tra due quadri quasi identici. Ogni quadro è generato a caso, quindi non si ripete mai.",
+    tags: ["Differenze", "Tastiera e touch"],
+    href: "/giochi/occhio-di-lince",
+    image: "/giochi/occhio-di-lince-anteprima.jpg",
+    alt: "Occhio di Lince: due quadri di un villaggio al tramonto con differenze cerchiate in verde",
+  },
 ];
 
 export default function GiochiPage() {
