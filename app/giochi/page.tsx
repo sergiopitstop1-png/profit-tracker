@@ -26,6 +26,14 @@ const games = [
     alt: "Falco '84: un aereo bianco spara a un grande aereo nemico viola sopra il mare",
   },
   {
+    title: "Tetris",
+    text: "Il classico dei blocchi che cadono: completa le righe, tieni da parte un pezzo e resisti ai livelli più veloci.",
+    tags: ["Classico", "Tastiera e touch"],
+    href: "/giochi/tetris",
+    image: "/giochi/tetris-anteprima.jpg",
+    alt: "Tetris: il campo di gioco con i blocchi colorati e il pannello dei punti",
+  },
+  {
     title: "Occhio di Lince",
     text: "Trova le differenze tra due quadri quasi identici. Ogni quadro è generato a caso, quindi non si ripete mai.",
     tags: ["Differenze", "Tastiera e touch"],

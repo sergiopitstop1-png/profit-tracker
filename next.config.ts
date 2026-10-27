@@ -7,6 +7,7 @@ const nextConfig: NextConfig = {
       { source: '/giochi/salto-matto', destination: '/giochi/salto-matto.html' },
       { source: '/giochi/occhio-di-lince', destination: '/giochi/occhio-di-lince.html' },
       { source: '/giochi/falco-84', destination: '/giochi/falco-84.html' },
+      { source: '/giochi/tetris', destination: '/giochi/tetris.html' },
     ]
   },
   async headers() {
