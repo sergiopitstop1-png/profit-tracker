@@ -547,7 +547,8 @@ $('hint').onclick=function(){
 var solveArm=0;
 $('solve').onclick=function(){
   var b=$('solve');
-  if(!solveArm){ solveArm=setTimeout(function(){solveArm=0;b.textContent='Soluzione';},3000); b.textContent='Sicuro?'; return; }
+  if(!solveArm){ window.__armAt=Date.now(); solveArm=setTimeout(function(){solveArm=0;b.textContent='Soluzione';},3000); b.textContent='Sicuro?'; return; }
+  if(Date.now()-window.__armAt<1200) return;
   clearTimeout(solveArm); solveArm=0; b.textContent='Soluzione';
   for(var i=0;i<P.N*P.N;i++){ if(!P.black[i]){ letters[i]=P.sol[i]; marks[i]=''; } }
   solved=true; document.body.classList.add('solved'); paint(); nowEl.innerHTML='<b>Soluzione</b><span>Ecco lo schema completo</span>';

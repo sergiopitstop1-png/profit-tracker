@@ -257,7 +257,8 @@ $('hint').onclick=function(){
 var arm=0;
 $('solve').onclick=function(){
   var b=$('solve');
-  if(!arm){ arm=setTimeout(function(){arm=0;b.textContent='Soluzione';},3000); b.textContent='Sicuro?'; return; }
+  if(!arm){ window.__armAt=Date.now(); arm=setTimeout(function(){arm=0;b.textContent='Soluzione';},3000); b.textContent='Sicuro?'; return; }
+  if(Date.now()-window.__armAt<1200) return;
   clearTimeout(arm); arm=0; b.textContent='Soluzione';
   placed.forEach(function(pw){ if(!found[pw.word]) mark(pw,Object.keys(found).length%6); });
   done=true; clearInterval(tick); hintCell=-1; count(); paint(); $('msg').textContent='Ecco dove erano nascoste.';

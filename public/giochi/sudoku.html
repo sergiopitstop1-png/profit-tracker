@@ -153,7 +153,7 @@ function makePuzzle(lv){
 /* ---------- stato ---------- */
 function newGame(){
   var p=makePuzzle(level);
-  sol=p.sol; given=p.given.slice(); val=p.given.slice(); notes=new Array(81).fill(0); hist=[]; sel=-1; done=false; errs=0;
+  gaveUp=false; sol=p.sol; given=p.given.slice(); val=p.given.slice(); notes=new Array(81).fill(0); hist=[]; sel=-1; done=false; errs=0;
   $('win').hidden=true; $('msg').textContent='';
   var n=given.filter(Boolean).length;
   $('lvl').textContent=LNAME[level]+' · '+n+' numeri dati';
@@ -223,7 +223,8 @@ document.addEventListener('keydown',function(e){
   else if((k==='z'||k==='Z')){ undo(); }
 });
 function toggleNotes(){ noteMode=!noteMode; $('notes').setAttribute('aria-pressed',noteMode?'true':'false'); }
-function undo(){ var h=hist.pop(); if(!h||done) return; val=h.val; notes=h.notes; paint(); }
+var gaveUp=false;
+function undo(){ if(done&&!gaveUp) return; var h=hist.pop(); if(!h) return; val=h.val; notes=h.notes; if(gaveUp){ gaveUp=false; done=false; $('msg').textContent='Soluzione annullata, si riparte.'; clearInterval(tick); tick=setInterval(showTime,1000); } paint(); }
 $('notes').onclick=toggleNotes;
 $('erase').onclick=function(){ setCell(0); };
 $('undo').onclick=undo;
@@ -241,9 +242,10 @@ $('check').onclick=function(){
 var arm=0;
 $('solve').onclick=function(){
   var b=$('solve');
-  if(!arm){ arm=setTimeout(function(){arm=0;b.textContent='Soluzione';},3000); b.textContent='Sicuro?'; return; }
+  if(!arm){ window.__armAt=Date.now(); arm=setTimeout(function(){arm=0;b.textContent='Soluzione';},3000); b.textContent='Sicuro?'; return; }
+  if(Date.now()-window.__armAt<1200) return;
   clearTimeout(arm); arm=0; b.textContent='Soluzione';
-  push(); val=sol.slice(); notes.fill(0); done=true; clearInterval(tick); paint(); $('msg').textContent='Ecco la soluzione.';
+  push(); val=sol.slice(); notes.fill(0); done=true; gaveUp=true; clearInterval(tick); paint(); $('msg').textContent='Ecco la soluzione.';
 };
 $('print').onclick=function(){ window.print(); };
 $('new').onclick=newGame; $('again').onclick=newGame;
