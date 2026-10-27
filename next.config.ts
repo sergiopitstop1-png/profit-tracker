@@ -9,6 +9,9 @@ const nextConfig: NextConfig = {
       { source: '/giochi/falco-84', destination: '/giochi/falco-84.html' },
       { source: '/giochi/tetris', destination: '/giochi/tetris.html' },
       { source: '/giochi/cruciverba', destination: '/giochi/cruciverba.html' },
+      { source: '/giochi/sudoku', destination: '/giochi/sudoku.html' },
+      { source: '/giochi/crucipuzzle', destination: '/giochi/crucipuzzle.html' },
+      { source: '/giochi/anagrammi', destination: '/giochi/anagrammi.html' },
     ]
   },
   async headers() {

@@ -54,6 +54,33 @@ const games = [
     image: "/giochi/cruciverba-anteprima.jpg",
     alt: "Cruciverba: una griglia 11×11 con parole incrociate e pochi quadratini neri",
   },
+  {
+    title: "Sudoku",
+    section: "enigmistica",
+    text: "Schemi a soluzione unica in tre livelli, con note a matita, aiuto e stampa. Ogni schema è nuovo.",
+    tags: ["Sudoku", "Tastiera e touch", "Stampabile"],
+    href: "/giochi/sudoku",
+    image: "/giochi/sudoku-anteprima.jpg",
+    alt: "Sudoku: una griglia 9×9 con alcuni numeri già inseriti",
+  },
+  {
+    title: "Crucipuzzle",
+    section: "enigmistica",
+    text: "Trascina il dito sulle lettere per trovare le parole nascoste, anche in diagonale e al contrario nei livelli più difficili.",
+    tags: ["Parole nascoste", "Tastiera e touch", "Stampabile"],
+    href: "/giochi/crucipuzzle",
+    image: "/giochi/crucipuzzle-anteprima.jpg",
+    alt: "Crucipuzzle: una griglia di lettere con alcune parole evidenziate a colori",
+  },
+  {
+    title: "Anagrammi",
+    section: "enigmistica",
+    text: "Riordina le lettere e indovina la parola partendo dalla definizione. Otto parole a partita, con aiuti e punteggio.",
+    tags: ["Parole", "Tastiera e touch"],
+    href: "/giochi/anagrammi",
+    image: "/giochi/anagrammi-anteprima.jpg",
+    alt: "Anagrammi: lettere sparse da rimettere in ordine nelle caselle della risposta",
+  },
 ];
 
 const sections = [

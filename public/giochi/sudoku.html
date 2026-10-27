@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Sudoku</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&family=Nunito:wght@400;600;700;800&display=swap">
+<style>
+:root{
+  --bg:#0b0e1f;--panel:#1b2040;--line:#2d3466;--text:#f4efe4;--muted:#a3a9d4;--amber:#ffb454;
+  --cell:#f4efe4;--ink:#161a35;--given:#161a35;--mine:#2a4bd7;--peer:#e3e6ff;--same:#ffe3a8;--sel:#ffd98a;--bad:#d62839;
+  --font-display:'Baloo 2','Trebuchet MS',system-ui,sans-serif;
+  --font-body:'Nunito',system-ui,-apple-system,'Segoe UI',sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--text);font-family:var(--font-body);font-size:16px;line-height:1.45;-webkit-text-size-adjust:100%}
+.shell{max-width:560px;margin:0 auto;padding:10px max(16px,env(safe-area-inset-right,0px)) 24px max(16px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:10px}
+header{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+h1{margin:0;font-family:var(--font-display);font-weight:800;font-size:clamp(1.6rem,5vw,2.1rem);line-height:1.05}
+.tag{color:var(--muted);font-size:.75rem;letter-spacing:.1em;text-transform:uppercase;font-weight:700}
+button{font:inherit;color:inherit}
+.btn{display:inline-block;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:7px 16px;font-weight:700;font-size:.88rem;cursor:pointer;text-decoration:none;color:inherit;touch-action:manipulation}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--amber);color:#2a1a05;border-color:var(--amber)}
+.btn[aria-pressed=true]{background:var(--amber);color:#2a1a05;border-color:var(--amber)}
+.btn:focus-visible,.cell:focus-visible,.num:focus-visible{outline:3px solid var(--text);outline-offset:2px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;background:var(--panel)}
+.seg button{background:none;border:0;padding:7px 14px;font-weight:800;font-size:.88rem;cursor:pointer}
+.seg button[aria-pressed=true]{background:var(--amber);color:#2a1a05}
+.info{display:flex;justify-content:space-between;color:var(--muted);font-size:.85rem;font-weight:700}
+.gridwrap{position:relative;width:100%}
+.grid{display:grid;grid-template-columns:repeat(9,1fr);grid-template-rows:repeat(9,1fr);width:100%;aspect-ratio:1/1;border:3px solid #f4efe4;background:#f4efe4;user-select:none;-webkit-user-select:none;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.cell{position:relative;background:var(--cell);color:var(--given);border:0;border-right:1px solid #9aa0c8;border-bottom:1px solid #9aa0c8;padding:0;border-radius:0;display:grid;place-items:center;font-family:var(--font-display);font-weight:800;cursor:pointer;min-width:0;min-height:0;overflow:hidden;container-type:size}
+.cell:nth-child(9n){border-right:0}
+.cell:nth-child(n+73){border-bottom:0}
+.cell.r3{border-right:3px solid #161a35}
+.cell.b3{border-bottom:3px solid #161a35}
+.cell.peer{background:var(--peer)}
+.cell.same{background:var(--same)}
+.cell.sel{background:var(--sel)}
+.cell .v{font-size:64cqh;line-height:1}
+.cell.mine .v{color:var(--mine);font-weight:700}
+.cell.err .v{color:var(--bad)}
+.cell.err{background:#ffd3d3}
+.cell .nt{position:absolute;inset:0;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);font-family:var(--font-body);font-weight:700;color:#5a5f8f;font-size:26cqh;line-height:1;text-align:center;align-items:center}
+.pad{display:grid;grid-template-columns:repeat(9,1fr);gap:5px}
+.num{position:relative;height:52px;border-radius:10px;border:1px solid var(--line);background:var(--panel);font-family:var(--font-display);font-weight:800;font-size:1.4rem;cursor:pointer;padding:0;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.num:active{background:var(--amber);color:#2a1a05}
+.num small{position:absolute;right:4px;bottom:1px;font-size:.6rem;color:var(--muted);font-family:var(--font-body);font-weight:700}
+.num.zero{opacity:.35}
+.tools{display:flex;gap:8px;flex-wrap:wrap}
+.overlay{position:absolute;inset:0;background:rgba(8,10,28,.88);display:flex;align-items:center;justify-content:center;text-align:center;padding:16px;z-index:3}
+.overlay[hidden]{display:none}
+.overlay h2{margin:0;font-family:var(--font-display);color:var(--amber);font-size:1.6rem}
+.overlay p{margin:6px 0 12px;color:var(--muted)}
+.msg{min-height:1.5em;color:var(--muted);font-size:.9rem;font-weight:700}
+.printhead{display:none}
+@media print{
+  :root{color-scheme:light}
+  body{background:#fff;color:#000}
+  .shell{max-width:none;padding:0}
+  header,.bar,.pad,.tools,.info,.msg,.noprint{display:none!important}
+  .printhead{display:block;font-family:var(--font-display);font-size:20pt;font-weight:800;margin:0 0 8pt}
+  .gridwrap{max-width:14cm}
+  .grid{border-color:#000;background:#fff}
+  .cell{background:#fff!important;color:#000!important;border-color:#777}
+  .cell.r3{border-right-color:#000}.cell.b3{border-bottom-color:#000}
+  .cell:not(.given) .v,.cell .nt{visibility:hidden}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header>
+    <div><div class="tag">Enigmistica</div><h1>Sudoku</h1></div>
+    <a class="btn" href="#" id="home">← Giochi</a>
+  </header>
+  <div class="bar">
+    <div class="seg" role="group" aria-label="Livello">
+      <button data-l="easy" aria-pressed="true">Facile</button>
+      <button data-l="mid" aria-pressed="false">Medio</button>
+      <button data-l="hard" aria-pressed="false">Difficile</button>
+    </div>
+    <button class="btn primary" id="new">Nuovo schema</button>
+    <button class="btn" id="check">Verifica</button>
+    <button class="btn" id="solve">Soluzione</button>
+    <button class="btn" id="print">Stampa</button>
+  </div>
+  <div class="printhead" id="printhead">Sudoku</div>
+  <div class="info"><span id="lvl"></span><span id="timer">0:00</span></div>
+  <div class="gridwrap">
+    <div class="grid" id="grid" role="application" aria-label="Griglia del sudoku"></div>
+    <div class="overlay" id="win" hidden><div><h2 id="wintitle">Bravo!</h2><p id="wintext"></p><button class="btn primary" id="again">Nuovo schema</button></div></div>
+  </div>
+  <div class="msg" id="msg" aria-live="polite"></div>
+  <div class="tools">
+    <button class="btn" id="notes" aria-pressed="false">✎ Note</button>
+    <button class="btn" id="erase">Cancella</button>
+    <button class="btn" id="undo">Annulla</button>
+    <button class="btn" id="hint">Aiuto</button>
+  </div>
+  <div class="pad" id="pad"></div>
+</div>
+<script>
+(function(){
+'use strict';
+var $=function(id){return document.getElementById(id);};
+var GIVENS={easy:40,mid:32,hard:26}, LNAME={easy:'Facile',mid:'Medio',hard:'Difficile'};
+var level='easy';
+try{var sl=localStorage.getItem('sd-level'); if(GIVENS[sl]) level=sl;}catch(e){}
+var sol=[],given=[],val=[],notes=[],sel=-1,noteMode=false,hist=[],t0=0,tick=null,done=false,errs=0;
+
+/* ---------- solver ---------- */
+var PEERS=[];
+for(var i=0;i<81;i++){var r=Math.floor(i/9),c=i%9,s={};for(var k=0;k<9;k++){s[r*9+k]=1;s[k*9+c]=1;}var br=r-r%3,bc=c-c%3;for(var a=0;a<3;a++)for(var b=0;b<3;b++)s[(br+a)*9+bc+b]=1;delete s[i];PEERS.push(Object.keys(s).map(Number));}
+function shuffle(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;}return a;}
+function candMask(g,i){var m=0x1ff;var p=PEERS[i];for(var k=0;k<p.length;k++){var v=g[p[k]];if(v)m&=~(1<<(v-1));}return m;}
+function bits(m){var o=[];for(var d=1;d<=9;d++)if(m&(1<<(d-1)))o.push(d);return o;}
+function pc(m){var c=0;while(m){m&=m-1;c++;}return c;}
+// conta le soluzioni (fino a limit); se rnd, prova le cifre in ordine casuale e salva la prima soluzione in out
+function solve(g,limit,rnd,out){
+  var count=0;
+  function rec(){
+    var best=-1,bm=0,bc=10;
+    for(var i=0;i<81;i++){ if(g[i])continue; var m=candMask(g,i),n=pc(m); if(n<bc){bc=n;best=i;bm=m;if(n<=1)break;} }
+    if(best<0){ count++; if(out&&count===1) out.push(g.slice()); return count>=limit; }
+    if(bc===0) return false;
+    var ds=bits(bm); if(rnd) shuffle(ds);
+    for(var k=0;k<ds.length;k++){ g[best]=ds[k]; if(rec()){ g[best]=0; return true; } }
+    g[best]=0; return false;
+  }
+  rec(); return count;
+}
+function makePuzzle(lv){
+  var full=[];for(var i=0;i<81;i++)full.push(0);
+  var o=[]; solve(full,1,true,o); var S=o[0];
+  var g=S.slice(), target=GIVENS[lv], n=81;
+  var order=shuffle(Array.apply(null,{length:41}).map(function(_,i){return i;}));
+  for(var q=0;q<order.length&&n>target;q++){
+    var a=order[q], b=80-a; if(!g[a]&&!g[b]) continue;
+    var ga=g[a], gb=g[b]; g[a]=0; g[b]=0;
+    if(solve(g.slice(),2)!==1){ g[a]=ga; g[b]=gb; } else n-=(a===b?1:2);
+  }
+  return {sol:S,given:g};
+}
+
+/* ---------- stato ---------- */
+function newGame(){
+  var p=makePuzzle(level);
+  sol=p.sol; given=p.given.slice(); val=p.given.slice(); notes=new Array(81).fill(0); hist=[]; sel=-1; done=false; errs=0;
+  $('win').hidden=true; $('msg').textContent='';
+  var n=given.filter(Boolean).length;
+  $('lvl').textContent=LNAME[level]+' · '+n+' numeri dati';
+  $('printhead').textContent='Sudoku · '+LNAME[level];
+  t0=Date.now(); clearInterval(tick); tick=setInterval(showTime,1000); showTime();
+  build(); paint();
+}
+function showTime(){ var s=Math.floor((Date.now()-t0)/1000); $('timer').textContent=Math.floor(s/60)+':'+('0'+s%60).slice(-2); }
+function build(){
+  var g=$('grid'); g.innerHTML='';
+  for(var i=0;i<81;i++){
+    var b=document.createElement('button'); b.type='button'; b.className='cell'+(given[i]?' given':'')+((i%9===2||i%9===5)?' r3':'')+((Math.floor(i/9)===2||Math.floor(i/9)===5)?' b3':''); b.dataset.i=i;
+    b.setAttribute('aria-label','Riga '+(Math.floor(i/9)+1)+', colonna '+(i%9+1));
+    g.appendChild(b);
+  }
+}
+function conflict(i){ var v=val[i]; if(!v) return false; var p=PEERS[i]; for(var k=0;k<p.length;k++) if(val[p[k]]===v) return true; return false; }
+function paint(){
+  var cells=$('grid').children, sv=sel>=0?val[sel]:0, pe={};
+  if(sel>=0) PEERS[sel].forEach(function(x){pe[x]=1;});
+  var cnt=new Array(10).fill(0);
+  for(var i=0;i<81;i++){
+    var el=cells[i], v=val[i]; if(v) cnt[v]++;
+    var cls='cell'+(given[i]?' given':'')+((i%9===2||i%9===5)?' r3':'')+((Math.floor(i/9)===2||Math.floor(i/9)===5)?' b3':'');
+    if(i===sel) cls+=' sel'; else if(sv&&v===sv) cls+=' same'; else if(pe[i]) cls+=' peer';
+    if(v&&!given[i]) cls+=' mine';
+    if(v&&conflict(i)) cls+=' err';
+    el.className=cls;
+    if(v){ el.innerHTML='<span class="v">'+v+'</span>'; }
+    else if(notes[i]){ var h='<span class="nt">'; for(var d=1;d<=9;d++) h+='<span>'+((notes[i]&(1<<(d-1)))?d:'')+'</span>'; el.innerHTML=h+'</span>'; }
+    else el.innerHTML='';
+  }
+  var keys=$('pad').children;
+  for(var d2=1;d2<=9;d2++){ var left=9-cnt[d2]; keys[d2-1].classList.toggle('zero',left<=0); keys[d2-1].querySelector('small').textContent=left>0?left:''; }
+}
+function push(){ hist.push({val:val.slice(),notes:notes.slice()}); if(hist.length>200) hist.shift(); }
+function setCell(d){
+  if(sel<0||done||given[sel]) return;
+  push();
+  if(noteMode&&d){ if(val[sel]) return; notes[sel]^=(1<<(d-1)); }
+  else{
+    val[sel]=d; notes[sel]=0;
+    if(d){ PEERS[sel].forEach(function(p){ notes[p]&=~(1<<(d-1)); }); }
+  }
+  paint(); checkWin();
+}
+function checkWin(){
+  for(var i=0;i<81;i++) if(val[i]!==sol[i]) return;
+  done=true; clearInterval(tick);
+  var s=Math.floor((Date.now()-t0)/1000);
+  $('wintitle').textContent='Bravo!';
+  $('wintext').textContent='Livello '+LNAME[level].toLowerCase()+' completato in '+Math.floor(s/60)+':'+('0'+s%60).slice(-2)+'.';
+  $('win').hidden=false;
+}
+/* ---------- input ---------- */
+$('grid').addEventListener('click',function(e){var c=e.target.closest('.cell'); if(!c) return; sel=+c.dataset.i; paint();});
+(function(){var p=$('pad');for(var d=1;d<=9;d++){var b=document.createElement('button');b.type='button';b.className='num';b.dataset.d=d;b.innerHTML=d+'<small></small>';p.appendChild(b);}
+ p.addEventListener('click',function(e){var b=e.target.closest('.num');if(b) setCell(+b.dataset.d);});})();
+document.addEventListener('keydown',function(e){
+  if(e.ctrlKey||e.metaKey||e.altKey) return;
+  var k=e.key;
+  if(/^[1-9]$/.test(k)){ e.preventDefault(); setCell(+k); }
+  else if(k==='Backspace'||k==='Delete'||k==='0'){ e.preventDefault(); setCell(0); }
+  else if(k==='n'||k==='N'){ toggleNotes(); }
+  else if(k.indexOf('Arrow')===0){ e.preventDefault(); if(sel<0) sel=0; var r=Math.floor(sel/9),c=sel%9;
+    if(k==='ArrowUp') r=(r+8)%9; if(k==='ArrowDown') r=(r+1)%9; if(k==='ArrowLeft') c=(c+8)%9; if(k==='ArrowRight') c=(c+1)%9; sel=r*9+c; paint(); }
+  else if((k==='z'||k==='Z')){ undo(); }
+});
+function toggleNotes(){ noteMode=!noteMode; $('notes').setAttribute('aria-pressed',noteMode?'true':'false'); }
+function undo(){ var h=hist.pop(); if(!h||done) return; val=h.val; notes=h.notes; paint(); }
+$('notes').onclick=toggleNotes;
+$('erase').onclick=function(){ setCell(0); };
+$('undo').onclick=undo;
+$('hint').onclick=function(){
+  if(done) return;
+  var i=sel;
+  if(i<0||given[i]||val[i]===sol[i]){ var cand=[]; for(var k=0;k<81;k++) if(val[k]!==sol[k]) cand.push(k); if(!cand.length) return; i=cand[Math.floor(Math.random()*cand.length)]; }
+  push(); sel=i; val[i]=sol[i]; notes[i]=0; PEERS[i].forEach(function(p){ notes[p]&=~(1<<(sol[i]-1)); }); given[i]=given[i]; paint(); $('msg').textContent='Ti ho rivelato un numero.'; checkWin();
+};
+$('check').onclick=function(){
+  var wrong=0; for(var i=0;i<81;i++) if(val[i]&&val[i]!==sol[i]) wrong++;
+  $('msg').textContent=wrong?(wrong===1?'C\'è 1 numero sbagliato.':'Ci sono '+wrong+' numeri sbagliati.')+' Controlla le righe, le colonne e i riquadri.':'Finora è tutto giusto!';
+  if(wrong){ var cells=$('grid').children; for(var j=0;j<81;j++) if(val[j]&&val[j]!==sol[j]) cells[j].classList.add('err'); }
+};
+var arm=0;
+$('solve').onclick=function(){
+  var b=$('solve');
+  if(!arm){ arm=setTimeout(function(){arm=0;b.textContent='Soluzione';},3000); b.textContent='Sicuro?'; return; }
+  clearTimeout(arm); arm=0; b.textContent='Soluzione';
+  push(); val=sol.slice(); notes.fill(0); done=true; clearInterval(tick); paint(); $('msg').textContent='Ecco la soluzione.';
+};
+$('print').onclick=function(){ window.print(); };
+$('new').onclick=newGame; $('again').onclick=newGame;
+document.querySelectorAll('.seg button').forEach(function(b){
+  b.setAttribute('aria-pressed',b.dataset.l===level?'true':'false');
+  b.onclick=function(){ level=b.dataset.l; try{localStorage.setItem('sd-level',level);}catch(e){} document.querySelectorAll('.seg button').forEach(function(x){x.setAttribute('aria-pressed',x.dataset.l===level?'true':'false');}); newGame(); };
+});
+var HH='/giochi'; if(HH) $('home').href=HH; else $('home').style.display='none';
+newGame();
+})();
+</script>
+</body>
+</html>
