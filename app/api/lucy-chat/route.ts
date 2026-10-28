@@ -117,16 +117,19 @@ export async function POST(req: NextRequest) {
     ] }]
   }
   let risposta = ''
+  let ultimoMotivo = ''
+  let riprovato = false
   // fino a 6 letture (mail, SMS, tabelle); all'ultimo giro Lucy deve rispondere con quello che ha
   const GIRI = 7
   for (let giro = 0; giro < GIRI; giro++) {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'x-api-key': chiave, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: MODELLO, max_tokens: 1000, system: sistema, tools: [...STRUMENTI, ...STRUMENTI_REGISTRA], ...(giro === GIRI - 1 ? { tool_choice: { type: 'none' } } : {}), messages: conCache(msgs) }),
+      body: JSON.stringify({ model: MODELLO, max_tokens: 4000, system: sistema, tools: [...STRUMENTI, ...STRUMENTI_REGISTRA], ...(giro === GIRI - 1 ? { tool_choice: { type: 'none' } } : {}), messages: conCache(msgs) }),
     })
     if (!r.ok) return NextResponse.json({ error: `Anthropic ${r.status}: ${(await r.text()).slice(0, 200)}` }, { status: r.status === 429 || r.status >= 500 ? 503 : 502 })
     const j = await r.json()
+    ultimoMotivo = String(j?.stop_reason || '')
     if (j?.usage) console.log('[lucy-chat] token: nuovi', j.usage.input_tokens, '· scritti in cache', j.usage.cache_creation_input_tokens ?? 0, '· letti da cache', j.usage.cache_read_input_tokens ?? 0, '· uscita', j.usage.output_tokens)
     const blocchi: any[] = Array.isArray(j?.content) ? j.content : []
     const usi = blocchi.filter((b: any) => b?.type === 'tool_use')
@@ -148,8 +151,15 @@ export async function POST(req: NextRequest) {
       continue
     }
     risposta = blocchi.filter((b: any) => b?.type === 'text').map((b: any) => b.text).join('\n').trim()
+    if (!risposta && !riprovato && giro < GIRI - 1) {
+      // nessun testo (risposta tagliata o vuota): un secondo tentativo, chiedendo di rispondere con quello che ha
+      riprovato = true
+      console.log('[lucy-chat] risposta senza testo, motivo:', ultimoMotivo, '· blocchi:', blocchi.map((b: any) => b?.type).join(','))
+      msgs = [...msgs, ...(blocchi.some((b: any) => b?.type === 'text') ? [{ role: 'assistant', content: blocchi.filter((b: any) => b?.type === 'text') }] : []), { role: 'user', content: 'Rispondi ora a Sergio con quello che hai trovato, in modo breve.' }]
+      continue
+    }
     break
   }
-  if (!risposta) return NextResponse.json({ error: 'risposta vuota' }, { status: 502 })
+  if (!risposta) return NextResponse.json({ error: `risposta vuota (motivo: ${ultimoMotivo || '?'}): riprova, o scrivi un messaggio più breve` }, { status: 502 })
   return NextResponse.json({ risposta })
 }
