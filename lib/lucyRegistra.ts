@@ -35,7 +35,7 @@ export const STRUMENTI_REGISTRA = [{
   },
 }, {
   name: 'registra_operazione',
-  description: 'Mette in coda la registrazione di un\'operazione fatta OGGI a mano su uno o più conti. Chiamalo SOLO dopo che Sergio ha confermato in chat il riepilogo che gli hai mostrato, e solo con gli id presi da trova_conto. Una chiamata = un importo: se le bet hanno importi diversi fai una chiamata per ciascuna. Registra solo operazioni di oggi.',
+  description: 'Mette in coda la registrazione di un\'operazione fatta OGGI a mano su uno o più conti. Chiamalo SOLO per operazioni che Sergio dice di aver fatto lui, dopo che ha confermato in chat il riepilogo che gli hai mostrato, e solo con gli id presi da trova_conto. MAI per conti che hai solo consigliato (i consigli di conti_disponibili non sono operazioni). Una chiamata = un importo: se le bet hanno importi diversi fai una chiamata per ciascuna. Registra solo operazioni di oggi.',
   input_schema: {
     type: 'object',
     properties: {
