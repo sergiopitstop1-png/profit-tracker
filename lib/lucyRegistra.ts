@@ -22,6 +22,17 @@ export const STRUMENTI_REGISTRA = [{
     },
   },
 }, {
+  name: 'conti_disponibili',
+  description: 'Elenca i conti che Sergio può usare ORA per una bet (o per la copertura), in sola lettura, dal conto fermo da più tempo. Usalo quando chiede "quali Sisal uso?" (passa book = "sisal") oppure "devo fare bet di copertura, su quale conto?" (non passare book: vale qualunque brand). Esclude da solo dormienti, conti già usati oggi, conti in profilazione (li guida Profiliamo) e i limitati che non possono scommettere sport. Include mantenimento e recupero.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      book: { type: 'string', description: 'Parte del nome del book (es. "sisal"). Se Sergio non indica un brand, lascia vuoto: vale qualsiasi brand.' },
+      escludi_cliente: { type: 'string', description: 'Cliente da NON usare (per la copertura: il cliente della bet principale), parte del nome.' },
+      quanti: { type: 'integer', description: 'Quanti conti mostrare (default 6, massimo 15).' },
+    },
+  },
+}, {
   name: 'registra_operazione',
   description: 'Mette in coda la registrazione di un\'operazione fatta OGGI a mano su uno o più conti. Chiamalo SOLO dopo che Sergio ha confermato in chat il riepilogo che gli hai mostrato, e solo con gli id presi da trova_conto. Una chiamata = un importo: se le bet hanno importi diversi fai una chiamata per ciascuna. Registra solo operazioni di oggi.',
   input_schema: {
@@ -87,4 +98,101 @@ export async function registraOperazione(sb: any, inp: any, ultimoMessaggioUtent
   if (e3) return `NON registrato: ${taglia(e3.message, 140)}`
   const elenco = (esistenti || []).map((b: any) => `${taglia(b.nome, 30)} · ${taglia(b.intestatario, 30) || '—'}`).join('; ')
   return `Messo in coda: ${tipo}${importo ? ` ${importo} €` : ''} su ${elenco}. Il Profit Tracker lo scrive nel Registro manuale entro circa un minuto, ma solo se è aperto in una scheda del browser; se il conto è limitato lo segna da solo come recupero, altrimenti come mantenimento o profilazione secondo il suo livello.`
+}
+
+// ─────────────────────────────────────────────────────────────────
+// conti_disponibili (28/10/2026) — "quali Sisal uso?" / "su quale conto copro?"
+// Le tre funzioni sulle note sono una COPIA di quelle di app/components/RecuperoConti.jsx (che è un componente del browser e qui non si può importare):
+// se cambi lì la regola delle note (limitato, non scommette, max euro), cambiala anche qui.
+function limitazioniDaNota(note: any): string[] {
+  const n = String(note || '').toLowerCase()
+  if (!n || n.includes('chiuso')) return []
+  const out: string[] = []
+  if (/limitat[oa]\s+bonus/.test(n)) out.push('bonus')
+  if (/limitat[oa]\s+sport/.test(n)) out.push('sport')
+  return out
+}
+const RE_NON_SCOMMETTE = /\bnon\s+(?:puo\s+|riesce\s+a\s+|vuole\s+)?(?:piu\s+)?scommett/
+function sportBloccato(b: any): boolean {
+  if (b?.sport_bloccato) return true
+  if (!limitazioniDaNota(b?.note).includes('sport')) return false
+  return RE_NON_SCOMMETTE.test(String(b?.note || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''))
+}
+function maxEuro(note: any): number | null {
+  if (!limitazioniDaNota(note).includes('sport')) return null
+  const m = String(note || '').toLowerCase().match(/\b(?:max|massimo)\.?\s*:?\s*(\d+(?:[.,]\d+)?)\s*(?:€|eur)/)
+  if (!m) return null
+  const v = Number(m[1].replace(',', '.'))
+  return Number.isFinite(v) && v > 0 ? v : null
+}
+
+const oggiRoma = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' })
+const dataIt = (iso: string) => (iso ? iso.split('-').reverse().join('/') : '')
+
+// ultimo movimento di ogni conto = data più recente tra le bet confermate di Lucy e le operazioni registrate a mano (stessa tabella)
+async function ultimiMovimenti(sb: any): Promise<Map<string, string>> {
+  const mappa = new Map<string, string>()
+  const da = new Date(Date.now() - 400 * 86400000).toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' })
+  const utente = process.env.PT_USER_ID
+  for (let da_riga = 0; da_riga < 15000; da_riga += 1000) {
+    let q = sb.from('lucy_bet_confermate').select('rec,data').gte('data', da).order('data', { ascending: false }).range(da_riga, da_riga + 999)
+    if (utente) q = q.eq('user_id', utente)
+    const { data, error } = await q
+    if (error) throw error
+    for (const r of data || []) {
+      const id = String(r?.rec?.bookId ?? '')
+      const g = String(r?.data || r?.rec?.data || '').slice(0, 10)
+      if (id && g && (!mappa.has(id) || g > (mappa.get(id) as string))) mappa.set(id, g)
+    }
+    if (!data || data.length < 1000) break
+  }
+  return mappa
+}
+
+export async function contiDisponibili(sb: any, inp: any): Promise<string> {
+  const brand = pulisci(inp?.book).toLowerCase()
+  const escludi = pulisci(inp?.escludi_cliente).toLowerCase()
+  const quanti = Math.min(15, Math.max(1, Number(inp?.quanti) || 6))
+  const oggi = oggiRoma()
+
+  const conti: any[] = []
+  for (let off = 0; off < 5000; off += 1000) {
+    const { data, error } = await sb.from('books').select('id,nome,intestatario,profilo_livello,note,sport_bloccato').order('id', { ascending: true }).range(off, off + 999)
+    if (error) return `Lettura dei conti non riuscita: ${taglia(error.message, 120)}`
+    conti.push(...(data || []))
+    if (!data || data.length < 1000) break
+  }
+  let mov: Map<string, string>
+  try { mov = await ultimiMovimenti(sb) } catch (e: any) { return `Lettura dei movimenti non riuscita: ${taglia(e?.message, 120)}` }
+
+  const scartati = { dormienti: 0, profilazione: 0, usati_oggi: 0, sport_bloccato: 0, chiusi: 0, recupero_gia_mosso: 0, stesso_cliente: 0 }
+  const candidati: { b: any; tipo: string; ultimo: string }[] = []
+  for (const b of conti) {
+    if (brand && !String(b.nome || '').toLowerCase().includes(brand)) continue
+    if (escludi && String(b.intestatario || '').toLowerCase().includes(escludi)) { scartati.stesso_cliente++; continue }
+    const nota = String(b.note || '').toLowerCase()
+    if (nota.includes('chiuso')) { scartati.chiusi++; continue }
+    const lim = limitazioniDaNota(b.note)
+    const ultimo = mov.get(String(b.id)) || ''
+    if (ultimo && ultimo >= oggi) { scartati.usati_oggi++; continue }
+    if (lim.length) {                                  // limitato = recupero (stessa regola del Profit Tracker)
+      if (sportBloccato(b)) { scartati.sport_bloccato++; continue }
+      if (ultimo && (Date.now() - new Date(ultimo + 'T12:00:00').getTime()) < 6 * 86400000) { scartati.recupero_gia_mosso++; continue }
+      candidati.push({ b, tipo: 'recupero', ultimo })
+      continue
+    }
+    if (b.profilo_livello === 'dormiente') { scartati.dormienti++; continue }
+    if (b.profilo_livello === 'attivo') { scartati.profilazione++; continue }
+    candidati.push({ b, tipo: 'mantenimento', ultimo })
+  }
+  // dal conto fermo da più tempo (mai usati per primi)
+  candidati.sort((x, y) => (x.ultimo || '').localeCompare(y.ultimo || '') || String(x.b.id).localeCompare(String(y.b.id)))
+
+  const scarti = Object.entries(scartati).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${k.replace(/_/g, ' ')}`).join(', ')
+  if (!candidati.length) return `Nessun conto disponibile${brand ? ` per "${brand}"` : ''}.${scarti ? ` Scartati: ${scarti}.` : ''}`
+  const righe = candidati.slice(0, quanti).map(({ b, tipo, ultimo }) => {
+    const mx = maxEuro(b.note)
+    return `- id ${b.id} · ${taglia(b.nome, 40)} · ${taglia(b.intestatario, 40) || '—'} · ${tipo} · ultimo movimento: ${ultimo ? dataIt(ultimo) : 'mai registrato'}${mx ? ` · puntata max ${mx} €` : ''}`
+  })
+  return `${candidati.length} conti disponibili${brand ? ` per "${brand}"` : ''}, dal fermo da più tempo (mostro i primi ${righe.length}):\n${righe.join('\n')}\n${scarti ? `Esclusi: ${scarti}.\n` : ''}Elenco indicativo: non tiene conto delle regole di riposo dei singoli book.`
 }
