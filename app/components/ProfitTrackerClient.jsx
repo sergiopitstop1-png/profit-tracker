@@ -412,7 +412,9 @@ codaRef.current = async () => {
   let ok = false, motivo = ''
   if (!libri.length || libri.length !== ids.length) motivo = 'conto non trovato (forse eliminato)'
   else {
-    const cosa = bookInRecuperoLimitato(libri[0]) ? 'recupero' : String(libri[0].profilo_livello || '').startsWith('mantenimento') ? 'mantenimento' : 'profilazione'
+    // 28/10/2026: regola di Sergio — limitato = recupero; in profilazione SOLO se il conto lo è già (livello "attivo"); tutti gli altri
+    // (mantenimento, senza livello, dormiente) = mantenimento. Così una registrazione non sposta più in Profilazione un conto normale.
+    const cosa = bookInRecuperoLimitato(libri[0]) ? 'recupero' : libri[0].profilo_livello === 'attivo' ? 'profilazione' : 'mantenimento'
     ok = await registraProfilazioneManualeMulti({ libri, data: new Date(r.creato).toLocaleDateString('sv-SE'), tipoOp: r.tipo_op || 'Sport', importo: r.importo || '', descrizione: r.nota || '', copreGiorno: true, cosa, senzaConferma: true })
     if (!ok) motivo = 'registrazione non riuscita (controlla importo e data)'
   }
@@ -8448,8 +8450,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           {/* 12/10/2026 — Segnali e Lucy Mail sono tab come le altre: la barra resta sempre in alto */}
           <button style={activeTab === 'segnali' ? activeTabButton : { ...tabButton, borderColor: 'rgba(56,189,248,0.6)' }} title="Segnali del canale ScoreTrend in tempo reale, con la pagella" onClick={() => handleTabChange('segnali')}>📡 Segnali</button>
           <button style={activeTab === 'lucy-mail' ? activeTabButton : { ...tabButton, borderColor: 'rgba(34,197,94,0.6)' }} title="Email e SMS dei bookmaker analizzati da Lucy" onClick={() => handleTabChange('lucy-mail')}>📬 Lucy Mail</button>
-          {/* 15/10/2026 — chat con Lucy (sola lettura), pagina a parte */}
-          <button style={{ ...tabButton, borderColor: 'rgba(34,197,94,0.6)' }} title="Chatta con Lucy (sola lettura)" onClick={() => window.open('/profit-tracker/lucy-chat', '_blank')}>💬 Chat Lucy</button>
+          {/* 15/10/2026 — chat con Lucy, pagina a parte (28/10/2026: può registrare operazioni dopo il sì di Sergio) */}
+          <button style={{ ...tabButton, borderColor: 'rgba(34,197,94,0.6)' }} title="Chatta con Lucy (legge tutto; registra operazioni solo dopo il tuo sì)" onClick={() => window.open('/profit-tracker/lucy-chat', '_blank')}>💬 Chat Lucy</button>
           {/* 13/10/2026 — Strumenti: per ora la lista slot unica (Profilazione + Accademia) */}
           <button style={activeTab === 'slot-consigliate' ? activeTabButton : tabButton} title="Strumenti: lista slot unica (Profilazione + Accademia)" onClick={() => handleTabChange('slot-consigliate')}>🎰 Lista slot</button>
 <button
