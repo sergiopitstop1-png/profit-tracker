@@ -1,5 +1,5 @@
 'use client'
-// 💬 Chat con Lucy (15/10/2026) — sola lettura. La cronologia resta solo in questo browser.
+// 💬 Chat con Lucy (15/10/2026) — legge tutto; dal 28/10/2026 registra un'operazione solo dopo il tuo sì. La cronologia resta solo in questo browser.
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 
