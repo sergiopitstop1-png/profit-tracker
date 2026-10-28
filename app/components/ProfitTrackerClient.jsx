@@ -409,16 +409,21 @@ codaRef.current = async () => {
   if (!presa || !presa.length) return
   const ids = Array.isArray(r.book_ids) ? r.book_ids.map(String) : []
   const libri = ids.map(id => books.find(b => String(b.id) === id)).filter(Boolean)
-  let ok = false, motivo = ''
+  let ok = false, motivo = '', resto = []
   if (!libri.length || libri.length !== ids.length) motivo = 'conto non trovato (forse eliminato)'
   else {
     // 28/10/2026: regola di Sergio — limitato = recupero; in profilazione SOLO se il conto lo è già (livello "attivo"); tutti gli altri
     // (mantenimento, senza livello, dormiente) = mantenimento. Così una registrazione non sposta più in Profilazione un conto normale.
-    const cosa = bookInRecuperoLimitato(libri[0]) ? 'recupero' : libri[0].profilo_livello === 'attivo' ? 'profilazione' : 'mantenimento'
-    ok = await registraProfilazioneManualeMulti({ libri, data: new Date(r.creato).toLocaleDateString('sv-SE'), tipoOp: r.tipo_op || 'Sport', importo: r.importo || '', descrizione: r.nota || '', copreGiorno: true, cosa, senzaConferma: true })
+    // 28/10/2026 (correzione): la classe si decide PER OGNI conto. Prima valeva quella del primo conto per tutti e un conto normale poteva finire in Profilazione.
+    // Si registra un gruppo di conti della stessa classe alla volta; gli altri restano in coda e partono al giro dopo.
+    const classe = b => bookInRecuperoLimitato(b) ? 'recupero' : b.profilo_livello === 'attivo' ? 'profilazione' : 'mantenimento'
+    const cosa = classe(libri[0])
+    const gruppo = libri.filter(b => classe(b) === cosa)
+    resto = libri.filter(b => classe(b) !== cosa).map(b => String(b.id))
+    ok = await registraProfilazioneManualeMulti({ libri: gruppo, data: new Date(r.creato).toLocaleDateString('sv-SE'), tipoOp: r.tipo_op || 'Sport', importo: r.importo || '', descrizione: r.nota || '', copreGiorno: true, cosa, senzaConferma: true })
     if (!ok) motivo = 'registrazione non riuscita (controlla importo e data)'
   }
-  await supabase.from('registra_coda').update({ stato: ok ? 'fatto' : 'errore', messaggio: motivo || null }).eq('id', r.id)
+  await supabase.from('registra_coda').update(ok && resto.length ? { stato: 'attesa', book_ids: resto, preso_il: null, messaggio: null } : { stato: ok ? 'fatto' : 'errore', messaggio: motivo || null }).eq('id', r.id)
   setTimeout(() => { if (codaRef.current) codaRef.current() }, 2000)   // altre voci in coda: dopo che la pagina ha aggiornato il registro
 }
 useEffect(() => {
