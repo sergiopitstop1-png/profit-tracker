@@ -40,7 +40,7 @@ export function categoriaGiocata(r) {
   const t = `${r.tipo || ''} ${r.giocata || ''}`.toLowerCase()
   if (r.origine === 'Casino live' || /roulette|baccarat|casino|live/.test(t)) return 'Casino live'
   if (/slot/.test(t)) return 'Slot'
-  if (r.origine === 'Sport Lucy' || r.origine === 'Masaniello' || /\bsport\b/.test(t)) return 'Sport'
+  if (r.origine === 'Sport Lucy' || r.origine === 'Registro manuale' || r.origine === 'Masaniello' || /\bsport\b/.test(t)) return 'Sport'
   return 'Altro'
 }
 const CATEGORIE = ['Sport', 'Slot', 'Casino live', 'Altro']
@@ -48,7 +48,8 @@ const CATEGORIE = ['Sport', 'Slot', 'Casino live', 'Altro']
 // ─── normalizzazione: una riga per operazione (esportate per i test) ──
 export function righeSport(rows) {
   return (rows || []).map(r => r.rec || r).filter(x => x && (x.tipo !== 'manuale' || x.manualeProf)).map(x => ({   // 14/10/2026: anche le operazioni del Registro manuale
-    quando: x.creato || x.data, data: x.data, origine: 'Sport Lucy', tipo: x.manualeProf ? `${x.tipoConto || 'profilazione'} (manuale)` : x.recupero ? `${x.tipo} (recupero bet)` : x.tipo,
+    quando: x.creato || x.data, data: x.data, origine: x.manualeProf ? 'Registro manuale' : 'Sport Lucy', tipo: x.manualeProf   // 28/10/2026: le registrazioni a mano non sono bet di Lucy
+     ? `${x.tipoConto || 'profilazione'} (manuale)` : x.recupero ? `${x.tipo} (recupero bet)` : x.tipo,
     cliente: x.intestatario, book: x.book, evento: [x.partita, x.sport].filter(Boolean).join(' · '),
     giocata: [x.mercato, x.esito].filter(v => v && v !== '—').join(': '), importo: num(x.stake), quota: num(x.quota) || null,
     stato: 'CONFERMATA', esito: '', pl: null, note: x.stakeTesto ? `importo tra ${x.stakeTesto}€ (nei totali vale la media)` : x.betNumero ? `bet ${x.betNumero}/${x.betRichieste || '?'}` : '',
@@ -221,7 +222,7 @@ async function tutteDal(tabella, da) {
   throw ultimo
 }
 
-const ORIGINI = ['Oggi da fare', 'Sport Lucy', 'Masaniello', 'Casino live', 'Profilazione mirata', 'Avvisi conti', 'Recupero conti', 'Note conti', 'Promo']
+const ORIGINI = ['Oggi da fare', 'Sport Lucy', 'Registro manuale', 'Masaniello', 'Casino live', 'Profilazione mirata', 'Avvisi conti', 'Recupero conti', 'Note conti', 'Promo']
 const STATI = ['CONFERMATA', 'PIAZZATA', 'GIOCATA', 'FATTA', 'FATTO', 'CHIUSO', 'NOTA', 'SALTATA', 'RIMANDATA', 'NON GIOCATA', 'DA FARE']
 
 export default function ArchivioLucy({ books }) {
