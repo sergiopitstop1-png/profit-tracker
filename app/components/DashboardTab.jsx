@@ -114,6 +114,7 @@ export default function DashboardTab({
   onPromemoriaNuoviBookFatto,
   onPagaRoyaltyMensile,
   chatDaSentire = [],
+  azioniRosse = [],      // 28/10/2026: azione di Profiliamo e profilazioni mirate, con Apri / Salta
   onApriChat,
   aspetto = {},          // 12/10/2026: vedi AspettoDashboard.jsx (tutto spento = com'era)
   striscePrima = null,   // strisce urgenti: avviso mail, diretta
@@ -217,7 +218,8 @@ export default function DashboardTab({
           tutte.length === 0 &&
           royaltyMensili.length === 0 &&
           !promemoriaNuoviBook &&
-          !(chatDaSentire || []).length
+          !(chatDaSentire || []).length &&
+          !(azioniRosse || []).length
         ) return null
 
         const righe = tutte.map(item => {
@@ -318,6 +320,14 @@ export default function DashboardTab({
                     {String(ch.id).startsWith('sc-') ? '👉 Vai all\'avviso' : '📝 Annota esito'}
                   </button>
                 )}
+              </div>
+            ))}
+
+            {(azioniRosse || []).map(az => (
+              <div key={az.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', color: az.colore || '#c4b5fd' }}>
+                <span>{az.testo}</span>
+                <button onClick={az.apri} style={{ padding: '2px 10px', borderRadius: 8, border: '1px solid rgba(196,181,253,0.6)', background: 'rgba(196,181,253,0.15)', color: '#ddd6fe', fontWeight: 800, fontSize: 12, cursor: 'pointer', lineHeight: 1.6 }}>👉 Apri</button>
+                {az.salta && <button onClick={az.salta} title="Oggi non lo faccio: non me lo riproporre" style={{ padding: '2px 10px', borderRadius: 8, border: '1px solid rgba(148,163,184,0.5)', background: 'transparent', color: '#cbd5e1', fontWeight: 800, fontSize: 12, cursor: 'pointer', lineHeight: 1.6 }}>⏭ Salta</button>}
               </div>
             ))}
 

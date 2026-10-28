@@ -9,6 +9,7 @@
 //   headerCompatto → logo più piccolo e Home / Esito manuale / Iscritti / © in un menu
 // ════════════════════════════════════════════════════════════════════
 import React, { useEffect, useRef, useState, Children } from 'react'
+import { contaObbligatorie } from '../../lib/oggiDaFare'
 import { apriOggiDaFare } from '../../lib/finestraOggiDaFare'   // 14/10/2026: Oggi da fare in finestra separata
 
 const CHIAVE = 'profittracker_aspetto_v1'
@@ -191,7 +192,7 @@ export function OggiCard({ children, attiva, onApri }) {
         const c = JSON.parse(localStorage.getItem('profittracker_oggi_conteggio') || 'null')
         const f = JSON.parse(localStorage.getItem('profittracker_oggi_da_fare') || 'null')
         if (c && c.giorno === oggiIso && Number.isFinite(c.n) && (!f || !f.aggiornato || String(c.aggiornato) >= String(f.aggiornato))) n = c.n
-        else if (f && f.giorno === oggiIso && Array.isArray(f.voci)) n = f.voci.filter(v => !v.fatta).length
+        else if (f && f.giorno === oggiIso && Array.isArray(f.voci)) n = contaObbligatorie(f.voci)   // 28/10/2026: una sola azione di mantenimento al giorno
       } catch {}
       setContaOggi(n)
     }
