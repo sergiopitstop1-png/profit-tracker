@@ -416,7 +416,7 @@ codaRef.current = async () => {
     // (mantenimento, senza livello, dormiente) = mantenimento. Così una registrazione non sposta più in Profilazione un conto normale.
     // 28/10/2026 (correzione): la classe si decide PER OGNI conto. Prima valeva quella del primo conto per tutti e un conto normale poteva finire in Profilazione.
     // Si registra un gruppo di conti della stessa classe alla volta; gli altri restano in coda e partono al giro dopo.
-    const classe = b => bookInRecuperoLimitato(b) ? 'recupero' : b.profilo_livello === 'attivo' ? 'profilazione' : 'mantenimento'
+    const classe = b => b.profilo_livello === 'attivo' ? 'profilazione' : bookInRecuperoLimitato(b) ? 'recupero' : 'mantenimento'
     const cosa = classe(libri[0])
     const gruppo = libri.filter(b => classe(b) === cosa)
     resto = libri.filter(b => classe(b) !== cosa).map(b => String(b.id))
@@ -1121,7 +1121,7 @@ async function caricaProfiliamoAgenda(forza = false) {
   // un "libro" = book + variante di protocollo del cliente (es. Goldbet · Casinò oppure Goldbet · VIP Live): ogni cliente si confronta col SUO protocollo
   const perNome = new Map()
   for (const b of books) {
-    if (b.profilo_livello !== 'attivo' || bookInRecuperoLimitato(b)) continue
+    if (b.profilo_livello !== 'attivo') continue   // 28/10/2026: anche i limitati messi in profilazione
     const varianti = getVariantiProfilazione(b.nome) || []
     const variante = varianti.length ? (getVarianteProfilazione(b)?.label || '') : ''
     const k = `${b.nome}|${variante}`
@@ -2439,10 +2439,15 @@ const LIMITATI_FUORI_DAI_LIVELLI = ['bonus', 'sport']
 function bookInRecuperoLimitato(book) {
   return limitazioniDaNota(book?.note).some(t => LIMITATI_FUORI_DAI_LIVELLI.includes(t) && !(t === 'sport' && sportBloccatoBook(book)))   // 16/10/2026: vale anche "limitato sport non scommette" in nota
 }
+// 28/10/2026 (Sergio): un conto limitato può comunque essere messo in PROFILAZIONE (il casinò si può fare anche con la limitazione sport).
+// Resta "in recupero" (chiave inglese) e fuori da incroci e coperture; in più, se il suo livello è 'attivo', segue Profiliamo.
+function limitatoInProfilazione(book) {
+  return bookInRecuperoLimitato(book) && book?.profilo_livello === 'attivo'
+}
 // 26/09/2026: per i conti limitati sport / sport bloccato si tolgono dall'agenda le azioni solo-sport
 // (in mantenimento la bet diventa una sessione casinò/slot). Le azioni di recupero restano (vedi RecuperoConti).
 function getAzioniOggi(book) {
-  if (bookInRecuperoLimitato(book)) return null   // 06/10/2026: conto limitato = in recupero, niente azioni di profilazione/mantenimento
+  if (bookInRecuperoLimitato(book) && book.profilo_livello !== 'attivo') return null   // 06/10/2026: conto limitato = in recupero, niente azioni di profilazione/mantenimento (28/10: salvo se Sergio lo mette in profilazione)
   const a = getAzioniOggiBase(book)
   if (!a || !contoSportLimitato(book)) return a
   const soloSport = t => /(sport|bet\b|scommess|superquote|doppia|exchange)/i.test(t) && !/(slot|casin[oò]|blackjack|roulette|numeri|virtuali|ricarica)/i.test(t)
@@ -4108,7 +4113,7 @@ function vociMirateOggi() {
 function vociProfiliamoOggi(oggi) {
   try {
     const contiProf = books
-      .filter(b => b.profilo_livello === 'attivo' && !bookInRecuperoLimitato(b))
+      .filter(b => b.profilo_livello === 'attivo')
       .map(b => ({ id: b.id, nome: b.nome, intestatario: b.intestatario, variante: (getVariantiProfilazione(b.nome) || []).length ? (getVarianteProfilazione(b)?.label || '') : '' }))
     return vociProfiliamo(contiProf, profiliamoVoci || [], oggi || lucyOggi())
   } catch { return [] }   // Profiliamo non letto: nessun avviso
@@ -8304,7 +8309,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             || (f.soloProf && b.profilo_livello !== 'attivo')
             || (f.soloSaldo && !(Number(b.saldo || 0) > 0))
           const scelti = conti.filter(b => !escluso(b) && !apriTel.esclusi.has(b.id))
-          const liv = b => bookInRecuperoLimitato(b) ? '🔧' : b.profilo_livello === 'attivo' ? '🟢' : String(b.profilo_livello || '').startsWith('mantenimento') ? '🟡' : b.profilo_livello === 'dormiente' ? '⚫' : '·'
+          const liv = b => bookInRecuperoLimitato(b) ? (b.profilo_livello === 'attivo' ? '🔧🟢' : '🔧') : b.profilo_livello === 'attivo' ? '🟢' : String(b.profilo_livello || '').startsWith('mantenimento') ? '🟡' : b.profilo_livello === 'dormiente' ? '⚫' : '·'
           const inp = { background: '#020617', color: '#f8fafc', border: '1px solid #475569', borderRadius: 8, padding: '7px 9px', fontSize: 13 }
           const filtro = (k, l) => <label key={k} style={{ display: 'flex', gap: 5, alignItems: 'center', fontSize: 12, cursor: 'pointer', color: '#cbd5e1' }}><input type="checkbox" checked={!!f[k]} onChange={e => setApriTel({ ...apriTel, filtri: { ...f, [k]: e.target.checked } })} />{l}</label>
           return (
@@ -8361,7 +8366,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         })()}
         <PulsanteRegistra onClick={() => setRapidoAperto(true)} />
         {rapidoAperto && <RegistraRapido books={books}
-          cosaAuto={b => bookInRecuperoLimitato(b) ? 'recupero' : String(b.profilo_livello || '').startsWith('mantenimento') ? 'mantenimento' : 'profilazione'}
+          cosaAuto={b => b.profilo_livello === 'attivo' ? 'profilazione' : bookInRecuperoLimitato(b) ? 'recupero' : String(b.profilo_livello || '').startsWith('mantenimento') ? 'mantenimento' : 'profilazione'}
           onSalva={({ libri, tipoOp, importo, descrizione, cosa }) => registraProfilazioneManualeMulti({ libri, data: lucyOggi(), tipoOp, importo, descrizione, copreGiorno: true, cosa, senzaConferma: true })}
           solo={rapidoSolo}
           onClose={() => { setRapidoAperto(false); if (rapidoSolo) setTimeout(() => { try { window.close() } catch {} }, 3000) }}
@@ -8380,7 +8385,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           const q = regForm.cerca.trim().toLowerCase()
           const parole = q.split(/\s+/).filter(Boolean)   // 14/10/2026: tutte le parole devono comparire (nell'ordine che vuoi), fino a 80 conti con scorrimento
           const trovati = q.length < 2 ? [] : books.filter(b => { const t = `${b.nome} ${b.intestatario || ''}`.toLowerCase(); return parole.every(w => t.includes(w)) }).sort((a, b) => String(a.intestatario || '').localeCompare(String(b.intestatario || ''), 'it', { sensitivity: 'base' }) || String(a.nome || '').localeCompare(String(b.nome || ''), 'it', { sensitivity: 'base' })).slice(0, 80)   // 23/10/2026: elenco in ordine alfabetico dal nome dell'intestatario, poi per book
-          const cosaAuto = scelto => !scelto ? 'profilazione' : bookInRecuperoLimitato(scelto) ? 'recupero' : String(scelto.profilo_livello || '').startsWith('mantenimento') ? 'mantenimento' : 'profilazione'
+          const cosaAuto = scelto => !scelto ? 'profilazione' : scelto.profilo_livello === 'attivo' ? 'profilazione' : bookInRecuperoLimitato(scelto) ? 'recupero' : String(scelto.profilo_livello || '').startsWith('mantenimento') ? 'mantenimento' : 'profilazione'
           const scelti = (regForm.bookIds || []).map(id => books.find(b => String(b.id) === String(id))).filter(Boolean)   // 16/10/2026: più conti insieme
           const staScelto = b => scelti.some(x => String(x.id) === String(b.id))
           const cambiaScelta = b => setRegForm({ ...regForm, bookIds: staScelto(b) ? scelti.filter(x => String(x.id) !== String(b.id)).map(x => x.id) : [...scelti.map(x => x.id), b.id] })
@@ -8393,7 +8398,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           const reg = regFiltrate.slice(0, regFiltroAttivo ? 300 : 60)
           const regOpz = (campo) => [...new Set(tutteReg.map(r => r[campo]).filter(Boolean))].sort((x, y) => String(x).localeCompare(String(y), 'it'))
           const inp = { background: '#020617', color: '#f8fafc', border: '1px solid #475569', borderRadius: 8, padding: '7px 9px', fontSize: 13 }
-          const liv = b => bookInRecuperoLimitato(b) ? '🔧 Limitato - in recupero' : b.profilo_livello === 'attivo' ? '🟢 Profilazione' : String(b.profilo_livello || '').startsWith('mantenimento') ? '🟡 Mantenimento' : b.profilo_livello === 'dormiente' ? '⚫ Dormiente' : '— non impostato'
+          const liv = b => bookInRecuperoLimitato(b) ? (b.profilo_livello === 'attivo' ? '🔧 Limitato · 🟢 Profilazione' : '🔧 Limitato - in recupero') : b.profilo_livello === 'attivo' ? '🟢 Profilazione' : String(b.profilo_livello || '').startsWith('mantenimento') ? '🟡 Mantenimento' : b.profilo_livello === 'dormiente' ? '⚫ Dormiente' : '— non impostato'
           return (
             <div onClick={() => setRegistroAperto(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
               <div onClick={e => e.stopPropagation()} style={{ background: '#0f172a', border: '1px solid rgba(147,51,234,0.5)', borderRadius: 16, padding: 18, width: 'min(820px, 100%)', maxHeight: '88vh', overflowY: 'auto', color: '#e2e8f0' }}>
@@ -8806,17 +8811,17 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
     const matchBook = !profilazioneFilter.book || (b.nome || '').toLowerCase().includes(profilazioneFilter.book.toLowerCase())
     const limitatoRec = bookInRecuperoLimitato(b)
     // 11/10/2026 (Sergio): filtro anche per i "Non impostati" (stesso criterio del contatore: nessun livello e non in recupero)
-    const matchLiv = !profilazioneFilter.livello || (profilazioneFilter.livello === 'nessuno' ? (!b.profilo_livello && !limitatoRec) : profilazioneFilter.livello === 'recupero' ? limitatoRec : (!limitatoRec && (b.profilo_livello === profilazioneFilter.livello || (profilazioneFilter.livello === 'mantenimento' && b.profilo_livello && b.profilo_livello.startsWith('mantenimento')))))
+    const matchLiv = !profilazioneFilter.livello || (profilazioneFilter.livello === 'nessuno' ? (!b.profilo_livello && !limitatoRec) : profilazioneFilter.livello === 'recupero' ? limitatoRec : ((!limitatoRec || (profilazioneFilter.livello === 'attivo' && b.profilo_livello === 'attivo')) && (b.profilo_livello === profilazioneFilter.livello || (profilazioneFilter.livello === 'mantenimento' && b.profilo_livello && b.profilo_livello.startsWith('mantenimento')))))
     const matchSearch = !profilazioneSearch || (b.nome || '').toLowerCase().includes(profilazioneSearch.toLowerCase()) || (b.intestatario || '').toLowerCase().includes(profilazioneSearch.toLowerCase())
     return matchInt && matchBook && matchLiv && matchSearch
   })
 
-  const totAttivi = books.filter(b => b.profilo_livello === 'attivo' && !bookInRecuperoLimitato(b)).length
+  const totAttivi = books.filter(b => b.profilo_livello === 'attivo').length   // 28/10/2026: compresi i limitati messi in profilazione (compaiono anche tra i recuperi)
   const totMantenimento = books.filter(b => b.profilo_livello && b.profilo_livello.startsWith('mantenimento') && !bookInRecuperoLimitato(b)).length
   const totDormienti = books.filter(b => b.profilo_livello === 'dormiente' && !bookInRecuperoLimitato(b)).length
   const totNessuno = books.filter(b => !b.profilo_livello && !bookInRecuperoLimitato(b)).length
   const totRecupero = books.filter(b => bookInRecuperoLimitato(b)).length   // 06/10/2026: limitati = in recupero
-  const capitaleStimato = books.filter(b => b.profilo_livello === 'attivo' && !bookInRecuperoLimitato(b)).reduce((sum, b) => {
+  const capitaleStimato = books.filter(b => b.profilo_livello === 'attivo').reduce((sum, b) => {
     const proto = getProtocollo(b.nome)
     return sum + (proto.capitale_min || 200)
   }, 0)
@@ -9631,18 +9636,31 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
               const proto = protoNuovo || getProtocollo(book.nome)
               const limitato = bookInRecuperoLimitato(book)           // 06/10/2026
               const tipiLimitato = limitazioniDaNota(book.note)
-              const badge = limitato ? { bg: 'rgba(239,68,68,0.18)', color: '#f87171', label: '🔧 Limitato' } : getLivelloBadge(book.profilo_livello)
+              const limitatoSport = limitato && (tipiLimitato.includes('sport') || contoSportLimitato(book))
+              const etichettaRecupero = limitatoSport ? 'in recupero per sport' : 'in recupero'
+              const badge = limitato ? { bg: 'rgba(239,68,68,0.18)', color: '#f87171', label: `🔧 Limitato · ${etichettaRecupero}` } : getLivelloBadge(book.profilo_livello)
+              const limitatoProf = limitato && book.profilo_livello === 'attivo'      // 28/10/2026: limitato messo in profilazione
               return (
                 <tr key={book.id} style={tr}>
                   <td style={tdStrong}>{book.nome}</td>
                   <td style={td}>{book.intestatario || '-'}</td>
                   <td style={td}>
                     <span style={{ background: badge.bg, color: badge.color, padding: '4px 10px', borderRadius: 8, fontSize: 12, fontWeight: 700 }}>{badge.label}</span>
+                    {limitatoProf && <span style={{ display: 'inline-block', marginTop: 4, background: 'rgba(34,197,94,0.18)', color: '#22c55e', padding: '4px 10px', borderRadius: 8, fontSize: 12, fontWeight: 700 }}>🟢 Profilazione</span>}
                   </td>
                   <td style={{ ...td, maxWidth: 280 }}>
                     {limitato ? (
                       <div style={{ fontSize: 12, color: '#fca5a5' }}>
                         🔧 Conto limitato {tipiLimitato.join(' + ')}: lo segue il pannello <b>Recupero conti limitati</b>. Quando torna libero togli "limitato…" dalla nota e riprende il suo livello.
+                        {limitatoProf && (() => {
+                          const az = getAzioniOggi(book)?.azioni || []
+                          return (
+                            <div style={{ marginTop: 6, color: '#86efac' }}>
+                              <b>🟢 In profilazione{limitatoSport ? ' (solo casinò: conto limitato sport)' : ''}</b>
+                              {az.length ? az.map((a, i) => <div key={i} style={{ marginBottom: 2 }}>• {a}</div>) : <div>Nessuna azione per oggi.</div>}
+                            </div>
+                          )
+                        })()}
                         {proto.recupero && (
                           <details style={{ marginTop: 4 }}>
                             <summary style={{ cursor: 'pointer', color: '#f87171', fontWeight: 700, fontSize: 11 }}>🔧 Recupero conto</summary>
@@ -9677,14 +9695,14 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                     </div>
                     )}
                   </td>
-                  <td style={td}>{limitato ? '—' : formatCurrency(proto.capitale_min)}</td>
-                  <td style={{ ...td, fontSize: 12 }}>{limitato ? '—' : (book.profilo_ciclo_inizio || '—')}</td>
+                  <td style={td}>{limitato && !limitatoProf ? '—' : formatCurrency(proto.capitale_min)}</td>
+                  <td style={{ ...td, fontSize: 12 }}>{limitato && !limitatoProf ? '—' : (book.profilo_ciclo_inizio || '—')}</td>
                   <td style={tdActions}>
-                    {limitato ? (
-                      <span title={`Nota del book: limitato ${tipiLimitato.join(' + ')}`} style={{ display: 'inline-block', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(248,113,113,0.5)', color: '#f87171', padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 800 }}>
-                        Book limitato - in recupero
+                    {limitato && (
+                      <span title={`Nota del book: limitato ${tipiLimitato.join(' + ')}`} style={{ display: 'inline-block', marginBottom: 6, background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(248,113,113,0.5)', color: '#f87171', padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 800 }}>
+                        🔧 Book limitato - {etichettaRecupero}
                       </span>
-                    ) : (
+                    )}
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       <button style={{ ...tinyGreenButton, opacity: book.profilo_livello === 'attivo' ? 0.4 : 1, fontSize: 11 }}
                         disabled={savingProfilo[book.id] || book.profilo_livello === 'attivo'}
@@ -9696,7 +9714,6 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                         disabled={savingProfilo[book.id] || book.profilo_livello === 'dormiente'}
                         onClick={() => updateProfiloLivello(book.id, 'dormiente')}>Dorm.</button>
                     </div>
-                    )}
                   </td>
                 </tr>
               )
