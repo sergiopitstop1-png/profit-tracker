@@ -4084,6 +4084,64 @@ useEffect(() => {
   return () => clearTimeout(t)
 }, [lucySportProposte, lucyLiveProposte, lucySportLoading])
 
+// 28/10/2026 · le profilazioni mirate di oggi o scadute (una voce per gruppo)
+function vociMirateOggi() {
+  const voci = []
+  const oggiM = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' })
+  const traGiorni = (iso) => Math.round((new Date(iso + 'T12:00:00') - new Date(oggiM + 'T12:00:00')) / 86400000)
+  ;(gruppiMirati || []).forEach(g => {
+    const r = prossimaMirata(g, fatteMirate || [], giorniPausaTotale)
+    if (!r?.prossima) return
+    const tra = traGiorni(r.prossima)
+    if (tra > 0) return
+    const nomiBook = [...new Set((g.conti || []).map(id => books.find(x => String(x.id) === String(id))?.nome).filter(Boolean))]
+    voci.push({ key: `mirata|${g.id}|${r.prossima}`, sezione: 'mirate', titolo: g.nome, dettaglio: `${tra < 0 ? `scaduta da ${-tra} giorn${tra === -1 ? 'o' : 'i'}` : 'OGGI'} (${r.prossima.split('-').reverse().join('/')}) · ${(g.conti || []).length} conti${nomiBook.length ? ` · ${nomiBook.slice(0, 4).join(', ')}${nomiBook.length > 4 ? '…' : ''}` : ''}`, tag: 'mirata' })
+  })
+  return voci
+}
+// 28/10/2026 · cosa dice Profiliamo di fare oggi, una voce per cliente in profilazione
+function vociProfiliamoOggi(oggi) {
+  try {
+    const contiProf = books
+      .filter(b => b.profilo_livello === 'attivo' && !bookInRecuperoLimitato(b))
+      .map(b => ({ id: b.id, nome: b.nome, intestatario: b.intestatario, variante: (getVariantiProfilazione(b.nome) || []).length ? (getVarianteProfilazione(b)?.label || '') : '' }))
+    return vociProfiliamo(contiProf, profiliamoVoci || [], oggi || lucyOggi())
+  } catch { return [] }   // Profiliamo non letto: nessun avviso
+}
+// 28/10/2026 · AVVISI ROSSI della Dashboard con Apri / Salta: l'azione di Profiliamo (una sola riga) e le profilazioni mirate.
+// "Salta" si ricorda per oggi (oggi_da_fare_stato, chiave rosso|…) e non viene riproposta; domani Profiliamo dice la sua cosa nuova.
+const [rossiSaltati, setRossiSaltati] = useState([])
+useEffect(() => {
+  if (!books.length) return
+  ;(async () => {
+    try {
+      const { data, error } = await supabase.from('oggi_da_fare_stato').select('chiave').like('chiave', 'rosso|%').eq('giorno', lucyOggi())
+      if (!error && data) setRossiSaltati(data.map(r => r.chiave))
+    } catch { /* tabella non disponibile: Salta vale solo finché la pagina resta aperta */ }
+  })()
+}, [books.length])
+async function saltaRosso(chiave, sezione, titolo) {
+  setRossiSaltati(prev => prev.includes(chiave) ? prev : [...prev, chiave])
+  try {
+    const uid = await lucyUserIdSync()
+    const { error } = await supabase.from('oggi_da_fare_stato').upsert({ user_id: uid, chiave, stato: 'fatto', giorno: lucyOggi(), sezione, titolo, tag: 'saltata', aggiornato: new Date().toISOString() }, { onConflict: 'user_id,chiave' })
+    if (error) console.warn('[Oggi da fare] Salta non salvato:', error.message)
+  } catch (e) { console.warn('[Oggi da fare] Salta non salvato:', e?.message || e) }
+}
+function azioniRosseOggi() {
+  const oggi = lucyOggi()
+  const out = []
+  const prof = vociProfiliamoOggi(oggi)
+  const kP = `rosso|profiliamo|${oggi}`
+  if (prof.length && !rossiSaltati.includes(kP)) {
+    const att = prof.filter(v => v.tag === 'attenzione').length
+    out.push({ id: kP, colore: '#c4b5fd', testo: `📣 AZIONE DI PROFILIAMO — ${prof.length} ${prof.length === 1 ? 'conto' : 'conti'} da movimentare oggi${att ? ` (⚠️ ${att} si discostano dal tuo protocollo)` : ''}`, apri: () => apriSezioneProfilazione('profiliamo-oggi'), salta: () => saltaRosso(kP, 'profiliamo', 'Azione di Profiliamo') })
+  }
+  const mir = vociMirateOggi()
+  if (mir.length) out.push({ id: `rosso|mirate|${oggi}`, colore: '#a78bfa', testo: `🎯 PROFILAZIONI MIRATE — ${mir.length} oggi o scadute: ${mir.slice(0, 3).map(m => m.titolo).join(', ')}${mir.length > 3 ? '…' : ''}`, apri: () => apriSezioneProfilazione('mirate') })
+  return out
+}
+
 function fotografiaOggiDaFare() {
   const oggi = lucyOggi()
   const euro = (n) => Number(n || 0).toFixed(2).replace('.', ',') + ' €'
@@ -4148,25 +4206,9 @@ function fotografiaOggiDaFare() {
     voci.push({ key: `avviso|${c.id}`, sezione: 'avvisi', titolo: `${c.etichetta} ${c.titolo}`, dettaglio: [c.chi, c.testoData || (c.ritardo > 0 ? `in ritardo di ${c.ritardo} giorn${c.ritardo === 1 ? 'o' : 'i'}` : '')].filter(Boolean).join(' · '), tag: c.etichetta.includes('CHAT') ? 'chat' : c.etichetta.includes('SCADENZA') ? 'scadenza' : 'avviso' })
   })
 
-  // profilazioni mirate di oggi o scadute
-  const oggiM = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' })
-  const traGiorni = (iso) => Math.round((new Date(iso + 'T12:00:00') - new Date(oggiM + 'T12:00:00')) / 86400000)
-  ;(gruppiMirati || []).forEach(g => {
-    const r = prossimaMirata(g, fatteMirate || [], giorniPausaTotale)
-    if (!r?.prossima) return
-    const tra = traGiorni(r.prossima)
-    if (tra > 0) return
-    const nomiBook = [...new Set((g.conti || []).map(id => books.find(x => String(x.id) === String(id))?.nome).filter(Boolean))]
-    voci.push({ key: `mirata|${g.id}|${r.prossima}`, sezione: 'mirate', titolo: g.nome, dettaglio: `${tra < 0 ? `scaduta da ${-tra} giorn${tra === -1 ? 'o' : 'i'}` : 'OGGI'} (${r.prossima.split('-').reverse().join('/')}) · ${(g.conti || []).length} conti${nomiBook.length ? ` · ${nomiBook.slice(0, 4).join(', ')}${nomiBook.length > 4 ? '…' : ''}` : ''}`, tag: 'mirata' })
-  })
-
-  // Profiliamo: cosa dice di fare oggi per ogni cliente in profilazione, con avviso se contraddice il protocollo
-  try {
-    const contiProf = books
-      .filter(b => b.profilo_livello === 'attivo' && !bookInRecuperoLimitato(b))
-      .map(b => ({ id: b.id, nome: b.nome, intestatario: b.intestatario, variante: (getVariantiProfilazione(b.nome) || []).length ? (getVarianteProfilazione(b)?.label || '') : '' }))
-    voci.push(...vociProfiliamo(contiProf, profiliamoVoci || [], oggi))
-  } catch { /* Profiliamo non letto: la sezione resta vuota */ }
+  // profilazioni mirate e Profiliamo: dal 28/10/2026 non sono voci della lista ma avvisi rossi in Dashboard (la fotografia le tiene lo stesso, la pagina le nasconde)
+  voci.push(...vociMirateOggi())
+  voci.push(...vociProfiliamoOggi(oggi))
 
   // pagamenti dei servizi (ChatGPT, Supabase, Anthropic, Vercel): restano finché non sono segnati "Pagato" nel mese
   try {
@@ -8570,6 +8612,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             onPagaRoyaltyMensile={pagaRoyaltyMensile}
             promemoriaNuoviBook={promemoriaNuoviBook}
             chatDaSentire={chatDaSentireOggi()}
+            azioniRosse={azioniRosseOggi()}
             onApriChat={() => apriSezioneProfilazione('avvisi')}
             onPromemoriaNuoviBookFatto={promemoriaNuoviBookFatto}
           />

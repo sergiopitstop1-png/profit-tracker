@@ -15,7 +15,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { ricordaPosizioneFinestra } from '../../../lib/finestraOggiDaFare'   // 14/10/2026: finestra separata, ricorda dove l'hai messa
-import { costruisciLista, dataIso, domaniIso, dataIt, dataLunga, rinvioValido, aggiungiGiorni, vociMasaniello, vociSchedaMasaniello, vociPromo } from '../../../lib/oggiDaFare'
+import { costruisciLista, dataIso, domaniIso, dataIt, dataLunga, rinvioValido, aggiungiGiorni, vociMasaniello, vociSchedaMasaniello, vociPromo, SEZIONI_FOCUS, SEZIONI_NASCOSTE } from '../../../lib/oggiDaFare'
 import { eventiDalleBet, usoConti } from '../../components/RecuperiPronox'
 import { schedaDelGiorno } from '../../../lib/recupero/masanielloRecupero'
 import { MODEL_VERSION } from '../../../lib/pronox/footballModel'
@@ -63,6 +63,7 @@ export default function DaFareClient() {
   const [betFatte, setBetFatte] = useState([])         // bet confermate negli ultimi 30 giorni (per lo storico del cliente)
   const [mostraRimandate, setMostraRimandate] = useState(true)
   const [ora, setOra] = useState(() => Date.now())
+  const [altre, setAltre] = useState(0)             // 28/10/2026: quante azioni di mantenimento in più ha chiesto oggi ("Ne faccio un'altra")
 
   const carica = useCallback(async () => {
     const giorno = dataIso()
@@ -129,6 +130,14 @@ export default function DaFareClient() {
   }, [])
 
   useEffect(() => { carica() }, [carica])
+  useEffect(() => {
+    try { const a = JSON.parse(localStorage.getItem('profittracker_oggi_altre') || 'null'); setAltre(a && a.giorno === oggi && Number.isFinite(a.n) ? a.n : 0) } catch { setAltre(0) }
+  }, [oggi])
+  function neFaccioUnAltra() {
+    const n = altre + 1
+    setAltre(n)
+    try { localStorage.setItem('profittracker_oggi_altre', JSON.stringify({ giorno: oggi, n })) } catch { /* storage bloccato: vale solo finché la pagina resta aperta */ }
+  }
   useEffect(() => ricordaPosizioneFinestra(), [])
 
   // la fotografia cambia quando lavori nel Profit Tracker in un'altra scheda; ogni minuto si aggiorna anche l'età
@@ -168,11 +177,25 @@ export default function DaFareClient() {
     return costruisciLista({ voci, righe, oggi })
   }, [fotoDiOggi, dati, schedaMas, promo, righe, oggi, ora])
 
+  // 28/10/2026 · UNA AZIONE AL GIORNO. Le azioni di mantenimento (bet, Live, conti) si mostrano una alla volta; Profiliamo e mirate stanno
+  // negli avvisi rossi della Dashboard; le bet di profilazione e recupero sono facoltative. Tutto il resto resta una lista.
+  const focus = useMemo(() => {
+    const per = (id) => lista.sezioni.find(x => x.id === id)?.voci || []
+    const candidate = SEZIONI_FOCUS.flatMap(per)
+    const chiuseOggi = lista.fatte.filter(v => SEZIONI_FOCUS.includes(v.sezione) && !/saltata|rimandata/i.test(v.nota || '') && !righe.some(r => r.chiave === v.key && r.tag === 'saltata')).length
+    const saltateOggi = righe.filter(r => r.giorno === oggi && r.tag === 'saltata' && SEZIONI_FOCUS.includes(r.sezione)).length
+    const chiuse = chiuseOggi + saltateOggi
+    const visibile = candidate.length > 0 && chiuse < 1 + altre
+    return { candidate, voce: visibile ? candidate[0] : null, chiuse, chiuseOggi, saltateOggi, facoltative: per('bet_prof').length }
+  }, [lista, righe, oggi, altre])
+  const nLista = useMemo(() => lista.sezioni.filter(x => !SEZIONI_NASCOSTE.includes(x.id)).reduce((n, x) => n + x.voci.length, 0), [lista])
+  const daFareOggi = nLista + (focus.voce ? 1 : 0)
+
   // il Profit Tracker (altra scheda) legge questo numero per scriverlo sul tastino "Oggi da fare"
   useEffect(() => {
     if (caricamento || tabellaMancante) return
-    try { localStorage.setItem('profittracker_oggi_conteggio', JSON.stringify({ giorno: oggi, n: lista.totali.daFare, aggiornato: new Date().toISOString() })) } catch { /* storage bloccato */ }
-  }, [caricamento, tabellaMancante, lista, oggi])
+    try { localStorage.setItem('profittracker_oggi_conteggio', JSON.stringify({ giorno: oggi, n: daFareOggi, aggiornato: new Date().toISOString() })) } catch { /* storage bloccato */ }
+  }, [caricamento, tabellaMancante, daFareOggi, oggi])
 
   // Apre nel Profit Tracker la scheda vera (Tabella bet con "Apri telefoni", Live, PronoX...). Se il Profit Tracker è già aperto in un'altra scheda
   // si porta lì quella scheda (le bet di oggi stanno nella memoria di quella scheda); altrimenti lo apre e ci arriva da solo.
@@ -186,18 +209,13 @@ export default function DaFareClient() {
   // schede da aprire per ogni parte della lista (null = resta una semplice lista con Fatto / Rimanda)
   function destinazioni(sez) {
     if (sez.id === 'bet') return [APRI.bet_mant]
-    if (sez.id === 'conti_sessioni') {
-      const visti = new Set()
-      return sez.parti.map(x => ({ ...APRI[x.id], testo: `${APRI[x.id].testo} (${x.voci.length})` })).filter(d => !visti.has(d.dove) && visti.add(d.dove))
-    }
     return null
   }
   const [espanse, setEspanse] = useState({})
   // Meno schede, meno tempo perso: tutte le bet vanno nella stessa Tabella bet; Profiliamo, conti, Live e mirate sono la "giornata di lavoro" sui conti
   const sezioniVista = useMemo(() => {
     const GRUPPI = [
-      { id: 'bet', titolo: 'Bet da piazzare', icona: '📊', colore: '#38bdf8', ids: ['bet_mant', 'bet_prof', 'masaniello'] },
-      { id: 'conti_sessioni', titolo: 'Conti, Profiliamo e sessioni di oggi', icona: '🗂️', colore: '#a78bfa', ids: ['profiliamo', 'conti', 'live', 'mirate'] },
+      { id: 'bet', titolo: 'Masaniello di recupero', icona: '📊', colore: '#38bdf8', ids: ['masaniello'] },
     ]
     // le bet si comandano dalla Tabella bet: qui si vedono soltanto, con l'esito (fatta / saltata / rimandata) che arriva da lì
     const chiuse = lista.fatte.filter(v => GRUPPI[0].ids.includes(v.sezione)).map(v => ({ ...v, statoRO: /saltata/i.test(v.nota || '') ? 'saltata' : /rimandata/i.test(v.nota || '') ? 'rimandata' : 'fatta' }))
@@ -210,7 +228,7 @@ export default function DaFareClient() {
       const n = (st) => chiuse.filter(v => v.statoRO === st).length
       return { ...base, chiuse, riepilogo: `${voci.length} da fare · ✅ ${n('fatta')} fatte · ⏭ ${n('saltata')} saltate · 🔁 ${n('rimandata')} rimandate${parti.length ? ` — ${parti.map(y => `${y.voci.length} ${NOME_PARTE[y.id]}`).join(' · ')} ancora da fare` : ''}` }
     }
-    for (const x of lista.sezioni) {
+    for (const x of lista.sezioni.filter(y => !SEZIONI_NASCOSTE.includes(y.id))) {
       const g = GRUPPI.find(gr => gr.ids.includes(x.id))
       if (!g) { out.push(x); continue }
       if (messi.has(g.id)) continue
@@ -218,12 +236,11 @@ export default function DaFareClient() {
       out.push(costruisci(g, lista.sezioni.filter(y => g.ids.includes(y.id))))
     }
     if (!messi.has('bet') && chiuse.length) {   // tutte le bet sono già chiuse: la scheda resta, con i numeri
-      const i = out.findIndex(x => x.id === 'conti_sessioni')
-      out.splice(i < 0 ? out.length : i, 0, costruisci(GRUPPI[0], []))
+      out.push(costruisci(GRUPPI[0], []))
     }
     return out
   }, [lista])
-  const fatteAltre = useMemo(() => lista.fatte.filter(v => !['bet_mant', 'bet_prof', 'masaniello'].includes(v.sezione)), [lista])
+  const fatteAltre = useMemo(() => lista.fatte.filter(v => !['bet_prof', 'masaniello', 'profiliamo', 'mirate'].includes(v.sezione)), [lista])
 
   const statoBet = fotoDiOggi?.bet?.stato || null
   const betNonPronte = !fotoDiOggi || statoBet === 'in_corso' || statoBet === 'da_preparare'
@@ -281,17 +298,17 @@ export default function DaFareClient() {
     return [...a.filter(x => x.chiave !== undefined), ...b].sort((x, y) => String(y.giorno).localeCompare(String(x.giorno))).slice(0, 3)
   }
 
-  async function salva(v, stato, rimandaA) {
+  async function salva(v, stato, rimandaA, tag) {
     setSalvando(v.key)
     try {
       const { data: u, error: eu } = await supabase.auth.getUser()
       if (eu || !u?.user?.id) throw new Error('utente non autenticato')
-      const riga = { user_id: u.user.id, chiave: v.key, stato, giorno: oggi, rimanda_a: rimandaA || null, sezione: v.sezione, titolo: v.titolo, dettaglio: v.dettaglio || null, tag: v.tag || null, aggiornato: new Date().toISOString() }
+      const riga = { user_id: u.user.id, chiave: v.key, stato, giorno: oggi, rimanda_a: rimandaA || null, sezione: v.sezione, titolo: v.titolo, dettaglio: v.dettaglio || null, tag: tag || v.tag || null, aggiornato: new Date().toISOString() }
       const { data, error } = await supabase.from('oggi_da_fare_stato').upsert(riga, { onConflict: 'user_id,chiave' }).select().single()
       if (error) throw error
       setRighe(prev => [...prev.filter(r => r.chiave !== v.key), data])
       setRinvio(null)
-      if (stato === 'fatto') await registraOperazione(v, true)
+      if (stato === 'fatto' && !tag) await registraOperazione(v, true)
     } catch (e) {
       setErrori(prev => [...prev, 'Non salvato: ' + (e?.message || e)])
     }
@@ -312,7 +329,7 @@ export default function DaFareClient() {
   }
 
   const puoSalvare = !tabellaMancante
-  const t = lista.totali
+  const t = { ...lista.totali, daFare: daFareOggi }
 
   const chip = (testo, colore) => <span style={{ border: `1px solid ${colore}`, color: colore, borderRadius: 999, padding: '3px 11px', fontWeight: 800, fontSize: 12 }}>{testo}</span>
 
@@ -344,6 +361,16 @@ export default function DaFareClient() {
             {tipo === 'fatta' && v.nota ? <div style={{ fontSize: 11.5, color: '#4ade80', marginTop: 3, fontWeight: 700 }}>✓ {v.nota}</div> : null}
             {tipo === 'rimandata' ? <div style={{ fontSize: 12, color: '#fbbf24', marginTop: 3, fontWeight: 800 }}>⏭ rimandata al {dataIt(v.rimanda_a)} · {dataLunga(v.rimanda_a)}</div> : null}
           </div>
+          {azioni && tipo === 'focus' && (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button type="button" disabled={!puoSalvare || occupato} onClick={() => salva(v, 'fatto')}
+                style={{ ...btnBase, background: '#16a34a', color: 'white', opacity: !puoSalvare || occupato ? 0.5 : 1 }}>✓ Fatto</button>
+              <button type="button" disabled={!puoSalvare || occupato} onClick={() => salva(v, 'fatto', null, 'già fatta')} title="L'avevo già fatta prima di aprire questa pagina"
+                style={{ ...btnBase, background: 'rgba(74,222,128,0.15)', color: '#86efac', borderColor: 'rgba(74,222,128,0.5)', opacity: !puoSalvare || occupato ? 0.5 : 1 }}>✓ Già fatto</button>
+              <button type="button" disabled={!puoSalvare || occupato} onClick={() => salva(v, 'fatto', null, 'saltata')} title="Oggi non la faccio: domani Lucy ricalcola e ne propone una"
+                style={{ ...btnBase, background: 'rgba(251,191,36,0.15)', color: '#fcd34d', borderColor: 'rgba(251,191,36,0.55)', opacity: !puoSalvare || occupato ? 0.5 : 1 }}>⏭ Salta</button>
+            </div>
+          )}
           {azioni && tipo === 'fare' && (
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button type="button" disabled={!puoSalvare || occupato} onClick={() => salva(v, 'fatto')}
@@ -437,6 +464,41 @@ export default function DaFareClient() {
 
         {!caricamento && t.daFare === 0 && (fotoDiOggi || t.fatte > 0) && (
           <div style={{ ...card, borderColor: 'rgba(74,222,128,0.5)', padding: '16px 14px', textAlign: 'center', color: '#86efac', fontWeight: 800, fontSize: 16 }}>✅ Non c&apos;è altro da fare per oggi</div>
+        )}
+
+        {fotoDiOggi && (focus.voce || focus.candidate.length > 0) && (
+          <div style={{ ...card, borderColor: 'rgba(251,191,36,0.7)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'rgba(30,41,59,0.9)', borderLeft: '4px solid #fbbf24' }}>
+              <span style={{ fontWeight: 900, fontSize: 15 }}>🎯 La tua azione di oggi</span>
+              <span style={{ marginLeft: 'auto', color: '#94a3b8', fontWeight: 700, fontSize: 12 }}>{focus.candidate.length > (focus.voce ? 1 : 0) ? `domani ne ricalcolo una nuova` : ''}</span>
+            </div>
+            {focus.voce ? (
+              <div>
+                {riga(focus.voce, 'focus')}
+                <div style={{ padding: '8px 14px 12px', borderTop: '1px solid rgba(51,65,85,0.6)', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <button type="button" disabled={betNonPronte} onClick={() => apriNelProfitTracker(focus.voce.sezione === 'live' ? 'tabella_live' : 'tabella_bet')}
+                    style={{ ...btnBase, background: betNonPronte ? '#334155' : '#0ea5e9', color: betNonPronte ? '#94a3b8' : 'white', opacity: betNonPronte ? 0.7 : 1 }}>{focus.voce.sezione === 'live' ? '🎰 Apri la Tabella Live' : '📊 Apri la Tabella bet'} →</button>
+                  <span style={{ fontSize: 12, color: '#64748b' }}>Se oggi non la fai, domani Lucy ricalcola e te ne propone una: non si accumulano.</span>
+                </div>
+              </div>
+            ) : (
+              <div style={{ padding: '14px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ flex: '1 1 240px', color: '#86efac', fontWeight: 800, fontSize: 14.5 }}>
+                  {focus.chiuseOggi > 0 ? '✅ Azione di oggi fatta.' : '⏭ Per oggi l’hai lasciata: domani te ne ripropongo una.'} Hai tempo per un’altra?
+                </span>
+                <button type="button" onClick={neFaccioUnAltra} style={{ ...btnBase, background: '#16a34a', color: 'white' }}>➕ Ne faccio un’altra</button>
+              </div>
+            )}
+          </div>
+        )}
+        {fotoDiOggi && !focus.candidate.length && statoBet !== 'in_corso' && statoBet !== 'da_preparare' && (
+          <div style={{ ...card, padding: '10px 14px', color: '#94a3b8', fontSize: 13 }}>🎯 Oggi nessuna azione di mantenimento da fare.</div>
+        )}
+        {fotoDiOggi && focus.facoltative > 0 && (
+          <div style={{ ...card, padding: '9px 14px', color: '#94a3b8', fontSize: 12.5, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ flex: '1 1 240px' }}>⚽ {focus.facoltative} bet di profilazione e recupero: facoltative, non contano nel numero.</span>
+            <button type="button" disabled={betNonPronte} onClick={() => apriNelProfitTracker('tabella_bet')} style={{ ...btnBase, background: 'transparent', color: '#cbd5e1', borderColor: 'rgba(148,163,184,0.5)', padding: '6px 12px', fontSize: 12.5, opacity: betNonPronte ? 0.5 : 1 }}>📊 Apri la Tabella bet</button>
+          </div>
         )}
 
         {sezioniVista.map(s => {
