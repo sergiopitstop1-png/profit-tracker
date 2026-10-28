@@ -23,12 +23,13 @@ export const STRUMENTI_REGISTRA = [{
   },
 }, {
   name: 'conti_disponibili',
-  description: 'Elenca i conti che Sergio può usare ORA per una bet (o per la copertura), in sola lettura, dal conto fermo da più tempo. Usalo quando chiede "quali Sisal uso?" (passa book = "sisal") oppure "devo fare bet di copertura, su quale conto?" (non passare book: vale qualunque brand). Esclude da solo dormienti, conti già usati oggi, conti in profilazione (li guida Profiliamo) e i limitati che non possono scommettere sport. Include mantenimento e recupero.',
+  description: 'Elenca i conti che Sergio può usare ORA per una bet (o per la copertura), in sola lettura, dal conto fermo da più tempo. Usalo quando chiede "quali Sisal uso?" (passa book = "sisal") oppure "devo fare bet di copertura, su quale conto?" (non passare book: vale qualunque brand). Include mantenimento, recupero E conti in profilazione (ognuno con la sua etichetta). Esclude da solo dormienti, conti chiusi, limitati che non possono scommettere sport e, per mantenimento e recupero, i conti già usati oggi (i conti in profilazione restano anche se già mossi oggi, perché possono fare più operazioni al giorno). Se Sergio chiede i conti per una bet di profilazione, passa tipo = profilazione.',
   input_schema: {
     type: 'object',
     properties: {
       book: { type: 'string', description: 'Parte del nome del book (es. "sisal"). Se Sergio non indica un brand, lascia vuoto: vale qualsiasi brand.' },
       escludi_cliente: { type: 'string', description: 'Cliente da NON usare (per la copertura: il cliente della bet principale), parte del nome.' },
+      tipo: { type: 'string', enum: ['tutti', 'profilazione', 'mantenimento', 'recupero'], description: 'Quali conti: tutti (default), oppure solo profilazione / mantenimento / recupero. Usa profilazione quando Sergio parla di una bet o operazione "per la profilazione".' },
       quanti: { type: 'integer', description: 'Quanti conti mostrare (default 6, massimo 15).' },
     },
   },
@@ -153,6 +154,7 @@ export async function contiDisponibili(sb: any, inp: any): Promise<string> {
   const brand = pulisci(inp?.book).toLowerCase()
   const escludi = pulisci(inp?.escludi_cliente).toLowerCase()
   const quanti = Math.min(15, Math.max(1, Number(inp?.quanti) || 6))
+  const tipoRichiesto = ['profilazione', 'mantenimento', 'recupero'].includes(inp?.tipo) ? String(inp.tipo) : 'tutti'
   const oggi = oggiRoma()
 
   const conti: any[] = []
@@ -165,7 +167,7 @@ export async function contiDisponibili(sb: any, inp: any): Promise<string> {
   let mov: Map<string, string>
   try { mov = await ultimiMovimenti(sb) } catch (e: any) { return `Lettura dei movimenti non riuscita: ${taglia(e?.message, 120)}` }
 
-  const scartati = { dormienti: 0, profilazione: 0, usati_oggi: 0, sport_bloccato: 0, chiusi: 0, recupero_gia_mosso: 0, stesso_cliente: 0 }
+  const scartati = { dormienti: 0, usati_oggi: 0, sport_bloccato: 0, chiusi: 0, recupero_gia_mosso: 0, stesso_cliente: 0 }
   const candidati: { b: any; tipo: string; ultimo: string }[] = []
   for (const b of conti) {
     if (brand && !String(b.nome || '').toLowerCase().includes(brand)) continue
@@ -174,16 +176,18 @@ export async function contiDisponibili(sb: any, inp: any): Promise<string> {
     if (nota.includes('chiuso')) { scartati.chiusi++; continue }
     const lim = limitazioniDaNota(b.note)
     const ultimo = mov.get(String(b.id)) || ''
-    if (ultimo && ultimo >= oggi) { scartati.usati_oggi++; continue }
-    if (lim.length) {                                  // limitato = recupero (stessa regola del Profit Tracker)
+    // tipo di conto: limitato = recupero (stessa regola del Profit Tracker); poi dormiente (escluso), profilazione (livello "attivo"), altrimenti mantenimento
+    let tipo = 'mantenimento'
+    if (lim.length) tipo = 'recupero'
+    else if (b.profilo_livello === 'dormiente') { scartati.dormienti++; continue }
+    else if (b.profilo_livello === 'attivo') tipo = 'profilazione'
+    if (tipoRichiesto !== 'tutti' && tipo !== tipoRichiesto) continue
+    if (tipo !== 'profilazione' && ultimo && ultimo >= oggi) { scartati.usati_oggi++; continue }   // la profilazione può avere più operazioni nello stesso giorno
+    if (tipo === 'recupero') {
       if (sportBloccato(b)) { scartati.sport_bloccato++; continue }
       if (ultimo && (Date.now() - new Date(ultimo + 'T12:00:00').getTime()) < 6 * 86400000) { scartati.recupero_gia_mosso++; continue }
-      candidati.push({ b, tipo: 'recupero', ultimo })
-      continue
     }
-    if (b.profilo_livello === 'dormiente') { scartati.dormienti++; continue }
-    if (b.profilo_livello === 'attivo') { scartati.profilazione++; continue }
-    candidati.push({ b, tipo: 'mantenimento', ultimo })
+    candidati.push({ b, tipo, ultimo })
   }
   // dal conto fermo da più tempo (mai usati per primi)
   candidati.sort((x, y) => (x.ultimo || '').localeCompare(y.ultimo || '') || String(x.b.id).localeCompare(String(y.b.id)))
@@ -192,7 +196,7 @@ export async function contiDisponibili(sb: any, inp: any): Promise<string> {
   if (!candidati.length) return `Nessun conto disponibile${brand ? ` per "${brand}"` : ''}.${scarti ? ` Scartati: ${scarti}.` : ''}`
   const righe = candidati.slice(0, quanti).map(({ b, tipo, ultimo }) => {
     const mx = maxEuro(b.note)
-    return `- id ${b.id} · ${taglia(b.nome, 40)} · ${taglia(b.intestatario, 40) || '—'} · ${tipo} · ultimo movimento: ${ultimo ? dataIt(ultimo) : 'mai registrato'}${mx ? ` · puntata max ${mx} €` : ''}`
+    return `- id ${b.id} · ${taglia(b.nome, 40)} · ${taglia(b.intestatario, 40) || '—'} · ${tipo} · ultimo movimento: ${ultimo ? (ultimo >= oggi ? 'oggi' : dataIt(ultimo)) : 'mai registrato'}${mx ? ` · puntata max ${mx} €` : ''}`
   })
   return `${candidati.length} conti disponibili${brand ? ` per "${brand}"` : ''}, dal fermo da più tempo (mostro i primi ${righe.length}):\n${righe.join('\n')}\n${scarti ? `Esclusi: ${scarti}.\n` : ''}Elenco indicativo: non tiene conto delle regole di riposo dei singoli book.`
 }
