@@ -93,7 +93,21 @@ export async function POST(req: NextRequest) {
 
   const ctx = await contesto()
   const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL as string, process.env.SUPABASE_SERVICE_ROLE_KEY as string, { auth: { persistSession: false } })
-  const sistema = SISTEMA(ctx)
+  // 28/10/2026: cache dei prompt (costa circa 1/10 sulla parte che si ripete). Due blocchi: le regole fisse e i dati del giorno; poi si mette un segno anche sull'ultimo messaggio,
+  // cosi' i giri successivi della stessa risposta (strumenti) rileggono dalla cache anche la conversazione. Se il testo cambia struttura si manda tutto intero, senza cache.
+  const sistemaTutto = SISTEMA(ctx)
+  const taglio = sistemaTutto.indexOf('DATI DEL PROFIT TRACKER (riassunto')
+  const sistema: any = taglio > 0
+    ? [{ type: 'text', text: sistemaTutto.slice(0, taglio).trimEnd(), cache_control: { type: 'ephemeral' } }, { type: 'text', text: sistemaTutto.slice(taglio), cache_control: { type: 'ephemeral' } }]
+    : sistemaTutto
+  const conCache = (lista: any[]) => {
+    if (!lista.length) return lista
+    const ultimo = lista[lista.length - 1]
+    const blocchi: any[] = typeof ultimo.content === 'string' ? [{ type: 'text', text: ultimo.content }] : [...ultimo.content]
+    if (!blocchi.length) return lista
+    blocchi[blocchi.length - 1] = { ...blocchi[blocchi.length - 1], cache_control: { type: 'ephemeral' } }
+    return [...lista.slice(0, -1), { ...ultimo, content: blocchi }]
+  }
   let msgs: any[] = messaggi
   if (fotoUltimo.length) {
     const ultimo = msgs[msgs.length - 1]
@@ -109,10 +123,11 @@ export async function POST(req: NextRequest) {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'x-api-key': chiave, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: MODELLO, max_tokens: 1000, system: sistema, tools: [...STRUMENTI, ...STRUMENTI_REGISTRA], ...(giro === GIRI - 1 ? { tool_choice: { type: 'none' } } : {}), messages: msgs }),
+      body: JSON.stringify({ model: MODELLO, max_tokens: 1000, system: sistema, tools: [...STRUMENTI, ...STRUMENTI_REGISTRA], ...(giro === GIRI - 1 ? { tool_choice: { type: 'none' } } : {}), messages: conCache(msgs) }),
     })
     if (!r.ok) return NextResponse.json({ error: `Anthropic ${r.status}: ${(await r.text()).slice(0, 200)}` }, { status: r.status === 429 || r.status >= 500 ? 503 : 502 })
     const j = await r.json()
+    if (j?.usage) console.log('[lucy-chat] token: nuovi', j.usage.input_tokens, '· scritti in cache', j.usage.cache_creation_input_tokens ?? 0, '· letti da cache', j.usage.cache_read_input_tokens ?? 0, '· uscita', j.usage.output_tokens)
     const blocchi: any[] = Array.isArray(j?.content) ? j.content : []
     const usi = blocchi.filter((b: any) => b?.type === 'tool_use')
     if (j?.stop_reason === 'tool_use' && usi.length) {
