@@ -43,11 +43,17 @@ export async function GET(req: NextRequest) {
   let minuti: any[] = [], minutiErrore: string | null = null
   {
     const novantaGiorniFa = new Date(Date.now() - 90 * 86400 * 1000).toISOString()
-    const { data, error } = await supabase.from('hunterbet_segnali')
-      .select('msg_id,data_msg,casa,ospite,tipo_segnale,score_casa_segnale,score_ospite_segnale,ft_casa,ft_ospite,af_fixture_id,fixture_id,minuto_segnale')
-      .not('ft_casa', 'is', null).is('minuti_letti_il', null).in('tipo_segnale', ['GOL_CASA', 'GOL_OSPITI']).gte('data_msg', novantaGiorniFa)
-      .or('af_fixture_id.not.is.null,fixture_id.not.is.null').order('data_msg', { ascending: false }).limit(500)
-    if (error) minutiErrore = error.message; else minuti = data || []
+    const COLONNE = 'msg_id,data_msg,casa,ospite,tipo_segnale,score_casa_segnale,score_ospite_segnale,ft_casa,ft_ospite,af_fixture_id,fixture_id,minuto_segnale'
+    // 29/10/2026: con le colonne nuove (hunterbet_gol.sql) si leggono TUTTE le partite finite senza elenco gol (anche le vecchie e le prepartita);
+    // se le colonne non ci sono ancora si usa la regola di prima (solo Gol casa/ospiti non ancora letti).
+    const query = (nuovo: boolean) => {
+      let q: any = supabase.from('hunterbet_segnali').select(COLONNE).not('ft_casa', 'is', null)
+      q = nuovo ? q.is('gol_letti_il', null) : q.is('minuti_letti_il', null).in('tipo_segnale', ['GOL_CASA', 'GOL_OSPITI'])
+      return q.gte('data_msg', novantaGiorniFa).or('af_fixture_id.not.is.null,fixture_id.not.is.null').order('data_msg', { ascending: false }).limit(500)
+    }
+    let r: any = await query(true)
+    if (r.error) r = await query(false)
+    if (r.error) minutiErrore = r.error.message; else minuti = r.data || []
   }
   return NextResponse.json({ mancanti: out, minuti, minuti_errore: minutiErrore })
 }
@@ -119,12 +125,21 @@ async function scriviMinuti(righe: any) {
   const supabase = db()
   const lista = Array.isArray(righe) ? righe.slice(0, 1000) : []
   const intero = (v: any) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v))) ? null : Math.round(Number(v))
-  let aggiornati = 0
+  let aggiornati = 0, senzaGol = false
   for (const r of lista) {
     const id = Number(r?.msg_id)
     if (!Number.isFinite(id)) continue
-    const patch = { minuto_gol: intero(r.minuto_gol), minuto_gol_extra: intero(r.minuto_gol_extra), minuto_segnale_stimato: intero(r.minuto_segnale_stimato), minuti_letti_il: new Date().toISOString() }
-    const { error } = await supabase.from('hunterbet_segnali').update(patch).eq('msg_id', id)
+    // si scrive solo cio' che e' stato letto: un valore gia' presente non viene mai cancellato da uno vuoto
+    const patch: Record<string, any> = { minuti_letti_il: new Date().toISOString() }
+    for (const [k, v] of [['minuto_gol', intero(r.minuto_gol)], ['minuto_gol_extra', intero(r.minuto_gol_extra)], ['minuto_segnale_stimato', intero(r.minuto_segnale_stimato)]] as const) if (v !== null) patch[k] = v
+    // 29/10/2026: elenco dei gol [{m, s}] (colonne gol / gol_letti_il da hunterbet_gol.sql); se non esistono ancora, si scrive il resto lo stesso
+    const gol = Array.isArray(r.gol) ? r.gol.filter((g: any) => g && Number.isFinite(Number(g.m)) && (g.s === 'casa' || g.s === 'ospite')).map((g: any) => ({ m: Math.round(Number(g.m)), s: g.s })) : null
+    let error: any = null
+    if (!senzaGol) {
+      ;({ error } = await supabase.from('hunterbet_segnali').update(gol ? { ...patch, gol, gol_letti_il: patch.minuti_letti_il } : { ...patch, gol_letti_il: patch.minuti_letti_il }).eq('msg_id', id))
+      if (error && /gol/i.test(error.message)) { senzaGol = true; error = null }
+    }
+    if (senzaGol) ({ error } = await supabase.from('hunterbet_segnali').update(patch).eq('msg_id', id))
     if (error) return NextResponse.json({ error: error.message, aggiornati }, { status: 500 })
     aggiornati++
   }
