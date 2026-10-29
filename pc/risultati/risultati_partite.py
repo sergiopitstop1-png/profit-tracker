@@ -310,7 +310,7 @@ def fase_minuti(cfg, api, elenco, prova):
     """Legge i gol delle partite gia' chiuse e scrive minuto del gol vincente e minuto stimato del segnale. Non blocca mai il resto."""
     if not elenco:
         return
-    log(f'Minuti da leggere (partite Gol casa/ospiti gia\' finite): {len(elenco)}')
+    log(f'Gol e minuti da leggere (partite gia\' finite): {len(elenco)}')
     righe, fatti = [], 0
     try:
         for r in elenco:
@@ -320,7 +320,9 @@ def fase_minuti(cfg, api, elenco, prova):
                 righe.append({'msg_id': r['msg_id']})
                 continue
             mg, ex, stima = minuti_segnale(r, partita)
-            righe.append({'msg_id': r['msg_id'], 'minuto_gol': mg, 'minuto_gol_extra': ex, 'minuto_segnale_stimato': stima})
+            elenco_gol = gol_dei_90(partita)                # 29/10/2026: elenco completo dei gol (None se non torna col risultato: allora non si salva)
+            righe.append({'msg_id': r['msg_id'], 'minuto_gol': mg, 'minuto_gol_extra': ex, 'minuto_segnale_stimato': stima,
+                          'gol': [{'m': g[0], 's': g[2]} for g in elenco_gol] if elenco_gol is not None else None})
             fatti += 1
             if mg is not None or stima is not None:
                 g = f"gol vincente al {mg}'" + (f"+{ex}" if ex else '') if mg is not None else 'nessun gol dopo il segnale'
