@@ -263,6 +263,7 @@ export default function AnalisiSegnali() {
   const [stFine, setStFine] = useState('Tutti')
   const [stCerca, setStCerca] = useState('')
   const [stMax, setStMax] = useState(50)
+  const [stEntro, setStEntro] = useState('30')   // segnale arrivato entro il minuto N (vuoto = qualsiasi)
 
   useEffect(() => {
     (async () => {
@@ -342,6 +343,8 @@ export default function AnalisiSegnali() {
   const stOpzComp = ['Tutte', ...[...new Set(stBase.map(r => r.competizione))].sort((a, b) => a.localeCompare(b))]
   const stOpzSegn = ['Tutti', ...[...new Set(stBase.map(r => r.risultato || 'n.d.'))].sort()]
   const stOpzHT = ['Tutti', '0-0', '1-0', '0-1', '1-1', '2+ gol nel 1°T', ...[...new Set(stBase.map(htTesto))].filter(x => !['0-0', '1-0', '0-1', '1-1'].includes(x)).sort()]
+  const stEntroN = stEntro.trim() !== '' && Number.isFinite(Number(stEntro)) ? Number(stEntro) : null
+  const stSenzaMinuto = stEntroN != null ? stBase.filter(r => r.minuto == null && (stHT === 'Tutti' || htTesto(r) === stHT)).length : 0
   const stLista = stBase.filter(r => {
     const h = htTesto(r)
     if (stHT !== 'Tutti' && !(stHT === '2+ gol nel 1°T' ? sTot(r.ht!) >= 2 : h === stHT)) return false
@@ -349,6 +352,7 @@ export default function AnalisiSegnali() {
     if (stComp !== 'Tutte' && r.competizione !== stComp) return false
     if (stMin !== 'Tutti' && fasciaMinuto(r.minuto) !== stMin) return false
     if (stSegn !== 'Tutti' && (r.risultato || 'n.d.') !== stSegn) return false
+    if (stEntroN != null && (r.minuto == null || r.minuto > stEntroN)) return false
     if (stFine === 'Vinta' && r.esito !== 'VINTA') return false
     if (stFine === 'Persa' && r.esito !== 'PERSA') return false
     if (stCerca.trim() && !`${r.partita || ''} ${r.competizione}`.toLowerCase().includes(stCerca.trim().toLowerCase())) return false
@@ -358,7 +362,7 @@ export default function AnalisiSegnali() {
   const stOver15 = incrocio(stLista, MERCATI.find(m => m.id === 'Over 1,5')!)
   const stGolTot = [0, 1, 2, 3, 4].map(k => ({ k, n: stLista.filter(r => k === 4 ? sTot(r.ft!) >= 4 : sTot(r.ft!) === k).length }))
   const stFasceMin = ['Tutti', ...[...new Set(stBase.map(r => fasciaMinuto(r.minuto)))].sort()]
-  const stFiltriAttivi = stHT !== 'Tutti' || stTipo !== 'Tutti' || stComp !== 'Tutte' || stMin !== 'Tutti' || stSegn !== 'Tutti' || stFine !== 'Tutti' || !!stCerca.trim()
+  const stFiltriAttivi = stHT !== 'Tutti' || stTipo !== 'Tutti' || stComp !== 'Tutte' || stMin !== 'Tutti' || stSegn !== 'Tutti' || stFine !== 'Tutti' || !!stCerca.trim() || stEntroN != null
 
   const blocchi: [string, Seg[]][] = isTennis ? [
     ['Value o pronostico', segmenta(chiuse, r => r.value ? '💎 VALUE (EV > 3%)' : '→ Pronostico')],
@@ -648,11 +652,14 @@ export default function AnalisiSegnali() {
                   {opz.map(o => <option key={o}>{o}</option>)}
                 </select>
               </label>))}
+            <label style={{ fontSize: 11, color: '#94a3b8', display: 'flex', flexDirection: 'column', gap: 2 }}>Segnale entro il minuto
+              <input value={stEntro} onChange={e => { setStEntro(e.target.value.replace(/[^0-9]/g, '')); setStMax(50) }} placeholder="es. 30" inputMode="numeric" style={{ background: '#020617', color: '#f8fafc', border: `1px solid ${stEntro ? '#38bdf8' : '#334155'}`, borderRadius: 8, padding: '5px 8px', fontSize: 12, width: 90 }} /></label>
             <label style={{ fontSize: 11, color: '#94a3b8', display: 'flex', flexDirection: 'column', gap: 2 }}>Cerca squadra / competizione
               <input value={stCerca} onChange={e => { setStCerca(e.target.value); setStMax(50) }} placeholder="es. Serie A" style={{ background: '#020617', color: '#f8fafc', border: '1px solid #334155', borderRadius: 8, padding: '5px 8px', fontSize: 12, width: 170 }} /></label>
-            {stFiltriAttivi && <button onClick={() => { setStHT('Tutti'); setStTipo('Tutti'); setStComp('Tutte'); setStMin('Tutti'); setStSegn('Tutti'); setStFine('Tutti'); setStCerca(''); setStMax(50) }} style={{ alignSelf: 'flex-end', background: '#0f172a', color: '#f8fafc', border: '1px solid #334155', borderRadius: 8, padding: '6px 10px', fontSize: 12, cursor: 'pointer', fontWeight: 700 }}>Azzera filtri</button>}
+            {stFiltriAttivi && <button onClick={() => { setStHT('Tutti'); setStTipo('Tutti'); setStComp('Tutte'); setStMin('Tutti'); setStSegn('Tutti'); setStFine('Tutti'); setStCerca(''); setStEntro(''); setStMax(50) }} style={{ alignSelf: 'flex-end', background: '#0f172a', color: '#f8fafc', border: '1px solid #334155', borderRadius: 8, padding: '6px 10px', fontSize: 12, cursor: 'pointer', fontWeight: 700 }}>Azzera filtri</button>}
           </div>
 
+          {stEntroN != null && <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>Solo segnali arrivati <b>entro il {stEntroN}'</b> del primo tempo (minuto ≤ {stEntroN}){stSenzaMinuto > 0 ? ` · ${stSenzaMinuto} partite senza minuto del segnale sono escluse (prepartita o minuto non letto)` : ''}. Il minuto, quando non è quello vero, è stimato dall'orario del messaggio.</div>}
           {stLista.length === 0 ? <div style={{ fontSize: 13, color: '#64748b' }}>Nessuna partita con questi filtri.</div> : (<>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
               {card('Partite', String(stLista.length), '#f8fafc', stHT !== 'Tutti' ? `1° tempo ${stHT}` : 'tutti i 1° tempi')}
