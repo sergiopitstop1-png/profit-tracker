@@ -6,6 +6,7 @@
 // Legge scoretrend_segnali, hunterbet_segnali e la vista pronox_segnali (solo lettura).
 // 04/10/2026: PronoX come terzo canale + calibrazione (grezza / calibrata / bookmaker,
 // Brier score) + confronto dei tre canali con le stesse regole.
+// 29/10/2026: blocco «Studio partite» (es. 0-0 al 1° tempo → quante finiscono Over 1,5) con filtri e elenco.
 // ════════════════════════════════════════════════════════════════════
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
@@ -17,7 +18,7 @@ type Gol = { m: number; s: 'casa' | 'ospite'; autogol?: boolean }
 type Riga = { id: number; data: string; competizione: string; esito: string | null; quota: number | null; profitto: number | null; unita: number
   live: string; minuto: number | null; mercato: string; casaOspiti: string | null; risultato: string | null; minutiAlGol: number | null
   tipo: string; ht: [number, number] | null; ft: [number, number] | null; gol: Gol[] | null
-  pG?: number | null; pC?: number | null; pM?: number | null; value?: boolean; forte?: boolean; giocata?: boolean | null }
+  pG?: number | null; pC?: number | null; pM?: number | null; value?: boolean; forte?: boolean; giocata?: boolean | null; partita?: string | null }
 type Canale = 'scoretrend' | 'hunterbet' | 'pronox' | 'tennis'
 const NOMI: Record<Canale, string> = { scoretrend: 'ScoreTrend', hunterbet: 'Hunterbet', pronox: 'PronoX', tennis: 'PronoX 🎾 Tennis' }
 
@@ -171,7 +172,7 @@ function normalizza(canale: Canale, x: any): Riga {
     casaOspiti: null, risultato: null, minutiAlGol: null,
     tipo: x.mercato === '1X2' ? (simNome(String(x.selezione || ''), String(x.casa || '')) ? 'Segno 1 (casa)' : simNome(String(x.selezione || ''), String(x.ospite || '')) ? 'Segno 2 (ospite)' : 'Segno X')
       : `${/under/i.test(String(x.selezione || '')) ? 'Under' : 'Over'} ${x.linea != null ? String(x.linea).replace('.', ',') : ''}${x.tempo && x.tempo !== 'finale' ? ' ' + x.tempo : ''}`.trim(),
-    ht: htR, ft: ftR, gol: Array.isArray(x.gol) ? x.gol : null,
+    ht: htR, ft: ftR, gol: Array.isArray(x.gol) ? x.gol : null, partita: x.casa && x.ospite ? `${x.casa} – ${x.ospite}` : null,
   }
   if (canale === 'hunterbet') return {
     id: x.msg_id, data: x.data_msg, competizione: x.competizione || 'n.d.', esito: x.esito,
@@ -183,7 +184,7 @@ function normalizza(canale: Canale, x: any): Riga {
     casaOspiti: x.tipo_segnale === 'GOL_CASA' ? 'Casa' : x.tipo_segnale === 'GOL_OSPITI' ? 'Ospiti' : 'Pre-live',
     risultato: x.score_casa_segnale != null ? `${x.score_casa_segnale}-${x.score_ospite_segnale}` : null, minutiAlGol: x.minuti_al_gol,
     tipo: x.tipo_segnale === 'GOL_CASA' ? 'Gol casa' : x.tipo_segnale === 'GOL_OSPITI' ? 'Gol ospiti' : `Pre-live · ${x.tipo_segnale || '?'}`,
-    ht: htR, ft: ftR, gol: Array.isArray(x.gol) ? x.gol : null, giocata: x.giocata ?? null,
+    ht: htR, ft: ftR, gol: Array.isArray(x.gol) ? x.gol : null, giocata: x.giocata ?? null, partita: x.casa && x.ospite ? `${x.casa} – ${x.ospite}` : null,
   }
   // 07/10/2026 — TENNIS PronoX (tabella pronox_tennis_segnali): 1 unità per segnale con quota; nessun risultato partita (ht/ft)
   if (canale === 'tennis') {
@@ -206,6 +207,7 @@ function normalizza(canale: Canale, x: any): Riga {
     id: x.msg_id, data: x.data_partita, competizione: x.competizione || 'n.d.', esito: x.esito, quota: q,
     profitto: x.profitto != null ? Number(x.profitto) : null, unita: q != null ? 1 : 0, live: 'prepartita', minuto: null,
     mercato: x.etichetta, casaOspiti: null, risultato: null, minutiAlGol: null, tipo: x.etichetta, ht: htR, ft: ftR, gol: null,
+    partita: x.casa && x.ospite ? `${x.casa} – ${x.ospite}` : null,
     pG: x.prob_grezza != null ? Number(x.prob_grezza) : null, pC: x.prob_calibrata != null ? Number(x.prob_calibrata) : null,
     pM: x.prob_mercato != null ? Number(x.prob_mercato) : null, value: !!x.value, forte: !!x.forte,
   }
@@ -252,6 +254,15 @@ export default function AnalisiSegnali() {
   const [soloSopra140, setSoloSopra140] = useState(false)
   const [tipoScelto, setTipoScelto] = useState('Tutti i segnali')
   const [congelati, setCongelati] = useState<Map<string, RigaCongelata>>(new Map())  // 14/10/2026: per il CLV
+  // 29/10/2026 · filtri dello «Studio partite»
+  const [stHT, setStHT] = useState('0-0')
+  const [stTipo, setStTipo] = useState('Tutti')
+  const [stComp, setStComp] = useState('Tutte')
+  const [stMin, setStMin] = useState('Tutti')
+  const [stSegn, setStSegn] = useState('Tutti')
+  const [stFine, setStFine] = useState('Tutti')
+  const [stCerca, setStCerca] = useState('')
+  const [stMax, setStMax] = useState(50)
 
   useEffect(() => {
     (async () => {
@@ -322,6 +333,32 @@ export default function AnalisiSegnali() {
   const listaTipo = tipoScelto === 'Tutti i segnali' ? conRisultato : conRisultato.filter(r => r.tipo === tipoScelto)
   const classifica = MERCATI.map(m => ({ m, ...incrocio(listaTipo, m) })).filter(x => x.n > 0).sort((a, b) => b.p - a.p || b.n - a.n)
   const coloreP = (p: number, n: number) => n < 5 ? 'rgba(51,65,85,.4)' : `hsla(${Math.round(p * 120)}, 70%, 40%, ${0.35 + 0.5 * Math.min(1, n / MIN_N)})`
+
+  // 29/10/2026 · STUDIO PARTITE: scegli tu la situazione (es. 0-0 al 1° tempo) e guarda come finiscono le partite
+  const htTesto = (r: Riga) => r.ht ? `${r.ht[0]}-${r.ht[1]}` : 'n.d.'
+  const stBase = tutte.filter(r => r.ht && r.ft)                       // servono sia il 1° tempo sia il finale
+  const stSenzaRis = tutte.length - stBase.length
+  const stOpzTipo = ['Tutti', ...[...new Set(stBase.map(r => r.tipo))].sort()]
+  const stOpzComp = ['Tutte', ...[...new Set(stBase.map(r => r.competizione))].sort((a, b) => a.localeCompare(b))]
+  const stOpzSegn = ['Tutti', ...[...new Set(stBase.map(r => r.risultato || 'n.d.'))].sort()]
+  const stOpzHT = ['Tutti', '0-0', '1-0', '0-1', '1-1', '2+ gol nel 1°T', ...[...new Set(stBase.map(htTesto))].filter(x => !['0-0', '1-0', '0-1', '1-1'].includes(x)).sort()]
+  const stLista = stBase.filter(r => {
+    const h = htTesto(r)
+    if (stHT !== 'Tutti' && !(stHT === '2+ gol nel 1°T' ? sTot(r.ht!) >= 2 : h === stHT)) return false
+    if (stTipo !== 'Tutti' && r.tipo !== stTipo) return false
+    if (stComp !== 'Tutte' && r.competizione !== stComp) return false
+    if (stMin !== 'Tutti' && fasciaMinuto(r.minuto) !== stMin) return false
+    if (stSegn !== 'Tutti' && (r.risultato || 'n.d.') !== stSegn) return false
+    if (stFine === 'Vinta' && r.esito !== 'VINTA') return false
+    if (stFine === 'Persa' && r.esito !== 'PERSA') return false
+    if (stCerca.trim() && !`${r.partita || ''} ${r.competizione}`.toLowerCase().includes(stCerca.trim().toLowerCase())) return false
+    return true
+  }).sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime())
+  const stMercati = ['Over 0,5', 'Over 1,5', 'Over 2,5', 'Over 3,5', 'Goal', 'Gol nel 2°T', 'Over 1,5 nel 2°T', 'Under 2,5'].map(id => MERCATI.find(m => m.id === id)!)
+  const stOver15 = incrocio(stLista, MERCATI.find(m => m.id === 'Over 1,5')!)
+  const stGolTot = [0, 1, 2, 3, 4].map(k => ({ k, n: stLista.filter(r => k === 4 ? sTot(r.ft!) >= 4 : sTot(r.ft!) === k).length }))
+  const stFasceMin = ['Tutti', ...[...new Set(stBase.map(r => fasciaMinuto(r.minuto)))].sort()]
+  const stFiltriAttivi = stHT !== 'Tutti' || stTipo !== 'Tutti' || stComp !== 'Tutte' || stMin !== 'Tutti' || stSegn !== 'Tutti' || stFine !== 'Tutti' || !!stCerca.trim()
 
   const blocchi: [string, Seg[]][] = isTennis ? [
     ['Value o pronostico', segmenta(chiuse, r => r.value ? '💎 VALUE (EV > 3%)' : '→ Pronostico')],
@@ -593,6 +630,87 @@ export default function AnalisiSegnali() {
               Come usarla: se un mercato alternativo si verifica spesso e il bookmaker lo paga più della <b>quota minima</b> indicata, quel mercato conviene più del segnale originale. Per i segnali live, il risultato finale comprende anche i gol segnati prima dell'avviso: per sapere cosa succede DA QUANDO entri guarda il gruppo "Dopo il segnale".
             </div>
           </>}
+        </div>
+        )}
+
+        {/* ─── 29/10/2026 · 🔎 STUDIO PARTITE ─── */}
+        {!isTennis && !isPronox && (
+        <div style={{ background: 'rgba(15,23,42,.6)', border: '1px solid rgba(56,189,248,.45)', borderRadius: 14, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontWeight: 900, fontSize: 16, color: '#f8fafc', marginBottom: 4 }}>🔎 Studio partite · come finiscono?</div>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>
+            Scegli la situazione e guarda come sono finite le partite dei segnali {NOMI[canale]}. Di default: <b>0-0 a fine primo tempo</b> → quante sono finite Over 1,5.
+            Partite con 1° tempo e finale letti: <b>{stBase.length}</b> su {tutte.length}{stSenzaRis > 0 ? ` (le altre ${stSenzaRis} non hanno ancora il risultato)` : ''}.
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+            {([['1° tempo', stHT, setStHT, stOpzHT], ['Tipo segnale', stTipo, setStTipo, stOpzTipo], ['Minuto segnale', stMin, setStMin, stFasceMin], ['Risultato al segnale', stSegn, setStSegn, stOpzSegn], ['Competizione', stComp, setStComp, stOpzComp], ['Esito segnale', stFine, setStFine, ['Tutti', 'Vinta', 'Persa']]] as [string, string, (v: string) => void, string[]][]).map(([nome, val, set, opz]) => (
+              <label key={nome} style={{ fontSize: 11, color: '#94a3b8', display: 'flex', flexDirection: 'column', gap: 2 }}>{nome}
+                <select value={val} onChange={e => { set(e.target.value); setStMax(50) }} style={{ background: '#020617', color: '#f8fafc', border: `1px solid ${val === 'Tutti' || val === 'Tutte' ? '#334155' : '#38bdf8'}`, borderRadius: 8, padding: '5px 8px', fontSize: 12, maxWidth: 220 }}>
+                  {opz.map(o => <option key={o}>{o}</option>)}
+                </select>
+              </label>))}
+            <label style={{ fontSize: 11, color: '#94a3b8', display: 'flex', flexDirection: 'column', gap: 2 }}>Cerca squadra / competizione
+              <input value={stCerca} onChange={e => { setStCerca(e.target.value); setStMax(50) }} placeholder="es. Serie A" style={{ background: '#020617', color: '#f8fafc', border: '1px solid #334155', borderRadius: 8, padding: '5px 8px', fontSize: 12, width: 170 }} /></label>
+            {stFiltriAttivi && <button onClick={() => { setStHT('Tutti'); setStTipo('Tutti'); setStComp('Tutte'); setStMin('Tutti'); setStSegn('Tutti'); setStFine('Tutti'); setStCerca(''); setStMax(50) }} style={{ alignSelf: 'flex-end', background: '#0f172a', color: '#f8fafc', border: '1px solid #334155', borderRadius: 8, padding: '6px 10px', fontSize: 12, cursor: 'pointer', fontWeight: 700 }}>Azzera filtri</button>}
+          </div>
+
+          {stLista.length === 0 ? <div style={{ fontSize: 13, color: '#64748b' }}>Nessuna partita con questi filtri.</div> : (<>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+              {card('Partite', String(stLista.length), '#f8fafc', stHT !== 'Tutti' ? `1° tempo ${stHT}` : 'tutti i 1° tempi')}
+              {card('Finite Over 1,5', `${stOver15.v} su ${stOver15.n}`, '#86efac', `${pct(stOver15.p)} · margine ${pct(stOver15.lo, 0)} – ${pct(stOver15.hi, 0)}`)}
+              {card('Finite Under 1,5', `${stOver15.n - stOver15.v} su ${stOver15.n}`, '#fca5a5', pct(1 - stOver15.p))}
+              {card('Quota minima Over 1,5', stOver15.v ? (stOver15.n / stOver15.v).toFixed(2).replace('.', ',') : '—', '#fbbf24', 'sotto questa quota si perde')}
+            </div>
+            {stLista.length < MIN_N && <div style={{ fontSize: 12, color: '#fbbf24', marginBottom: 10 }}>⚠️ Solo {stLista.length} partite: guarda il margine, il dato è ancora incerto (da {MIN_N} in su inizia a dire qualcosa).</div>}
+            <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'flex-start', marginBottom: 14 }}>
+              <div style={{ flex: '1 1 380px', overflowX: 'auto' }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: '#7dd3fc', marginBottom: 6 }}>Gli altri mercati su queste partite</div>
+                <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                  <thead><tr>{['Mercato', 'Si è verificato', '', 'Margine (95%)', 'Quota minima'].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                  <tbody>{stMercati.map(m => { const x = incrocio(stLista, m); return (
+                    <tr key={m.id} style={{ background: m.id === 'Over 1,5' ? 'rgba(56,189,248,.08)' : undefined }}>
+                      <td style={{ ...td, fontWeight: 800 }}>{m.id}</td>
+                      <td style={{ ...td, fontWeight: 900 }}>{x.n ? pct(x.p) : '—'} <span style={{ color: '#94a3b8', fontWeight: 400 }}>({x.v}/{x.n})</span></td>
+                      <td style={{ ...td, width: 110 }}><div style={{ height: 8, borderRadius: 4, background: '#1e293b' }}><div style={{ width: `${Math.round(100 * x.p)}%`, height: 8, borderRadius: 4, background: coloreP(x.p, Math.max(x.n, MIN_N)) }} /></div></td>
+                      <td style={{ ...td, color: '#94a3b8' }}>{x.n ? `${pct(x.lo, 0)} – ${pct(x.hi, 0)}` : '—'}</td>
+                      <td style={{ ...td, color: '#fbbf24', fontWeight: 800 }}>{x.v ? (x.n / x.v).toFixed(2).replace('.', ',') : '—'}</td>
+                    </tr>) })}</tbody>
+                </table>
+              </div>
+              <div style={{ flex: '1 1 260px' }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: '#7dd3fc', marginBottom: 6 }}>Gol totali a fine partita</div>
+                {stGolTot.map(g => (
+                  <div key={g.k} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, fontSize: 12.5 }}>
+                    <span style={{ width: 52, color: '#cbd5e1' }}>{g.k === 4 ? '4 o più' : `${g.k} gol`}</span>
+                    <div style={{ flex: 1, height: 10, borderRadius: 5, background: '#1e293b' }}><div style={{ width: `${Math.round(100 * g.n / stLista.length)}%`, height: 10, borderRadius: 5, background: g.k >= 2 ? '#34d399' : '#f87171' }} /></div>
+                    <span style={{ width: 90, textAlign: 'right' }}><b>{g.n}</b> <span style={{ color: '#94a3b8' }}>({pct(g.n / stLista.length, 0)})</span></span>
+                  </div>))}
+              </div>
+            </div>
+
+            <div style={{ fontSize: 12, fontWeight: 800, color: '#7dd3fc', marginBottom: 6 }}>Elenco partite · dalla più recente ({Math.min(stMax, stLista.length)} di {stLista.length})</div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                <thead><tr>{['Data', 'Partita', 'Competizione', 'Segnale', 'Min.', 'Al segnale', '1° tempo', 'Finale', 'Over 1,5', 'Esito segnale'].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                <tbody>{stLista.slice(0, stMax).map(r => { const o = sTot(r.ft!) >= 2; return (
+                  <tr key={r.id}>
+                    <td style={{ ...td, whiteSpace: 'nowrap', color: '#94a3b8' }}>{new Date(r.data).toLocaleString('it-IT', { timeZone: 'Europe/Rome', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
+                    <td style={{ ...td, fontWeight: 700 }}>{r.partita || '—'}</td>
+                    <td style={{ ...td, color: '#94a3b8' }}>{r.competizione}</td>
+                    <td style={td}>{r.tipo}</td>
+                    <td style={td}>{r.minuto != null ? `${r.minuto}'` : '—'}</td>
+                    <td style={td}>{r.risultato || '—'}</td>
+                    <td style={{ ...td, fontWeight: 800 }}>{htTesto(r)}</td>
+                    <td style={{ ...td, fontWeight: 800 }}>{r.ft![0]}-{r.ft![1]}</td>
+                    <td style={{ ...td, fontWeight: 900, color: o ? '#86efac' : '#fca5a5' }}>{o ? '✓ Over' : '✗ Under'}</td>
+                    <td style={{ ...td, color: r.esito === 'VINTA' ? '#86efac' : r.esito === 'PERSA' ? '#fca5a5' : '#94a3b8' }}>{r.esito === 'VINTA' ? 'Vinta' : r.esito === 'PERSA' ? 'Persa' : r.esito ? r.esito : 'in corso'}</td>
+                  </tr>) })}</tbody>
+              </table>
+            </div>
+            {stLista.length > stMax && <button onClick={() => setStMax(stMax + 100)} style={{ marginTop: 10, background: '#0c4a6e', color: '#f8fafc', border: '1px solid #38bdf8', borderRadius: 8, padding: '7px 14px', fontWeight: 800, cursor: 'pointer' }}>Mostra altre {Math.min(100, stLista.length - stMax)}</button>}
+            <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 8, lineHeight: 1.6 }}>
+              Il risultato finale comprende anche i gol già segnati prima del segnale. Con 0-0 al 1° tempo il conteggio «Over 1,5» è quindi esattamente: nel 2° tempo sono arrivati almeno 2 gol.
+            </div>
+          </>)}
         </div>
         )}
 
