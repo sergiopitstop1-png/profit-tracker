@@ -348,6 +348,16 @@ export default function AnalisiSegnali() {
   const stOpzSegn = ['Tutti', ...[...new Set(stBase.map(r => r.risultato || 'n.d.'))].sort()]
   const stOpzHT = ['Tutti', '0-0', '1-0', '0-1', '1-1', '2+ gol nel 1°T', ...[...new Set(stBase.map(htTesto))].filter(x => !['0-0', '1-0', '0-1', '1-1'].includes(x)).sort()]
   const stAlMinN = stAlMin.trim() !== '' && Number.isFinite(Number(stAlMin)) ? Number(stAlMin) : null
+  // punteggio scelto: risultato esatto («2-1») oppure una situazione («Casa avanti», «Pareggio», «Almeno 1 gol»…)
+  const corrisponde = (pt: string, scelta: string) => {
+    const [h, a] = pt.split('-').map(Number)
+    if (scelta === 'Casa avanti') return h > a
+    if (scelta === 'Ospite avanti') return a > h
+    if (scelta === 'Pareggio (qualsiasi)') return h === a
+    if (scelta === 'Almeno 1 gol') return h + a >= 1
+    if (scelta === '2 o più gol') return h + a >= 2
+    return pt === scelta
+  }
   const golCompleti = (r: Riga) => !!(r.ft && r.gol && r.gol.length === sTot(r.ft))
   const puntAl = (r: Riga, n: number) => { const g = r.gol!.filter(x => x.m <= n); return `${g.filter(x => x.s === 'casa').length}-${g.filter(x => x.s === 'ospite').length}` }
   const stSenzaGol = stAlMinN != null ? stBase.filter(r => !golCompleti(r)).length : 0
@@ -363,7 +373,7 @@ export default function AnalisiSegnali() {
     if (stSegn !== 'Tutti' && (r.risultato || 'n.d.') !== stSegn) return false
     if (stEntroN != null && (r.minuto == null || r.minuto > stEntroN)) return false
     if (stDalN != null && (r.minuto == null || r.minuto < stDalN)) return false
-    if (stAlMinN != null && stAlRis !== 'Tutti' && (!golCompleti(r) || puntAl(r, stAlMinN) !== stAlRis)) return false
+    if (stAlMinN != null && stAlRis !== 'Tutti' && (!golCompleti(r) || !corrisponde(puntAl(r, stAlMinN), stAlRis))) return false
     if (stFine === 'Vinta' && r.esito !== 'VINTA') return false
     if (stFine === 'Persa' && r.esito !== 'PERSA') return false
     if (stCerca.trim() && !`${r.partita || ''} ${r.competizione}`.toLowerCase().includes(stCerca.trim().toLowerCase())) return false
@@ -677,7 +687,7 @@ export default function AnalisiSegnali() {
               <span style={{ display: 'flex', gap: 4 }}>
                 <input value={stAlMin} onChange={e => { setStAlMin(e.target.value.replace(/[^0-9]/g, '')); setStMax(50) }} placeholder="es. 70" inputMode="numeric" style={{ background: '#020617', color: '#f8fafc', border: `1px solid ${stAlMin ? '#38bdf8' : '#334155'}`, borderRadius: 8, padding: '5px 8px', fontSize: 12, width: 64 }} />
                 <select value={stAlRis} onChange={e => { setStAlRis(e.target.value); setStMax(50) }} style={{ background: '#020617', color: '#f8fafc', border: `1px solid ${stAlMin ? '#38bdf8' : '#334155'}`, borderRadius: 8, padding: '5px 8px', fontSize: 12 }}>
-                  {['0-0', '1-0', '0-1', '1-1', 'Tutti'].map(o => <option key={o}>{o}</option>)}
+                  {['Tutti', '0-0', '1-0', '0-1', '1-1', '2-0', '0-2', '2-1', '1-2', '2-2', '3-0', '0-3', '3-1', '1-3', '3-2', '2-3', '3-3', 'Casa avanti', 'Ospite avanti', 'Pareggio (qualsiasi)', 'Almeno 1 gol', '2 o più gol'].map(o => <option key={o}>{o}</option>)}
                 </select></span></label>
             <label style={{ fontSize: 11, color: '#cbd5e1', display: 'flex', gap: 5, alignItems: 'center', alignSelf: 'flex-end', paddingBottom: 6 }}><input type="checkbox" checked={stUnica} onChange={e => { setStUnica(e.target.checked); setStMax(50) }} /> una riga per partita</label>
             <label style={{ fontSize: 11, color: '#94a3b8', display: 'flex', flexDirection: 'column', gap: 2 }}>Segnale dal minuto
