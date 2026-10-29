@@ -7730,6 +7730,18 @@ if (oggiAntonello >= ANTONELLO_INIZIO && oggiAntonello <= ANTONELLO_FINE) {
   }
 }
 
+// 29/10/2026 (Sergio): l'obiettivo mensile del banner "SPESE COPERTE" = media delle spese programmate (Contabilità)
+// + le spese MENSILI di accantonamento: royalty, club (rinnovo/12), Massimiliano, Paolo (solo se attivo), Michela, servizi software, Antonello (trimestrale/3, solo nel periodo del contratto).
+const accantonamentiMensiliObiettivo =
+  Number(mediaMensileRoyalty || 0) +
+  Number(mediaMensileClub || 0) +
+  Number(totaleMensileFiglio || 0) +
+  (PAOLO_ATTIVO ? Number(totaleMensilePaolo || 0) : 0) +
+  Number(totaleMensileMichela || 0) +
+  Number(totaleMensileServizi || 0) +
+  ((new Date() >= ANTONELLO_INIZIO && new Date() <= ANTONELLO_FINE) ? ANTONELLO_IMPORTO / 3 : 0)
+const obiettivoMensileSpese = mediaMensileResidua + accantonamentiMensiliObiettivo
+
 const accantonamentiAvvisiCount = rateFiglioDaPagare.length + ratePaoloDaPagare.length + rateMichelaDaPagare.length + rateServiziDaPagare.length + antonelloDaPagare.length +
   royaltyCalc.avvisi.filter(a => a.giorniRitardo >= 0).length
 
@@ -7905,12 +7917,12 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         )}
 
         <div style={{ display: 'flex', alignItems: 'stretch', gap: 10, marginBottom: 12 }}>
-          {guadagnoCorrente >= mediaMensileResidua && mediaMensileResidua > 0 && (
+          {guadagnoCorrente >= obiettivoMensileSpese && obiettivoMensileSpese > 0 && (
             <div style={{ flex: 1, background: 'linear-gradient(135deg, rgba(34,197,94,0.15), rgba(16,185,129,0.10))', border: '2px solid rgba(34,197,94,0.5)', borderRadius: 14, padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, animation: 'blinkPrevisto 2s ease-in-out infinite' }}>
               <span style={{ fontSize: 28 }}>🏆</span>
               <div>
                 <div style={{ color: '#22c55e', fontWeight: 900, fontSize: 15 }}>BRAVO! SPESE COPERTE PER QUESTO MESE!</div>
-                <div style={{ color: '#86efac', fontSize: 12, marginTop: 2 }}>Profitto {formatCurrency(guadagnoCorrente)} · Obiettivo {formatCurrency(mediaMensileResidua)} · Sei a +{formatCurrency(guadagnoCorrente - mediaMensileResidua)} 💪</div>
+                <div style={{ color: '#86efac', fontSize: 12, marginTop: 2 }}>Profitto {formatCurrency(guadagnoCorrente)} · Obiettivo {formatCurrency(obiettivoMensileSpese)} (spese {formatCurrency(mediaMensileResidua)} + accantonamenti {formatCurrency(accantonamentiMensiliObiettivo)}) · Sei a +{formatCurrency(guadagnoCorrente - obiettivoMensileSpese)} 💪</div>
               </div>
             </div>
           )}
