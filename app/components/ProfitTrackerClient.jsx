@@ -9412,12 +9412,14 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                 <div style={{padding:'12px'}}>
                   {visibili.length===0 && <div style={{padding:16,textAlign:'center',color:'#64748b',fontWeight:700}}>Nessun incrocio con questo filtro.</div>}
                   {/* 10/10/2026 (Sergio): anche le bet piazzate in anticipo per domani restano divise: incroci di MANTENIMENTO da una parte, PROFILAZIONE a parte */}
-                  {[['oggi','mant','🔁 OGGI — INCROCI DI MANTENIMENTO'],['oggi','prof','🧾 OGGI — PROFILAZIONE (bet sport previste oggi)'],['domani','mant','📆 DOMANI — INCROCI DI MANTENIMENTO (piazzati in anticipo)'],['domani','prof','📆 DOMANI — PROFILAZIONE (piazzate in anticipo)']].map(([g,sez,titolo])=>{
-                    const dellGiorno=visibili.filter(({p})=>(p.giorno||'oggi')===g && (sez==='mant')===(p.sezione==='mant'))
+                  {[['oggi','mant','🔁 OGGI — INCROCI DI MANTENIMENTO'],['oggi','rec','🔧 OGGI — RECUPERO CONTI (bet sport previste oggi)'],['oggi','prof','🧾 OGGI — PROFILAZIONE (bet sport previste oggi)'],['domani','mant','📆 DOMANI — INCROCI DI MANTENIMENTO (piazzati in anticipo)'],['domani','rec','📆 DOMANI — RECUPERO CONTI (piazzate in anticipo)'],['domani','prof','📆 DOMANI — PROFILAZIONE (piazzate in anticipo)']].map(([g,sez,titolo])=>{
+                    // 29/10/2026 (Sergio): i conti in recupero non sono profilazione: titolo a parte; "PROFILAZIONE" solo se c'è davvero un conto in profilazione
+                    const tipoSez=p=>p.sezione==='mant'?'mant':((p.assegnazioni||[]).some(a=>a.tipoConto==='profilazione')?'prof':'rec')
+                    const dellGiorno=visibili.filter(({p})=>(p.giorno||'oggi')===g && tipoSez(p)===sez)
                     if(!dellGiorno.length) return null
                     return (
                       <div key={g+sez}>
-                        <div style={{background:sez==='prof'?(g==='oggi'?'#7c3aed':'#8b5cf6'):(g==='oggi'?'#1e293b':'#475569'),color:'#fff',borderRadius:8,padding:'5px 12px',fontWeight:900,fontSize:12,margin:'2px 0 10px'}}>{titolo} · {dellGiorno.length} {dellGiorno.length===1?'incrocio':'incroci'}</div>
+                        <div style={{background:sez==='prof'?(g==='oggi'?'#7c3aed':'#8b5cf6'):sez==='rec'?(g==='oggi'?'#b91c1c':'#dc2626'):(g==='oggi'?'#1e293b':'#475569'),color:'#fff',borderRadius:8,padding:'5px 12px',fontWeight:900,fontSize:12,margin:'2px 0 10px'}}>{titolo} · {dellGiorno.length} {dellGiorno.length===1?'incrocio':'incroci'}</div>
                         {dellGiorno.map(({p,pi})=>{ numero+=1; return bloccoIncrocioLucy(p,pi,numero) })}
                       </div>
                     )
