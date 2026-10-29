@@ -56,7 +56,7 @@ function CellaBetfair({ c, td }: { c: CellaBF | undefined; td: any }) {
   return (
     <td style={{ ...td, whiteSpace: 'nowrap' }} title={c.dettaglio}>
       <div style={{ fontWeight: 800, color: colore }}>{c.testo}</div>
-      <div style={{ fontSize: 10.5, color: '#94a3b8' }}>
+      <div style={{ fontSize: 10.5, color: '#94a3b8', whiteSpace: 'normal', maxWidth: 190 }}>
         {c.tipo !== 'mercato' ? c.tipo : ''}
         {c.deltaBook != null ? `${c.tipo !== 'mercato' ? ' · ' : ''}book ${c.deltaBook >= 0 ? '+' : ''}${c.deltaBook.toFixed(1).replace('.', ',')}%` : ''}
         {c.vecchia ? <span style={{ color: '#fbbf24' }}>{c.iniziata ? ' · partita iniziata: prezzo di prima' : ' · ferma da ' + c.vecchiaMin + ' min'}</span> : null}
@@ -82,7 +82,7 @@ function CellaCongelata({ r, td }: { r: RigaCongelata | undefined; td: any }) {
   return (
     <td style={{ ...td, whiteSpace: 'nowrap' }} title={titolo}>
       <div style={{ fontWeight: 800, color: colore }}>{r.testo}</div>
-      <div style={{ fontSize: 10.5, color: '#94a3b8' }}>
+      <div style={{ fontSize: 10.5, color: '#94a3b8', whiteSpace: 'normal', maxWidth: 190 }}>
         {r.tipo !== 'mercato' ? r.tipo : ''}
         {book != null ? `${r.tipo !== 'mercato' ? ' · ' : ''}book ${pct(book)}` : ''}
         {ch ? ` · chiusura ${f2(ch)}${clv != null ? ` (${pct(clv)})` : ''}` : ''}
@@ -472,7 +472,7 @@ export default function SegnaliClient({ incorporato = false }: { incorporato?: b
 
   return (
     <div className="pt-mobile" style={incorporato ? { color: '#e2e8f0' } : { minHeight: '100vh', background: '#0b1220', color: '#e2e8f0', fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif' }}>
-      <div style={incorporato ? { padding: '4px 0 40px' } : { maxWidth: 1300, margin: '0 auto', padding: '22px 18px 60px' }}>
+      <div style={incorporato ? { padding: '4px 0 40px' } : { maxWidth: 1800, margin: '0 auto', padding: '22px 18px 60px' }}>
         {!incorporato && <Link href="/profit-tracker" style={{ color: '#7dd3fc', fontSize: 12, textDecoration: 'none', fontWeight: 700 }}>← Torna al Profit Tracker</Link>}
         {!incorporato && <h1 style={{ fontSize: 28, margin: '8px 0 2px', color: '#f8fafc' }}>📡 Segnali</h1>}
         <div style={{display:'flex',gap:8,margin:'12px 0 14px'}}>
@@ -543,10 +543,12 @@ export default function SegnaliClient({ incorporato = false }: { incorporato?: b
           </div>
           <DiagnosiBF canale="hunter" righe={hunter} celle={cellaHT} eventi={eventiBF} />
           <div style={{fontSize:11.5,color:'#94a3b8',marginBottom:8}}>Scrivi il risultato finale (es. 2-1) e, se lo sai, quello del 1° tempo: l'esito si calcola da solo ("auto"). Puoi sceglierlo a mano se il mercato non viene riconosciuto. La quota è quella che hai trovato dal bookmaker: scrivila qui e spunta «Giocata» solo sulle partite che hai davvero giocato. Le giocate con quota entrano nei conti reali dell'Analisi.</div>
+          <div style={{ overflow: 'auto', maxHeight: '78vh' }}>
           <table style={{borderCollapse:'collapse',width:'100%'}}>
-            <thead><tr>{['Arrivato','Fase','Partita','Competizione','Segnale','Ris. al segnale','Minuto di gioco al segnale','Minuto gol vincente','1° tempo','Finale','Quota','Quota Bet365 al momento del segnale','Giocata','Betfair','Al segnale','Esito',''].map(h=><th key={h} style={h.startsWith('Minuto') || h.startsWith('Quota Bet365') ? { ...th, whiteSpace: 'normal', width: h.startsWith('Quota Bet365') ? 92 : 78, lineHeight: 1.2 } : th}>{h}</th>)}</tr></thead>
-            <tbody>{hunterVisibili.map(s=><RigaHunter key={s.msg_id} s={s} td={td} bf={cellaHT.get(s.msg_id)} cg={congelati.get('hunter|' + s.msg_id)} onSalvato={r=>setHunter((v:Hunter[])=>v.map(x=>x.msg_id===r.msg_id?r:x))} registra={registraHunter} />)}</tbody>
+            <thead><tr>{['Arrivato','Fase','Partita','Competizione','Segnale','Ris. al segnale','Minuto di gioco al segnale','Minuto gol vincente','1° tempo','Finale','Quota','Quota Bet365 al momento del segnale','Giocata','Betfair','Al segnale','Esito',''].map(h=><th key={h} style={{ ...(h.startsWith('Minuto') || h.startsWith('Quota Bet365') ? { ...th, whiteSpace: 'normal', width: h.startsWith('Quota Bet365') ? 92 : 78, lineHeight: 1.2 } : th), padding: '6px 5px', position: 'sticky', top: 0, background: '#0f172a', zIndex: 1 }}>{h}</th>)}</tr></thead>
+            <tbody>{hunterVisibili.map(s=><RigaHunter key={s.msg_id} s={s} td={{ ...td, padding: '6px 5px' }} bf={cellaHT.get(s.msg_id)} cg={congelati.get('hunter|' + s.msg_id)} onSalvato={r=>setHunter((v:Hunter[])=>v.map(x=>x.msg_id===r.msg_id?r:x))} registra={registraHunter} />)}</tbody>
           </table>
+          </div>
         </div>
         </>
         ) : (<>
