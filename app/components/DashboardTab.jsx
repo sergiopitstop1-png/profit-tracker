@@ -100,6 +100,8 @@ export default function DashboardTab({
   currentMonthLabel,
   totaleSpeseProgrammateAnno,
   mediaMensileResidua,
+  obiettivoMensileSpese,
+  accantonamentiMensiliObiettivo,
   cassaDisponibile,
   weeklyChartData,
   weeklyProfitColor,
@@ -782,9 +784,9 @@ export default function DashboardTab({
           />
 
           <StatCard
-            label='Media mensile residua'
-            value={formatCurrency(mediaMensileResidua)}
-            sub={`Su ${12 - meseCorrenteNum + 1} mesi rimanenti (mese corrente incluso) · obiettivo minimo`}
+            label='Obiettivo mensile (spese + accantonamenti)'
+            value={formatCurrency(obiettivoMensileSpese ?? mediaMensileResidua)}
+            sub={`Spese programmate ${formatCurrency(mediaMensileResidua)} (su ${12 - meseCorrenteNum + 1} mesi rimanenti) + accantonamenti mensili ${formatCurrency(accantonamentiMensiliObiettivo || 0)} · obiettivo minimo`}
             accent='#a855f7'
           />
 
