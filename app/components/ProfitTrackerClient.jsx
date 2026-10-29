@@ -8623,6 +8623,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             currentMonthLabel={currentMonthLabel}
             totaleSpeseProgrammateAnno={totaleSpeseProgrammateAnno}
             mediaMensileResidua={mediaMensileResidua}
+            obiettivoMensileSpese={obiettivoMensileSpese}
+            accantonamentiMensiliObiettivo={accantonamentiMensiliObiettivo}
             cassaDisponibile={cassaDisponibile}
             weeklyChartData={weeklyChartData}
             weeklyProfitColor={weeklyProfitColor}
