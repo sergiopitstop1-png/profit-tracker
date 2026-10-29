@@ -1174,7 +1174,7 @@ useEffect(() => {
 const CLASSI_BOOK = {
   A: ['bet365','snai','sisal','lottomatica','goldbet','planetwin365','eurobet','pokerstars'],
   B: ['netbet','bwin','betsson','william hill','stanleybet','e-play24','betfair'],
-  B_CASINO: ['gioco digitale','starcasino','betflag','tombola','zonagioco'],
+  B_CASINO: ['gioco digitale','starcasino','betflag','tombola','zonagioco','leovegas'],
   C: ['admiral','codere','betpoint','staryes','sportium','vincitu','marathonbet','domusbet','betpassion'],
 }
 const MANUTENZIONE = {
