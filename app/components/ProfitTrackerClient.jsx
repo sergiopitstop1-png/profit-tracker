@@ -28,6 +28,7 @@ import AvvisiContiPanel, { pianoDelGiorno } from './AvvisiConti'
 import LucyAvvisoMail from './LucyAvvisoMail'   // 07/10/2026: avviso sottile nuove opportunità / bonus accreditati
 import PromoBonusPanel, { PromoScadenze } from './PromoBonus'   // 05/10/2026: tab Promo + striscia scadenze
 import BetfairStato from './BetfairStato'   // 06/10/2026: avviso "quote Betfair ferme" in Dashboard
+import SelectCercabile from './SelectCercabile'   // 30/10/2026: menu wallet/book con ricerca mentre scrivi
 import MailCriticheOkVisto from './MailCriticheOkVisto'   // 22/10/2026: popup mail critiche (inibizione bonus, conto sospeso, KYC) finché non premi «Ok visto» (solo admin)
 import PromoNuovePopup from './PromoNuovePopup'   // 14/10/2026: popup promo segnalate nuove, finché non premi «Ok visto» (solo admin)
 import SceltaData from './SceltaData'   // 14/10/2026: calendario unico per scegliere le date (rimandi)
@@ -7778,14 +7779,14 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 
   function renderOrigineSelect() {
     if (txForm.tipo === 'versa') {
-      return <select name='da_id' value={txForm.da_id} onChange={handleTransactionChange} style={input}><option value=''>Seleziona wallet origine</option>{walletsOrdinati.map((wallet) => <option key={wallet.id} value={wallet.id}>{getEntityLabel(wallet)}</option>)}</select>
+      return <SelectCercabile name='da_id' value={txForm.da_id} onChange={handleTransactionChange} style={input} placeholder='Seleziona wallet origine' options={walletsOrdinati.map((wallet) => ({ value: wallet.id, label: getEntityLabel(wallet) }))} />
     }
     if (txForm.tipo === 'preleva' && txForm.da_tipo === 'book') {
-      return <select name='da_id' value={txForm.da_id} onChange={handleTransactionChange} style={input}><option value=''>Seleziona book origine</option>{books.map((book) => <option key={book.id} value={book.id}>{getEntityLabel(book)}</option>)}</select>
+      return <SelectCercabile name='da_id' value={txForm.da_id} onChange={handleTransactionChange} style={input} placeholder='Seleziona book origine' options={books.map((book) => ({ value: book.id, label: getEntityLabel(book) }))} />
     }
     if (txForm.tipo === 'preleva' && txForm.da_tipo === 'wallet') {
       return <>
-        <select name='da_id' value={txForm.da_id} onChange={handleTransactionChange} style={input}><option value=''>Seleziona wallet origine</option>{walletsOrdinati.map((wallet) => <option key={wallet.id} value={wallet.id}>{getEntityLabel(wallet)}</option>)}</select>
+        <SelectCercabile name='da_id' value={txForm.da_id} onChange={handleTransactionChange} style={input} placeholder='Seleziona wallet origine' options={walletsOrdinati.map((wallet) => ({ value: wallet.id, label: getEntityLabel(wallet) }))} />
         <select name='categoria_spesa' value={txForm.categoria_spesa} onChange={handleTransactionChange} style={{ ...input, borderColor: txForm.categoria_spesa ? 'rgba(56,189,248,0.6)' : 'rgba(51,65,85,0.6)', color: txForm.categoria_spesa ? '#38bdf8' : '#94a3b8' }}>
           <option value=''>📂 Categoria spesa (opzionale)</option>
           <option value='Auto'>🚗 Auto</option>
@@ -7802,7 +7803,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
       </>
     }
     if (txForm.tipo === 'trasferisci') {
-      return <select name='da_id' value={txForm.da_id} onChange={handleTransactionChange} style={input}><option value=''>Seleziona wallet origine</option>{walletsOrdinati.map((wallet) => <option key={wallet.id} value={wallet.id}>{getEntityLabel(wallet)}</option>)}</select>
+      return <SelectCercabile name='da_id' value={txForm.da_id} onChange={handleTransactionChange} style={input} placeholder='Seleziona wallet origine' options={walletsOrdinati.map((wallet) => ({ value: wallet.id, label: getEntityLabel(wallet) }))} />
     }
     return null
   }
@@ -7811,16 +7812,16 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
     if (txForm.tipo === 'versa') {
       const walletOrigine = wallets.find((w) => String(w.id) === String(txForm.da_id))
       const booksCompatibili = walletOrigine ? books.filter((book) => isSameOwner(book.intestatario, walletOrigine.intestatario)) : []
-      return <select name='a_id' value={txForm.a_id} onChange={handleTransactionChange} style={input}><option value=''>{walletOrigine ? 'Seleziona book destinazione' : 'Prima seleziona wallet origine'}</option>{booksCompatibili.map((book) => <option key={book.id} value={book.id}>{getEntityLabel(book)}</option>)}</select>
+      return <SelectCercabile name='a_id' value={txForm.a_id} onChange={handleTransactionChange} style={input} placeholder={walletOrigine ? 'Seleziona book destinazione' : 'Prima seleziona wallet origine'} options={booksCompatibili.map((book) => ({ value: book.id, label: getEntityLabel(book) }))} />
     }
     if (txForm.tipo === 'preleva' && txForm.da_tipo === 'book') {
       const bookOrigine = books.find((b) => String(b.id) === String(txForm.da_id))
       const walletsCompatibili = bookOrigine ? walletsOrdinati.filter((wallet) => isSameOwner(wallet.intestatario, bookOrigine.intestatario)) : []
-      return <select name='a_id' value={txForm.a_id} onChange={handleTransactionChange} style={input}><option value=''>{bookOrigine ? 'Seleziona wallet destinazione' : 'Prima seleziona book origine'}</option>{walletsCompatibili.map((wallet) => <option key={wallet.id} value={wallet.id}>{getEntityLabel(wallet)}</option>)}</select>
+      return <SelectCercabile name='a_id' value={txForm.a_id} onChange={handleTransactionChange} style={input} placeholder={bookOrigine ? 'Seleziona wallet destinazione' : 'Prima seleziona book origine'} options={walletsCompatibili.map((wallet) => ({ value: wallet.id, label: getEntityLabel(wallet) }))} />
     }
     if (txForm.tipo === 'trasferisci') {
       const walletsDisponibili = walletsOrdinati.filter((wallet) => String(wallet.id) !== String(txForm.da_id))
-      return <select name='a_id' value={txForm.a_id} onChange={handleTransactionChange} style={input}><option value=''>{txForm.da_id ? 'Seleziona wallet destinazione' : 'Prima seleziona wallet origine'}</option>{walletsDisponibili.map((wallet) => <option key={wallet.id} value={wallet.id}>{getEntityLabel(wallet)}</option>)}</select>
+      return <SelectCercabile name='a_id' value={txForm.a_id} onChange={handleTransactionChange} style={input} placeholder={txForm.da_id ? 'Seleziona wallet destinazione' : 'Prima seleziona wallet origine'} options={walletsDisponibili.map((wallet) => ({ value: wallet.id, label: getEntityLabel(wallet) }))} />
     }
     return null
   }
@@ -11521,18 +11522,13 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
         <button style={modalClose} onClick={() => setShowQuickBookTxModal(false)}>✕</button>
       </div>
       <form onSubmit={handleQuickBookTransaction}>
-        <select
+        <SelectCercabile
           value={quickBookTxForm.wallet_id}
           onChange={(e) => setQuickBookTxForm({ ...quickBookTxForm, wallet_id: e.target.value })}
           style={input}
-        >
-          <option value=''>Seleziona wallet compatibile</option>
-          {walletsCompatibiliQuick.map((wallet) => (
-            <option key={wallet.id} value={wallet.id}>
-              {getEntityLabel(wallet)}
-            </option>
-          ))}
-        </select>
+          placeholder='Seleziona wallet compatibile'
+          options={walletsCompatibiliQuick.map((wallet) => ({ value: wallet.id, label: getEntityLabel(wallet) }))}
+        />
         <input
           value={quickBookTxForm.importo}
           onChange={(e) => setQuickBookTxForm({ ...quickBookTxForm, importo: e.target.value })}
