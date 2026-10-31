@@ -71,7 +71,6 @@ import DashboardTab from './DashboardTab'
 import { vociProfiliamo, vociPagamenti, rinvioValido, domaniIso, dataIt as dataItLista } from '../../lib/oggiDaFare'   // 14/10/2026: Profiliamo per cliente e pagamenti servizi nella lista Oggi da fare
 import AccantonamentiTab from './AccantonamentiTab'
 import SmsTab from './SmsTab'
-import PropHedgeTab from './PropHedgeTab'
 import Masaniello from './Masaniello'
 import {
   container, pageWrap, header, title, subtitle, copyrightBox, tabsBar, tabButton,
@@ -8511,7 +8510,6 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           <button style={activeTab === 'credenziali' ? activeTabButton : tabButton} onClick={() => handleTabChange('credenziali')}>🔑 Credenziali</button>
           {/* 12/10/2026 — la tab SMS è stata tolta dalla barra: gli SMS stanno in Lucy Mail (Mail e SMS). Il codice SmsTab resta. */}
           <button style={activeTab === 'team' ? activeTabButton : tabButton} onClick={() => handleTabChange('team')}>👥 Team</button>
-          <button style={activeTab === 'prop-hedge' ? activeTabButton : tabButton} onClick={() => handleTabChange('prop-hedge')}>📈 Prop Hedge</button>
           <button style={activeTab === 'masaniello' ? activeTabButton : tabButton} onClick={() => handleTabChange('masaniello')}>🎲 Masaniello</button>
           <button style={activeTab === 'promo' ? activeTabButton : tabButton} onClick={() => handleTabChange('promo')}>🎁 Promo</button>
           {/* 12/10/2026 — Segnali e Lucy Mail sono tab come le altre: la barra resta sempre in alto */}
@@ -8703,7 +8701,6 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             accantonamentiTotale={accantonamentiDaPagareTotale}
           />
         )}
-        {activeTab === 'prop-hedge' && <PropHedgeTab />}
         {activeTab === 'lucy-mail' && (
           <LucyMailTab
             incorporato
