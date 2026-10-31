@@ -7,7 +7,6 @@ export default function robots(): MetadataRoute.Robots {
       allow: "/",
       disallow: [
         "/profit-tracker",
-        "/proptracker",
         "/admin",
         "/api",
         "/login",

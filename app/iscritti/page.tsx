@@ -61,7 +61,7 @@ export default function IscrittiPage() {
 
         <h1 style={{ fontSize: 26, fontWeight: 800, marginBottom: 4 }}>Iscritti al sito</h1>
         <p style={{ color: "#6b7490", fontSize: 14, marginBottom: 24 }}>
-          Tutti gli account registrati (PronoX / Prop Tracker)
+          Tutti gli account registrati (PronoX)
         </p>
 
         {error && (
