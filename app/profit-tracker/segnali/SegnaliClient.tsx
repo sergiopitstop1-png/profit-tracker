@@ -8,8 +8,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '../supabaseClient'
-import { caricaBetfair, caricaCongelati, quotaPerSegnale, riassuntoBF } from './betfair'   // 06/10/2026: quota Betfair accanto ai segnali
-import type { CellaBF, EventoBF, RigaCongelata } from './betfair'
 import { valutaHunter } from '../../../lib/valutaHunter'   // 23/10/2026: stessa regola usata dal server
 import SchedaTennis from './SchedaTennis'   // 07/10/2026: tennis PronoX
 
@@ -48,65 +46,6 @@ function CelleRisultato({ s, td }: { s: Segnale; td: any }) {
 
 const n2 = (x: number) => x.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const quando = (iso: string | null) => iso ? new Date(iso).toLocaleString('it-IT', { timeZone: 'Europe/Rome', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
-// 06/10/2026 — cella "Betfair": prezzo dell'Exchange (back / lay) oppure quota calcolata ("derivata") o stimata dal modello
-function CellaBetfair({ c, td }: { c: CellaBF | undefined; td: any }) {
-  if (!c) return <td style={td} />
-  if (c.stato === 'nd') return <td style={{ ...td, color: '#475569' }} title={c.motivo}>—</td>
-  const colore = c.tipo === 'mercato' ? '#e2e8f0' : c.tipo === 'derivata' ? '#c4b5fd' : '#fdba74'
-  return (
-    <td style={{ ...td, whiteSpace: 'nowrap' }} title={c.dettaglio}>
-      <div style={{ fontWeight: 800, color: colore }}>{c.testo}</div>
-      <div style={{ fontSize: 10.5, color: '#94a3b8', whiteSpace: 'normal', maxWidth: 190 }}>
-        {c.tipo !== 'mercato' ? c.tipo : ''}
-        {c.deltaBook != null ? `${c.tipo !== 'mercato' ? ' · ' : ''}book ${c.deltaBook >= 0 ? '+' : ''}${c.deltaBook.toFixed(1).replace('.', ',')}%` : ''}
-        {c.vecchia ? <span style={{ color: '#fbbf24' }}>{c.iniziata ? ' · partita iniziata: prezzo di prima' : ' · ferma da ' + c.vecchiaMin + ' min'}</span> : null}
-      </div>
-    </td>)
-}
-
-// 06/10/2026 — cella "Al segnale": prezzo Betfair congelato quando è arrivato il segnale (non cambia più) e prezzo di chiusura
-function CellaCongelata({ r, td }: { r: RigaCongelata | undefined; td: any }) {
-  if (!r) return <td style={{ ...td, color: '#475569' }} title="nessuna quota Betfair congelata per questo segnale (partita non trovata, oppure segnale arrivato prima dell'avvio)">—</td>
-  const f2 = (x: number | null | undefined) => (x == null ? '–' : Number(x).toFixed(2).replace('.', ','))
-  const pct = (x: number) => `${x >= 0 ? '+' : ''}${x.toFixed(1).replace('.', ',')}%`
-  const quando = (iso: string | null) => (iso ? new Date(iso).toLocaleString('it-IT', { timeZone: 'Europe/Rome', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—')
-  const colore = r.tipo === 'mercato' ? '#e2e8f0' : r.tipo === 'derivata' ? '#c4b5fd' : '#fdba74'
-  const rif = r.tipo === 'mercato' ? r.bf_back : r.bf_fair
-  const book = r.quota_book != null && rif ? (Number(r.quota_book) / Number(rif) - 1) * 100 : null
-  const ch = r.ch_il ? (r.ch_tipo === 'mercato' ? r.ch_back : r.ch_fair) : null
-  const clv = r.quota_book != null && ch ? (Number(r.quota_book) / Number(ch) - 1) * 100 : null
-  const prepartita = r.iniziata && r.vecchia
-  const titolo = `Prezzo Betfair congelato il ${quando(r.congelato_il)} (segnale delle ${quando(r.segnale_il)}) · dati con il ritardo della chiave delayed`
-    + (r.ch_il ? ` · chiusura letta il ${quando(r.ch_il)}: la percentuale tra parentesi dice quanto la quota del segnale batte la chiusura di Betfair` : '')
-    + (prepartita ? ' · la partita era già iniziata: è il prezzo di prima del calcio d\'inizio' : '')
-  return (
-    <td style={{ ...td, whiteSpace: 'nowrap' }} title={titolo}>
-      <div style={{ fontWeight: 800, color: colore }}>{r.testo}</div>
-      <div style={{ fontSize: 10.5, color: '#94a3b8', whiteSpace: 'normal', maxWidth: 190 }}>
-        {r.tipo !== 'mercato' ? r.tipo : ''}
-        {book != null ? `${r.tipo !== 'mercato' ? ' · ' : ''}book ${pct(book)}` : ''}
-        {ch ? ` · chiusura ${f2(ch)}${clv != null ? ` (${pct(clv)})` : ''}` : ''}
-        {prepartita ? <span style={{ color: '#fbbf24' }}> · prepartita</span> : null}
-        {r.vecchia && !r.iniziata ? <span style={{ color: '#fbbf24' }}>{' · prezzo già vecchio di ' + r.eta_min + ' min'}</span> : null}
-      </div>
-    </td>)
-}
-
-// 06/10/2026 — perché alcuni segnali non hanno la quota Betfair: conteggio dei motivi e partite vicine per orario
-function DiagnosiBF({ canale, righe, celle, eventi }: { canale: 'scoretrend' | 'pronox' | 'hunter'; righe: any[]; celle: Map<number, CellaBF>; eventi: EventoBF[] }) {
-  const r = useMemo(() => riassuntoBF(canale, righe, celle, eventi), [canale, righe, celle, eventi])
-  return (
-    <details style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>
-      <summary style={{ cursor: 'pointer', color: '#7dd3fc', fontWeight: 700 }}>🔎 Betfair: {r.ok} segnali su {r.totale} con quota · perché gli altri no</summary>
-      <div style={{ padding: '6px 4px', lineHeight: 1.6 }}>
-        <div>Partite Betfair caricate: <b>{r.nEventi}</b>{r.nEventi ? ` (dal ${r.betfairDal} al ${r.betfairAl})` : ''} · segnale più recente: <b>{r.segnaleRecente || '—'}</b></div>
-        {Object.entries(r.motivi).sort((a, b) => b[1] - a[1]).map(([m, n]) => <div key={m}><b>{n}</b> × {m}</div>)}
-        {r.esempi.length > 0 && <div style={{ marginTop: 6, color: '#cbd5e1' }}>Segnali recenti con partita non trovata → partite Betfair vicine per orario:</div>}
-        {r.esempi.map((e, i) => <div key={i}>• <b>{e.segnale}</b> <span style={{ color: '#64748b' }}>({e.quando})</span> → {e.vicini.length ? e.vicini.join(' | ') : 'nessuna partita Betfair in quell\'orario'}</div>)}
-      </div>
-    </details>)
-}
-
 const mercatoDi = (s: Segnale) => `${s.mercato || ''}${s.linea != null ? ' ' + String(s.linea).replace('.', ',') : ''}${s.tempo && s.tempo !== 'finale' ? ' ' + s.tempo : ''}`.trim()
 const fascia = (q: number) => q < 1.4 ? '1,00-1,40' : q < 1.6 ? '1,40-1,60' : q < 1.8 ? '1,60-1,80' : q < 2.1 ? '1,80-2,10' : q < 3 ? '2,10-3,00' : '3,00+'
 
@@ -126,7 +65,7 @@ type Hunter = {
 const leggiRis = (t: string): [number, number] | null => { const m = t.trim().match(/^(\d{1,2})\s*[-–:]\s*(\d{1,2})$/); return m ? [Number(m[1]), Number(m[2])] : null }
 
 type VoceSalva = { cambiato: boolean; salva: () => Promise<boolean> }
-function RigaHunter({ s, td, bf, cg, onSalvato, registra }: { s: Hunter; td: any; bf?: CellaBF; cg?: RigaCongelata; onSalvato: (r: Hunter) => void; registra?: (id: number, v: VoceSalva | null) => void }) {
+function RigaHunter({ s, td, onSalvato, registra }: { s: Hunter; td: any; onSalvato: (r: Hunter) => void; registra?: (id: number, v: VoceSalva | null) => void }) {
   const fmt = (a?: number | null, b?: number | null) => a != null && b != null ? `${a}-${b}` : ''
   const [ft, setFt] = useState(fmt(s.ft_casa, s.ft_ospite))
   const [ht, setHt] = useState(fmt(s.ht_casa, s.ht_ospite))
@@ -181,8 +120,6 @@ function RigaHunter({ s, td, bf, cg, onSalvato, registra }: { s: Hunter; td: any
       <td style={td}><input style={inp} placeholder="1,70" value={quota} onChange={e => { const v = e.target.value.replace(/[^0-9.,]/g, ''); setQuota(v); if (v && !quota && s.giocata == null) setGiocata(true) }} /></td>
       <td style={{ ...td, whiteSpace: 'nowrap' }} title={s.quota_b365 != null ? `Bet365 · Over ${String(s.quota_b365_linea ?? '').replace('.', ',')} letta${s.quota_b365_il ? ' alle ' + new Date(s.quota_b365_il).toLocaleTimeString('it-IT', { timeZone: 'Europe/Rome' }) : ''}${s.quota_b365_il && s.data_msg ? ` (${Math.max(0, Math.round((new Date(s.quota_b365_il).getTime() - new Date(s.data_msg).getTime()) / 60000))} min dopo il segnale)` : ''}${s.quota_b365_stato === 'sospesa' ? ' · era sospesa: ultimo prezzo visto' : ''}` : s.quota_b365_stato === 'fallita' ? 'Bet365 non offre questo mercato in gioco (di solito la linea 0,5 di una squadra a zero gol): quota non trovata' : s.quota_b365_stato === 'riprova' ? 'sto riprovando a leggerla' : 'letta in automatico da API-Football quando arriva un segnale live'}>{s.quota_b365 != null ? <span style={{ color: '#7dd3fc', fontWeight: 800 }}>≈{String(s.quota_b365).replace('.', ',')}{s.quota_b365_stato === 'sospesa' ? '*' : ''}</span> : <span style={{ color: '#475569' }}>{s.quota_b365_stato === 'riprova' ? '…' : s.quota_b365_stato === 'fallita' ? 'n.d.' : '—'}</span>}</td>
       <td style={{ ...td, textAlign: 'center' }}><input type="checkbox" title="Spunta se l'hai davvero giocata: solo queste entrano nei conti reali dell'Analisi" checked={giocata} onChange={e => setGiocata(e.target.checked)} /></td>
-      <CellaBetfair c={bf} td={td} />
-      <CellaCongelata r={cg} td={td} />
       <td style={td}>
         <select value={esito} onChange={e => setEsito(e.target.value)} style={{ ...inp, width: 'auto' }}>
           <option value="auto">auto{auto ? ` (${auto === 'VINTA' ? 'vinta' : 'persa'})` : ''}</option><option value="VINTA">vinta</option><option value="PERSA">persa</option><option value="NULLA">nulla</option><option value="">in corso</option>
@@ -223,7 +160,7 @@ function raggruppaPronox(lista: Pronox[], chiave: (s: Pronox) => string): Riga[]
     .sort((a, b) => b.bet - a.bet)
 }
 
-function SchedaPronox({ dati, sel, th, td, tabellaPagella, eventiBF, congelati }: { dati: Pronox[]; sel: any; th: any; td: any; tabellaPagella: (r: Riga[]) => any; eventiBF: EventoBF[]; congelati: Map<string, RigaCongelata> }) {
+function SchedaPronox({ dati, sel, th, td, tabellaPagella }: { dati: Pronox[]; sel: any; th: any; td: any; tabellaPagella: (r: Riga[]) => any }) {
   const [etichetta, setEtichetta] = useState('')
   const [stato, setStato] = useState('')
   const [soloValue, setSoloValue] = useState(false)
@@ -237,7 +174,6 @@ function SchedaPronox({ dati, sel, th, td, tabellaPagella, eventiBF, congelati }
       (!soloValue || s.value) && (!soloForti || s.forte) &&
       (!q || `${s.competizione} ${s.casa} ${s.ospite}`.toLowerCase().includes(q)))
   }, [dati, etichetta, stato, soloValue, soloForti, cerca])
-  const cellePx = useMemo(() => { const mp = new Map<number, CellaBF>(); for (const s of visibili) mp.set(s.msg_id, quotaPerSegnale('pronox', s, eventiBF)); return mp }, [visibili, eventiBF])   // 06/10/2026
 
   const chiuse = visibili.filter(s => s.esito === 'VINTA' || s.esito === 'PERSA')
   const vinte = chiuse.filter(s => s.esito === 'VINTA').length
@@ -280,11 +216,10 @@ function SchedaPronox({ dati, sel, th, td, tabellaPagella, eventiBF, congelati }
 
     <div style={{ background: 'rgba(15,23,42,.6)', border: '1px solid #1e293b', borderRadius: 14, padding: 12, marginBottom: 18, overflowX: 'auto' }}>
       <div style={{ fontWeight: 900, marginBottom: 4 }}>PronoX · {visibili.length}</div>
-      <DiagnosiBF canale="pronox" righe={visibili} celle={cellePx} eventi={eventiBF} />
       <div style={{ fontSize: 11.5, color: '#94a3b8', marginBottom: 8 }}>Ogni esito sopra la soglia di /oggi, preso dalla fotografia del giorno prima (t24h). Tre probabilità: <b>modello</b> (grezza, decide il segnale), <b>/oggi</b> (calibrata, usata per il VALUE), <b>bookmaker</b> (senza margine). Esiti e risultati arrivano da soli.</div>
       <div style={{ maxHeight: 460, overflowY: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-          <thead><tr>{['Partita il', 'Partita', 'Competizione', 'Segnale', 'Modello', '/oggi', 'Bookmaker', 'Quota', 'Betfair', 'Al segnale', 'EV', 'Esito', 'Unità', '1° tempo', 'Finale'].map((h, i) => <th key={i} style={{ ...th, position: 'sticky', top: 0, background: '#0f172a' }}>{h}</th>)}</tr></thead>
+          <thead><tr>{['Partita il', 'Partita', 'Competizione', 'Segnale', 'Modello', '/oggi', 'Bookmaker', 'Quota', 'EV', 'Esito', 'Unità', '1° tempo', 'Finale'].map((h, i) => <th key={i} style={{ ...th, position: 'sticky', top: 0, background: '#0f172a' }}>{h}</th>)}</tr></thead>
           <tbody>{visibili.map(s => (
             <tr key={s.msg_id}>
               <td style={{ ...td, whiteSpace: 'nowrap' }}>{quando(s.data_partita)}</td>
@@ -295,8 +230,6 @@ function SchedaPronox({ dati, sel, th, td, tabellaPagella, eventiBF, congelati }
               <td style={td}>{pc(s.prob_calibrata)}</td>
               <td style={{ ...td, color: '#94a3b8' }}>{pc(s.prob_mercato)}</td>
               <td style={{ ...td, fontWeight: 800, color: s.quota != null && Number(s.quota) < 1.4 ? '#fbbf24' : '#f8fafc' }} title={s.quota != null && Number(s.quota) < 1.4 ? 'Sotto la regola di 1,40' : ''}>{s.quota != null ? String(s.quota).replace('.', ',') : ''}</td>
-              <CellaBetfair c={cellePx.get(s.msg_id)} td={td} />
-              <CellaCongelata r={congelati.get('pronox|' + s.msg_id)} td={td} />
               <td style={{ ...td, color: s.ev != null && s.ev > 0.03 ? '#86efac' : '#94a3b8' }}>{s.ev != null ? `${s.ev >= 0 ? '+' : ''}${pc(s.ev)}` : ''}</td>
               <td style={{ ...td, fontWeight: 900, color: s.esito === 'VINTA' ? '#86efac' : s.esito === 'PERSA' ? '#fca5a5' : '#94a3b8' }}>{s.esito ? (s.esito === 'VINTA' ? '🟢 vinta' : s.esito === 'PERSA' ? '🔴 persa' : '⚪ nulla') : '⏳ da giocare'}</td>
               <td style={{ ...td, color: Number(s.profitto) >= 0 ? '#86efac' : '#fca5a5' }}>{s.profitto != null ? `${s.profitto >= 0 ? '+' : ''}${n2(Number(s.profitto))}` : ''}</td>
@@ -391,20 +324,6 @@ export default function SegnaliClient({ incorporato = false }: { incorporato?: b
   }, [periodo])
   useEffect(() => { carica(); const t = setInterval(carica, 30000); return () => clearInterval(t) }, [carica])
 
-  // 06/10/2026 — quote Betfair (solo lettura): partite delle ultime 48 ore con i loro mercati, riletto ogni minuto
-  const [eventiBF, setEventiBF] = useState<EventoBF[]>([])
-  const [erroreBF, setErroreBF] = useState('')
-  const [congelati, setCongelati] = useState<Map<string, RigaCongelata>>(new Map())
-  useEffect(() => {
-    let vivo = true
-    const leggi = async () => {
-      try { const e = await caricaBetfair(supabase); if (vivo) { setEventiBF(e); setErroreBF('') } } catch (x: any) { if (vivo) setErroreBF(String(x?.message || x)) }
-      try { const c = await caricaCongelati(supabase); if (vivo) setCongelati(c) } catch { /* tabella betfair_segnali_quote non ancora creata */ }
-    }
-    leggi(); const t = setInterval(leggi, 60000)
-    return () => { vivo = false; clearInterval(t) }
-  }, [])
-
   const mercati = useMemo(() => [...new Set(dati.map(mercatoDi))].sort(), [dati])
   const visibili = useMemo(() => {
     const q = cerca.trim().toLowerCase()
@@ -415,8 +334,6 @@ export default function SegnaliClient({ incorporato = false }: { incorporato?: b
       (!q || `${s.competizione} ${s.casa} ${s.ospite} ${s.selezione}`.toLowerCase().includes(q)))
   }, [dati, stato, tipo, mercato, soloSopra140, cerca])
 
-  const cellaST = useMemo(() => { const mp = new Map<number, CellaBF>(); for (const s of visibili) mp.set(s.msg_id, quotaPerSegnale('scoretrend', s, eventiBF)); return mp }, [visibili, eventiBF])
-  const cellaHT = useMemo(() => { const mp = new Map<number, CellaBF>(); for (const s of hunter) mp.set(s.msg_id, quotaPerSegnale('hunter', s, eventiBF)); return mp }, [hunter, eventiBF])
 
   const eLiveHB = (s: Hunter) => (s.fase || (s.tipo_segnale?.startsWith('GOL_') ? 'LIVE' : 'PRE-LIVE')) === 'LIVE'
   const mercatoDiHB = (s: Hunter) => s.tipo_segnale === 'GOL_CASA' ? 'Gol casa' : s.tipo_segnale === 'GOL_OSPITI' ? 'Gol ospiti' : `Pre-live · ${s.tipo_segnale || '?'}`
@@ -485,9 +402,6 @@ export default function SegnaliClient({ incorporato = false }: { incorporato?: b
         <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 14 }}>
           Arrivano dal canale in tempo reale · aggiornamento ogni 30 secondi{aggiornato ? ` · ultimo alle ${aggiornato.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
         </div>
-        <div style={{ fontSize: 12, color: erroreBF ? '#fca5a5' : '#64748b', marginBottom: 14 }}>
-          {erroreBF ? `Quote Betfair non leggibili: ${erroreBF}` : eventiBF.length ? `Quote Betfair: ${eventiBF.length} partite caricate · colonna "Betfair" = prezzo ora (back / lay) · "derivata" e "stimata" = calcolate, non giocabili · "—" = partita non trovata o mercato non disponibile` : 'Quote Betfair: nessun dato disponibile'}
-        </div>
 
 {tab==='pronox' ? (
         <>
@@ -495,8 +409,8 @@ export default function SegnaliClient({ incorporato = false }: { incorporato?: b
             <button onClick={() => setSportPronox('calcio')} style={{ ...sel, cursor: 'pointer', fontWeight: 900, borderColor: sportPronox === 'calcio' ? '#38bdf8' : '#334155' }}>⚽ Calcio</button>
             <button onClick={() => setSportPronox('tennis')} style={{ ...sel, cursor: 'pointer', fontWeight: 900, borderColor: sportPronox === 'tennis' ? '#38bdf8' : '#334155' }}>🎾 Tennis</button>
           </div>
-          {sportPronox === 'tennis' ? <SchedaTennis sel={sel} th={th} td={td} eventiBF={eventiBF} />
-            : <SchedaPronox dati={pronox} sel={sel} th={th} td={td} tabellaPagella={tabellaPagella} eventiBF={eventiBF} congelati={congelati} />}
+          {sportPronox === 'tennis' ? <SchedaTennis sel={sel} th={th} td={td} />
+            : <SchedaPronox dati={pronox} sel={sel} th={th} td={td} tabellaPagella={tabellaPagella} />}
         </>
         ) : tab==='hunterbet' ? (
         <>
@@ -541,12 +455,11 @@ export default function SegnaliClient({ incorporato = false }: { incorporato?: b
             <button onClick={salvaTuttiHunter} style={{background:'#059669',color:'white',border:0,borderRadius:8,padding:'6px 14px',fontWeight:900,fontSize:12.5,cursor:'pointer'}}>💾 Salva tutti</button>
             {salvaTuttiMsg && <span style={{fontSize:12,fontWeight:700,color:salvaTuttiMsg.startsWith('✓')?'#86efac':salvaTuttiMsg.startsWith('Salvo')?'#94a3b8':salvaTuttiMsg.startsWith('Niente')?'#94a3b8':'#fca5a5'}}>{salvaTuttiMsg}</span>}
           </div>
-          <DiagnosiBF canale="hunter" righe={hunter} celle={cellaHT} eventi={eventiBF} />
           <div style={{fontSize:11.5,color:'#94a3b8',marginBottom:8}}>Scrivi il risultato finale (es. 2-1) e, se lo sai, quello del 1° tempo: l'esito si calcola da solo ("auto"). Puoi sceglierlo a mano se il mercato non viene riconosciuto. La quota è quella che hai trovato dal bookmaker: scrivila qui e spunta «Giocata» solo sulle partite che hai davvero giocato. Le giocate con quota entrano nei conti reali dell'Analisi.</div>
           <div style={{ overflow: 'auto', maxHeight: '78vh' }}>
           <table style={{borderCollapse:'collapse',width:'100%'}}>
-            <thead><tr>{['Arrivato','Fase','Partita','Competizione','Segnale','Ris. al segnale','Minuto di gioco al segnale','Minuto gol vincente','1° tempo','Finale','Quota','Quota Bet365 al momento del segnale','Giocata','Betfair','Al segnale','Esito',''].map(h=><th key={h} style={{ ...(h.startsWith('Minuto') || h.startsWith('Quota Bet365') ? { ...th, whiteSpace: 'normal', width: h.startsWith('Quota Bet365') ? 92 : 78, lineHeight: 1.2 } : th), padding: '6px 5px', position: 'sticky', top: 0, background: '#0f172a', zIndex: 1 }}>{h}</th>)}</tr></thead>
-            <tbody>{hunterVisibili.map(s=><RigaHunter key={s.msg_id} s={s} td={{ ...td, padding: '6px 5px' }} bf={cellaHT.get(s.msg_id)} cg={congelati.get('hunter|' + s.msg_id)} onSalvato={r=>setHunter((v:Hunter[])=>v.map(x=>x.msg_id===r.msg_id?r:x))} registra={registraHunter} />)}</tbody>
+            <thead><tr>{['Arrivato','Fase','Partita','Competizione','Segnale','Ris. al segnale','Minuto di gioco al segnale','Minuto gol vincente','1° tempo','Finale','Quota','Quota Bet365 al momento del segnale','Giocata','Esito',''].map(h=><th key={h} style={{ ...(h.startsWith('Minuto') || h.startsWith('Quota Bet365') ? { ...th, whiteSpace: 'normal', width: h.startsWith('Quota Bet365') ? 92 : 78, lineHeight: 1.2 } : th), padding: '6px 5px', position: 'sticky', top: 0, background: '#0f172a', zIndex: 1 }}>{h}</th>)}</tr></thead>
+            <tbody>{hunterVisibili.map(s=><RigaHunter key={s.msg_id} s={s} td={{ ...td, padding: '6px 5px' }} onSalvato={r=>setHunter((v:Hunter[])=>v.map(x=>x.msg_id===r.msg_id?r:x))} registra={registraHunter} />)}</tbody>
           </table>
           </div>
         </div>
@@ -585,10 +498,9 @@ export default function SegnaliClient({ incorporato = false }: { incorporato?: b
 
         <div style={{ background: 'rgba(15,23,42,.6)', border: '1px solid #1e293b', borderRadius: 14, padding: 12, marginBottom: 18, overflowX: 'auto' }}>
           <div style={{ fontWeight: 900, marginBottom: 8 }}>Segnali · {visibili.length}</div>
-          <DiagnosiBF canale="scoretrend" righe={visibili} celle={cellaST} eventi={eventiBF} />
           <div style={{ maxHeight: 460, overflowY: 'auto' }}>
             <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-              <thead><tr>{['Arrivato', 'Partita', 'Competizione', 'Tipo', 'Mercato', 'Giocata', 'Quota', 'Betfair', 'Al segnale', 'Esito', 'Unità', '', '1° tempo', 'Finale', ''].map((h, i) => <th key={i} style={{ ...th, position: 'sticky', top: 0, background: '#0f172a' }}>{h}</th>)}</tr></thead>
+              <thead><tr>{['Arrivato', 'Partita', 'Competizione', 'Tipo', 'Mercato', 'Giocata', 'Quota', 'Esito', 'Unità', '', '1° tempo', 'Finale', ''].map((h, i) => <th key={i} style={{ ...th, position: 'sticky', top: 0, background: '#0f172a' }}>{h}</th>)}</tr></thead>
               <tbody>{visibili.map(s => (
                 <tr key={s.msg_id} style={{ background: recenti(s.data_msg) && !s.esito ? 'rgba(56,189,248,.08)' : undefined }}>
                   <td style={{ ...td, whiteSpace: 'nowrap' }}>{recenti(s.data_msg) && !s.esito ? '🆕 ' : ''}{quando(s.data_msg)}</td>
@@ -598,8 +510,6 @@ export default function SegnaliClient({ incorporato = false }: { incorporato?: b
                   <td style={td}>{mercatoDi(s)}</td>
                   <td style={{ ...td, fontWeight: 700 }}>{s.selezione}</td>
                   <td style={{ ...td, fontWeight: 800, color: Number(s.quota) < 1.4 ? '#fbbf24' : '#f8fafc' }} title={Number(s.quota) < 1.4 ? 'Sotto la regola di 1,40' : ''}>{String(s.quota ?? '').replace('.', ',')}</td>
-                  <CellaBetfair c={cellaST.get(s.msg_id)} td={td} />
-                  <CellaCongelata r={congelati.get('scoretrend|' + s.msg_id)} td={td} />
                   <td style={{ ...td, fontWeight: 900, color: s.esito === 'VINTA' ? '#86efac' : s.esito === 'PERSA' ? '#fca5a5' : '#94a3b8' }}>{s.esito ? (s.esito === 'VINTA' ? '🟢 vinta' : s.esito === 'PERSA' ? '🔴 persa' : '⚪ nulla') : '⏳ in corso'}</td>
                   <td style={{ ...td, color: Number(s.profitto) >= 0 ? '#86efac' : '#fca5a5' }}>{s.profitto != null ? `${s.profitto >= 0 ? '+' : ''}${n2(Number(s.profitto))}` : ''}</td>
                   <td style={td}>{s.link && <a href={s.link} target="_blank" rel="noopener noreferrer" style={{ color: '#7dd3fc', fontSize: 11 }}>apri</a>}</td>
