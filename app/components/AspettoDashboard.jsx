@@ -90,7 +90,7 @@ const PREFERITI = [
 const GRUPPI = [
   { id: 'soldi', nome: '💰 Soldi', voci: [['accantonamenti', '💰 Accantonamenti'], ['wallets', '👛 Wallets'], ['transactions', '🔄 Transactions'], ['periodi', '📅 Periodi'], ['punti-monete', '🏆 Punti & Monete'], ['stime-cassa', '🧾 Contabilità']] },
   { id: 'conti', nome: '🗂 Conti e team', voci: [['matrice', '🧮 Matrice'], ['credenziali', '🔑 Credenziali'], ['team', '👥 Team']] },
-  { id: 'strumenti', nome: '🧰 Strumenti', voci: [['slot-consigliate', '🎰 Lista slot'], ['promo', '🎁 Promo'], ['masaniello', '🎲 Masaniello'], ['prop-hedge', '📈 Prop Hedge'], ['memo', '📝 Memo'], ['post-it', '📌 Post-it']] },
+  { id: 'strumenti', nome: '🧰 Strumenti', voci: [['slot-consigliate', '🎰 Lista slot'], ['promo', '🎁 Promo'], ['masaniello', '🎲 Masaniello'], ['memo', '📝 Memo'], ['post-it', '📌 Post-it']] },
 ]
 
 function Gruppo({ gruppo, activeTab, onTab, tabButton, activeTabButton }) {

@@ -30,8 +30,6 @@ const SUPABASE_SERVICE_ROLE_KEY =
 const MARKET_FEED_SECRET =
   process.env.MARKET_FEED_SECRET;
 
-const PROP_WATCHDOG_SECRET =
-  process.env.PROP_WATCHDOG_SECRET;
 
 
 /*
@@ -898,32 +896,6 @@ export async function POST(
       await upsertFeed(
         row
       );
-
-    /*
-    ------------------------------------------------------------
-    PROP WATCHDOG
-    ------------------------------------------------------------
-    Non blocca mai il salvataggio del feed.
-    Se una challenge è in monitoraggio, controlla Telegram,
-    controtendenza M15, WAIT/inversione e TP/SL.
-    */
-    try {
-      if (PROP_WATCHDOG_SECRET) {
-        const origin = new URL(request.url).origin;
-        await fetch(`${origin}/api/prop-trade-watchdog`, {
-          method: "POST",
-          headers: {
-            "x-watchdog-secret": PROP_WATCHDOG_SECRET,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({ symbol: marketKey }),
-          cache: "no-store"
-        });
-      }
-    } catch (watchdogError) {
-      console.error("Prop Watchdog non bloccante:", watchdogError);
-    }
-
 
     /*
     ------------------------------------------------------------
