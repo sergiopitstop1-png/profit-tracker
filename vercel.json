@@ -8,8 +8,6 @@
     { "path": "/api/cron/pronox-outcomes", "schedule": "0 */6 * * *" },
     { "path": "/api/cron/pronox-tennis?date=domani", "schedule": "10 14 * * *" },
     { "path": "/api/cron/pronox-tennis?date=oggi", "schedule": "0 9 * * *" },
-    { "path": "/api/cron/betfair-segnali", "schedule": "*/5 * * * *" },
-    { "path": "/api/cron/pronox-tennis-outcomes", "schedule": "30 4,16 * * *" },
     { "path": "/api/cron/accademia-dirette", "schedule": "*/5 * * * *" },
     { "path": "/api/cron/accademia-riassunto", "schedule": "0 10,11,17,18 * * *" },
     { "path": "/api/cron/accademia-consigli", "schedule": "*/15 * * * *" },

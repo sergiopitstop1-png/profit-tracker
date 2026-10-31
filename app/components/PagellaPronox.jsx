@@ -5,7 +5,7 @@
 // Domanda a cui risponde: "quando PronoX dice 70%, succede davvero 7 volte su 10?"
 // e "PronoX fa meglio di un pronostico ingenuo (la media storica)?".
 // I dati arrivano dalle funzioni SQL pronox_pagella_mercati / _fasce
-// (vedi pronox_pagella.sql). Il confronto con le quote arriverà con Betfair.
+// (vedi pronox_pagella.sql).
 // ════════════════════════════════════════════════════════════════════
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '../profit-tracker/supabaseClient'

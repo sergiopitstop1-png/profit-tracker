@@ -11,8 +11,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '../../supabaseClient'
-import { caricaCongelati } from '../betfair'
-import type { RigaCongelata } from '../betfair'
 
 type Gol = { m: number; s: 'casa' | 'ospite'; autogol?: boolean }
 type Riga = { id: number; data: string; competizione: string; esito: string | null; quota: number | null; profitto: number | null; unita: number
@@ -253,7 +251,6 @@ export default function AnalisiSegnali() {
   const [quotaIpotesi, setQuotaIpotesi] = useState('1.70')
   const [soloSopra140, setSoloSopra140] = useState(false)
   const [tipoScelto, setTipoScelto] = useState('Tutti i segnali')
-  const [congelati, setCongelati] = useState<Map<string, RigaCongelata>>(new Map())  // 14/10/2026: per il CLV
   // 29/10/2026 · filtri dello «Studio partite»
   const [stHT, setStHT] = useState('0-0')
   const [stTipo, setStTipo] = useState('Tutti')
@@ -277,9 +274,6 @@ export default function AnalisiSegnali() {
       setErrore(ris.map(r => r.errore).filter(Boolean).join(' · '))
     })()
   }, [])
-  useEffect(() => {
-    (async () => { try { setCongelati(await caricaCongelati(supabase)) } catch { /* tabella betfair_segnali_quote non ancora creata */ } })()
-  }, [])
   const righe = dati[canale]
 
   const tutte = useMemo(() => righe.filter(r => !soloSopra140 || r.quota == null || r.quota >= 1.4), [righe, soloSopra140])
@@ -301,23 +295,6 @@ export default function AnalisiSegnali() {
   const realiTipi = segmenta(reali, r => r.casaOspiti || 'n.d.')
   const simReali = simula(reali, null)
   const nonGiocate = canale === 'hunterbet' ? chiuse.filter(r => r.giocata !== true).length : 0
-
-  // 14/10/2026 · CLV: la quota del segnale contro la quota GIUSTA di chiusura su Betfair (senza margine).
-  // Sopra zero in media = il servizio batte il mercato. Servono 300-500 segnali per fidarsi.
-  const chCanale = canale === 'hunterbet' ? 'hunter' : canale
-  const clvLista: number[] = []
-  let conPrezzoSegnale = 0
-  for (const r of tutte) {
-    const c = congelati.get(`${chCanale}|${r.id}`)
-    if (!c) continue
-    conPrezzoSegnale++
-    const ch = c.ch_il ? (c.ch_fair ?? (c.ch_tipo === 'mercato' ? c.ch_back : null)) : null
-    if (c.quota_book != null && ch && ch > 1) clvLista.push((Number(c.quota_book) / Number(ch) - 1) * 100)
-  }
-  const clvN = clvLista.length
-  const clvMedia = clvN ? clvLista.reduce((a, b) => a + b, 0) / clvN : 0
-  const clvSe = clvN > 1 ? Math.sqrt(clvLista.reduce((a, b) => a + (b - clvMedia) ** 2, 0) / (clvN - 1) / clvN) : 0
-  const clvPos = clvN ? clvLista.filter(x => x > 0).length / clvN : 0
 
   const esitiTorta = [
     { nome: 'Vinte', valore: tutte.filter(r => r.esito === 'VINTA').length, colore: '#34d399' },
@@ -506,25 +483,6 @@ export default function AnalisiSegnali() {
                 </table>)}
               <div style={{ fontSize: 12, color: realiTot.n < 100 ? '#fbbf24' : '#94a3b8' }}>
                 {realiTot.n < 100 ? `⚠️ ${realiTot.n} bet con quota vera: ancora poche per concludere (ne servono almeno 100, meglio 300). Guarda il margine.` : realiTot.lo * (reali.reduce((a, r) => a + (r.quota || 0), 0) / realiTot.n) > 1 ? '✅ Anche con il margine d\'errore basso, la tua % vinte × la tua quota media è sopra 1: la strategia regge con le quote vere.' : 'Con il margine d\'errore, la tua % vinte × quota media non è ancora sicuramente sopra 1: servono più bet.'}
-              </div>
-            </>)}
-          </div>)}
-
-        {(
-          <div style={{ background: 'rgba(15,23,42,.6)', border: '1px solid #1e293b', borderRadius: 14, padding: 12, marginBottom: 14 }}>
-            <div style={{ fontWeight: 900, marginBottom: 6, color: '#7dd3fc' }}>🎯 Questo servizio batte il mercato? (CLV su Betfair)</div>
-            {clvN === 0 ? (
-              <div style={{ fontSize: 12, color: '#94a3b8' }}>
-                {conPrezzoSegnale === 0 ? 'Ancora nessun segnale con il prezzo Betfair congelato.' : `${conPrezzoSegnale} segnali con il prezzo Betfair congelato, ma nessuno ha insieme la quota del segnale e la chiusura (${canale === 'hunterbet' ? 'Hunterbet manda segnali live senza quota: il CLV non si può calcolare' : 'la chiusura si registra solo se il servizio Betfair è acceso fino al calcio d\'inizio'}).`}
-              </div>
-            ) : (<>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 6 }}>
-                {card('CLV medio', `${clvMedia >= 0 ? '+' : ''}${n2(clvMedia)}%`, clvMedia - 1.96 * clvSe > 0 ? '#86efac' : clvMedia + 1.96 * clvSe < 0 ? '#fca5a5' : '#fbbf24', `± ${n2(1.96 * clvSe)} (margine d'errore 95%)`)}
-                {card('Segnali misurati', String(clvN), '#f8fafc', `su ${tutte.length} del canale`)}
-                {card('Quota sopra chiusura', pct(clvPos, 0), '#f8fafc', 'quante volte la quota presa era migliore')}
-              </div>
-              <div style={{ fontSize: 12, color: '#94a3b8' }}>
-                {clvN < 100 ? `⚠️ Solo ${clvN} segnali: troppo pochi per concludere (ne servono 300-500).` : clvMedia - 1.96 * clvSe > 0 ? '✅ Il CLV è positivo anche togliendo il margine d\'errore: il servizio sembra battere il mercato.' : clvMedia + 1.96 * clvSe < 0 ? '❌ Il CLV è negativo: il mercato di chiusura è migliore delle quote date.' : 'Per ora il CLV non è distinguibile da zero: servono più segnali.'}
               </div>
             </>)}
           </div>)}

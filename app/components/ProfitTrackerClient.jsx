@@ -27,13 +27,11 @@ import { pianoAvvisi } from './pianoAvvisi' // 03/10/2026: un avviso al giorno
 import AvvisiContiPanel, { pianoDelGiorno } from './AvvisiConti'
 import LucyAvvisoMail from './LucyAvvisoMail'   // 07/10/2026: avviso sottile nuove opportunità / bonus accreditati
 import PromoBonusPanel, { PromoScadenze } from './PromoBonus'   // 05/10/2026: tab Promo + striscia scadenze
-import BetfairStato from './BetfairStato'   // 06/10/2026: avviso "quote Betfair ferme" in Dashboard
 import SelectCercabile from './SelectCercabile'   // 30/10/2026: menu wallet/book con ricerca mentre scrivi
 import MailCriticheOkVisto from './MailCriticheOkVisto'   // 22/10/2026: popup mail critiche (inibizione bonus, conto sospeso, KYC) finché non premi «Ok visto» (solo admin)
 import PromoNuovePopup from './PromoNuovePopup'   // 14/10/2026: popup promo segnalate nuove, finché non premi «Ok visto» (solo admin)
 import SceltaData from './SceltaData'   // 14/10/2026: calendario unico per scegliere le date (rimandi)
 import DiretteAvviso from './DiretteAvviso'   // 09/10/2026: prossima diretta Accademia (solo admin)
-import LucyTrading from './LucyTrading'   // 06/10/2026: scheda Lucy · trading prematch
 import ProfilazioniMiratePanel, { prossimaMirata, tipoMirata } from './ProfilazioniMirate'   // 05/10/2026: prossimaMirata per il banner in Dashboard
 import { impostaPausaRecupero, impostaMovimentiRecupero } from './RecuperoConti'
 import PulsanteRegistra from './PulsanteRegistra'   // 24/10/2026: pulsante tondo trascinabile "Registra al volo" (apre il Registro manuale)
@@ -8543,12 +8541,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             aspetto={aspetto}
             onPreparaOggi={preparaOggiDaFare}
             striscePrima={<><LucyAvvisoMail />
-<BetfairStato />
 <DiretteAvviso />
 <PromoNuovePopup />
 <MailCriticheOkVisto /></>}
             strisceOggi={<>
-<LucyTrading Sezione={Sezione} />
 <PromoScadenze onApri={() => handleTabChange('promo')} Sezione={Sezione} />
        {/* 05/10/2026 · 🎯 PROFILAZIONI MIRATE IN ARRIVO: scadute, oggi, domani e nei 3 giorni dopo */}
        {(() => {
