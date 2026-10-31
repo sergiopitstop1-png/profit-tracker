@@ -54,8 +54,8 @@ export const STRUMENTI = [{
 }]
 
 // 15/10/2026 — LETTURA DI TUTTO IL PROFIT (sola lettura). Restano FUORI le tabelle con password, chiavi, token o utenti:
-// credenziali (password dei book e risposte segrete), lucy_gmail_connection (token Gmail), user_profiles, prop_broker_accounts,
-// pronox_plans (iscritti), prop_bridge_commands e le tabelle di cache/immagini. In più qualunque colonna con nome da segreto è nascosta.
+// credenziali (password dei book e risposte segrete), lucy_gmail_connection (token Gmail), user_profiles,
+// pronox_plans (iscritti) e le tabelle di cache/immagini. In più qualunque colonna con nome da segreto è nascosta.
 export const TABELLE: Record<string, string> = {
   books: 'conti bookmaker dei clienti (nome book, intestatario, saldo, stato)',
   clienti: 'elenco clienti',
@@ -131,15 +131,6 @@ export const TABELLE: Record<string, string> = {
   monthly_snapshots: 'istantanee mensili',
   dashboard_settings: 'impostazioni della Dashboard',
   live_sessioni: 'sessioni live',
-  prop_operations: 'prop trading: operazioni',
-  prop_challenges: 'prop trading: challenge',
-  prop_challenges_summary: 'prop trading: riepilogo challenge',
-  prop_hedge_operations: 'prop hedge: operazioni',
-  prop_hedge_active_challenges: 'prop hedge: challenge attive',
-  prop_hedge_broker_state: 'prop hedge: stato broker',
-  prop_hedge_broker_adjustments: 'prop hedge: rettifiche broker',
-  prop_trading_session: 'prop trading: sessioni',
-  prop_broker_live_state: 'prop trading: stato broker live',
 }
 const COLONNA_VIETATA = /(passw|pwd|token|secret|segret|api_?key|refresh|iban|cvv|seed|private|cookie|otp|codice_fiscale|(^|_)pin($|_))/i
 const colonnaOk = (c: any) => /^[a-z][a-z0-9_]{0,60}$/.test(String(c ?? '')) && !COLONNA_VIETATA.test(String(c))
