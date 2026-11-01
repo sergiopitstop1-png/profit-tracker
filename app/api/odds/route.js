@@ -1,4 +1,15 @@
+import {
+  apiFootballKey,
+  AF_LEAGUES,
+  fetchEventsForLeague,
+} from "../../../lib/apiFootballOdds";
+
 const CACHE_TTL = 15 * 60 * 1000;
+
+// 01/11/2026: le quote prematch di API-Football si aggiornano circa una volta al giorno → cache di 3 ore.
+// Il parametro refresh=1 non può rifare la chiamata più spesso di una volta ogni 10 minuti (la chiave è condivisa con Hunterbet).
+const CACHE_TTL_AF = 3 * 60 * 60 * 1000;
+const MIN_RIFRESCO_AF = 10 * 60 * 1000;
 
 // Mantiene la cache anche tra richieste successive
 // finché l'istanza Vercel rimane attiva.
@@ -21,6 +32,78 @@ export async function GET(request) {
 
   params.delete("endpoint");
   params.delete("refresh");
+
+  // ============================
+  // API-FOOTBALL (01/11/2026)
+  // Quote prematch del piano Pro, tradotte nello stesso formato di The Odds API:
+  // /oggi, /pronosticatore e il digest funzionano come prima. ODDS_PROVIDER=theoddsapi per tornare a The Odds API.
+  // ============================
+
+  const afKey = apiFootballKey();
+  const mLega = /^sports\/([a-z0-9_]+)\/odds$/.exec(endpoint);
+  const provider = String(
+    process.env.ODDS_PROVIDER || (afKey ? "apifootball" : "theoddsapi")
+  ).toLowerCase();
+
+  if (
+    provider === "apifootball" &&
+    afKey &&
+    mLega &&
+    AF_LEAGUES[mLega[1]]
+  ) {
+    const chiaveAF = `AF:${mLega[1]}`;
+    const inCache = oddsCache.get(chiaveAF);
+    const ora = Date.now();
+    const eta = inCache ? ora - inCache.time : Infinity;
+    const usaCache =
+      inCache && (forceRefresh ? eta < MIN_RIFRESCO_AF : eta < CACHE_TTL_AF);
+
+    if (usaCache) {
+      return Response.json(inCache.data, {
+        status: 200,
+        headers: {
+          "x-odds-source": "api-football",
+          "x-odds-cache": "HIT",
+          "x-odds-cache-age": String(Math.floor(eta / 1000)),
+          "x-odds-events": String(inCache.data.length),
+        },
+      });
+    }
+
+    try {
+      const { events, calls } = await fetchEventsForLeague(
+        mLega[1],
+        { days: 3, stats: true },
+        afKey
+      );
+
+      oddsCache.set(chiaveAF, { time: ora, data: events, headers: {} });
+
+      return Response.json(events, {
+        status: 200,
+        headers: {
+          "x-odds-source": "api-football",
+          "x-odds-cache": forceRefresh ? "REFRESH" : "MISS",
+          "x-odds-cache-age": "0",
+          "x-odds-events": String(events.length),
+          "x-odds-af-calls": String(calls),
+        },
+      });
+    } catch (e) {
+      // senza la chiave di The Odds API non c'è una riserva: errore chiaro
+      if (!process.env.ODDS_API_KEY) {
+        return Response.json(
+          {
+            error: e?.message || "Errore API-Football",
+            endpoint,
+            source: "api-football",
+          },
+          { status: 502 }
+        );
+      }
+      // altrimenti si prosegue con The Odds API (riserva)
+    }
+  }
 
   // Controllo API KEY
   if (!process.env.ODDS_API_KEY) {

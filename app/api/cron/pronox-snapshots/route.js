@@ -13,8 +13,10 @@
 //   date=oggi, horizon=opening) che fotografa le partite di OGGI non ancora iniziate:
 //   recupera quelle sfuggite alla corsa del giorno prima (aggiunte o spostate tardi).
 //   La vista pronox_segnali preferisce comunque t24h, poi opening: nessun doppione.
-// 31/10/2026: Betfair rimosso dal Profit Tracker. Le quote arrivano solo da The Odds API, e solo se attivi
-//   PRONOX_ODDS_FALLBACK=1 (con ODDS_API_KEY); altrimenti la fotografia si scrive SENZA quota.
+// 31/10/2026: Betfair rimosso dal Profit Tracker.
+// 01/11/2026: le quote arrivano da API-Football (piano Pro, variabile API_FOOTBALL_KEY): media dei bookmaker per 1X2 e Over/Under 2.5.
+//   Senza la chiave: The Odds API solo se attivi PRONOX_ODDS_FALLBACK=1 (con ODDS_API_KEY); altrimenti la fotografia si scrive SENZA quota.
+//   PRONOX_ODDS_PROVIDER=theoddsapi forza The Odds API anche se c'è la chiave di API-Football.
 // =====================================================================
 
 import { NextResponse } from "next/server";
@@ -26,6 +28,7 @@ import {
   parseOddsForDate, matchOdds, computeFixtureModel,
   calibrateFootballProbability,
 } from "../../../../lib/pronox/footballModel";
+import { apiFootballKey, fetchEventsForLeague } from "../../../../lib/apiFootballOdds";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // i download stagionali possono richiedere tempo
@@ -171,7 +174,7 @@ function buildSnapshotRows({ fix, code, model, oddsData, horizon }) {
     },
     matched_home: oddsData.homeTeam ?? null,
     matched_away: oddsData.awayTeam ?? null,
-    source: "the-odds-api",
+    source: oddsData.fonte === "api-football" ? "api-football" : "the-odds-api",
     captured_at: new Date().toISOString(),
   } : {};
 
@@ -211,7 +214,7 @@ function buildSnapshotRows({ fix, code, model, oddsData, horizon }) {
       model_version: `${MODEL_VERSION}_raw`,
       model_prob: cleanProb(s.prob),
       odds_taken: odds,
-      odds_bookmaker: odds ? "media_eu" : null,
+      odds_bookmaker: odds ? (oddsData?.fonte === "api-football" ? "apifootball" : "media_eu") : null,
     });
     // Riga 2: probabilità calibrata (quella mostrata in /oggi), solo dove esiste
     if (s.label) {
@@ -223,7 +226,7 @@ function buildSnapshotRows({ fix, code, model, oddsData, horizon }) {
         model_version: `${MODEL_VERSION}_cal`,
         model_prob: cleanProb(calibrateFootballProbability(s.label, s.prob, oddsData)),
         odds_taken: odds,
-        odds_bookmaker: odds ? "media_eu" : null,
+        odds_bookmaker: odds ? (oddsData?.fonte === "api-football" ? "apifootball" : "media_eu") : null,
       });
     }
   }
@@ -290,12 +293,31 @@ export async function GET(request) {
       allAvgs[code] = { lgAvgHome, lgAvgAway };
     }
 
-    // 3. Quote: The Odds API solo come riserva opzionale (PRONOX_ODDS_FALLBACK=1)
+    // 3. Quote: API-Football (piano Pro); The Odds API solo come riserva opzionale (PRONOX_ODDS_FALLBACK=1)
     const allOdds = {};
     const fallback = process.env.PRONOX_ODDS_FALLBACK === "1";
     const oddsKey = process.env.ODDS_API_KEY || process.env.THE_ODDS_API_KEY || process.env.ODDSAPI_KEY;
+    const afKey = apiFootballKey();
+    const usaApiFootball = !!afKey && process.env.PRONOX_ODDS_PROVIDER !== "theoddsapi";
     report.debug.odds_fallback = fallback;
-    if (fallback && oddsKey) {
+    report.debug.odds_provider = usaApiFootball ? "api-football" : fallback && oddsKey ? "the-odds-api" : "nessuno";
+    if (usaApiFootball) {
+      report.debug.odds = {};
+      report.debug.api_football_chiamate = 0;
+      for (const code of playingCodes) {
+        const league = LEAGUES.find((l) => l.code === code);
+        if (!league?.oddsKey) continue;
+        try {
+          const { events, calls } = await fetchEventsForLeague(league.oddsKey, { from: date, to: date, stats: true }, afKey);
+          allOdds[code] = parseOddsForDate(events, date);
+          report.debug.odds[code] = `${Object.keys(allOdds[code]).length} partite con quota`;
+          report.debug.api_football_chiamate += calls;
+        } catch (e) {
+          report.debug.odds[code] = `errore: ${String(e?.message || e)}`;
+          report.errors.push(`quote ${code}: ${String(e?.message || e)}`);
+        }
+      }
+    } else if (fallback && oddsKey) {
       report.debug.odds = {};
       for (const code of playingCodes) {
         const league = LEAGUES.find((l) => l.code === code);
@@ -335,10 +357,13 @@ export async function GET(request) {
           seasonMatchesForH2H: allMatches[code] || [],
           recentNews,
         });
-        // quota: solo da The Odds API se attivata; altrimenti nessuna quota
+        // quota: API-Football (o The Odds API se attivata); altrimenti nessuna quota
         let oddsData = null;
-        if (fallback) oddsData = matchOdds(allOdds[code] || {}, fix.homeTeam.name, fix.awayTeam.name);
+        if (usaApiFootball || fallback) oddsData = matchOdds(allOdds[code] || {}, fix.homeTeam.name, fix.awayTeam.name);
+        if (oddsData && usaApiFootball) oddsData = { ...oddsData, fonte: "api-football" };
         if (oddsData) report.odds_matched++;
+        // squadre senza quota: l'elenco serve a capire se è un problema di nome (da aggiungere in ALIAS_SQUADRE di lib/apiFootballOdds.js)
+        else if (usaApiFootball && Object.keys(allOdds[code] || {}).length) (report.debug.senza_quota ||= []).push(`${fix.homeTeam.name} – ${fix.awayTeam.name}`);
         rows.push(...buildSnapshotRows({ fix, code, model, oddsData, horizon }));
         report.fixtures++;
       }
