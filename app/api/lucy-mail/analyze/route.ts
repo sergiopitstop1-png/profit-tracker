@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { togliFrasiStandard, eFalsoProblemaPromo } from '../../../../lib/lucyFalsoProblema'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -416,8 +417,8 @@ type LucyItem = {
 function compactBody(
   value: string | null | undefined
 ) {
-  const text = String(value || '')
-    .replace(/\u0000/g, '')
+  // 01/11/2026: via le frasi fisse dei modelli di mail (es. "Problemi nell'effettuare il login?"): l'AI le scambiava per un problema sul conto
+  const text = togliFrasiStandard(String(value || '').replace(/\u0000/g, ''))
     .trim()
 
   if (text.length <= 3000) {
@@ -1474,6 +1475,43 @@ function reteSicurezzaPromo(
   }
 }
 
+/* =========================================================
+   01/11/2026 · RETE DI SICUREZZA FALSI ALLARMI
+   Se l'AI dice "limitazione / conto sospeso / KYC" (popup rosso "mail importanti sui conti") ma nel testo non c'è
+   nessun segno di un problema vero ed è una promozione, l'allarme è falso: passa a PUBBLICITA, senza richiedere azione.
+   ========================================================= */
+
+const CATEGORIE_ALLARME = ['LIMITAZIONE', 'SOSPENSIONE', 'KYC']
+
+function reteSicurezzaFalsoProblema(
+  item: LucyItem,
+  result: any
+) {
+  if (!result || item.canale !== 'EMAIL') return result
+  if (
+    result.giudizio !== 'DA_VALUTARE' ||
+    result.richiede_azione !== true
+  ) {
+    return result
+  }
+  if (!CATEGORIE_ALLARME.includes(String(result.categoria))) {
+    return result
+  }
+  if (!eFalsoProblemaPromo(item.oggetto, item.testo_completo)) {
+    return result
+  }
+
+  return {
+    ...result,
+    giudizio: 'DA_VALUTARE',
+    categoria: 'PUBBLICITA',
+    priorita: 'bassa',
+    richiede_azione: false,
+    motivazione_ai:
+      `${result.motivazione_ai || ''} [Controllo di sicurezza: è una promozione, nel testo non c'è nessun segno di un problema sul conto (solo frasi standard del modello di mail): non è una limitazione]`.trim(),
+  }
+}
+
 function sansAccentiLucy(value: unknown) {
   return String(value ?? '')
     .toLowerCase()
@@ -2420,10 +2458,13 @@ async function runAnalysis() {
       }
 
       const result =
-        reteSicurezzaPromo(
+        reteSicurezzaFalsoProblema(
           item,
-          await analyzeItem(
-            item
+          reteSicurezzaPromo(
+            item,
+            await analyzeItem(
+              item
+            )
           )
         )
 
