@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 
 const GIORNI = [
   'Domenica',
@@ -162,6 +162,24 @@ export default function CalendarioAperture({
     refresh()
   }, [])
 
+  // Allinea il piano alla data odierna: le aperture non fissate
+  // rimaste indietro vengono ripianificate da oggi (una volta per caricamento).
+  const autoAllineato = useRef(false)
+
+  const arretrate = daAprire.filter(r => {
+    const p = piano[String(r.id)]
+    return p?.data_prevista && !p.bloccata && p.data_prevista < today()
+  })
+
+  const capienzaZero = !regole.some(x => Number(x) > 0)
+
+  useEffect(() => {
+    if (!loaded || busy || autoAllineato.current) return
+    if (arretrate.length === 0 || capienzaZero) return
+    autoAllineato.current = true
+    ricalcola(true)
+  }, [loaded, busy, arretrate.length, capienzaZero])
+
   useEffect(() => {
     setOverride(
       String(
@@ -315,9 +333,10 @@ export default function CalendarioAperture({
   //    non entrano più nella pianificazione.
   // =====================================================
 
-  async function ricalcola() {
+  async function ricalcola(auto = false) {
 
     if (
+      auto !== true &&
       !window.confirm(
         'Ricalcolare tutte le aperture future non fissate? ' +
         'Il cliente con più book mancanti avrà precedenza e verrà completato prima di passare al successivo. ' +
@@ -1025,6 +1044,14 @@ export default function CalendarioAperture({
         <h3>
           Aperture programmate
         </h3>
+
+        {arretrate.length > 0 && capienzaZero && (
+          <div style={{ color: '#f5b942', margin: '8px 0' }}>
+            ⚠️ {arretrate.length} aperture hanno una data già passata, ma la
+            «Settimana tipo» è tutta a 0: imposta le aperture per giorno e
+            premi Ricalcola per riportarle da oggi.
+          </div>
+        )}
 
         <input
           style={{
