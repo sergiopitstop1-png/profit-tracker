@@ -79,7 +79,7 @@ export default function CalendarioAperture({
   const [busy, setBusy] = useState(false)
   const [filtro, setFiltro] = useState('')
   const [loaded, setLoaded] = useState(false)
-  const [calendarioEspanso, setCalendarioEspanso] = useState(true)
+  const [calendarioEspanso, setCalendarioEspanso] = useState(false)   // 02/11/2026: chiuso di default (si apre con «▼ Apri calendario»)
   const [aperturaInCorso, setAperturaInCorso] = useState(null)
 
   // =====================================================
