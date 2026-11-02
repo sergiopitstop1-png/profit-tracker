@@ -169,7 +169,7 @@ export function posizioneGruppo(g, sessioni, fatte, datiConto) {
   }
 }
 
-export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setGruppi, fatte, setFatte, giorniPausa, onProfilazione, onProfilazioneTutti, onApri, sitoBook, onMessage, onError }) {
+export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setGruppi, fatte, setFatte, giorniPausa, onProfilazione, onProfilazioneTutti, onApri, onVersa, sitoBook, onMessage, onError }) {
   const [aperto, setAperto] = useState(true)
   const [chiuse, setChiuse] = useState({})          // 15/10/2026: sezioni ripiegate { 'sport': true }
   const [edit, setEdit] = useState(null)          // { id?, nome, ogni_giorni, conti: [book_id], cerca }
@@ -507,6 +507,13 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
                   ⛔ {doppie.map(x => `${x.persona} ha ${x.conti.length} conti in questo gruppo (${x.conti.map(b => b.nome).join(' + ')})`).join(' · ')}: al casinò live solo un conto per persona. Correggi con ✏️.
                 </div>
               )}
+              {/* 02/11/2026 · 💶 Versa anche quando la tabella per conto non c'è ancora (nessuna sessione registrata) */}
+              {onVersa && pos.righe.length === 0 && conti.length > 0 && (
+                <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span style={{ fontSize: 11.5, color: '#94a3b8' }}>💶 Versa su:</span>
+                  {conti.map(b => <button key={b.id} style={{ ...btn('#22c55e'), padding: '2px 8px', fontSize: 11 }} title={`Versa su ${b.nome} di ${b.intestatario || '—'}`} onClick={() => onVersa(b)}>{b.nome} · {b.intestatario || '—'}</button>)}
+                </div>
+              )}
               {/* 23/10/2026 · posizione per conto e avviso di pausa (campionati baccarat, roulette, sport, slot) */}
               {pos.righe.length > 0 && (() => {
                 const sp = pos.tipo === 'sport' || pos.tipo === 'slot'
@@ -530,7 +537,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
                   )}
                   {pos.senzaImporto > 0 && <div style={{ marginTop: 4, fontSize: 11.5, color: '#fbbf24' }}>⚠️ {pos.senzaImporto} {pos.senzaImporto === 1 ? 'registrazione senza importo non conta' : 'registrazioni senza importo non contano'} nel totale: indica sempre quanto ha giocato ogni conto in ✅ Fatta.</div>}
                   <table style={{ borderCollapse: 'collapse', width: '100%', marginTop: 6 }}>
-                    <thead><tr>{intestazioni.map(th)}</tr></thead>
+                    <thead><tr>{intestazioni.map(th)}{onVersa && <th style={{ borderBottom: '1px solid #334155' }} />}</tr></thead>
                     <tbody>
                       {pos.righe.map(r => (
                         <tr key={r.id}>
@@ -550,6 +557,11 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
                               <td style={td(0, { color: r.roul.sessioni ? '#fca5a5' : '#cbd5e1' })}>{r.roul.sessioni ? `-${euroIt(r.roul.costo)}` : '—'}</td>
                             </>}
                           </>}
+                          {/* 02/11/2026 · 💶 Versa: apre lo stesso versamento rapido dei Books (wallet → book) per questo conto */}
+                          {onVersa && <td style={{ padding: '2px 0 2px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                            <button style={{ ...btn('#22c55e'), padding: '2px 8px', fontSize: 11, fontWeight: 800 }} title={`Versa su ${r.nome} di ${r.intestatario || '—'}`}
+                              onClick={() => { const bk = bookDi(r.id); if (bk) onVersa(bk) }}>💶 Versa</button>
+                          </td>}
                         </tr>))}
                       <tr>
                         <td style={{ padding: '4px 8px', fontSize: 12, textAlign: 'right', color: '#94a3b8', borderTop: '1px solid #334155' }}>Totale gruppo</td>
@@ -560,6 +572,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
                           {pos.haBacc && <><td style={{ borderTop: '1px solid #334155' }} /><td style={td(0, { fontWeight: 900, borderTop: '1px solid #334155', color: colNetto(pos.totBacc) })}>{segnoEuro(pos.totBacc)}</td></>}
                           {pos.haRoul && <><td style={{ borderTop: '1px solid #334155' }} /><td style={td(0, { borderTop: '1px solid #334155', color: '#94a3b8' })}>{euroIt(pos.totRoulPuntato)}</td><td style={td(0, { fontWeight: 900, borderTop: '1px solid #334155', color: colNetto(pos.totRoulNetto) })}>{pos.totRoulNetto ? segnoEuro(pos.totRoulNetto) : '—'}</td><td style={td(0, { fontWeight: 900, borderTop: '1px solid #334155', color: '#fca5a5' })}>-{euroIt(pos.totRoul)}</td></>}
                         </>}
+                        {onVersa && <td style={{ borderTop: '1px solid #334155' }} />}
                       </tr>
                     </tbody>
                   </table>
