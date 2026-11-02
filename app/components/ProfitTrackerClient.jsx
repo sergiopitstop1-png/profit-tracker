@@ -9185,6 +9185,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             setMessage(`🟢 ${ids.length} conti messi in profilazione`)
           }}
           onApri={(nomeBook, conti) => apriSuTelefoni(nomeBook, sitoBook(conti[0]), conti.map(b => b.intestatario))}
+          onVersa={b => { openQuickBookTx(b, 'versa'); try { window.focus() } catch (e) {} }}   // 02/11/2026: Versa dalla profilazione mirata (stesso versamento rapido dei Books)
           sitoBook={sitoBook}
           onMessage={setMessage}
           onError={setErrorMessage}
@@ -11503,7 +11504,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
   </div>
 )}
 {showQuickBookTxModal && selectedBook && (
-  <div style={modalOverlay} onClick={() => setShowQuickBookTxModal(false)}>
+  <div style={{ ...modalOverlay, zIndex: 1100 }} onClick={() => setShowQuickBookTxModal(false)}>   {/* 1100: sopra la finestra della profilazione mirata (1000) */}
     <div style={modalCard} onClick={(e) => e.stopPropagation()}>
       <div style={modalHeader}>
         <div>
