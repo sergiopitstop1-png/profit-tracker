@@ -15,6 +15,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '../profit-tracker/supabaseClient'
+import { LIVELLI_FEDELTA, FEDELTA_FINE_PROGRAMMA, pianoFedeltaSettimanale, bookFedelta } from './livelliFedelta' // 03/11/2026: nota livelli Lottomatica/Goldbet nelle mirate Sport
 import SceltaData from './SceltaData' // 14/10/2026: calendario unico per scegliere le date
 import SessioneLivePanel, { plRoulette } from './SessioneLive' // 02/10/2026: numeri a conto nella profilazione mirata
 
@@ -430,6 +431,8 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
           const nonProf = conti.filter(b => b.profilo_livello !== 'attivo')
           const libri = [...new Set(conti.map(b => b.nome))]
           const doppie = tipoMirata(g) === 'casino live' ? personeDoppie(conti) : []   // 05/10/2026 (dal 15/10 solo casinò live)
+          const fedeltaK = tipoMirata(g) === 'sport' ? [...new Set(conti.map(b => bookFedelta(b.nome)).filter(Boolean))] : []
+          const fedelta = fedeltaK.length ? fedeltaK : null   // 03/11/2026
           // 05/10/2026 · riga semplice dell'elenco
           const tra = diffGiorni(oggi, prossima)
           const colore = tra <= 0 ? '#f87171' : tra === 1 ? '#fbbf24' : '#64748b'
@@ -449,6 +452,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
               <span style={{ fontSize: 12, color: '#fde68a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {problemi > 0 && <span style={{ color: doppie.length ? '#f87171' : '#fbbf24', marginRight: 8 }}>{doppie.length ? '⛔' : '⚠️'}</span>}
                 {pos.daPausare.length > 0 && <span title={`${pos.daPausare.length} conti hanno raggiunto la soglia: metti in pausa la profilazione mirata`} style={{ color: '#f59e0b', fontWeight: 800, marginRight: 8 }}>⏸ {pos.daPausare.length} in pausa?</span>}
+                {fedelta && <span title="Mirata Sport con Lottomatica/Goldbet: apri i dettagli per la nota sui livelli fedeltà" style={{ marginRight: 8 }}>🏅</span>}
                 {g.note ? `📝 ${g.note.replace(/\s+/g, ' ')}` : ''}
               </span>
             </div>
@@ -500,6 +504,19 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
                     <button style={btn('#94a3b8')} onClick={() => setNota(null)}>Annulla</button>
                     <button style={btn('#fbbf24')} onClick={salvaNota}>💾 Salva nota</button>
                   </div>
+                </div>
+              )}
+              {/* 03/11/2026 · 🏅 promemoria livelli fedeltà: mirata Sport con conti Lottomatica o Goldbet */}
+              {fedelta && (
+                <div style={{ marginTop: 6, padding: '8px 10px', borderRadius: 8, border: '1px solid rgba(56,189,248,0.5)', background: 'rgba(56,189,248,0.07)', color: '#bae6fd', fontSize: 12.5, lineHeight: 1.5 }}>
+                  <b>🏅 Livello fedeltà · obiettivo mensile</b>
+                  <div>• Doppie con quota <b>TOTALE 2.00+</b> (es. 1.40 × 1.45): sotto 2.00 i punti si dimezzano. Niente cash out, solo saldo reale.</div>
+                  <div>• 1 € giocato = 1 Punto Base. Il contatore riparte da 0 il 1° di ogni mese.</div>
+                  {fedelta.map(k => (
+                    <div key={k}>• <b>{k === 'goldbet' ? 'Goldbet' : 'Lottomatica'}</b>: {['livello_argento', 'livello_oro'].map(lk => { const l = LIVELLI_FEDELTA[k].livelli[lk]; const pi = pianoFedeltaSettimanale(l.base); return `${l.nome} ${l.base} Punti Base (${pi.sett}€ a settimana: ${pi.n > 1 ? pi.n + ' doppie da ' : '1 doppia da '}${pi.importo}€)` }).join(' · ')}</div>
+                  ))}
+                  <div>• Piano: un quarto della soglia a settimana per 4 settimane, in doppie da max 200 €. I punti contano alla chiusura dell&apos;ultima selezione: niente eventi che finiscono dopo fine mese.</div>
+                  <div>• Controlla il contatore nell&apos;area del Club: se la soglia è già raggiunta, ferma le doppie. Per mantenere il livello rifai la soglia ogni mese. Programma fino al {dataIt(FEDELTA_FINE_PROGRAMMA)}.</div>
                 </div>
               )}
               {doppie.length > 0 && (
