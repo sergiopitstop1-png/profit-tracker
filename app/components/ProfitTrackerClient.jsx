@@ -1444,6 +1444,31 @@ const PROTOCOLLO_GRUPPO_LOTTOMATICA = {
 }
 const BOOK_GRUPPO_LOTTOMATICA = ['planetwin365', 'planetwin', 'goldbet', 'lottomatica']
 
+// 03/11/2026 — LIVELLI FEDELTÀ (Premium Club Lottomatica, Gold Club Goldbet): il team chiede di portare i conti almeno ad Argento
+// per tentare il VIP. Il livello si calcola sui Punti Base del MESE SOLARE: una doppia a quota totale >= 2 vale coefficiente 1,
+// quindi 1€ giocato = 1 Punto Base. Soglie dai regolamenti (Lottomatica: Argento 500, Oro 1.200).
+// Goldbet non ha "Argento/Oro": uso lo stesso posto in classifica (3° e 4° livello = Maestro 1.200, Fenomeno 4.000).
+// Per cambiare il livello obiettivo di un book basta modificare qui 'base' (e il nome).
+const LIVELLI_FEDELTA = {
+  lottomatica: { programma: 'Premium Club', livelli: { livello_argento: { nome: 'Argento', base: 500 }, livello_oro: { nome: 'Oro', base: 1200 } } },
+  goldbet:     { programma: 'Gold Club',    livelli: { livello_argento: { nome: 'Maestro', base: 1200 }, livello_oro: { nome: 'Fenomeno', base: 4000 } } },
+}
+const FEDELTA_FINE_PROGRAMMA = '2027-01-31'   // fine di Premium Club e Gold Club
+const FEDELTA_DOPPIA_MAX = 200                // € massimi per singola doppia (sopra, si divide in più doppie)
+function getLivelloFedelta(nomeBook, key) {
+  const n = getNomeNormalizzato(nomeBook)
+  const book = n.includes('goldbet') ? LIVELLI_FEDELTA.goldbet : n.includes('lottomatica') ? LIVELLI_FEDELTA.lottomatica : null
+  const liv = book?.livelli?.[key]
+  return liv ? { ...liv, programma: book.programma } : null
+}
+// Piano mensile: 4 finestre di 7 giorni (1-7, 8-14, 15-21, 22-28) con lo stesso importo, spezzato in doppie da max 200€
+function pianoFedeltaSettimanale(base) {
+  const sett = Math.ceil(base / 4 / 25) * 25            // importo a settimana, arrotondato a 25€
+  const n = Math.max(1, Math.ceil(sett / FEDELTA_DOPPIA_MAX))
+  const importo = Math.ceil(sett / n / 5) * 5           // importo per doppia, arrotondato a 5€
+  return { sett, n, importo }
+}
+
 // QuiGioco — template proprio (ciclo con fermo 14gg)
 const PROTOCOLLO_QUIGIOCO = {
   ricarica: '50-100€', bet: '2-3 piccola da 10 a 25€ max', fermo: '14gg',
@@ -1649,7 +1674,16 @@ function getVariantiProfilazione(nomeBook) {
   const tipo = getTipoProtocolloAttivo(nomeBook)
   if (tipo === 'gruppo_lottomatica') {
     const n = getNomeNormalizzato(nomeBook)
-    return (n.includes('lottomatica') || n.includes('goldbet')) ? VARIANTI_PROFILAZIONE.gruppo_lottomatica_vip : null
+    if (!(n.includes('lottomatica') || n.includes('goldbet'))) return null
+    // 03/11/2026: in più, la scelta del livello fedeltà da raggiungere ogni mese (Argento / Oro)
+    const livelli = ['livello_argento', 'livello_oro'].map(key => {
+      const l = getLivelloFedelta(nomeBook, key)
+      const pi = pianoFedeltaSettimanale(l.base)
+      const etichetta = key === 'livello_argento' ? 'Argento' : 'Oro'
+      const sfumatura = l.nome !== etichetta ? ` (${l.nome})` : ''
+      return { key, label: `Livello ${etichetta}${sfumatura}`, desc: `${l.programma} · ${l.base} Punti Base nel mese · doppie a quota totale 2.00+ per ${pi.sett}€ a settimana (${pi.n > 1 ? pi.n + ' doppie da ' : '1 doppia da '}${pi.importo}€)` }
+    })
+    return [...VARIANTI_PROFILAZIONE.gruppo_lottomatica_vip, ...livelli]
   }
   if (tipo === 'settimana_mese') return VARIANTI_PROFILAZIONE.settimana_mese
   if (tipo === 'vip_fase12') {
@@ -1664,6 +1698,7 @@ function tipoCicloProfilazione(book) {
   if (tipo !== 'gruppo_lottomatica') return tipo
   const v = getVarianteProfilazione(book)?.key
   if (v === 'vip_senza_promo') return null                    // continuativo, nessuna fine ciclo
+  if (v === 'livello_argento' || v === 'livello_oro') return null   // 03/11/2026: obiettivo mensile continuativo
   if (v === 'vip_live') return 'gruppo_lottomatica_vip_live'  // 4 settimane, poi "è passato VIP?"
   return tipo
 }
@@ -2015,6 +2050,36 @@ function getAgendaAttivoV2(book, giorno, settimana) {
     const variante = getVarianteProfilazione(book)?.key || 'casino'   // Planetwin365: sempre Casinò
     const hs = k => hashStrLucy(`${book.id}|${book.nome}|${book.intestatario}|sett${settimana}|lotto|${variante}|${k}`)
 
+    // LIVELLO ARGENTO / ORO (03/11/2026): obiettivo di Punti Base nel mese solare, con doppie a quota totale 2.00+ (1€ = 1 Punto Base).
+    // 4 finestre da 7 giorni (1-7, 8-14, 15-21, 22-28): in ognuna Lucy propone le doppie, giorni diversi per conto e per mese.
+    if (variante === 'livello_argento' || variante === 'livello_oro') {
+      const liv = getLivelloFedelta(book.nome, variante)
+      if (!liv) return null
+      const oggiL = new Date()
+      if (lucyOggi() > FEDELTA_FINE_PROGRAMMA) return null            // programma finito
+      const gm = oggiL.getDate()
+      const pi = pianoFedeltaSettimanale(liv.base)
+      const meseKey = `${oggiL.getFullYear()}-${oggiL.getMonth() + 1}`
+      const hm = k => hashStrLucy(`${book.id}|${book.nome}|${book.intestatario}|fedelta${meseKey}|${variante}|${k}`)
+      const nome = `${liv.programma} · ${liv.nome}`
+      const regole = 'quota TOTALE del biglietto 2.00+ (es. 1.40 × 1.45), niente cash out, saldo reale'
+      if (gm <= 28) {
+        const finestra = Math.floor((gm - 1) / 7)
+        const inizioFin = finestra * 7 + 1
+        const passo = Math.max(1, Math.floor(7 / pi.n))
+        const partenza = hm(`w${finestra}`) % 7
+        const giorniPiano = Array.from({ length: pi.n }, (_, i) => inizioFin + ((partenza + i * passo) % 7))
+        const idx = giorniPiano.indexOf(gm)
+        if (idx >= 0) {
+          const parte = pi.n > 1 ? ` (doppia ${idx + 1} di ${pi.n} della settimana)` : ''
+          return [`${nome}: doppia da ${pi.importo}€ a ${regole}${parte}. Obiettivo mese ${liv.base} Punti Base: ${pi.sett}€ a settimana. Se il contatore del Club è già oltre la soglia, salta.`]
+        }
+        return null
+      }
+      if (gm === 29) return [`${nome}: ultimi giorni del mese. Controlla nel Club il contatore dei Punti Base: se sei sotto ${liv.base}, copri la differenza con doppie a quota totale 2.00+ su eventi che si chiudono entro il ${new Date(oggiL.getFullYear(), oggiL.getMonth() + 1, 0).getDate()} (i punti contano alla chiusura delle selezioni).`]
+      return null
+    }
+
     // VIP SENZA PROMO (conto già VIP): giorni fissi come da Profiliamo, continuativo
     if (variante === 'vip_senza_promo') {
       if (giorno === 1) return ['VIP: Sport 300€ quota min 2.50 (ricarica almeno 1000€ totali, anche su più ricariche)']
@@ -2208,6 +2273,21 @@ function getRiassuntoProtocolloAttivo(nomeBook, variante = null) {
     const v = getVarianteProfilazione({ nome: nomeBook, profilo_variante: variante })
     const P = PROTOCOLLO_GRUPPO_LOTTOMATICA
     if (v && v.key === 'vip_live') return { durata: 'VIP Live (4 sett., da inizio mese)', capitale_min: 500, azioni: P.vipLive, recupero: ['Se limitato alle promozioni: usa il recupero della Profilazione Casinò', ...P.recupero], variante: v }
+    if (v && (v.key === 'livello_argento' || v.key === 'livello_oro')) {
+      const liv = getLivelloFedelta(nomeBook, v.key)
+      const pi = pianoFedeltaSettimanale(liv.base)
+      return { durata: `${liv.programma} · Livello ${liv.nome} (mensile, continuativo)`, capitale_min: pi.importo,
+        azioni: [
+          `Obiettivo: ${liv.base} Punti Base nel mese solare (il contatore riparte da 0 il 1° di ogni mese)`,
+          `Ogni settimana (giorni 1-28) ${pi.n > 1 ? pi.n + ' doppie da ' : '1 doppia da '}${pi.importo}€ a quota TOTALE 2.00+ (${pi.sett}€ a settimana)`,
+          '1€ giocato = 1 Punto Base solo se la doppia ha quota totale 2.00+: sotto 2.00 vale la metà',
+          'Niente cash out, niente giocate con bonus: non danno punti',
+          'Controlla il contatore nell\'area del Club: se hai già superato la soglia, salta le doppie',
+          'Il livello vale per il mese e per il successivo; per mantenerlo rifai la soglia ogni mese',
+          'Il programma finisce il 31/01/2027'
+        ],
+        recupero: ['Se limitato alle promozioni: usa il recupero della Profilazione Casinò', ...P.recupero], variante: v }
+    }
     if (v && v.key === 'vip_senza_promo') return { durata: 'VIP senza promo (continuativo)', capitale_min: 1000, azioni: P.vipSenzaPromo, recupero: ['Se limitato alle promozioni: usa il recupero della Profilazione Casinò', ...P.recupero], variante: v }
     return { durata: 'Profilazione Casinò (4 settimane)', capitale_min: 200, azioni: P.azioni.slice(0, v ? 6 : 5), recupero: P.recupero, variante: v }
   }
