@@ -38,6 +38,7 @@ function useDebouncedCallback(callback, delay = 500) {
 //   ripartito a vincita uguale: s_j = P / q_j con P = S / Σ(1/q_j)  (m = 1 → formula classica)
 // Puntate arrotondate all'euro; il capitale reale si aggiorna con le puntate arrotondate.
 // ════════════════════════════════════════════════════════════════════
+const parseEur = (v) => { const n = parseFloat(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : null };
 const parseQ = (v) => { const n = parseFloat(String(v ?? '').replace(',', '.')); return Number.isFinite(n) && n > 1 ? n : null };
 
 function computeMasaniello(plan) {
@@ -171,7 +172,7 @@ const planFromRow = (row, events) => ({
   events: events
     .filter((e) => e.plan_id === row.id)
     .sort((a, b) => a.position - b.position)
-    .map((e) => ({ id: e.id, label: e.label, quota: e.quota == null ? "" : String(e.quota), esito: e.esito, contemporanea: !!e.contemporanea })),
+    .map((e) => ({ id: e.id, label: e.label, quota: e.quota == null ? "" : String(e.quota), esito: e.esito, contemporanea: !!e.contemporanea, assicurata: !!e.assicurata, incasso: e.incasso_cashout == null ? "" : String(e.incasso_cashout) })),
 });
 
 const patchToRow = (patch) => {
@@ -360,6 +361,10 @@ function PlanView({ plan, onLocalUpdate, onSavePlanField, onAddEvent, onUpdateEv
             sub={m.giocati > 0 ? `${m.profitto >= 0 ? "+" : ""}€${fmt(m.profitto)}` : "nessun esito ancora"} />
           <SummaryCard label="Avanzamento" value={`${m.vinte}V · ${m.perse}P`} sub={`${m.giocati}/${m.N} giocati · mancano ${m.vincitaMancanti} vincite`} />
           <SummaryCard label="Stato" value={STATO_LABEL[m.stato].t} accent={STATO_LABEL[m.stato].c} />
+          {plan.events.some((e) => e.assicurata) && (
+            <SummaryCard label="Incassi assicurazione" value={`€${fmt(plan.events.reduce((t, e) => t + (e.assicurata && e.esito === "persa" ? (parseEur(e.incasso) || 0) : 0), 0))}`}
+              accent={GOLD} sub={`${plan.events.filter((e) => e.assicurata).length} assicurate · conto a parte`} />
+          )}
         </div>
       )}
 
@@ -439,13 +444,15 @@ function PlanView({ plan, onLocalUpdate, onSavePlanField, onAddEvent, onUpdateEv
       </div>
 
       <div style={{ marginBottom: 24 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "96px 1fr 80px 120px 70px 90px 30px", gap: 8, padding: "0 4px 10px", fontFamily: "system-ui, sans-serif", fontSize: 11, color: MUTED, textTransform: "uppercase", letterSpacing: 0.4 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "96px 1fr 80px 120px 70px 90px 74px 84px 30px", gap: 8, padding: "0 4px 10px", fontFamily: "system-ui, sans-serif", fontSize: 11, color: MUTED, textTransform: "uppercase", letterSpacing: 0.4 }}>
           <span title="Contemporanea all'evento sopra">Insieme a sopra</span>
           <span>Evento</span>
           <span>Quota</span>
           <span>Esito</span>
           <span style={{ textAlign: "right" }}>Puntata</span>
           <span style={{ textAlign: "right" }}>Capitale</span>
+          <span title="Hai assicurato questa partita sullo 0-0?" style={{ textAlign: "center" }}>Assicurata</span>
+          <span title="Incasso del cashout (conto a parte, fuori dal Masaniello)">Cashout €</span>
           <span></span>
         </div>
         {plan.events.map((ev, ix) => {
@@ -455,7 +462,7 @@ function PlanView({ plan, onLocalUpdate, onSavePlanField, onAddEvent, onUpdateEv
           const prossimo = r && r.stato === "da giocare";
           return (
             <div key={ev.id} style={{
-              display: "grid", gridTemplateColumns: "96px 1fr 80px 120px 70px 90px 30px", gap: 8, alignItems: "center",
+              display: "grid", gridTemplateColumns: "96px 1fr 80px 120px 70px 90px 74px 84px 30px", gap: 8, alignItems: "center",
               padding: "6px 4px", borderTop: inGruppo ? "none" : `1px solid ${LINE}`,
               borderLeft: `3px solid ${inGruppo || (plan.events[ix + 1] && plan.events[ix + 1].contemporanea) ? GOLD : "transparent"}`,
               background: prossimo ? "rgba(201,162,74,0.06)" : "transparent", opacity: r && r.stato === "fuori" ? 0.45 : 1,
@@ -496,6 +503,19 @@ function PlanView({ plan, onLocalUpdate, onSavePlanField, onAddEvent, onUpdateEv
               <span style={{ fontFamily: "system-ui, sans-serif", fontSize: 13, textAlign: "right", color: MUTED }}>
                 {r && r.capitaleDopo != null ? `€${fmt(r.capitaleDopo)}` : ""}
               </span>
+              <label style={{ display: "flex", justifyContent: "center", cursor: "pointer" }} title="Hai assicurato questa partita sullo 0-0?">
+                <input type="checkbox" checked={!!ev.assicurata} onChange={(e) => onUpdateEventField(plan.id, ev.id, "assicurata", e.target.checked)} />
+              </label>
+              {ev.assicurata && ev.esito === "persa" ? (
+                <input
+                  value={ev.incasso ?? ""}
+                  inputMode="decimal"
+                  onChange={(e) => onUpdateEventField(plan.id, ev.id, "incasso", e.target.value)}
+                  placeholder="€"
+                  title="Incasso del cashout: conto a parte, non entra nel Masaniello"
+                  style={{ background: PANEL, border: `1px solid ${GOLD}`, borderRadius: 4, color: CREAM, fontFamily: "system-ui, sans-serif", fontSize: 14, padding: "5px 8px", width: 70, outline: "none" }}
+                />
+              ) : <span />}
               <button onClick={() => onRemoveEvent(plan.id, ev.id)} aria-label="Rimuovi evento" style={{ background: "transparent", border: "none", color: MUTED, cursor: "pointer", display: "flex", justifyContent: "center" }}>
                 <Trash2 size={15} />
               </button>
@@ -605,7 +625,7 @@ export default function Masaniello() {
       .select()
       .single();
     if (error) { console.error("Errore aggiunta evento:", error); return; }
-    onLocalUpdate(planId, { events: [...plan.events, { id: data.id, label: data.label, quota: "", esito: "attesa", contemporanea: false }] });
+    onLocalUpdate(planId, { events: [...plan.events, { id: data.id, label: data.label, quota: "", esito: "attesa", contemporanea: false, assicurata: false, incasso: "" }] });
   };
 
   const removeEvent = async (planId, eventId) => {
@@ -617,7 +637,10 @@ export default function Masaniello() {
 
   const debouncedEventSave = useDebouncedCallback((eventId, field, value) => {
     const dbField = field; // label, quota, esito -> stessi nomi lato DB
-    const payload = field === "quota" ? { quota: parseQ(value) } : { [dbField]: value }; // accetta anche la virgola
+    // accetta anche la virgola; assicurata e incasso (cashout) hanno la loro colonna e restano fuori dal motore del Masaniello
+    const payload = field === "quota" ? { quota: parseQ(value) }
+      : field === "incasso" ? { incasso_cashout: parseEur(value) }
+      : { [dbField]: value };
     supabase.from("masaniello_events").update(payload).eq("id", eventId)
       .then(({ error }) => { if (error) console.error("Errore salvataggio evento:", error); });
   }, 500);
@@ -658,7 +681,7 @@ export default function Masaniello() {
 
     const newEvents = data
       .sort((a, b) => a.position - b.position)
-      .map((e) => ({ id: e.id, label: e.label, quota: e.quota == null ? "" : String(e.quota), esito: e.esito, contemporanea: false }));
+      .map((e) => ({ id: e.id, label: e.label, quota: e.quota == null ? "" : String(e.quota), esito: e.esito, contemporanea: false, assicurata: false, incasso: "" }));
     onLocalUpdate(planId, { events: newEvents });
   };
 
