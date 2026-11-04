@@ -40,7 +40,7 @@ export default function Calcolatore1T() {
   const [comm, setComm] = useState('4.5')
   const [rec, setRec] = useState('21.2')
   const [modo, setModo] = useState<'mas' | 'rec'>('mas')   // come si decide la copertura: dalla quota del Masaniello, oppure da un recupero desiderato
-  const [sconto, setSconto] = useState('0.10')            // di quanto la quota del Masaniello è più bassa dell'Over reale: quella differenza va sullo 0-0
+  const [assic, setAssic] = useState('10')                // assicurazione in % di X (10 = 0,10): la quota del Masaniello è più bassa dell'Over di questa quantità, e quella differenza va sullo 0-0
   const [liq, setLiq] = useState('424')
   // — Masaniello —
   const [K, setK] = useState('1000')
@@ -58,7 +58,8 @@ export default function Calcolatore1T() {
   // Modalità «quota Masaniello»: la puntata sullo 0-0 è  s = X × (quota Over − quota Masaniello).  Per riusare copertura() la si traduce in un recupero R = (Qo − Qm)·g.
   const gChiusura = guadagnoChiusura(num(qBack), qChiuUsata, num(comm))
   // la quota del Masaniello segue sempre l'Over: Over reale − sconto (es. Over 1.40 → Masaniello 1.30)
-  const qMasNum = Math.round((num(qOver) - num(sconto)) * 1000) / 1000
+  const sconto = num(assic) / 100                         // 10 (%) → 0,10
+  const qMasNum = Math.round((num(qOver) - sconto) * 1000) / 1000
   const qMas = String(qMasNum)
   const masOk = qMasNum > 1 && qMasNum < num(qOver)
   const recEff = modo === 'mas' ? (masOk && gChiusura > 0 ? (num(qOver) - num(qMas)) * gChiusura * 100 : NaN) : num(rec)
@@ -96,7 +97,7 @@ export default function Calcolatore1T() {
             <Campo etichetta="Puntata del Masaniello (€)" valore={X} onChange={setX} />
             <Campo etichetta="Quota Over 0.5 1T" valore={qOver} onChange={setQOver} />
             <Campo etichetta="Quota 0-0 finale" valore={qBack} onChange={setQBack} />
-            <Campo etichetta="Assicurazione (sconto)" valore={sconto} onChange={setSconto} />
+            <Campo etichetta="Assicurazione (% della puntata)" valore={assic} onChange={setAssic} />
           </div>
           {masOk && Number.isFinite(num(X)) && num(X) > 0 ? (
             <div style={{ marginTop: 14 }}>
@@ -106,7 +107,7 @@ export default function Calcolatore1T() {
               </div>
               <div style={{ ...riga, fontSize: 18, alignItems: 'baseline', borderBottom: 0 }}>
                 <span>Punta sullo 0-0 finale</span>
-                <b style={{ color: '#4ade80', fontSize: 24 }}>{eur(num(X) * num(sconto))} <span style={{ fontSize: 14, color: '#94a3b8' }}>a quota {num(qBack).toLocaleString('it-IT', { maximumFractionDigits: 3 })}</span></b>
+                <b style={{ color: '#4ade80', fontSize: 24 }}>{eur(num(X) * sconto)} <span style={{ fontSize: 14, color: '#94a3b8' }}>a quota {num(qBack).toLocaleString('it-IT', { maximumFractionDigits: 3 })}</span></b>
               </div>
             </div>
           ) : (
@@ -132,14 +133,14 @@ export default function Calcolatore1T() {
             <Campo etichetta="Quota 0-0 finale (banca)" valore={qLay} onChange={setQLay} aiuto="il prezzo in banca di oggi (se non la sai, uguale a quella in punta)" />
             <Campo etichetta="Commissione exchange (%)" valore={comm} onChange={setComm} />
             {modo === 'mas'
-              ? <Campo etichetta="Sconto per il Masaniello" valore={sconto} onChange={setSconto} aiuto={Number.isFinite(qMasNum) ? `quota Masaniello = Over − sconto = ${qMasNum.toLocaleString('it-IT', { maximumFractionDigits: 3 })}` : 'quota Masaniello = Over − sconto'} />
+              ? <Campo etichetta="Assicurazione (% della puntata)" valore={assic} onChange={setAssic} aiuto={Number.isFinite(qMasNum) ? `quota Masaniello = Over − assicurazione = ${qMasNum.toLocaleString('it-IT', { maximumFractionDigits: 3 })}` : 'quota Masaniello = Over − assicurazione'} />
               : <Campo etichetta="Recupero desiderato (% di X)" valore={rec} onChange={setRec} aiuto="quanto di X vuoi riprenderti se è 0-0 al 45’" />}
           </div>
           <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 8, fontSize: 13, color: '#cbd5e1' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}><input type="radio" name="modo" checked={modo === 'mas'} onChange={() => setModo('mas')} /> Calcola dalla <b>quota del Masaniello</b></label>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}><input type="radio" name="modo" checked={modo === 'rec'} onChange={() => setModo('rec')} /> Calcola da un <b>recupero desiderato</b></label>
           </div>
-          {modo === 'mas' && !masOk && <div style={{ marginTop: 8, color: '#fca5a5', fontSize: 13 }}>⚠️ La quota del Masaniello (Over − sconto) deve essere maggiore di 1 e più bassa della quota Over reale.</div>}
+          {modo === 'mas' && !masOk && <div style={{ marginTop: 8, color: '#fca5a5', fontSize: 13 }}>⚠️ La quota del Masaniello (Over − assicurazione) deve essere maggiore di 1 e più bassa della quota Over reale.</div>}
           {modo === 'mas' && masOk && Number.isFinite(num(X)) && (
             <div style={{ marginTop: 8, padding: '8px 10px', border: '1px solid #334155', borderRadius: 10, background: 'rgba(2,6,23,.6)', fontSize: 13.5, lineHeight: 1.6 }}>
               <div>Il Masaniello pensa di vincere: {eur(num(X) * (num(qMas) - 1))} <span style={{ color: '#64748b' }}>(X × {(num(qMas) - 1).toLocaleString('it-IT', { maximumFractionDigits: 3 })})</span></div>
