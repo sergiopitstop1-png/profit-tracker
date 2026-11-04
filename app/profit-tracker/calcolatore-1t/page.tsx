@@ -3,7 +3,7 @@
 // Solo calcolo nel browser: non legge né scrive nulla nel database. La matematica sta in lib/calcolatore1t.ts.
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import { copertura, pianoMasaniello, probTarget } from '../../../lib/calcolatore1t'
+import { copertura, pianoMasaniello, probTarget, stimaQuotaIntervallo, guadagnoChiusura } from '../../../lib/calcolatore1t'
 
 const num = (s: string) => { const v = parseFloat(String(s).replace(',', '.')); return Number.isFinite(v) ? v : NaN }
 const eur = (x: number) => (Number.isFinite(x) ? x.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : '—')
@@ -31,7 +31,12 @@ export default function Calcolatore1T() {
   const [X, setX] = useState('100')
   const [qOver, setQOver] = useState('1.33')
   const [qBack, setQBack] = useState('14.5')
-  const [qChiu, setQChiu] = useState('4.5')
+  const [qChiu, setQChiu] = useState('4.5')          // quota 0-0 all'intervallo scritta a mano (se togli la stima automatica)
+  const [auto, setAuto] = useState(true)               // stima automatica della quota all'intervallo
+  const [qUnder, setQUnder] = useState('3.00')         // Under 0.5 1T: serve per togliere il margine al «0 gol nel 1T»
+  const [qLay, setQLay] = useState('16.5')             // 0-0 finale in banca (per il prezzo medio)
+  const [spreadH, setSpreadH] = useState('2')          // quanto paghi in più del prezzo giusto quando lo chiudi (%)
+  const [corr, setCorr] = useState('0')                // correzione: nelle partite 0-0 all'intervallo spesso si segna meno (%)
   const [comm, setComm] = useState('4.5')
   const [rec, setRec] = useState('21.2')
   const [liq, setLiq] = useState('424')
@@ -44,7 +49,21 @@ export default function Calcolatore1T() {
   const [incassi, setIncassi] = useState('0')
   const [tasso, setTasso] = useState('75')
 
-  const cop = useMemo(() => copertura(num(X), num(qOver), num(qBack), num(qChiu), num(comm), num(rec)), [X, qOver, qBack, qChiu, comm, rec])
+  const stima = useMemo(() => stimaQuotaIntervallo(num(qOver), num(qUnder), num(qBack), num(qLay), num(spreadH), num(corr)), [qOver, qUnder, qBack, qLay, spreadH, corr])
+  const stimaOk = !('errore' in stima)
+  // quota dello 0-0 all'intervallo usata nei calcoli: la stima, oppure quella scritta a mano
+  const qChiuUsata = auto && !('errore' in stima) ? stima.quota : num(qChiu)
+  const cop = useMemo(() => copertura(num(X), num(qOver), num(qBack), qChiuUsata, num(comm), num(rec)), [X, qOver, qBack, qChiuUsata, comm, rec])
+  // come cambia la stima se cambia la quota iniziale dello 0-0 (stesse quote Over/Under 1T, stesso rapporto punta/banca)
+  const tabella = useMemo(() => {
+    const b0 = num(qBack), l0 = num(qLay)
+    if (!stimaOk || !(b0 > 1)) return []
+    const rap = l0 > 1 ? l0 / b0 : 1
+    return [10, 12, 14.5, 17, 19, 22, 26].map(B => {
+      const e = stimaQuotaIntervallo(num(qOver), num(qUnder), B, B * rap, num(spreadH), num(corr))
+      return 'errore' in e ? null : { B, quota: e.quota, g: guadagnoChiusura(B, e.quota, num(comm)) }
+    }).filter(Boolean) as { B: number; quota: number; g: number }[]
+  }, [qOver, qUnder, qBack, qLay, spreadH, corr, comm, stimaOk])
   const qEff = cop ? cop.quotaEfficace : NaN
   // Masaniello con la quota efficace calcolata sopra (stessa logica delle simulazioni: l'assicurazione costa circa il 10% della vincita)
   const piano = useMemo(() => pianoMasaniello(num(K), qEff, Math.round(num(nRim)), Math.round(num(vMan))), [K, qEff, nRim, vMan])
@@ -53,7 +72,7 @@ export default function Calcolatore1T() {
 
   const stakeProssima = piano.stato === 'ok' ? piano.stake : NaN
   // copertura per la PROSSIMA giocata del Masaniello (stessa percentuale di recupero)
-  const copProssima = useMemo(() => (Number.isFinite(stakeProssima) ? copertura(stakeProssima, num(qOver), num(qBack), num(qChiu), num(comm), num(rec)) : null), [stakeProssima, qOver, qBack, qChiu, comm, rec])
+  const copProssima = useMemo(() => (Number.isFinite(stakeProssima) ? copertura(stakeProssima, num(qOver), num(qBack), qChiuUsata, num(comm), num(rec)) : null), [stakeProssima, qOver, qBack, qChiuUsata, comm, rec])
   const valoreOra = num(K) + (Number.isFinite(num(incassi)) ? num(incassi) : 0)
   const liquidita = num(liq)
 
@@ -74,9 +93,66 @@ export default function Calcolatore1T() {
             <Campo etichetta="Puntata X sull’Over 0.5 1T (€)" valore={X} onChange={setX} aiuto="lo stake che ti dà il Masaniello" />
             <Campo etichetta="Quota Over 0.5 1T" valore={qOver} onChange={setQOver} />
             <Campo etichetta="Quota 0-0 finale (punta)" valore={qBack} onChange={setQBack} aiuto="quella a cui entri" />
-            <Campo etichetta="Quota 0-0 all’intervallo (banca)" valore={qChiu} onChange={setQChiu} aiuto="stima: ~4,5 se è 14,5 prima" />
+            <Campo etichetta="Quota Under 0.5 1T" valore={qUnder} onChange={setQUnder} aiuto="serve per togliere il margine del book" />
+            <Campo etichetta="Quota 0-0 finale (banca)" valore={qLay} onChange={setQLay} aiuto="il prezzo in banca di oggi (se non la sai, uguale a quella in punta)" />
             <Campo etichetta="Commissione exchange (%)" valore={comm} onChange={setComm} />
             <Campo etichetta="Recupero desiderato (% di X)" valore={rec} onChange={setRec} aiuto="quanto di X vuoi riprenderti se è 0-0 al 45’" />
+          </div>
+
+          {/* Stima della quota dello 0-0 al 45' */}
+          <div style={{ marginTop: 12, padding: '10px 12px', border: '1px solid #334155', borderRadius: 10, background: 'rgba(2,6,23,.6)' }}>
+            <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 4 }}>Quota dello 0-0 finale al 45’ (se è 0-0)</div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#cbd5e1', marginBottom: 8 }}>
+              <input type="checkbox" checked={auto} onChange={e => setAuto(e.target.checked)} /> Stima automatica dalle quote qui sopra
+            </label>
+            {'errore' in stima ? (
+              <div style={{ color: '#fca5a5', fontSize: 13 }}>⚠️ {stima.errore}</div>
+            ) : (
+              <div>
+                <div style={riga}><span>Probabilità di 0 gol nel 1T (margine tolto)</span><b>{pct(stima.p1)}</b></div>
+                <div style={riga}><span>Probabilità di 0-0 finale (prezzo medio punta/banca)</span><b>{pct(stima.p00)}</b></div>
+                <div style={riga}><span>Probabilità di nessun gol nel 2T, dato 0-0 al 45’</span><b>{pct(stima.p2)}</b></div>
+                <div style={riga}><span>Quota giusta al 45’</span><b>{stima.quotaGiusta.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></div>
+                <div style={{ ...riga, borderBottom: 0 }}><span>Quota a cui la banchi (con spread e correzione)</span><b style={{ color: '#4ade80', fontSize: 17 }}>{stima.quota.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></div>
+              </div>
+            )}
+            <div style={{ ...griglia, marginTop: 8 }}>
+              <Campo etichetta="Spread di chiusura (%)" valore={spreadH} onChange={setSpreadH} aiuto="quanto paghi sopra il prezzo giusto" />
+              <Campo etichetta="Correzione partite con pochi gol (%)" valore={corr} onChange={setCorr} aiuto="positiva = la quota scende di più" />
+              <Campo etichetta="Oppure scrivila tu (solo senza stima)" valore={qChiu} onChange={setQChiu} aiuto="usata se togli la spunta" />
+            </div>
+            <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 6, lineHeight: 1.5 }}>
+              Modello: primo e secondo tempo indipendenti, quindi a 0-0 al 45’ la quota dello 0-0 finale = quota iniziale × probabilità di 0 gol nel 1T. È una stima: nelle partite 0-0 all’intervallo si segna spesso meno del normale.
+            </div>
+
+            {tabella.length > 0 && (
+              <div style={{ marginTop: 10, overflowX: 'auto' }}>
+                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Se cambia la quota iniziale dello 0-0 (stesse quote Over/Under 1T):</div>
+                <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
+                  <thead>
+                    <tr style={{ color: '#94a3b8', textAlign: 'right' }}>
+                      <th style={{ textAlign: 'left', padding: '3px 6px', fontWeight: 600 }}>0-0 iniziale</th>
+                      <th style={{ padding: '3px 6px', fontWeight: 600 }}>stima al 45’</th>
+                      <th style={{ padding: '3px 6px', fontWeight: 600 }}>calo</th>
+                      <th style={{ padding: '3px 6px', fontWeight: 600 }}>guadagno per € (g)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tabella.map(r => (
+                      <tr key={r.B} style={{ textAlign: 'right', borderTop: '1px solid #1e293b' }}>
+                        <td style={{ textAlign: 'left', padding: '3px 6px' }}>{r.B.toLocaleString('it-IT')}</td>
+                        <td style={{ padding: '3px 6px' }}>{r.quota.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td style={{ padding: '3px 6px' }}>{pct(1 - r.quota / r.B, 0)}</td>
+                        <td style={{ padding: '3px 6px' }}>{r.g.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 4, lineHeight: 1.5 }}>
+                  La quota scende sempre dello stesso rapporto: il recupero per euro (g) cambia solo se cambia la probabilità di 0 gol nel 1T, cioè se cambiano le quote Over/Under 0.5 1T. Una partita con lo 0-0 finale più alto, di solito, ha anche l’Over 0.5 1T più basso.
+                </div>
+              </div>
+            )}
           </div>
           {!cop ? (
             <div style={{ marginTop: 10, color: '#fca5a5', fontSize: 13 }}>⚠️ Controlla i numeri: le quote devono essere maggiori di 1 e la quota di chiusura più bassa di quella di ingresso.</div>

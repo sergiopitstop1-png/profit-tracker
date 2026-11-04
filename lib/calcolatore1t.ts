@@ -87,3 +87,34 @@ export function probTarget(N: number, V: number, p: number): number {
   for (let k = V; k <= N; k++) s += pmf[k]
   return Math.min(1, Math.max(0, s))
 }
+
+// ── Stima della quota dello 0-0 finale al 45' (se è 0-0 all'intervallo) ─────────────────────────
+// Modello: primo e secondo tempo indipendenti.  P(0-0 finale) = P(0 gol nel 1T) · P(0 gol nel 2T).
+//  - P(0 gol nel 1T) viene dall'Under 0.5 1T, con il margine del book tolto (Over e Under normalizzati);
+//  - P(0-0 finale) viene dalla quota dello 0-0 finale sull'exchange: prezzo «giusto» = punto medio tra punta e banca (in probabilità);
+//  → a 0-0 all'intervallo lo 0-0 finale vale  P(0 gol nel 2T) = P(0-0 finale) / P(0 gol nel 1T),  cioè quota giusta = quota0-0 · P(0 gol nel 1T).
+// Poi si aggiunge lo spread di chiusura (quando lo banchi paghi un po' di più del prezzo giusto) e, se vuoi, una correzione
+// (nelle partite 0-0 all'intervallo spesso si segna meno: la quota scende un po' di più).
+export type StimaIntervallo = {
+  p1: number          // probabilità di 0 gol nel 1T (margine tolto)
+  p00: number         // probabilità di 0-0 finale (punto medio punta/banca)
+  p2: number          // probabilità di nessun gol nel 2T, dato 0-0 all'intervallo
+  quotaGiusta: number // quota giusta dello 0-0 finale all'intervallo
+  quota: number       // quota a cui lo banchi (con spread e correzione)
+}
+
+export function stimaQuotaIntervallo(qOver: number, qUnder: number, qBack: number, qLay: number, spreadPct: number, correzionePct: number): StimaIntervallo | { errore: string } {
+  if (!(qOver > 1) || !(qUnder > 1)) return { errore: 'Servono la quota Over e la quota Under 0.5 1T (entrambe maggiori di 1)' }
+  if (!(qBack > 1)) return { errore: 'Manca la quota dello 0-0 finale' }
+  if (qLay > 1 && qLay < qBack) return { errore: 'La quota dello 0-0 in banca non può essere più bassa di quella in punta: controlla i due numeri' }
+  const lay = qLay > 1 ? qLay : qBack          // se non indichi la quota in banca, si usa quella in punta
+  const pOver = 1 / qOver, pUnder = 1 / qUnder
+  const p1 = pUnder / (pOver + pUnder)
+  const p00 = (1 / qBack + 1 / lay) / 2
+  if (!(p00 < p1)) return { errore: 'Incoerente: lo 0-0 finale è più probabile di nessun gol nel 1T. Controlla le quote (lo 0-0 finale deve essere più alto di ' + (1 / p1).toFixed(2).replace('.', ',') + ')' }
+  const p2 = p00 / p1
+  const quotaGiusta = 1 / p2
+  const spread = Math.max(0, Number.isFinite(spreadPct) ? spreadPct : 0) / 100
+  const corr = Number.isFinite(correzionePct) ? correzionePct / 100 : 0
+  return { p1, p00, p2, quotaGiusta, quota: Math.max(1.01, quotaGiusta * (1 + spread) * (1 - corr)) }
+}
