@@ -39,6 +39,8 @@ export default function Calcolatore1T() {
   const [corr, setCorr] = useState('0')                // correzione: nelle partite 0-0 all'intervallo spesso si segna meno (%)
   const [comm, setComm] = useState('4.5')
   const [rec, setRec] = useState('21.2')
+  const [modo, setModo] = useState<'mas' | 'rec'>('mas')   // come si decide la copertura: dalla quota del Masaniello, oppure da un recupero desiderato
+  const [qMas, setQMas] = useState('1.23')                  // quota che il Masaniello crede di avere (più bassa di quella reale: la differenza va sullo 0-0)
   const [liq, setLiq] = useState('424')
   // — Masaniello —
   const [K, setK] = useState('1000')
@@ -53,7 +55,11 @@ export default function Calcolatore1T() {
   const stimaOk = !('errore' in stima)
   // quota dello 0-0 all'intervallo usata nei calcoli: la stima, oppure quella scritta a mano
   const qChiuUsata = auto && !('errore' in stima) ? stima.quota : num(qChiu)
-  const cop = useMemo(() => copertura(num(X), num(qOver), num(qBack), qChiuUsata, num(comm), num(rec)), [X, qOver, qBack, qChiuUsata, comm, rec])
+  // Modalità «quota Masaniello»: la puntata sullo 0-0 è  s = X × (quota Over − quota Masaniello).  Per riusare copertura() la si traduce in un recupero R = (Qo − Qm)·g.
+  const gChiusura = guadagnoChiusura(num(qBack), qChiuUsata, num(comm))
+  const masOk = num(qMas) > 1 && num(qMas) < num(qOver)
+  const recEff = modo === 'mas' ? (masOk && gChiusura > 0 ? (num(qOver) - num(qMas)) * gChiusura * 100 : NaN) : num(rec)
+  const cop = useMemo(() => copertura(num(X), num(qOver), num(qBack), qChiuUsata, num(comm), recEff), [X, qOver, qBack, qChiuUsata, comm, recEff])
   // come cambia la stima se cambia la quota iniziale dello 0-0 (stesse quote Over/Under 1T, stesso rapporto punta/banca)
   const tabella = useMemo(() => {
     const b0 = num(qBack), l0 = num(qLay)
@@ -72,7 +78,7 @@ export default function Calcolatore1T() {
 
   const stakeProssima = piano.stato === 'ok' ? piano.stake : NaN
   // copertura per la PROSSIMA giocata del Masaniello (stessa percentuale di recupero)
-  const copProssima = useMemo(() => (Number.isFinite(stakeProssima) ? copertura(stakeProssima, num(qOver), num(qBack), qChiuUsata, num(comm), num(rec)) : null), [stakeProssima, qOver, qBack, qChiuUsata, comm, rec])
+  const copProssima = useMemo(() => (Number.isFinite(stakeProssima) ? copertura(stakeProssima, num(qOver), num(qBack), qChiuUsata, num(comm), recEff) : null), [stakeProssima, qOver, qBack, qChiuUsata, comm, recEff])
   const valoreOra = num(K) + (Number.isFinite(num(incassi)) ? num(incassi) : 0)
   const liquidita = num(liq)
 
@@ -96,8 +102,22 @@ export default function Calcolatore1T() {
             <Campo etichetta="Quota Under 0.5 1T" valore={qUnder} onChange={setQUnder} aiuto="serve per togliere il margine del book" />
             <Campo etichetta="Quota 0-0 finale (banca)" valore={qLay} onChange={setQLay} aiuto="il prezzo in banca di oggi (se non la sai, uguale a quella in punta)" />
             <Campo etichetta="Commissione exchange (%)" valore={comm} onChange={setComm} />
-            <Campo etichetta="Recupero desiderato (% di X)" valore={rec} onChange={setRec} aiuto="quanto di X vuoi riprenderti se è 0-0 al 45’" />
+            {modo === 'mas'
+              ? <Campo etichetta="Quota usata dal Masaniello" valore={qMas} onChange={setQMas} aiuto="più bassa della quota Over reale: la differenza va sullo 0-0" />
+              : <Campo etichetta="Recupero desiderato (% di X)" valore={rec} onChange={setRec} aiuto="quanto di X vuoi riprenderti se è 0-0 al 45’" />}
           </div>
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 8, fontSize: 13, color: '#cbd5e1' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}><input type="radio" name="modo" checked={modo === 'mas'} onChange={() => setModo('mas')} /> Calcola dalla <b>quota del Masaniello</b></label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}><input type="radio" name="modo" checked={modo === 'rec'} onChange={() => setModo('rec')} /> Calcola da un <b>recupero desiderato</b></label>
+          </div>
+          {modo === 'mas' && !masOk && <div style={{ marginTop: 8, color: '#fca5a5', fontSize: 13 }}>⚠️ La quota del Masaniello deve essere maggiore di 1 e più bassa della quota Over reale.</div>}
+          {modo === 'mas' && masOk && Number.isFinite(num(X)) && (
+            <div style={{ marginTop: 8, padding: '8px 10px', border: '1px solid #334155', borderRadius: 10, background: 'rgba(2,6,23,.6)', fontSize: 13.5, lineHeight: 1.6 }}>
+              <div>Il Masaniello pensa di vincere: {eur(num(X) * (num(qMas) - 1))} <span style={{ color: '#64748b' }}>(X × {(num(qMas) - 1).toLocaleString('it-IT', { maximumFractionDigits: 3 })})</span></div>
+              <div>In realtà l’Over ti paga: {eur(num(X) * (num(qOver) - 1))} <span style={{ color: '#64748b' }}>(X × {(num(qOver) - 1).toLocaleString('it-IT', { maximumFractionDigits: 3 })})</span></div>
+              <div style={{ color: '#4ade80' }}>La differenza, <b>{eur(num(X) * (num(qOver) - num(qMas)))}</b>, va sullo 0-0 finale: se segna nel 1T la perdi, e il Masaniello vede esattamente la sua vincita.</div>
+            </div>
+          )}
 
           {/* Stima della quota dello 0-0 al 45' */}
           <div style={{ marginTop: 12, padding: '10px 12px', border: '1px solid #334155', borderRadius: 10, background: 'rgba(2,6,23,.6)' }}>
@@ -161,6 +181,7 @@ export default function Calcolatore1T() {
               <div style={riga}><span>Puntata sullo 0-0 finale</span><b style={{ color: '#4ade80', fontSize: 17 }}>{eur(cop.s)}</b></div>
               <div style={riga}><span>Se segna nel 1T (Over vince, perdi la copertura)</span><b>{sgn(cop.vinceSeSegna)}</b></div>
               <div style={riga}><span>Se è 0-0 al 45’ (perdi X, chiudi lo 0-0)</span><b>{sgn(cop.perdeSeZero)}</b></div>
+              <div style={riga}><span>Incasso extra dalla chiusura dello 0-0 (fuori dal Masaniello, lo somma a parte)</span><b style={{ color: '#4ade80' }}>{sgn(cop.recuperoEffettivo)}</b></div>
               <div style={riga}><span>Guadagno netto per € sullo 0-0 chiuso (g)</span><b>{cop.g.toLocaleString('it-IT', { maximumFractionDigits: 3 })}</b></div>
               <div style={riga}><span>Quota efficace da usare nel Masaniello</span><b>{cop.quotaEfficace.toLocaleString('it-IT', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}</b></div>
               <div style={{ ...riga, borderBottom: 0 }}><span>Tasso di vittoria di pareggio (sotto questo perdi in media)</span><b style={{ color: '#fbbf24' }}>{pct(cop.pareggio)}</b></div>

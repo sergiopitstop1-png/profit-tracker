@@ -22,7 +22,7 @@ export function guadagnoChiusura(quotaBack: number, quotaChiusura: number, commi
 }
 
 export function copertura(X: number, quotaOver: number, quotaBack: number, quotaChiusura: number, commissionePct: number, recuperoPct: number): Copertura | null {
-  if (!(X > 0) || !(quotaOver > 1) || !(quotaBack > 1) || !(quotaChiusura > 1)) return null
+  if (!(X > 0) || !(quotaOver > 1) || !(quotaBack > 1) || !(quotaChiusura > 1) || !Number.isFinite(recuperoPct)) return null
   const g = guadagnoChiusura(quotaBack, quotaChiusura, commissionePct)
   if (!(g > 0)) return null   // chiudere a quota ≥ quota di ingresso non recupera nulla
   const R = Math.max(0, recuperoPct) / 100
