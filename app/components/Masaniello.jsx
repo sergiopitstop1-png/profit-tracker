@@ -680,6 +680,10 @@ export default function Masaniello() {
           <p style={{ fontFamily: "system-ui, sans-serif", fontSize: 13, color: MUTED, margin: "6px 0 0" }}>
             Masaniello standard con eventi in contemporanea · più piani in parallelo, confrontabili dalla dashboard
           </p>
+          <a href="/profit-tracker/calcolatore-1t" target="_blank" rel="noopener noreferrer"
+            style={{ display: "inline-block", marginTop: 10, fontFamily: "system-ui, sans-serif", fontSize: 13, color: "#fbbf24", textDecoration: "none", border: "1px solid rgba(251,191,36,0.5)", borderRadius: 8, padding: "6px 12px" }}>
+            🧮 Calcolatore Over 1T: quanto coprire sullo 0-0 →
+          </a>
         </div>
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 26, borderBottom: `1px solid ${LINE}`, paddingBottom: 14 }}>
