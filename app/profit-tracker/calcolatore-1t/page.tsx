@@ -90,6 +90,32 @@ export default function Calcolatore1T() {
       <div style={{ maxWidth: 820, margin: '0 auto', padding: '14px 12px 40px' }}>
         <Link href="/profit-tracker" style={{ color: '#7dd3fc', fontWeight: 800, textDecoration: 'none', fontSize: 14 }}>← Profit Tracker</Link>
         <h1 style={{ fontSize: 22, margin: '8px 0 4px' }}>🧮 Over 0.5 1T + assicurazione sullo 0-0</h1>
+        {/* VISTA SEMPLICE: solo cosa inserire e cosa puntare */}
+        <div style={{ ...card, border: '1px solid #334155' }}>
+          <div style={griglia}>
+            <Campo etichetta="Puntata del Masaniello (€)" valore={X} onChange={setX} />
+            <Campo etichetta="Quota Over 0.5 1T" valore={qOver} onChange={setQOver} />
+            <Campo etichetta="Quota 0-0 finale" valore={qBack} onChange={setQBack} />
+            <Campo etichetta="Assicurazione (sconto)" valore={sconto} onChange={setSconto} />
+          </div>
+          {masOk && Number.isFinite(num(X)) && num(X) > 0 ? (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ ...riga, fontSize: 18, alignItems: 'baseline' }}>
+                <span>Punta sull’Over 0.5 1T</span>
+                <b style={{ color: '#f8fafc', fontSize: 24 }}>{eur(num(X))} <span style={{ fontSize: 14, color: '#94a3b8' }}>a quota {num(qOver).toLocaleString('it-IT', { maximumFractionDigits: 3 })}</span></b>
+              </div>
+              <div style={{ ...riga, fontSize: 18, alignItems: 'baseline', borderBottom: 0 }}>
+                <span>Punta sullo 0-0 finale</span>
+                <b style={{ color: '#4ade80', fontSize: 24 }}>{eur(num(X) * num(sconto))} <span style={{ fontSize: 14, color: '#94a3b8' }}>a quota {num(qBack).toLocaleString('it-IT', { maximumFractionDigits: 3 })}</span></b>
+              </div>
+            </div>
+          ) : (
+            <div style={{ marginTop: 12, color: '#fca5a5', fontSize: 13 }}>⚠️ Inserisci la puntata e controlla che l’assicurazione sia più piccola della vincita (Over − 1).</div>
+          )}
+        </div>
+
+        <details>
+          <summary style={{ cursor: 'pointer', color: '#7dd3fc', fontWeight: 800, fontSize: 14, margin: '4px 0 12px' }}>Dettagli e calcoli</summary>
         <div style={{ fontSize: 12.5, color: '#94a3b8', lineHeight: 1.55, marginBottom: 12 }}>
           Punti X sull’<b>Over 0.5 primo tempo</b> e ti assicuri con una piccola puntata sullo <b>0-0 finale</b> (exchange). Se è 0-0 al 45’ lo 0-0 finale scende e lo chiudi in banca per recuperare una parte di X.
           Tutti i numeri sono stime con i valori che inserisci: la <b>quota di chiusura all’intervallo</b> è una previsione, non una quota vera. Questa pagina non salva nulla.
@@ -252,6 +278,7 @@ export default function Calcolatore1T() {
           Ipotesi: partite indipendenti, stessa quota Over e stessa quota 0-0 per tutte, chiusura dello 0-0 all’intervallo alla quota indicata e con liquidità sufficiente. Se fallisce il target il Masaniello perde il capitale rimasto, ma gli incassi dell’assicurazione sulle partite perse restano.
           Lo 0-0 qui è il risultato esatto <b>finale</b>.
         </div>
+        </details>
       </div>
     </div>
   )
