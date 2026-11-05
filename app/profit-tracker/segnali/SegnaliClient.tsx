@@ -10,6 +10,7 @@ import Link from 'next/link'
 import { supabase } from '../supabaseClient'
 import { valutaHunter } from '../../../lib/valutaHunter'   // 23/10/2026: stessa regola usata dal server
 import SchedaTennis from './SchedaTennis'   // 07/10/2026: tennis PronoX
+import SchedaPronox1T from './SchedaPronox1T'   // 05/11/2026: monitoraggio Over 0.5 1T e NoGol
 
 type Segnale = {
   msg_id: number; data_msg: string | null; data_partita: string | null; ora: string | null; competizione: string | null
@@ -302,7 +303,7 @@ export default function SegnaliClient({ incorporato = false }: { incorporato?: b
   const [mercato, setMercato] = useState('')
   const [soloSopra140, setSoloSopra140] = useState(false)
   const [cerca, setCerca] = useState('')
-  const [sportPronox, setSportPronox] = useState<'calcio' | 'tennis'>('calcio')   // 07/10/2026
+  const [sportPronox, setSportPronox] = useState<'calcio' | 'tennis' | '1t'>('calcio')   // 07/10/2026; 05/11/2026: scheda Over 0.5 1T / NoGol
 
   const carica = useCallback(async () => {
     const out: Segnale[] = []
@@ -408,8 +409,10 @@ export default function SegnaliClient({ incorporato = false }: { incorporato?: b
           <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
             <button onClick={() => setSportPronox('calcio')} style={{ ...sel, cursor: 'pointer', fontWeight: 900, borderColor: sportPronox === 'calcio' ? '#38bdf8' : '#334155' }}>⚽ Calcio</button>
             <button onClick={() => setSportPronox('tennis')} style={{ ...sel, cursor: 'pointer', fontWeight: 900, borderColor: sportPronox === 'tennis' ? '#38bdf8' : '#334155' }}>🎾 Tennis</button>
+            <button onClick={() => setSportPronox('1t')} style={{ ...sel, cursor: 'pointer', fontWeight: 900, borderColor: sportPronox === '1t' ? '#38bdf8' : '#334155' }}>🕐 Over 0.5 1T / NoGol</button>
           </div>
           {sportPronox === 'tennis' ? <SchedaTennis sel={sel} th={th} td={td} />
+            : sportPronox === '1t' ? <SchedaPronox1T sel={sel} th={th} td={td} />
             : <SchedaPronox dati={pronox} sel={sel} th={th} td={td} tabellaPagella={tabellaPagella} />}
         </>
         ) : tab==='hunterbet' ? (
