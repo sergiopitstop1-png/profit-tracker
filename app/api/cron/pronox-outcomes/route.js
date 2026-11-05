@@ -30,6 +30,10 @@ const STATI_NULLI = ["POSTPONED", "CANCELLED", "SUSPENDED", "AWARDED"];
 // regole per mercato|esito (le fotografie usano BTTS yes/no, il catalogo si/no)
 const REGOLE = new Map(FOOTBALL_MARKETS.map((m) => [m.id, m.test]));
 REGOLE.set("BTTS|yes", REGOLE.get("BTTS|si"));
+// 05/11/2026: monitoraggio. NOGOL/si = almeno una squadra a zero nei 90 minuti (come BTTS/no);
+// OU0.5HT/over = almeno un gol nel primo tempo (serve il punteggio del 1T: vedi golPrimoTempo)
+REGOLE.set("NOGOL|si", REGOLE.get("BTTS|no"));
+const SOLO_PRIMO_TEMPO = new Set(["OU0.5HT|over"]);
 
 function giorno(ts) {
   return new Date(ts).toISOString().split("T")[0];
@@ -50,6 +54,13 @@ function gol90(match) {
   }
   const f = s.fullTime;
   if (f && Number.isInteger(f.home) && Number.isInteger(f.away)) return { h: f.home, a: f.away };
+  return null;
+}
+
+// Gol del primo tempo (null se il punteggio non c'è: l'esito si decide al prossimo giro)
+function golPrimoTempo(match) {
+  const ht = match.score?.halfTime;
+  if (ht && Number.isInteger(ht.home) && Number.isInteger(ht.away)) return { h: ht.home, a: ht.away };
   return null;
 }
 
@@ -178,7 +189,14 @@ export async function GET(request) {
       if (!g) { report.partite_in_attesa++; continue; }
       report.partite_finite++;
       if (ev.serveRisultato) risultati.push(rigaRisultato(id, ev, m, g, settled_at));
+      const pt = golPrimoTempo(m);
       for (const k of ev.chiavi) {
+        if (SOLO_PRIMO_TEMPO.has(k)) {
+          if (!pt) { report.esiti_senza_primo_tempo = (report.esiti_senza_primo_tempo || 0) + 1; continue; }
+          const [market, selection] = k.split("|");
+          righe.push({ event_id: id, market, selection, won: pt.h + pt.a >= 1, settled_at });
+          continue;
+        }
         const regola = REGOLE.get(k);
         if (!regola) {
           if (!report.esiti_sconosciuti.includes(k)) report.esiti_sconosciuti.push(k);

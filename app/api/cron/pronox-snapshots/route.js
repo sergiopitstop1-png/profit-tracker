@@ -17,6 +17,9 @@
 // 01/11/2026: le quote arrivano da API-Football (piano Pro, variabile API_FOOTBALL_KEY): media dei bookmaker per 1X2 e Over/Under 2.5.
 //   Senza la chiave: The Odds API solo se attivi PRONOX_ODDS_FALLBACK=1 (con ODDS_API_KEY); altrimenti la fotografia si scrive SENZA quota.
 //   PRONOX_ODDS_PROVIDER=theoddsapi forza The Odds API anche se c'è la chiave di API-Football.
+// 05/11/2026: monitoraggio Over 0.5 1T e NoGol. Per ogni partita si salvano due righe in più (market OU0.5HT/over e NOGOL/si,
+//   model_version dc_v2_1t_v1) con la quota media dei bookmaker del primo tempo e del NoGol. Le righe e le statistiche
+//   esistenti non cambiano (BTTS resta senza quota). Le quote extra costano 2 chiamate in più per campionato e giorno.
 // =====================================================================
 
 import { NextResponse } from "next/server";
@@ -27,6 +30,7 @@ import {
   calcRatings, currentSeasonFor, getSeasonData,
   parseOddsForDate, matchOdds, computeFixtureModel,
   calibrateFootballProbability,
+  MODEL_NAME_1T, MODEL_VERSION_1T, probOver05Ht,
 } from "../../../../lib/pronox/footballModel";
 import { apiFootballKey, fetchEventsForLeague } from "../../../../lib/apiFootballOdds";
 
@@ -171,6 +175,8 @@ function buildSnapshotRows({ fix, code, model, oddsData, horizon }) {
     avg_eu: {
       "1": oddsData.o1 ?? null, "X": oddsData.oX ?? null, "2": oddsData.o2 ?? null,
       over25: oddsData.oOver25 ?? null, under25: oddsData.oUnder25 ?? null,
+      over05_1t: oddsData.o1tOver05 ?? null, under05_1t: oddsData.o1tUnder05 ?? null,
+      gol: oddsData.oGol ?? null, nogol: oddsData.oNoGol ?? null,
     },
     matched_home: oddsData.homeTeam ?? null,
     matched_away: oddsData.awayTeam ?? null,
@@ -229,6 +235,24 @@ function buildSnapshotRows({ fix, code, model, oddsData, horizon }) {
         odds_bookmaker: odds ? (oddsData?.fonte === "api-football" ? "apifootball" : "media_eu") : null,
       });
     }
+  }
+  // Monitoraggio Over 0.5 1T e NoGol: righe a parte, con la loro quota (la quota del NoGol non sta sulla riga BTTS per non cambiare le statistiche di prima)
+  const bookmaker = (o) => (cleanOdds(o) ? (oddsData?.fonte === "api-football" ? "apifootball" : "media_eu") : null);
+  const monitor = [
+    { market: "OU0.5HT", selection: "over", prob: probOver05Ht(model.lH, model.lA), odds: oddsData?.o1tOver05 },
+    { market: "NOGOL", selection: "si", prob: 1 - probs.btts, odds: oddsData?.oNoGol },
+  ];
+  for (const s of monitor) {
+    rows.push({
+      ...base,
+      market: s.market,
+      selection: s.selection,
+      model_name: MODEL_NAME_1T,
+      model_version: MODEL_VERSION_1T,
+      model_prob: cleanProb(s.prob),
+      odds_taken: cleanOdds(s.odds),
+      odds_bookmaker: bookmaker(s.odds),
+    });
   }
   return rows;
 }
@@ -308,7 +332,7 @@ export async function GET(request) {
         const league = LEAGUES.find((l) => l.code === code);
         if (!league?.oddsKey) continue;
         try {
-          const { events, calls } = await fetchEventsForLeague(league.oddsKey, { from: date, to: date, stats: true }, afKey);
+          const { events, calls } = await fetchEventsForLeague(league.oddsKey, { from: date, to: date, stats: true, extra: true }, afKey);
           allOdds[code] = parseOddsForDate(events, date);
           report.debug.odds[code] = `${Object.keys(allOdds[code]).length} partite con quota`;
           report.debug.api_football_chiamate += calls;
