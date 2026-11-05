@@ -6,3 +6,5 @@
 -- Il motore del Masaniello non legge questi campi: puntate e obiettivo non cambiano.
 alter table public.masaniello_events add column if not exists assicurata boolean not null default false;
 alter table public.masaniello_events add column if not exists incasso_cashout numeric;
+-- 05/11/2026: percentuale di assicurazione per ogni partita (10 = la quota del Masaniello e' la quota scritta meno 0,10).
+alter table public.masaniello_events add column if not exists assic_pct numeric not null default 10;
