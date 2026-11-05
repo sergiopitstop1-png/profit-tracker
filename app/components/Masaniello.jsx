@@ -41,16 +41,26 @@ function useDebouncedCallback(callback, delay = 500) {
 const parseEur = (v) => { const n = parseFloat(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : null };
 const parseQ = (v) => { const n = parseFloat(String(v ?? '').replace(',', '.')); return Number.isFinite(n) && n > 1 ? n : null };
 
+// Quota che il Masaniello usa per una partita: quella scritta; se la partita è «assicurata», quella scritta meno la % (10 → -0,10).
+// L'esito dell'assicurazione (vinta/persa, cashout) non entra mai nel motore.
+const quotaMasaniello = (e) => {
+  const q = parseQ(e.quota);
+  if (!q || !e.assicurata) return q;
+  const pct = parseEur(e.assicPct);
+  const sconto = (pct == null ? 10 : Math.max(0, pct)) / 100;
+  return Math.max(1.01, Math.round((q - sconto) * 1000) / 1000);
+};
+
 function computeMasaniello(plan) {
   const C = Number(plan.capitale) || 0;
   const N = Math.round(Number(plan.planN) || 0);
   const K = Math.round(Number(plan.planK) || 0);
   if (C <= 0 || N <= 0 || K <= 0 || K > N) return null;
   const events = plan.events || [];
-  const qEntered = events.map(e => parseQ(e.quota)).filter(Boolean);
+  const qEntered = events.map(e => quotaMasaniello(e)).filter(Boolean);
   const qRif = parseQ(plan.bulkQuota) || (qEntered.length ? qEntered.reduce((a, b) => a + b, 0) / qEntered.length : 2);
   // quota di ogni "casella" del piano: quella dell'evento se c'è, altrimenti la quota di riferimento
-  const q = Array.from({ length: N }, (_, i) => (events[i] && parseQ(events[i].quota)) || qRif);
+  const q = Array.from({ length: N }, (_, i) => (events[i] && quotaMasaniello(events[i])) || qRif);
 
   const memo = new Map();
   const V = (i, k) => {
@@ -72,7 +82,7 @@ function computeMasaniello(plan) {
   });
 
   let X = C, i = 0, k = K, vinte = 0, perse = 0;
-  const rows = events.map((e, idx) => ({ id: e.id, idx, stake: null, capitaleDopo: null, gruppo: null, stato: idx >= N ? 'fuori' : 'futuro' }));
+  const rows = events.map((e, idx) => ({ id: e.id, idx, stake: null, capitaleDopo: null, gruppo: null, stato: idx >= N ? 'fuori' : 'futuro', qUsata: null, assicEuro: null }));
   let prossime = null; // gruppo da giocare adesso
   let stato = 'in corso';
 
@@ -110,6 +120,12 @@ function computeMasaniello(plan) {
     idxs.forEach(ix => { rows[ix].capitaleDopo = X });
     i += m;
   }
+  // quota usata dal Masaniello e puntata sullo 0-0 per ogni partita assicurata (puntata del Masaniello × %)
+  rows.forEach((r, ix) => {
+    if (ix >= N) return;
+    r.qUsata = q[ix];
+    if (events[ix].assicurata && r.stake != null) { const pct = parseEur(events[ix].assicPct); r.assicEuro = r.stake * (pct == null ? 10 : Math.max(0, pct)) / 100; }
+  });
   if (!prossime && stato === 'in corso') {
     if (k <= 0) stato = 'obiettivo';
     else if (V(i, k) <= 0) stato = 'fallito';
@@ -172,7 +188,7 @@ const planFromRow = (row, events) => ({
   events: events
     .filter((e) => e.plan_id === row.id)
     .sort((a, b) => a.position - b.position)
-    .map((e) => ({ id: e.id, label: e.label, quota: e.quota == null ? "" : String(e.quota), esito: e.esito, contemporanea: !!e.contemporanea, assicurata: !!e.assicurata, incasso: e.incasso_cashout == null ? "" : String(e.incasso_cashout) })),
+    .map((e) => ({ id: e.id, label: e.label, quota: e.quota == null ? "" : String(e.quota), esito: e.esito, contemporanea: !!e.contemporanea, assicurata: !!e.assicurata, assicPct: e.assic_pct == null ? "10" : String(e.assic_pct), incasso: e.incasso_cashout == null ? "" : String(e.incasso_cashout) })),
 });
 
 const patchToRow = (patch) => {
@@ -444,7 +460,7 @@ function PlanView({ plan, onLocalUpdate, onSavePlanField, onAddEvent, onUpdateEv
       </div>
 
       <div style={{ marginBottom: 24 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "96px 1fr 80px 120px 70px 90px 74px 84px 30px", gap: 8, padding: "0 4px 10px", fontFamily: "system-ui, sans-serif", fontSize: 11, color: MUTED, textTransform: "uppercase", letterSpacing: 0.4 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "96px 1fr 80px 120px 70px 90px 74px 30px", gap: 8, padding: "0 4px 10px", fontFamily: "system-ui, sans-serif", fontSize: 11, color: MUTED, textTransform: "uppercase", letterSpacing: 0.4 }}>
           <span title="Contemporanea all'evento sopra">Insieme a sopra</span>
           <span>Evento</span>
           <span>Quota</span>
@@ -452,7 +468,6 @@ function PlanView({ plan, onLocalUpdate, onSavePlanField, onAddEvent, onUpdateEv
           <span style={{ textAlign: "right" }}>Puntata</span>
           <span style={{ textAlign: "right" }}>Capitale</span>
           <span title="Hai assicurato questa partita sullo 0-0?" style={{ textAlign: "center" }}>Assicurata</span>
-          <span title="Incasso del cashout (conto a parte, fuori dal Masaniello)">Cashout €</span>
           <span></span>
         </div>
         {plan.events.map((ev, ix) => {
@@ -462,7 +477,7 @@ function PlanView({ plan, onLocalUpdate, onSavePlanField, onAddEvent, onUpdateEv
           const prossimo = r && r.stato === "da giocare";
           return (
             <div key={ev.id} style={{
-              display: "grid", gridTemplateColumns: "96px 1fr 80px 120px 70px 90px 74px 84px 30px", gap: 8, alignItems: "center",
+              display: "grid", gridTemplateColumns: "96px 1fr 80px 120px 70px 90px 74px 30px", gap: 8, alignItems: "center",
               padding: "6px 4px", borderTop: inGruppo ? "none" : `1px solid ${LINE}`,
               borderLeft: `3px solid ${inGruppo || (plan.events[ix + 1] && plan.events[ix + 1].contemporanea) ? GOLD : "transparent"}`,
               background: prossimo ? "rgba(201,162,74,0.06)" : "transparent", opacity: r && r.stato === "fuori" ? 0.45 : 1,
@@ -506,19 +521,37 @@ function PlanView({ plan, onLocalUpdate, onSavePlanField, onAddEvent, onUpdateEv
               <label style={{ display: "flex", justifyContent: "center", cursor: "pointer" }} title="Hai assicurato questa partita sullo 0-0?">
                 <input type="checkbox" checked={!!ev.assicurata} onChange={(e) => onUpdateEventField(plan.id, ev.id, "assicurata", e.target.checked)} />
               </label>
-              {ev.assicurata && ev.esito === "persa" ? (
-                <input
-                  value={ev.incasso ?? ""}
-                  inputMode="decimal"
-                  onChange={(e) => onUpdateEventField(plan.id, ev.id, "incasso", e.target.value)}
-                  placeholder="€"
-                  title="Incasso del cashout: conto a parte, non entra nel Masaniello"
-                  style={{ background: PANEL, border: `1px solid ${GOLD}`, borderRadius: 4, color: CREAM, fontFamily: "system-ui, sans-serif", fontSize: 14, padding: "5px 8px", width: 70, outline: "none" }}
-                />
-              ) : <span />}
               <button onClick={() => onRemoveEvent(plan.id, ev.id)} aria-label="Rimuovi evento" style={{ background: "transparent", border: "none", color: MUTED, cursor: "pointer", display: "flex", justifyContent: "center" }}>
                 <Trash2 size={15} />
               </button>
+              {ev.assicurata && (
+                <div style={{ gridColumn: "1 / -1", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, fontFamily: "system-ui, sans-serif", fontSize: 13, color: MUTED, padding: "2px 0 4px 8px" }}>
+                  <span>Assicurazione</span>
+                  <input
+                    value={ev.assicPct ?? "10"}
+                    inputMode="decimal"
+                    onChange={(e) => onUpdateEventField(plan.id, ev.id, "assicPct", e.target.value)}
+                    title="Percentuale tolta alla quota per questa partita (10 = -0,10)"
+                    style={{ background: PANEL, border: `1px solid ${GOLD}`, borderRadius: 4, color: CREAM, fontSize: 14, padding: "4px 6px", width: 52, outline: "none", textAlign: "right" }}
+                  />
+                  <span>%</span>
+                  <span>· il Masaniello usa quota <b style={{ color: CREAM }}>{r && r.qUsata ? fmt(r.qUsata) : "—"}</b></span>
+                  <span>· punta sullo 0-0 <b style={{ color: GOLD }}>{r && r.assicEuro != null ? `€${fmt(r.assicEuro)}` : "—"}</b></span>
+                  {ev.esito === "persa" && (
+                    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      · Cashout €
+                      <input
+                        value={ev.incasso ?? ""}
+                        inputMode="decimal"
+                        onChange={(e) => onUpdateEventField(plan.id, ev.id, "incasso", e.target.value)}
+                        placeholder="incasso"
+                        title="Incasso del cashout: conto a parte, non entra nel Masaniello"
+                        style={{ background: PANEL, border: `1px solid ${GOLD}`, borderRadius: 4, color: CREAM, fontSize: 14, padding: "4px 6px", width: 76, outline: "none" }}
+                      />
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
@@ -625,7 +658,7 @@ export default function Masaniello() {
       .select()
       .single();
     if (error) { console.error("Errore aggiunta evento:", error); return; }
-    onLocalUpdate(planId, { events: [...plan.events, { id: data.id, label: data.label, quota: "", esito: "attesa", contemporanea: false, assicurata: false, incasso: "" }] });
+    onLocalUpdate(planId, { events: [...plan.events, { id: data.id, label: data.label, quota: "", esito: "attesa", contemporanea: false, assicurata: false, assicPct: "10", incasso: "" }] });
   };
 
   const removeEvent = async (planId, eventId) => {
@@ -640,6 +673,7 @@ export default function Masaniello() {
     // accetta anche la virgola; assicurata e incasso (cashout) hanno la loro colonna e restano fuori dal motore del Masaniello
     const payload = field === "quota" ? { quota: parseQ(value) }
       : field === "incasso" ? { incasso_cashout: parseEur(value) }
+      : field === "assicPct" ? { assic_pct: parseEur(value) ?? 10 }
       : { [dbField]: value };
     supabase.from("masaniello_events").update(payload).eq("id", eventId)
       .then(({ error }) => { if (error) console.error("Errore salvataggio evento:", error); });
@@ -681,7 +715,7 @@ export default function Masaniello() {
 
     const newEvents = data
       .sort((a, b) => a.position - b.position)
-      .map((e) => ({ id: e.id, label: e.label, quota: e.quota == null ? "" : String(e.quota), esito: e.esito, contemporanea: false, assicurata: false, incasso: "" }));
+      .map((e) => ({ id: e.id, label: e.label, quota: e.quota == null ? "" : String(e.quota), esito: e.esito, contemporanea: false, assicurata: false, assicPct: "10", incasso: "" }));
     onLocalUpdate(planId, { events: newEvents });
   };
 
