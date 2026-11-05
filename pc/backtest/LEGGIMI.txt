@@ -30,3 +30,11 @@ tra tutti i book) con la quota "giusta" di Pinnacle, per vedere se giocando semp
 il book che paga di piu' resta un margine reale. Non usa PronoX.
 Doppio clic su  avvia_valore_quote.bat  -> si apre report_valore_quote.txt
 (riusa i dati gia' scaricati dal primo test; mandami il testo).
+
+
+TERZO TEST: OVER 0.5 PRIMO TEMPO e NO GOL FINALE (test_1t_nogol.py)
+===================================================================
+Prova se PronoX sa scegliere le partite in cui nel 1T segna almeno un gol (Over 0.5 1T) o finisce NoGol,
+confrontandolo con la media storica e con una stima del mercato ricavata dalle quote Pinnacle del tempo pieno.
+Doppio clic su  avvia_test_1t_nogol.bat  -> si apre report_1t_nogol.txt (riusa i dati gia' scaricati dal primo test).
+Le quote vere dell'Over 0.5 1T e del NoGol non sono nei file storici: il "pareggio" nel report e' una stima.
