@@ -17,6 +17,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { FOOTBALL_MARKETS } from "../../../../lib/pronox/footballModel";
+import { completaMinuti } from "../../../../lib/pronox/minutiPrimoGol";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -123,7 +124,7 @@ export async function GET(request) {
       }
       if (!data || data.length < 1000) break;
     }
-    if (fotografati.size === 0) return NextResponse.json({ ...report, note: "nessuna partita da controllare" });
+    if (fotografati.size === 0) { try { await completaMinuti(supabase, report); } catch (e) { report.errors.push(`minuti: ${String(e?.message || e)}`); } return NextResponse.json({ ...report, note: "nessuna partita da controllare" }); }
 
     // 2. Esiti e risultati già scritti: si salta ciò che è già deciso
     const ids = [...fotografati.keys()];
@@ -151,7 +152,7 @@ export async function GET(request) {
       if (ev.chiavi.size === 0 && !ev.serveRisultato) fotografati.delete(id);
     }
     report.partite_da_controllare = fotografati.size;
-    if (fotografati.size === 0) return NextResponse.json({ ...report, note: "tutto già aggiornato" });
+    if (fotografati.size === 0) { try { await completaMinuti(supabase, report); } catch (e) { report.errors.push(`minuti: ${String(e?.message || e)}`); } return NextResponse.json({ ...report, note: "tutto già aggiornato" }); }
 
     // 3. Risultati da football-data con una sola chiamata (dateTo è esclusivo)
     const starts = [...fotografati.values()].map((e) => new Date(e.start).getTime());
@@ -230,5 +231,7 @@ export async function GET(request) {
     report.errors.push(String(e?.message || e));
     return NextResponse.json(report, { status: 500 });
   }
+  // 7. (05/11/2026) minuto del primo gol del 1° tempo da API-Football: non deve mai bloccare gli esiti
+  try { await completaMinuti(supabase, report); } catch (e) { report.errors.push(`minuti: ${String(e?.message || e)}`); }
   return NextResponse.json(report);
 }
