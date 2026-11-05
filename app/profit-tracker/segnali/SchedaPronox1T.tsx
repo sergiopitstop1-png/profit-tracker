@@ -13,6 +13,7 @@ type Riga = {
   casa: string | null; ospite: string | null; prob: number | null; quota: number | null
   esito: 'VINTA' | 'PERSA' | 'NULLA' | null
   ht_casa: number | null; ht_ospite: number | null; ft_casa: number | null; ft_ospite: number | null
+  minuto_primo_gol_1t?: number | null
 }
 
 const NOME: Record<string, string> = { 'OU0.5HT': 'Over 0.5 1T', NOGOL: 'NoGol finale' }
@@ -21,6 +22,16 @@ const pc = (x: number | null | undefined, d = 1) => x == null || !Number.isFinit
 const quando = (iso: string | null) => iso ? new Date(iso).toLocaleString('it-IT', { timeZone: 'Europe/Rome', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
 const punteggio = (a: number | null, b: number | null) => a != null && b != null ? `${a}-${b}` : ''
 const fasciaProb = (p: number | null) => p == null ? '—' : p >= 0.8 ? '80%+' : p >= 0.75 ? '75-80%' : p >= 0.7 ? '70-75%' : p >= 0.65 ? '65-70%' : p >= 0.5 ? '50-65%' : 'sotto 50%'
+// minuto del primo gol del 1° tempo, sulle partite finite con Over 0.5 1T (VINTA) di cui il minuto è già stato letto
+function minutiPrimoGol(v: Riga[]) {
+  const m = v.filter(r => r.mercato === 'OU0.5HT' && r.esito === 'VINTA' && r.minuto_primo_gol_1t != null).map(r => Number(r.minuto_primo_gol_1t)).sort((a, b) => a - b)
+  const n = m.length
+  const media = n ? m.reduce((t, x) => t + x, 0) / n : null
+  const mediana = n ? (n % 2 ? m[(n - 1) / 2] : (m[n / 2 - 1] + m[n / 2]) / 2) : null
+  const fasce = [['entro il 15\'', 1, 15], ['16\'-30\'', 16, 30], ['31\'-45\'+', 31, 45]].map(([nome, a, b]) => ({ nome: String(nome), n: m.filter(x => x >= Number(a) && x <= Number(b)).length }))
+  const senza = v.filter(r => r.mercato === 'OU0.5HT' && r.esito === 'VINTA' && r.minuto_primo_gol_1t == null).length
+  return { n, media, mediana, fasce, senza }
+}
 const ORDINE_FASCE = ['sotto 50%', '50-65%', '65-70%', '70-75%', '75-80%', '80%+']
 
 // riepilogo di un gruppo di partite (di solito: tutte quelle di un mercato)
@@ -72,6 +83,7 @@ export default function SchedaPronox1T({ sel, th, td }: { sel: any; th: any; td:
     return true
   }), [righe, mercato, stato, soloQuota, cerca])
 
+  const minuti = useMemo(() => minutiPrimoGol(righe), [righe])
   const perMercato = useMemo(() => (['OU0.5HT', 'NOGOL'] as const).map(m => [m, riepilogo(righe.filter(r => r.mercato === m))] as const), [righe])
 
   // quando dice X%, quante volte succede davvero? (per mercato)
@@ -126,6 +138,22 @@ export default function SchedaPronox1T({ sel, th, td }: { sel: any; th: any; td:
         </div>))}
     </div>
 
+    <div style={{ background: 'rgba(15,23,42,.8)', border: '1px solid #1e293b', borderRadius: 14, padding: 12, marginBottom: 16 }}>
+      <div style={{ fontWeight: 900, marginBottom: 8, color: '#7dd3fc' }}>⏱ Over 0.5 1T · quando arriva il primo gol</div>
+      {minuti.n ? (<>
+        <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', fontSize: 13, marginBottom: 8 }}>
+          <span style={{ color: '#94a3b8' }}>Minuto medio <b style={{ color: '#f8fafc' }}>{minuti.media!.toFixed(1).replace('.', ',')}'</b></span>
+          <span style={{ color: '#94a3b8' }}>Mediana <b style={{ color: '#f8fafc' }}>{minuti.mediana}'</b></span>
+          <span style={{ color: '#94a3b8' }}>Partite con minuto letto <b style={{ color: '#f8fafc' }}>{minuti.n}</b></span>
+        </div>
+        <table style={{ borderCollapse: 'collapse' }}>
+          <thead><tr>{['Primo gol', 'Partite', 'Quota sul totale'].map((h, i) => <th key={i} style={th}>{h}</th>)}</tr></thead>
+          <tbody>{minuti.fasce.map(f => <tr key={f.nome}><td style={td}>{f.nome}</td><td style={td}>{f.n}</td><td style={td}>{pc(f.n / minuti.n)}</td></tr>)}</tbody>
+        </table>
+      </>) : <div style={{ fontSize: 12, color: '#64748b' }}>Ancora nessun minuto: si compila da solo dopo le partite (cron ogni 6 ore).</div>}
+      {minuti.senza > 0 && <div style={{ fontSize: 11, color: '#64748b', marginTop: 6 }}>{minuti.senza} partite con Over 0.5 1T vinto non hanno ancora il minuto (si aggiornano da sole o la partita non è stata trovata su API-Football).</div>}
+    </div>
+
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 14, marginBottom: 16 }}>
       {calibrazione.map(([m, v]) => (
         <div key={m} style={{ background: 'rgba(15,23,42,.6)', border: '1px solid #1e293b', borderRadius: 14, padding: 12 }}>
@@ -144,12 +172,12 @@ export default function SchedaPronox1T({ sel, th, td }: { sel: any; th: any; td:
       {caricato && !errore && !righe.length && <div style={{ fontSize: 12, color: '#fbbf24', marginBottom: 8 }}>Ancora nessuna partita: le prime fotografie arrivano con la corsa delle 09:00 UTC (10:00 o 11:00 in Italia) del giorno dopo l’attivazione.</div>}
       <div style={{ maxHeight: 520, overflowY: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-          <thead><tr>{['Partita il', 'Campionato', 'Partita', 'Mercato', 'PronoX', 'Quota', '1T', 'Finale', 'Esito'].map((h, i) => <th key={i} style={{ ...th, position: 'sticky', top: 0, background: '#0f172a' }}>{h}</th>)}</tr></thead>
+          <thead><tr>{['Partita il', 'Campionato', 'Partita', 'Mercato', 'PronoX', 'Quota', '1T', '1° gol', 'Finale', 'Esito'].map((h, i) => <th key={i} style={{ ...th, position: 'sticky', top: 0, background: '#0f172a' }}>{h}</th>)}</tr></thead>
           <tbody>{visibili.map(r => (
             <tr key={`${r.event_id}|${r.mercato}`}>
               <td style={td}>{quando(r.data_partita)}</td><td style={td}>{r.competizione || ''}</td><td style={td}>{r.casa} – {r.ospite}</td>
               <td style={td}>{NOME[r.mercato] || r.mercato}</td><td style={td}>{pc(r.prob, 0)}</td><td style={td}>{r.quota != null ? n2(Number(r.quota)) : ''}</td>
-              <td style={td}>{punteggio(r.ht_casa, r.ht_ospite)}</td><td style={td}>{punteggio(r.ft_casa, r.ft_ospite)}</td>
+              <td style={td}>{punteggio(r.ht_casa, r.ht_ospite)}</td><td style={td}>{r.minuto_primo_gol_1t != null ? `${r.minuto_primo_gol_1t}'` : ''}</td><td style={td}>{punteggio(r.ft_casa, r.ft_ospite)}</td>
               <td style={{ ...td, fontWeight: 800, color: r.esito === 'VINTA' ? '#86efac' : r.esito === 'PERSA' ? '#fca5a5' : '#94a3b8' }}>{r.esito || ''}</td>
             </tr>))}</tbody>
         </table>
