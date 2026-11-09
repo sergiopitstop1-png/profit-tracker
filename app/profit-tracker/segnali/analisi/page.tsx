@@ -297,6 +297,8 @@ export default function AnalisiSegnali() {
   }, [])
   // SBOStats parte da quota ipotetica 1,30; tornando agli altri canali si rimette 1,70 (si puo' sempre scrivere un'altra quota in alto)
   useEffect(() => { setQuotaIpotesi(q => canale === 'sbostats' ? '1.30' : q === '1.30' ? '1.70' : q) }, [canale])
+  // 09/11/2026: apertura da Segnali > SBOStats con ?canale=sbostats
+  useEffect(() => { const c = new URLSearchParams(window.location.search).get('canale'); if (c && c in NOMI) setCanale(c as Canale) }, [])
   const righe = dati[canale]
 
   const tutte = useMemo(() => righe.filter(r => !soloSopra140 || r.quota == null || r.quota >= 1.4), [righe, soloSopra140])
