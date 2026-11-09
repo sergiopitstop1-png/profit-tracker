@@ -404,7 +404,6 @@ export default function AnalisiSegnali() {
     ['Per competizione', segmenta(chiuse, r => r.competizione)],
     ['Per giorno', segmenta(chiuse, r => giorno(r.data))],
   ] : isSbostats ? [
-    ['Per pronostico', segmenta(chiuse, r => r.mercato)],
     ['Per fascia di frequenza dichiarata', segmenta(chiuse, r => fasciaFreq(r.pG)).sort((a, b) => ORDINE_FREQ.indexOf(a.voce) - ORDINE_FREQ.indexOf(b.voce))],
     ['Per campionato (almeno 20 bet)', segmenta(chiuse, r => r.competizione).filter(s => s.n >= 20)],
     ['Per giorno', segmenta(chiuse, r => giorno(r.data))],
@@ -754,7 +753,7 @@ export default function AnalisiSegnali() {
         )}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(520px, 1fr))', gap: 14 }}>
-          {[['Per mercato', segMercato] as [string, Seg[]], ...blocchi].map(([t, s]) => (
+          {[[isSbostats ? 'Per pronostico' : 'Per mercato', segMercato] as [string, Seg[]], ...blocchi].map(([t, s]) => (
             <div key={t} style={{ background: 'rgba(15,23,42,.6)', border: '1px solid #1e293b', borderRadius: 14, padding: 12, overflowX: 'auto' }}>
               <div style={{ fontWeight: 900, marginBottom: 8, color: '#7dd3fc' }}>📊 {t}</div>
               {s.length ? tabella(s) : <div style={{ fontSize: 12, color: '#64748b' }}>Ancora nessuna bet chiusa.</div>}
