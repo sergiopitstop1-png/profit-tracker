@@ -6,6 +6,7 @@
 // Legge scoretrend_segnali, hunterbet_segnali e la vista pronox_segnali (solo lettura).
 // 04/10/2026: PronoX come terzo canale + calibrazione (grezza / calibrata / bookmaker,
 // Brier score) + confronto dei tre canali con le stesse regole.
+// 09/11/2026: SBOStats (Match Analysis) come canale: senza quote vere → simulazione a quota ipotetica (1,30 di partenza, modificabile in alto).
 // 29/10/2026: blocco «Studio partite» (es. 0-0 al 1° tempo → quante finiscono Over 1,5) con filtri e elenco.
 // ════════════════════════════════════════════════════════════════════
 import { useEffect, useMemo, useState } from 'react'
@@ -17,8 +18,8 @@ type Riga = { id: number; data: string; competizione: string; esito: string | nu
   live: string; minuto: number | null; mercato: string; casaOspiti: string | null; risultato: string | null; minutiAlGol: number | null
   tipo: string; ht: [number, number] | null; ft: [number, number] | null; gol: Gol[] | null
   pG?: number | null; pC?: number | null; pM?: number | null; value?: boolean; forte?: boolean; giocata?: boolean | null; partita?: string | null }
-type Canale = 'scoretrend' | 'hunterbet' | 'pronox' | 'tennis' | 'pronox1t'
-const NOMI: Record<Canale, string> = { scoretrend: 'ScoreTrend', hunterbet: 'Hunterbet', pronox: 'PronoX', tennis: 'PronoX 🎾 Tennis', pronox1t: 'PronoX 🕐 1T / NoGol' }
+type Canale = 'scoretrend' | 'hunterbet' | 'pronox' | 'tennis' | 'pronox1t' | 'sbostats'
+const NOMI: Record<Canale, string> = { scoretrend: 'ScoreTrend', hunterbet: 'Hunterbet', pronox: 'PronoX', tennis: 'PronoX 🎾 Tennis', pronox1t: 'PronoX 🕐 1T / NoGol', sbostats: 'SBOStats' }
 
 // ─── 04/10/2026 · DOVE FINISCONO I SEGNALI: mercati verificati sul risultato vero della partita ───
 type Mercato = { id: string; gruppo: string; test: (r: Riga) => boolean | null }
@@ -210,6 +211,13 @@ function normalizza(canale: Canale, x: any): Riga {
       partita: x.casa && x.ospite ? `${x.casa} – ${x.ospite}` : null,
     }
   }
+  // 09/11/2026 — SBOStats (tabella sbostats_segnali): nessuna quota vera (la «quota teorica» è 100/frequenza) → come Hunterbet: quota di pareggio + simulazione a quota ipotetica
+  if (canale === 'sbostats') return {
+    id: 0, data: x.data_partita, competizione: x.campionato || 'n.d.', esito: x.esito, quota: null, profitto: null, unita: 1,
+    live: 'prepartita', minuto: null, mercato: x.pronostico || 'n.d.', casaOspiti: null, risultato: x.risultato || null, minutiAlGol: null,
+    tipo: x.pronostico || 'n.d.', ht: null, ft: null, gol: null, partita: x.partita || null,
+    pG: x.frequenza != null ? Number(x.frequenza) / 100 : null,   // frequenza dichiarata da SBOStats
+  }
   // PronoX: 1 unità solo dove c'è la quota (il BTTS non ha quota: conta nelle % vinte, non nelle unità)
   const q = x.quota != null ? Number(x.quota) : null
   return {
@@ -222,16 +230,18 @@ function normalizza(canale: Canale, x: any): Riga {
   }
 }
 async function caricaCanale(canale: Canale): Promise<{ righe: Riga[]; errore: string }> {
-  const tab = canale === 'scoretrend' ? 'scoretrend_segnali' : canale === 'hunterbet' ? 'hunterbet_segnali' : canale === 'tennis' ? 'pronox_tennis_segnali' : canale === 'pronox1t' ? 'pronox_monitor_1t_nogol' : 'pronox_segnali'
-  const ordine = canale === 'pronox' || canale === 'tennis' || canale === 'pronox1t' ? 'data_partita' : 'data_msg'
+  const tab = canale === 'scoretrend' ? 'scoretrend_segnali' : canale === 'hunterbet' ? 'hunterbet_segnali' : canale === 'tennis' ? 'pronox_tennis_segnali' : canale === 'pronox1t' ? 'pronox_monitor_1t_nogol' : canale === 'sbostats' ? 'sbostats_segnali' : 'pronox_segnali'
+  const ordine = canale === 'pronox' || canale === 'tennis' || canale === 'pronox1t' || canale === 'sbostats' ? 'data_partita' : 'data_msg'
   const out: any[] = []
   for (let from = 0; ; from += 1000) {
     const { data, error } = await supabase.from(tab).select('*').order(ordine, { ascending: true }).range(from, from + 999)
-    if (error) return { righe: [], errore: canale === 'pronox1t' ? '' : `${NOMI[canale]}: ${error.message}` }   // vista non ancora creata: nessun errore a schermo
+    if (error) return { righe: [], errore: canale === 'pronox1t' || canale === 'sbostats' ? '' : `${NOMI[canale]}: ${error.message}` }   // vista non ancora creata: nessun errore a schermo
     out.push(...(data || [])); if (!data || data.length < 1000) break
   }
-  return { righe: out.map((x, i) => ({ ...normalizza(canale, x), ...(canale === 'pronox1t' ? { id: i + 1 } : {}) })), errore: '' }
+  return { righe: out.map((x, i) => ({ ...normalizza(canale, x), ...(canale === 'pronox1t' || canale === 'sbostats' ? { id: i + 1 } : {}) })), errore: '' }
 }
+const fasciaFreq = (p: number | null | undefined) => p == null ? 'n.d.' : p < 0.70 ? 'sotto 70%' : p < 0.72 ? '70-72%' : p < 0.74 ? '72-74%' : p < 0.76 ? '74-76%' : p < 0.78 ? '76-78%' : p < 0.80 ? '78-80%' : p < 0.82 ? '80-82%' : p < 0.85 ? '82-85%' : p < 0.90 ? '85-90%' : '90%+'
+const ORDINE_FREQ = ['sotto 70%', '70-72%', '72-74%', '74-76%', '76-78%', '78-80%', '80-82%', '82-85%', '85-90%', '90%+', 'n.d.']
 const fasciaProb = (p: number | null | undefined) => p == null ? 'n.d.' : p < 0.6 ? 'sotto 60%' : p < 0.7 ? '60-69%' : p < 0.8 ? '70-79%' : '80%+'
 
 // ─── statistiche ─────────────────────────────────────────────────────
@@ -257,7 +267,7 @@ function simula(lista: Riga[], quotaFissa: number | null) {
 
 export default function AnalisiSegnali() {
   const [canale, setCanale] = useState<Canale>('scoretrend')
-  const [dati, setDati] = useState<Record<Canale, Riga[]>>({ scoretrend: [], hunterbet: [], pronox: [], tennis: [], pronox1t: [] })
+  const [dati, setDati] = useState<Record<Canale, Riga[]>>({ scoretrend: [], hunterbet: [], pronox: [], tennis: [], pronox1t: [], sbostats: [] })
   const [errore, setErrore] = useState('')
   const [quotaIpotesi, setQuotaIpotesi] = useState('1.70')
   const [soloSopra140, setSoloSopra140] = useState(false)
@@ -279,17 +289,20 @@ export default function AnalisiSegnali() {
 
   useEffect(() => {
     (async () => {
-      const canali: Canale[] = ['scoretrend', 'hunterbet', 'pronox', 'tennis', 'pronox1t']
+      const canali: Canale[] = ['scoretrend', 'hunterbet', 'pronox', 'tennis', 'pronox1t', 'sbostats']
       const ris = await Promise.all(canali.map(caricaCanale))
-      setDati({ scoretrend: ris[0].righe, hunterbet: ris[1].righe, pronox: ris[2].righe, tennis: ris[3].righe, pronox1t: ris[4].righe })
+      setDati({ scoretrend: ris[0].righe, hunterbet: ris[1].righe, pronox: ris[2].righe, tennis: ris[3].righe, pronox1t: ris[4].righe, sbostats: ris[5].righe })
       setErrore(ris.map(r => r.errore).filter(Boolean).join(' · '))
     })()
   }, [])
+  // SBOStats parte da quota ipotetica 1,30; tornando agli altri canali si rimette 1,70 (si puo' sempre scrivere un'altra quota in alto)
+  useEffect(() => { setQuotaIpotesi(q => canale === 'sbostats' ? '1.30' : q === '1.30' ? '1.70' : q) }, [canale])
   const righe = dati[canale]
 
   const tutte = useMemo(() => righe.filter(r => !soloSopra140 || r.quota == null || r.quota >= 1.4), [righe, soloSopra140])
   const chiuse = useMemo(() => tutte.filter(r => r.esito === 'VINTA' || r.esito === 'PERSA'), [tutte])
-  const conQuota = canale !== 'hunterbet'
+  const isSbostats = canale === 'sbostats'     // 09/11/2026
+  const conQuota = canale !== 'hunterbet' && !isSbostats
   const isPronox = canale === 'pronox'
   const isTennis = canale === 'tennis'          // 07/10/2026
   const conProb = isPronox || isTennis          // canali con probabilità del modello (calibrazione)
@@ -388,6 +401,12 @@ export default function AnalisiSegnali() {
     ['Per fascia di quota', segmenta(chiuse, r => fasciaQuota(r.quota))],
     ['Per competizione', segmenta(chiuse, r => r.competizione)],
     ['Per giorno', segmenta(chiuse, r => giorno(r.data))],
+  ] : isSbostats ? [
+    ['Per pronostico', segmenta(chiuse, r => r.mercato)],
+    ['Per fascia di frequenza dichiarata', segmenta(chiuse, r => fasciaFreq(r.pG)).sort((a, b) => ORDINE_FREQ.indexOf(a.voce) - ORDINE_FREQ.indexOf(b.voce))],
+    ['Per campionato (almeno 20 bet)', segmenta(chiuse, r => r.competizione).filter(s => s.n >= 20)],
+    ['Per giorno', segmenta(chiuse, r => giorno(r.data))],
+    ['Per fascia oraria', segmenta(chiuse, r => fasciaOra(r.data))],
   ] : [
     ['Per competizione', segmenta(chiuse, r => r.competizione)],
     ['Per minuto del segnale', segmenta(chiuse, r => fasciaMinuto(r.minuto))],
@@ -406,7 +425,7 @@ export default function AnalisiSegnali() {
   const migliore = comuni.length ? [...brierComuni].sort((a, b) => (a.b ?? 9) - (b.b ?? 9))[0] : null
 
   // 04/10/2026 · confronto dei tre canali con le stesse regole (rispetta "solo quota ≥ 1,40")
-  const confronto = (['scoretrend', 'hunterbet', 'pronox', 'tennis', 'pronox1t'] as Canale[]).map(c => {
+  const confronto = (['scoretrend', 'hunterbet', 'pronox', 'tennis', 'pronox1t', 'sbostats'] as Canale[]).map(c => {
     const ch = dati[c].filter(r => !soloSopra140 || r.quota == null || r.quota >= 1.4).filter(r => r.esito === 'VINTA' || r.esito === 'PERSA')
     const v = ch.filter(r => r.esito === 'VINTA').length, [lo, hi] = wilson(v, ch.length)
     const cq = ch.filter(r => r.quota != null && (c !== 'pronox' || r.unita > 0))
@@ -447,7 +466,7 @@ export default function AnalisiSegnali() {
         <Link href="/profit-tracker/segnali" style={{ color: '#7dd3fc', fontSize: 12, textDecoration: 'none', fontWeight: 700 }}>← Torna ai segnali</Link>
         <h1 style={{ fontSize: 28, margin: '8px 0 10px', color: '#f8fafc' }}>📈 Analisi segnali</h1>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
-          {(['scoretrend', 'hunterbet', 'pronox', 'tennis', 'pronox1t'] as const).map(c => (
+          {(['scoretrend', 'hunterbet', 'pronox', 'tennis', 'pronox1t', 'sbostats'] as const).map(c => (
             <button key={c} onClick={() => setCanale(c)} style={{ background: canale === c ? '#0c4a6e' : '#0f172a', color: '#f8fafc', border: `1px solid ${canale === c ? '#38bdf8' : '#334155'}`, borderRadius: 10, padding: '7px 14px', fontWeight: 900, cursor: 'pointer' }}>{NOMI[c]}</button>))}
           {conQuota && <label style={{ fontSize: 12, color: '#cbd5e1', display: 'flex', gap: 5, alignItems: 'center' }}><input type="checkbox" checked={soloSopra140} onChange={e => setSoloSopra140(e.target.checked)} /> solo quota ≥ 1,40 (la tua regola)</label>}
           {!conQuota && <label style={{ fontSize: 12, color: '#cbd5e1' }}>Quota ipotetica per la simulazione: <input value={quotaIpotesi} onChange={e => setQuotaIpotesi(e.target.value.replace(/[^0-9.,]/g, ''))} style={{ width: 60, background: '#020617', color: '#f8fafc', border: '1px solid #334155', borderRadius: 8, padding: '4px 6px' }} /></label>}
@@ -579,7 +598,7 @@ export default function AnalisiSegnali() {
         )}
 
         {/* ─── 🔀 DOVE FINISCONO I SEGNALI ─── */}
-        {!isTennis && (
+        {!isTennis && !isSbostats && (
         <div style={{ background: 'rgba(15,23,42,.6)', border: '1px solid #334155', borderRadius: 14, padding: 14, marginBottom: 14 }}>
           <div style={{ fontWeight: 900, fontSize: 16, color: '#f8fafc', marginBottom: 4 }}>🔀 Dove finiscono i segnali</div>
           <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>
@@ -630,7 +649,7 @@ export default function AnalisiSegnali() {
         )}
 
         {/* ─── 29/10/2026 · 🔎 STUDIO PARTITE ─── */}
-        {!isTennis && !isPronox && (
+        {!isTennis && !isPronox && !isSbostats && (
         <div style={{ background: 'rgba(15,23,42,.6)', border: '1px solid rgba(56,189,248,.45)', borderRadius: 14, padding: 14, marginBottom: 14 }}>
           <div style={{ fontWeight: 900, fontSize: 16, color: '#f8fafc', marginBottom: 4 }}>🔎 Studio partite · come finiscono?</div>
           <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>
@@ -742,7 +761,8 @@ export default function AnalisiSegnali() {
 
         <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 16, lineHeight: 1.6 }}>
           Come leggere: il <b>margine (95%)</b> è l'intervallo in cui sta probabilmente la percentuale vera; se è largo, il segmento non è ancora affidabile. Le voci in grigio hanno meno di {MIN_N} bet.
-          {!conQuota && <> Per Hunterbet il canale non dà le quote: la <b>quota di pareggio</b> è la quota minima a cui devi prendere il segnale per non perdere (1 ÷ % vinte); l'ultima colonna mostra il rendimento se lo prendessi alla quota ipotetica scelta in alto.</>}
+          {isSbostats && <> SBOStats non dà quote vere (la «quota teorica» è solo 100 ÷ frequenza): la simulazione usa la quota ipotetica scelta in alto (1,30 di partenza). Quando scommetti davvero, scrivi la quota giusta. Le righe di SBOStats sono tutti i pronostici, non solo quelli che giochi. </>}
+          {!conQuota && !isSbostats && <> Per Hunterbet il canale non dà le quote: la <b>quota di pareggio</b> è la quota minima a cui devi prendere il segnale per non perdere (1 ÷ % vinte); l'ultima colonna mostra il rendimento se lo prendessi alla quota ipotetica scelta in alto.</>}
         </div>
         <footer style={{ marginTop: 22, textAlign: 'center', fontSize: 12, color: '#64748b' }}>© Sergio Apicella — Tutti i diritti riservati · uso interno riservato</footer>
       </div>
