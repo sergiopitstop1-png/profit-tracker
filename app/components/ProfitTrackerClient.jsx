@@ -8701,6 +8701,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             chatDaSentire={chatDaSentireOggi()}
             azioniRosse={azioniRosseOggi()}
             onApriChat={() => apriSezioneProfilazione('avvisi')}
+            onEliminaMemo={deleteMemoFutureNote}
             onPromemoriaNuoviBookFatto={promemoriaNuoviBookFatto}
           />
         )}

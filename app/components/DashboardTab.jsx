@@ -118,6 +118,7 @@ export default function DashboardTab({
   chatDaSentire = [],
   azioniRosse = [],      // 28/10/2026: azione di Profiliamo e profilazioni mirate, con Apri / Salta
   onApriChat,
+  onEliminaMemo = null,  // 09/11/2026: tastino per cancellare dal pannello rosso le memo che arrivano dalla pagina Memo
   aspetto = {},          // 12/10/2026: vedi AspettoDashboard.jsx (tutto spento = com'era)
   striscePrima = null,   // strisce urgenti: avviso mail, diretta
   strisceOggi = null,    // strisce della scheda "Oggi": quote, Lucy Trading, promo, mirate
@@ -148,7 +149,7 @@ export default function DashboardTab({
           })
           .map(row => {
             const diff = Math.ceil((new Date(row.data_reale + 'T00:00:00') - oggi) / (1000 * 60 * 60 * 24))
-            return { descrizione: row.descrizione, diff, tipo: 'memo' }
+            return { descrizione: row.descrizione, diff, tipo: 'memo', memoId: row.id }
           })
 
         const scadenzeContabilita = stimeCassa
@@ -235,20 +236,23 @@ export default function DashboardTab({
           if (item.diff < 0) {
             return {
               testo: `⛔ ${tag}${item.descrizione.toUpperCase()} — SCADUTO, PROVVEDERE`,
-              scaduta: true
+              scaduta: true,
+              memoId: item.memoId
             }
           }
 
           if (item.diff === 0) {
             return {
               testo: `🔴 ${tag}${item.descrizione.toUpperCase()} — SCADE OGGI`,
-              scaduta: false
+              scaduta: false,
+              memoId: item.memoId
             }
           }
 
           return {
             testo: `⚠️ ${tag}${item.descrizione.toUpperCase()} — mancano ${item.diff} giorni`,
-            scaduta: false
+            scaduta: false,
+            memoId: item.memoId
           }
         })
 
@@ -280,10 +284,33 @@ export default function DashboardTab({
                 style={{
                   color: r.scaduta
                     ? '#ff4444'
-                    : '#fca5a5'
+                    : '#fca5a5',
+                  ...(r.memoId != null && onEliminaMemo
+                    ? { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }
+                    : {})
                 }}
               >
-                {r.testo}
+                {r.memoId != null && onEliminaMemo ? <span>{r.testo}</span> : r.testo}
+                {/* 09/11/2026: solo le memo della pagina Memo (non contabilità né SIM); la conferma la chiede onEliminaMemo */}
+                {r.memoId != null && onEliminaMemo && (
+                  <button
+                    onClick={() => onEliminaMemo(r.memoId)}
+                    title="Elimina questa memo"
+                    style={{
+                      padding: '2px 10px',
+                      borderRadius: 8,
+                      border: '1px solid rgba(239,68,68,0.6)',
+                      background: 'rgba(239,68,68,0.15)',
+                      color: '#fca5a5',
+                      fontWeight: 800,
+                      fontSize: 12,
+                      cursor: 'pointer',
+                      lineHeight: 1.6
+                    }}
+                  >
+                    🗑 Elimina
+                  </button>
+                )}
               </div>
             ))}
 
