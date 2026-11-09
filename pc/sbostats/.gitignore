@@ -1,0 +1,6 @@
+profilo_browser/
+esportazioni/
+sbostats_config.json
+sbostats_stato.json
+*.log
+__pycache__/

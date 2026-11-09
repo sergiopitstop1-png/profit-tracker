@@ -1,0 +1,40 @@
+SBOSTATS -> PROFIT TRACKER  (09/11/2026)
+=========================================
+Legge i pronostici di SBOStats > Match Analysis dal browser del PC e li manda al Profit Tracker
+(scheda Segnali > SBOStats): quelli nuovi in automatico, piu' uno storico la prima volta.
+Non clicca niente e non usa password: il login lo fai tu nel browser; il programma cambia solo ?page=N nell'indirizzo.
+
+PRIMA DI TUTTO (una volta sola, sul sito)
+  In Supabase > SQL Editor esegui supabase/sbostats_segnali.sql (si puo' rilanciare senza danni).
+  Il sito deve essere pubblicato con la nuova versione (endpoint /api/segnali/sbostats, stessa chiave SEGNALI_SECRET degli altri lettori).
+
+SUL PC FISSO
+  1. Copia la cartella pc/sbostats sul PC. Serve Python (python.org, con "Add Python to PATH").
+  2. Doppio clic su INSTALLA.bat (solo la prima volta, serve Internet).
+  3. Doppio clic su AVVIA_INVIO_AUTOMATICO.bat. Al primo avvio crea sbostats_config.json e si ferma:
+     aprilo col Blocco note e scrivi  "segreto" = il valore di SEGNALI_SECRET su Vercel (lo stesso degli altri lettori).
+     Poi rilancia AVVIA_INVIO_AUTOMATICO.bat.
+  4. Si apre il browser: accedi a SBOStats, apri Match Analysis, torna nella finestra nera e premi INVIO.
+     Il programma apre una sua scheda di lavoro e carica lo storico (100 pagine = circa 1000 pronostici, 5 minuti),
+     poi ogni 30 minuti rilegge le ultime 5 pagine (pronostici nuovi + esiti che si aggiornano).
+  5. LASCIA APERTE le due finestre (browser e finestra nera). La scheda con il login la puoi usare normalmente.
+     Il PC non deve andare in stop (Impostazioni > Alimentazione).
+
+IMPOSTAZIONI (sbostats_config.json)
+  minuti_ciclo    ogni quanto rilegge (30)
+  pagine_ciclo    quante pagine per giro (5: copre circa 4 giorni; basta per gli esiti che arrivano dopo la partita)
+  pagine_storico  pagine dello storico al primo avvio (100)
+
+COMANDI UTILI (da Prompt dei comandi nella cartella)
+  python sbostats_invia.py --prova         legge e mostra, senza inviare niente
+  python sbostats_invia.py --storico 300   rilegge le ultime 300 pagine (per ampliare lo storico)
+  python sbostats_invia.py --una-volta     un solo giro e poi esce
+
+SE SI FERMA / NON ARRIVANO DATI
+  sbostats.log (stessa cartella) racconta ogni giro. "Nessuna riga letta" = sessione scaduta: accedi di nuovo nel browser.
+  "segreto sbagliato" = il valore in sbostats_config.json non e' quello di SEGNALI_SECRET.
+  In esportazioni/ trovi un file debug_*.html con la pagina com'era: mandalo a Claude.
+  Se riavvii il PC: rilancia AVVIA_INVIO_AUTOMATICO.bat (il login resta salvato; se la tabella si vede parte da solo).
+
+PROTEGGI la cartella profilo_browser (contiene la sessione di SBOStats) e sbostats_config.json (contiene il segreto): non condividerle.
+Controlla che l'uso sia consentito dai termini di SBOStats.

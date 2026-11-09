@@ -11,6 +11,7 @@ import { supabase } from '../supabaseClient'
 import { valutaHunter } from '../../../lib/valutaHunter'   // 23/10/2026: stessa regola usata dal server
 import SchedaTennis from './SchedaTennis'   // 07/10/2026: tennis PronoX
 import SchedaPronox1T from './SchedaPronox1T'   // 05/11/2026: monitoraggio Over 0.5 1T e NoGol
+import SchedaSbostats from './SchedaSbostats'   // 09/11/2026: pronostici SBOStats (Match Analysis)
 
 type Segnale = {
   msg_id: number; data_msg: string | null; data_partita: string | null; ora: string | null; competizione: string | null
@@ -268,7 +269,7 @@ function raggruppa(lista: Segnale[], chiave: (s: Segnale) => string): Riga[] {
 
 // 12/10/2026 · incorporato = dentro la barra del Profit Tracker (tab Segnali): senza titolo e senza link di ritorno.
 export default function SegnaliClient({ incorporato = false }: { incorporato?: boolean } = {}) {
-  const [tab, setTab] = useState<'scoretrend'|'hunterbet'|'pronox'>('scoretrend')
+  const [tab, setTab] = useState<'scoretrend'|'hunterbet'|'pronox'|'sbostats'>('scoretrend')
   const [dati, setDati] = useState<Segnale[]>([])
   // 22/10/2026: «Salva tutti» — ogni riga Hunterbet si registra qui con il suo salvataggio
   const registroHunter = useRef(new Map<number, VoceSalva>())
@@ -397,6 +398,7 @@ export default function SegnaliClient({ incorporato = false }: { incorporato?: b
           <button onClick={()=>setTab('scoretrend')} style={{...sel,cursor:'pointer',fontWeight:900,borderColor:tab==='scoretrend'?'#38bdf8':'#334155'}}>ScoreTrend</button>
           <button onClick={()=>setTab('hunterbet')} style={{...sel,cursor:'pointer',fontWeight:900,borderColor:tab==='hunterbet'?'#38bdf8':'#334155'}}>Hunterbet</button>
           <button onClick={()=>setTab('pronox')} style={{...sel,cursor:'pointer',fontWeight:900,borderColor:tab==='pronox'?'#38bdf8':'#334155'}}>PronoX</button>
+          <button onClick={()=>setTab('sbostats')} style={{...sel,cursor:'pointer',fontWeight:900,borderColor:tab==='sbostats'?'#38bdf8':'#334155'}}>SBOStats</button>
           {/* 04/10/2026 — pagina di analisi: torte, segmenti, simulazione */}
           <Link href="/profit-tracker/segnali/analisi" style={{...sel,cursor:'pointer',fontWeight:900,textDecoration:'none',borderColor:'#a78bfa',color:'#c4b5fd'}}>📈 Analisi</Link>
         </div>
@@ -415,6 +417,8 @@ export default function SegnaliClient({ incorporato = false }: { incorporato?: b
             : sportPronox === '1t' ? <SchedaPronox1T sel={sel} th={th} td={td} />
             : <SchedaPronox dati={pronox} sel={sel} th={th} td={td} tabellaPagella={tabellaPagella} />}
         </>
+        ) : tab==='sbostats' ? (
+          <SchedaSbostats sel={sel} th={th} td={td} />
         ) : tab==='hunterbet' ? (
         <>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
