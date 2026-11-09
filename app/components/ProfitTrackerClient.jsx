@@ -7756,8 +7756,10 @@ const rateMichelaDaPagare = rateMichela.daPagare
 // Servizi software: 22 € al mese ciascuno. L'intero importo è accantonato dal 1° del mese;
 // quando viene segnato Pagato sparisce dagli accantonamenti perché l'uscita reale è già nei wallet.
 // 23/10/2026: aggiunto API-Football (19 € al mese, scade il 23), conta dal mese di novembre 2026 ('dal' = primo mese in cui compare).
+// 09/11/2026: aggiunto Sbostats (9,99 € al mese, scade il 9), conta dal mese di dicembre 2026.
 const SERVIZI_TUTTI = [
   { day: 9, amount: 22, key: 'anthropic_claude_pagato_mese', label: 'giorno 9', nome: 'Anthropic / Claude' },
+  { day: 9, amount: 9.99, key: 'sbostats_pagato_mese', label: 'giorno 9', nome: 'Sbostats', nota: 'abbonamento con Google Play su sergio1971able', dal: '2026-12' },
   { day: 11, amount: 22, key: 'chatgpt_openai_pagato_mese', label: 'giorno 11', nome: 'ChatGPT / OpenAI' },
   { day: 17, amount: 22, key: 'supabase_database_pagato_mese', label: 'giorno 17', nome: 'Supabase Database' },
   { day: 23, amount: 19, key: 'api_football_pagato_mese', label: 'giorno 23', nome: 'API-Football', dal: '2026-11' },

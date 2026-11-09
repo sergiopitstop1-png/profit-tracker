@@ -297,7 +297,7 @@ export default function AccantonamentiTab({
           <div style={panelHeader}>
             <div>
               <h2 style={panelTitle}>Servizi software</h2>
-              <p style={panelSubtitle}>{serviziSchedule.some(s => s.amount !== 22) ? '22 € al mese ciascuno (API-Football 19 €)' : '22 € al mese ciascuno'} · scadenze automatiche</p>
+              <p style={panelSubtitle}>{serviziSchedule.some(s => s.amount !== 22) ? `22 € al mese ciascuno (${serviziSchedule.filter(s => s.amount !== 22).map(s => `${s.nome} ${fmt(s.amount)}`).join(', ')})` : '22 € al mese ciascuno'} · scadenze automatiche</p>
             </div>
           </div>
           <BigValue>{fmt(accantonamentoServizi)}</BigValue>
@@ -305,13 +305,13 @@ export default function AccantonamentiTab({
           <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 5 }}>
             {serviziSchedule.map(s => (
               <div key={s.key} style={{ fontSize: 12, color: '#94a3b8', display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                <span>{s.nome}</span><span>{fmt(s.amount)} · g. {s.day}</span>
+                <span>{s.nome}{s.nota ? <span style={{ color: '#64748b' }}> · {s.nota}</span> : null}</span><span>{fmt(s.amount)} · g. {s.day}</span>
               </div>
             ))}
           </div>
           {rateServiziDaPagare.map(r => {
             const servizio = serviziSchedule.find(s => s.key === r.key)
-            return <AvvisiRate key={r.key} label={servizio?.nome || 'Servizio'} rate={[r]} onPagato={toggleAccantonamentoPagato} />
+            return <AvvisiRate key={r.key} label={servizio ? `${servizio.nome}${servizio.nota ? ` (${servizio.nota})` : ''}` : 'Servizio'} rate={[r]} onPagato={toggleAccantonamentoPagato} />
           })}
         </div>
 
