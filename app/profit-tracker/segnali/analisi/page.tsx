@@ -6,7 +6,7 @@
 // Legge scoretrend_segnali, hunterbet_segnali e la vista pronox_segnali (solo lettura).
 // 04/10/2026: PronoX come terzo canale + calibrazione (grezza / calibrata / bookmaker,
 // Brier score) + confronto dei tre canali con le stesse regole.
-// 09/11/2026: SBOStats (Match Analysis) come canale: senza quote vere → simulazione a quota ipotetica (1,30 di partenza, modificabile in alto).
+// 09/11/2026: SBOStats (Match Analysis) come canale: senza quote vere → simulazione a quota ipotetica (1,40 di partenza, modificabile in alto).
 // 29/10/2026: blocco «Studio partite» (es. 0-0 al 1° tempo → quante finiscono Over 1,5) con filtri e elenco.
 // ════════════════════════════════════════════════════════════════════
 import { useEffect, useMemo, useState } from 'react'
@@ -295,8 +295,8 @@ export default function AnalisiSegnali() {
       setErrore(ris.map(r => r.errore).filter(Boolean).join(' · '))
     })()
   }, [])
-  // SBOStats parte da quota ipotetica 1,30; tornando agli altri canali si rimette 1,70 (si puo' sempre scrivere un'altra quota in alto)
-  useEffect(() => { setQuotaIpotesi(q => canale === 'sbostats' ? '1.30' : q === '1.30' ? '1.70' : q) }, [canale])
+  // SBOStats parte da quota ipotetica 1,40; tornando agli altri canali si rimette 1,70 (si puo' sempre scrivere un'altra quota in alto)
+  useEffect(() => { setQuotaIpotesi(q => canale === 'sbostats' ? '1.40' : q === '1.40' ? '1.70' : q) }, [canale])
   // 09/11/2026: apertura da Segnali > SBOStats con ?canale=sbostats
   useEffect(() => { const c = new URLSearchParams(window.location.search).get('canale'); if (c && c in NOMI) setCanale(c as Canale) }, [])
   const righe = dati[canale]
@@ -762,7 +762,7 @@ export default function AnalisiSegnali() {
 
         <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 16, lineHeight: 1.6 }}>
           Come leggere: il <b>margine (95%)</b> è l'intervallo in cui sta probabilmente la percentuale vera; se è largo, il segmento non è ancora affidabile. Le voci in grigio hanno meno di {MIN_N} bet.
-          {isSbostats && <> SBOStats non dà quote vere (la «quota teorica» è solo 100 ÷ frequenza): la simulazione usa la quota ipotetica scelta in alto (1,30 di partenza). Quando scommetti davvero, scrivi la quota giusta. Le righe di SBOStats sono tutti i pronostici, non solo quelli che giochi. </>}
+          {isSbostats && <> SBOStats non dà quote vere (la «quota teorica» è solo 100 ÷ frequenza): la simulazione usa la quota ipotetica scelta in alto (1,40 di partenza, la quota media che hai trovato sulle partite). Quando scommetti davvero, scrivi la quota giusta. Le righe di SBOStats sono tutti i pronostici, non solo quelli che giochi. </>}
           {!conQuota && !isSbostats && <> Per Hunterbet il canale non dà le quote: la <b>quota di pareggio</b> è la quota minima a cui devi prendere il segnale per non perdere (1 ÷ % vinte); l'ultima colonna mostra il rendimento se lo prendessi alla quota ipotetica scelta in alto.</>}
         </div>
         <footer style={{ marginTop: 22, textAlign: 'center', fontSize: 12, color: '#64748b' }}>© Sergio Apicella — Tutti i diritti riservati · uso interno riservato</footer>
