@@ -9,7 +9,7 @@
 // 09/11/2026: SBOStats (Match Analysis) come canale: senza quote vere → simulazione a quota ipotetica (1,40 di partenza, modificabile in alto).
 // 29/10/2026: blocco «Studio partite» (es. 0-0 al 1° tempo → quante finiscono Over 1,5) con filtri e elenco.
 // ════════════════════════════════════════════════════════════════════
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '../../supabaseClient'
 
@@ -212,11 +212,17 @@ function normalizza(canale: Canale, x: any): Riga {
     }
   }
   // 09/11/2026 — SBOStats (tabella sbostats_segnali): nessuna quota vera (la «quota teorica» è 100/frequenza) → come Hunterbet: quota di pareggio + simulazione a quota ipotetica
-  if (canale === 'sbostats') return {
-    id: 0, data: x.data_partita, competizione: x.campionato || 'n.d.', esito: x.esito, quota: null, profitto: null, unita: 1,
-    live: 'prepartita', minuto: null, mercato: x.pronostico || 'n.d.', casaOspiti: null, risultato: x.risultato || null, minutiAlGol: null,
-    tipo: x.pronostico || 'n.d.', ht: null, ft: null, gol: null, partita: x.partita || null,
-    pG: x.frequenza != null ? Number(x.frequenza) / 100 : null,   // frequenza dichiarata da SBOStats
+  if (canale === 'sbostats') {
+    // risultato scritto da SBOStats: «2 - 1» oppure «2 - 1 1-0, 1-1» (finale, poi 1° tempo e 2° tempo: quest'ultimo solo su una parte dei pronostici vecchi)
+    const mr = /^\s*(\d+)\s*-\s*(\d+)(?:\s+(\d+)\s*-\s*(\d+)\s*,\s*(\d+)\s*-\s*(\d+))?\s*$/.exec(String(x.risultato || ''))
+    const ftS: [number, number] | null = mr ? [Number(mr[1]), Number(mr[2])] : null
+    const htS: [number, number] | null = mr && mr[3] != null ? [Number(mr[3]), Number(mr[4])] : null
+    return {
+      id: 0, data: x.data_partita, competizione: x.campionato || 'n.d.', esito: x.esito, quota: null, profitto: null, unita: 1,
+      live: 'prepartita', minuto: null, mercato: x.pronostico || 'n.d.', casaOspiti: null, risultato: null, minutiAlGol: null,
+      tipo: x.pronostico || 'n.d.', ht: htS, ft: ftS, gol: null, partita: x.partita || null,
+      pG: x.frequenza != null ? Number(x.frequenza) / 100 : null,   // frequenza dichiarata da SBOStats
+    }
   }
   // PronoX: 1 unità solo dove c'è la quota (il BTTS non ha quota: conta nelle % vinte, non nelle unità)
   const q = x.quota != null ? Number(x.quota) : null
@@ -299,6 +305,13 @@ export default function AnalisiSegnali() {
   useEffect(() => { setQuotaIpotesi(q => canale === 'sbostats' ? '1.40' : q === '1.40' ? '1.70' : q) }, [canale])
   // 09/11/2026: apertura da Segnali > SBOStats con ?canale=sbostats
   useEffect(() => { const c = new URLSearchParams(window.location.search).get('canale'); if (c && c in NOMI) setCanale(c as Canale) }, [])
+  // SBOStats: pronostici prepartita, senza minuto del segnale → l'Studio parte senza filtri (negli altri canali: 0-0 al 1° tempo, segnale entro il 30')
+  const canalePrima = useRef<Canale>('scoretrend')
+  useEffect(() => {
+    if (canale === 'sbostats') { setStHT('Tutti'); setStEntro('') }
+    else if (canalePrima.current === 'sbostats') { setStHT('0-0'); setStEntro('30') }
+    canalePrima.current = canale
+  }, [canale])
   const righe = dati[canale]
 
   const tutte = useMemo(() => righe.filter(r => !soloSopra140 || r.quota == null || r.quota >= 1.4), [righe, soloSopra140])
@@ -336,6 +349,7 @@ export default function AnalisiSegnali() {
 
   // DOVE FINISCONO: per ogni tipo di segnale, quante volte si è verificato ogni mercato
   const conRisultato = tutte.filter(r => r.ft)
+  const mappa = isSbostats ? MAPPA.filter(id => !/dopo il segnale/.test(id)) : MAPPA
   const tipi = ['Tutti i segnali', ...[...new Set(conRisultato.map(r => r.tipo))].sort()]
   const incrocio = (lista: Riga[], m: Mercato) => { const val = lista.map(m.test).filter((x): x is boolean => x !== null); const v = val.filter(Boolean).length; const [lo, hi] = wilson(v, val.length); return { n: val.length, v, p: val.length ? v / val.length : 0, lo, hi } }
   const listaTipo = tipoScelto === 'Tutti i segnali' ? conRisultato : conRisultato.filter(r => r.tipo === tipoScelto)
@@ -344,7 +358,7 @@ export default function AnalisiSegnali() {
 
   // 29/10/2026 · STUDIO PARTITE: scegli tu la situazione (es. 0-0 al 1° tempo) e guarda come finiscono le partite
   const htTesto = (r: Riga) => r.ht ? `${r.ht[0]}-${r.ht[1]}` : 'n.d.'
-  const stBase = tutte.filter(r => r.ht && r.ft)                       // servono sia il 1° tempo sia il finale
+  const stBase = tutte.filter(r => (isSbostats || r.ht) && r.ft)       // servono sia il 1° tempo sia il finale (SBOStats: basta il finale, i tempi ci sono solo su una parte)
   const stSenzaRis = tutte.length - stBase.length
   const stOpzTipo = ['Tutti', ...[...new Set(stBase.map(r => r.tipo))].sort()]
   const stOpzComp = ['Tutte', ...[...new Set(stBase.map(r => r.competizione))].sort((a, b) => a.localeCompare(b))]
@@ -369,7 +383,7 @@ export default function AnalisiSegnali() {
   const stSenzaMinuto = stEntroN != null || stDalN != null ? stBase.filter(r => r.minuto == null && (stHT === 'Tutti' || htTesto(r) === stHT)).length : 0
   const stLista = stBase.filter(r => {
     const h = htTesto(r)
-    if (stHT !== 'Tutti' && !(stHT === '2+ gol nel 1°T' ? sTot(r.ht!) >= 2 : h === stHT)) return false
+    if (stHT !== 'Tutti' && !(stHT === '2+ gol nel 1°T' ? !!r.ht && sTot(r.ht) >= 2 : h === stHT)) return false
     if (stTipo !== 'Tutti' && r.tipo !== stTipo) return false
     if (stComp !== 'Tutte' && r.competizione !== stComp) return false
     if (stMin !== 'Tutti' && fasciaMinuto(r.minuto) !== stMin) return false
@@ -599,22 +613,23 @@ export default function AnalisiSegnali() {
         )}
 
         {/* ─── 🔀 DOVE FINISCONO I SEGNALI ─── */}
-        {!isTennis && !isSbostats && (
+        {!isTennis && (
         <div style={{ background: 'rgba(15,23,42,.6)', border: '1px solid #334155', borderRadius: 14, padding: 14, marginBottom: 14 }}>
           <div style={{ fontWeight: 900, fontSize: 16, color: '#f8fafc', marginBottom: 4 }}>🔀 Dove finiscono i segnali</div>
           <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>
-            Per ogni tipo di segnale: in quante partite si è verificato ogni altro mercato (sul risultato vero). Risultati disponibili per <b>{conRisultato.length}</b> segnali su {tutte.length}
-            {conRisultato.length < tutte.length ? (isPronox ? ' — gli altri arrivano da soli con la cron degli esiti, a partita finita.' : ' — gli altri arrivano con il programma "risultati partite" (o la partita non è stata trovata).') : '.'}
+            {isSbostats ? 'Per ogni pronostico di SBOStats: in quante partite' : 'Per ogni tipo di segnale: in quante partite'} si è verificato ogni altro mercato (sul risultato vero). Risultati disponibili per <b>{conRisultato.length}</b> segnali su {tutte.length}
+            {conRisultato.length < tutte.length ? (isSbostats ? ' — gli altri sono ancora senza risultato (partita non finita o rinviata).' : isPronox ? ' — gli altri arrivano da soli con la cron degli esiti, a partita finita.' : ' — gli altri arrivano con il programma "risultati partite" (o la partita non è stata trovata).') : '.'}
           </div>
-          {conRisultato.length === 0 ? <div style={{ fontSize: 13, color: '#64748b' }}>{isPronox ? 'Ancora nessun risultato: arrivano da soli a partita finita.' : 'Ancora nessun risultato: avvia risultati_partite.py sul PC.'}</div> : <>
+          {isSbostats && <div style={{ fontSize: 11.5, color: '#fbbf24', marginBottom: 8 }}>Il risultato finale c'è per tutte le partite; il dettaglio dei due tempi (mercati 1° tempo e «Gol nel 2°T») solo per i pronostici più vecchi ({conRisultato.filter(r => r.ht).length} su {conRisultato.length}): su quei mercati i numeri sono meno solidi.</div>}
+          {conRisultato.length === 0 ? <div style={{ fontSize: 13, color: '#64748b' }}>{isSbostats || isPronox ? 'Ancora nessun risultato: arrivano da soli a partita finita.' : 'Ancora nessun risultato: avvia risultati_partite.py sul PC.'}</div> : <>
             <div style={{ overflowX: 'auto', marginBottom: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 800, color: '#7dd3fc', marginBottom: 6 }}>Mappa a colori · clicca un tipo di segnale per il dettaglio</div>
               <table style={{ borderCollapse: 'separate', borderSpacing: 3 }}>
-                <thead><tr><th style={th}>Segnale</th>{MAPPA.map(id => <th key={id} style={{ ...th, whiteSpace: 'normal', maxWidth: 90, textAlign: 'center' }}>{id}</th>)}</tr></thead>
+                <thead><tr><th style={th}>Segnale</th>{mappa.map(id => <th key={id} style={{ ...th, whiteSpace: 'normal', maxWidth: 90, textAlign: 'center' }}>{id}</th>)}</tr></thead>
                 <tbody>{tipi.map(t => { const lista = t === 'Tutti i segnali' ? conRisultato : conRisultato.filter(r => r.tipo === t); return (
                   <tr key={t} onClick={() => setTipoScelto(t)} style={{ cursor: 'pointer' }}>
                     <td style={{ ...td, fontWeight: 800, whiteSpace: 'nowrap', color: t === tipoScelto ? '#7dd3fc' : '#e2e8f0' }}>{t === tipoScelto ? '▶ ' : ''}{t} <span style={{ color: '#64748b', fontWeight: 400 }}>({lista.length})</span></td>
-                    {MAPPA.map(id => { const m = MERCATI.find(x => x.id === id)!; const x = incrocio(lista, m); return (
+                    {mappa.map(id => { const m = MERCATI.find(x => x.id === id)!; const x = incrocio(lista, m); return (
                       <td key={id} title={x.n ? `${x.v} su ${x.n} · margine ${pct(x.lo, 0)}–${pct(x.hi, 0)}` : 'nessun dato'} style={{ background: x.n ? coloreP(x.p, x.n) : 'transparent', borderRadius: 6, textAlign: 'center', padding: '6px 8px', fontSize: 12.5, fontWeight: 800, color: '#f8fafc', minWidth: 62 }}>
                         {x.n ? pct(x.p, 0) : '—'}{x.n ? <div style={{ fontSize: 9.5, fontWeight: 400, color: '#cbd5e1' }}>{x.n}</div> : null}
                       </td>) })}
@@ -650,39 +665,42 @@ export default function AnalisiSegnali() {
         )}
 
         {/* ─── 29/10/2026 · 🔎 STUDIO PARTITE ─── */}
-        {!isTennis && !isPronox && !isSbostats && (
+        {!isTennis && !isPronox && (
         <div style={{ background: 'rgba(15,23,42,.6)', border: '1px solid rgba(56,189,248,.45)', borderRadius: 14, padding: 14, marginBottom: 14 }}>
           <div style={{ fontWeight: 900, fontSize: 16, color: '#f8fafc', marginBottom: 4 }}>🔎 Studio partite · come finiscono?</div>
           <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>
-            Scegli la situazione e guarda come sono finite le partite dei segnali {NOMI[canale]}. Di default: <b>0-0 a fine primo tempo</b> → quante sono finite Over 1,5.
-            Partite con 1° tempo e finale letti: <b>{stBase.length}</b> su {tutte.length}{stSenzaRis > 0 ? ` (le altre ${stSenzaRis} non hanno ancora il risultato)` : ''}.
+            {isSbostats ? <>Scegli pronostico, campionato o situazione e guarda come sono finite le partite di SBOStats: ad esempio <b>HOME SCORE</b> → quante sono finite Over 1,5. Il filtro sul 1° tempo funziona solo sulle partite che hanno i due tempi (i pronostici più vecchi).</> : <>Scegli la situazione e guarda come sono finite le partite dei segnali {NOMI[canale]}. Di default: <b>0-0 a fine primo tempo</b> → quante sono finite Over 1,5.</>}
+            {isSbostats ? 'Partite con il risultato finale' : 'Partite con 1° tempo e finale letti'}: <b>{stBase.length}</b> su {tutte.length}{stSenzaRis > 0 ? ` (le altre ${stSenzaRis} non hanno ancora il risultato)` : ''}.
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
             <span style={{ fontSize: 11, color: '#94a3b8' }}>Scorciatoie:</span>
-            {([
+            {((isSbostats ? [
+              ["0-0 al 1° tempo", () => { setStHT('0-0'); setStTipo('Tutti'); setStComp('Tutte'); setStFine('Tutti'); setStCerca('') }],
+              ["Tutte le partite", () => { setStHT('Tutti'); setStTipo('Tutti'); setStComp('Tutte'); setStFine('Tutti'); setStCerca('') }],
+            ] : [
               ["0-0 al 1° tempo · segnale entro il 30'", () => { setStHT('0-0'); setStTipo('Tutti'); setStMin('Tutti'); setStSegn('Tutti'); setStDal(''); setStEntro('30'); setStAlMin('') }],
               ["0-0 al segnale dal 70'", () => { setStHT('Tutti'); setStTipo('Tutti'); setStMin('Tutti'); setStSegn(stOpzSegn.find(o => o === '0-0') || '0-0'); setStDal('70'); setStEntro(''); setStAlMin('') }],
               ["0-0 al 70' (qualunque segnale)", () => { setStHT('Tutti'); setStTipo('Tutti'); setStMin('Tutti'); setStSegn('Tutti'); setStDal(''); setStEntro(''); setStAlMin('70'); setStAlRis('0-0') }],
-            ] as [string, () => void][]).map(([nome, fn]) => <button key={nome} onClick={() => { fn(); setStMax(50) }} style={{ background: '#0c4a6e', color: '#f8fafc', border: '1px solid #38bdf8', borderRadius: 8, padding: '5px 10px', fontSize: 12, cursor: 'pointer', fontWeight: 700 }}>{nome}</button>)}
+            ]) as [string, () => void][]).map(([nome, fn]) => <button key={nome} onClick={() => { fn(); setStMax(50) }} style={{ background: '#0c4a6e', color: '#f8fafc', border: '1px solid #38bdf8', borderRadius: 8, padding: '5px 10px', fontSize: 12, cursor: 'pointer', fontWeight: 700 }}>{nome}</button>)}
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
-            {([['1° tempo', stHT, setStHT, stOpzHT], ['Tipo segnale', stTipo, setStTipo, stOpzTipo], ['Minuto segnale', stMin, setStMin, stFasceMin], ['Risultato al segnale', stSegn, setStSegn, stOpzSegn], ['Competizione', stComp, setStComp, stOpzComp], ['Esito segnale', stFine, setStFine, ['Tutti', 'Vinta', 'Persa']]] as [string, string, (v: string) => void, string[]][]).map(([nome, val, set, opz]) => (
+            {([['1° tempo', stHT, setStHT, stOpzHT], [isSbostats ? 'Pronostico' : 'Tipo segnale', stTipo, setStTipo, stOpzTipo], ['Minuto segnale', stMin, setStMin, stFasceMin], ['Risultato al segnale', stSegn, setStSegn, stOpzSegn], ['Competizione', stComp, setStComp, stOpzComp], [isSbostats ? 'Esito pronostico' : 'Esito segnale', stFine, setStFine, ['Tutti', 'Vinta', 'Persa']]].filter(([nome]) => !(isSbostats && (nome === 'Minuto segnale' || nome === 'Risultato al segnale'))) as [string, string, (v: string) => void, string[]][]).map(([nome, val, set, opz]) => (
               <label key={nome} style={{ fontSize: 11, color: '#94a3b8', display: 'flex', flexDirection: 'column', gap: 2 }}>{nome}
                 <select value={val} onChange={e => { set(e.target.value); setStMax(50) }} style={{ background: '#020617', color: '#f8fafc', border: `1px solid ${val === 'Tutti' || val === 'Tutte' ? '#334155' : '#38bdf8'}`, borderRadius: 8, padding: '5px 8px', fontSize: 12, maxWidth: 220 }}>
                   {opz.map(o => <option key={o}>{o}</option>)}
                 </select>
               </label>))}
-            <label style={{ fontSize: 11, color: '#94a3b8', display: 'flex', flexDirection: 'column', gap: 2 }}>Punteggio al minuto
+            {!isSbostats && <label style={{ fontSize: 11, color: '#94a3b8', display: 'flex', flexDirection: 'column', gap: 2 }}>Punteggio al minuto
               <span style={{ display: 'flex', gap: 4 }}>
                 <input value={stAlMin} onChange={e => { setStAlMin(e.target.value.replace(/[^0-9]/g, '')); setStMax(50) }} placeholder="es. 70" inputMode="numeric" style={{ background: '#020617', color: '#f8fafc', border: `1px solid ${stAlMin ? '#38bdf8' : '#334155'}`, borderRadius: 8, padding: '5px 8px', fontSize: 12, width: 64 }} />
                 <select value={stAlRis} onChange={e => { setStAlRis(e.target.value); setStMax(50) }} style={{ background: '#020617', color: '#f8fafc', border: `1px solid ${stAlMin ? '#38bdf8' : '#334155'}`, borderRadius: 8, padding: '5px 8px', fontSize: 12 }}>
                   {['Tutti', '0-0', '1-0', '0-1', '1-1', '2-0', '0-2', '2-1', '1-2', '2-2', '3-0', '0-3', '3-1', '1-3', '3-2', '2-3', '3-3', 'Casa avanti', 'Ospite avanti', 'Pareggio (qualsiasi)', 'Almeno 1 gol', '2 o più gol'].map(o => <option key={o}>{o}</option>)}
-                </select></span></label>
+                </select></span></label>}
             <label style={{ fontSize: 11, color: '#cbd5e1', display: 'flex', gap: 5, alignItems: 'center', alignSelf: 'flex-end', paddingBottom: 6 }}><input type="checkbox" checked={stUnica} onChange={e => { setStUnica(e.target.checked); setStMax(50) }} /> una riga per partita</label>
-            <label style={{ fontSize: 11, color: '#94a3b8', display: 'flex', flexDirection: 'column', gap: 2 }}>Segnale dal minuto
-              <input value={stDal} onChange={e => { setStDal(e.target.value.replace(/[^0-9]/g, '')); setStMax(50) }} placeholder="es. 70" inputMode="numeric" style={{ background: '#020617', color: '#f8fafc', border: `1px solid ${stDal ? '#38bdf8' : '#334155'}`, borderRadius: 8, padding: '5px 8px', fontSize: 12, width: 90 }} /></label>
-            <label style={{ fontSize: 11, color: '#94a3b8', display: 'flex', flexDirection: 'column', gap: 2 }}>Segnale entro il minuto
-              <input value={stEntro} onChange={e => { setStEntro(e.target.value.replace(/[^0-9]/g, '')); setStMax(50) }} placeholder="es. 30" inputMode="numeric" style={{ background: '#020617', color: '#f8fafc', border: `1px solid ${stEntro ? '#38bdf8' : '#334155'}`, borderRadius: 8, padding: '5px 8px', fontSize: 12, width: 90 }} /></label>
+            {!isSbostats && <label style={{ fontSize: 11, color: '#94a3b8', display: 'flex', flexDirection: 'column', gap: 2 }}>Segnale dal minuto
+              <input value={stDal} onChange={e => { setStDal(e.target.value.replace(/[^0-9]/g, '')); setStMax(50) }} placeholder="es. 70" inputMode="numeric" style={{ background: '#020617', color: '#f8fafc', border: `1px solid ${stDal ? '#38bdf8' : '#334155'}`, borderRadius: 8, padding: '5px 8px', fontSize: 12, width: 90 }} /></label>}
+            {!isSbostats && <label style={{ fontSize: 11, color: '#94a3b8', display: 'flex', flexDirection: 'column', gap: 2 }}>Segnale entro il minuto
+              <input value={stEntro} onChange={e => { setStEntro(e.target.value.replace(/[^0-9]/g, '')); setStMax(50) }} placeholder="es. 30" inputMode="numeric" style={{ background: '#020617', color: '#f8fafc', border: `1px solid ${stEntro ? '#38bdf8' : '#334155'}`, borderRadius: 8, padding: '5px 8px', fontSize: 12, width: 90 }} /></label>}
             <label style={{ fontSize: 11, color: '#94a3b8', display: 'flex', flexDirection: 'column', gap: 2 }}>Cerca squadra / competizione
               <input value={stCerca} onChange={e => { setStCerca(e.target.value); setStMax(50) }} placeholder="es. Serie A" style={{ background: '#020617', color: '#f8fafc', border: '1px solid #334155', borderRadius: 8, padding: '5px 8px', fontSize: 12, width: 170 }} /></label>
             {stFiltriAttivi && <button onClick={() => { setStHT('Tutti'); setStTipo('Tutti'); setStComp('Tutte'); setStMin('Tutti'); setStSegn('Tutti'); setStFine('Tutti'); setStCerca(''); setStEntro(''); setStDal(''); setStAlMin(''); setStMax(50) }} style={{ alignSelf: 'flex-end', background: '#0f172a', color: '#f8fafc', border: '1px solid #334155', borderRadius: 8, padding: '6px 10px', fontSize: 12, cursor: 'pointer', fontWeight: 700 }}>Azzera filtri</button>}
@@ -727,16 +745,16 @@ export default function AnalisiSegnali() {
             <div style={{ fontSize: 12, fontWeight: 800, color: '#7dd3fc', marginBottom: 6 }}>Elenco partite · dalla più recente ({Math.min(stMax, stLista.length)} di {stLista.length})</div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-                <thead><tr>{['Data', 'Partita', 'Competizione', 'Segnale', 'Min.', 'Al segnale', ...(stAlMinN != null ? [`Al ${stAlMinN}'`] : []), '1° tempo', 'Finale', 'Over 1,5', 'Esito segnale'].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                <thead><tr>{(isSbostats ? ['Data', 'Partita', 'Competizione', 'Pronostico', '1° tempo', 'Finale', 'Over 1,5', 'Esito pronostico'] : ['Data', 'Partita', 'Competizione', 'Segnale', 'Min.', 'Al segnale', ...(stAlMinN != null ? [`Al ${stAlMinN}'`] : []), '1° tempo', 'Finale', 'Over 1,5', 'Esito segnale']).map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
                 <tbody>{stLista.slice(0, stMax).map(r => { const o = sTot(r.ft!) >= 2; return (
                   <tr key={r.id}>
                     <td style={{ ...td, whiteSpace: 'nowrap', color: '#94a3b8' }}>{new Date(r.data).toLocaleString('it-IT', { timeZone: 'Europe/Rome', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
                     <td style={{ ...td, fontWeight: 700 }}>{r.partita || '—'}</td>
                     <td style={{ ...td, color: '#94a3b8' }}>{r.competizione}</td>
                     <td style={td}>{r.tipo}</td>
-                    <td style={td}>{r.minuto != null ? `${r.minuto}'` : '—'}</td>
-                    <td style={td}>{r.risultato || '—'}</td>
-                    {stAlMinN != null && <td style={{ ...td, fontWeight: 800 }}>{golCompleti(r) ? puntAl(r, stAlMinN) : '—'}</td>}
+                    {!isSbostats && <td style={td}>{r.minuto != null ? `${r.minuto}'` : '—'}</td>}
+                    {!isSbostats && <td style={td}>{r.risultato || '—'}</td>}
+                    {stAlMinN != null && !isSbostats && <td style={{ ...td, fontWeight: 800 }}>{golCompleti(r) ? puntAl(r, stAlMinN) : '—'}</td>}
                     <td style={{ ...td, fontWeight: 800 }}>{htTesto(r)}</td>
                     <td style={{ ...td, fontWeight: 800 }}>{r.ft![0]}-{r.ft![1]}</td>
                     <td style={{ ...td, fontWeight: 900, color: o ? '#86efac' : '#fca5a5' }}>{o ? '✓ Over' : '✗ Under'}</td>
