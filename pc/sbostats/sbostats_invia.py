@@ -21,7 +21,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -89,7 +89,13 @@ def invia(cfg, righe):
             headers={'Content-Type': 'application/json', 'x-pt-segreto': cfg['segreto'], 'User-Agent': 'ProfitTrackerPC/1.0'})
         try:
             with urllib.request.urlopen(req, timeout=90) as resp:
-                log(f"  Sito: {resp.read().decode('utf-8', 'replace')[:200]}")
+                testo = resp.read().decode('utf-8', 'replace')
+            try:
+                j = json.loads(testo)
+                log(f"  Sito OK · ricevute {j.get('ricevute')} · NUOVI pronostici in attesa: {j.get('in_attesa_nuove')} · "
+                    f"con esito (aggiornati): {j.get('con_esito')} · scartate: {j.get('scartate')}")
+            except ValueError:
+                log(f"  Sito: {testo[:200]}")
         except urllib.error.HTTPError as ex:
             corpo = ex.read().decode('utf-8', 'replace')[:300]
             log(f"  ERRORE dal sito {ex.code}: {corpo}" + ('  (segreto sbagliato?)' if ex.code == 401 else ''))
@@ -182,7 +188,7 @@ def main():
                 if una_volta:
                     break
                 attesa = max(1, int(cfg['minuti_ciclo'])) * 60
-                log(f'Prossimo giro tra {attesa // 60} minuti.')
+                log(f"Nessun problema: il programma e' in attesa, prossimo giro alle {(datetime.now() + timedelta(seconds=attesa)).strftime('%H:%M')} (ogni {attesa // 60} minuti).")
                 for _ in range(attesa):
                     time.sleep(1)
                     if all(t.is_closed() for t in ctx.pages):
