@@ -456,6 +456,17 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
     setAzione(null)
     onMessage(`⏭ Rimandato al ${dataIt(data)}: ${a.titolo}`)
   }
+  // 12/11/2026: "In attesa…" con nota libera (es. "attendere verifica doc"): l'avviso esce dal ritardo e torna alla data scelta, mai perso
+  async function confermaAttesa(a, data, nota) {
+    const testo = (nota || '').trim()
+    if (!testo) { onError('Scrivi una nota (es. "attendere verifica doc")'); return }
+    if (!data || data <= oggi) { onError('Scegli una data di ricontrollo da domani in poi'); return }
+    setSalvando(true)
+    await aggiornaAvviso(a, { data_prevista: data, rimandi: (a.rimandi || 0) + 1, meta: { ...(a.meta || {}), rimandato_il: oggi, attesa: { nota: testo, il: oggi } } })
+    setSalvando(false)
+    setAzione(null)
+    onMessage(`⏳ In attesa (${testo}), ricontrollo il ${dataIt(data)}: ${a.titolo}`)
+  }
 
   // ─── VISTA ────────────────────────────────────────────────────────
   const orfani = aperti.filter(orfano)
@@ -590,10 +601,12 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
           </span>
         </div>
         {a.sottotitolo && <div style={{ fontSize: 11, color: '#94a3b8', margin: '2px 0 0 24px' }}>{a.sottotitolo}</div>}
+        {a.meta?.attesa?.nota && <div style={{ fontSize: 11, color: '#38bdf8', margin: '2px 0 0 24px' }}>⏳ {a.meta.attesa.nota} (dal {dataIt(a.meta.attesa.il)})</div>}
         {lucyScaduto(a) && <div style={{ fontSize: 11, color: '#fbbf24', margin: '2px 0 0 24px' }}>⚠️ Lucy non è riuscita a collocarlo negli incroci: fallo a mano</div>}
         <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap', alignItems: 'center', paddingLeft: 24 }}>
           {!aperta && <>
             <button style={btn('#94a3b8')} disabled={salvando} onClick={() => setAzione({ id: a.id, modo: 'rimanda', data: dataRimandoProposta(a) })}>⏭ Rimanda</button>
+            <button style={btn('#38bdf8')} disabled={salvando} onClick={() => setAzione({ id: a.id, modo: 'attesa', data: addGiorni(oggi, 7), nota: '' })}>⏳ In attesa…</button>
             <button style={btn('#22c55e')} disabled={salvando} onClick={() => es ? setAzione({ id: a.id, modo: 'fatto', data: addGiorni(oggi, 1) }) : confermaFatto(a)}>✅ Fatto</button>
           </>}
           {aperta && azione.modo === 'rimanda' && <>
@@ -611,6 +624,14 @@ export default function AvvisiContiPanel({ books, setBooks, avvisi, setAvvisi, r
           {aperta && azione.modo === 'fatto' && Array.isArray(es) && <>
             <span style={{ fontSize: 12, color: '#cbd5e1' }}>Com'è andata?</span>
             {es.map(e => <button key={e.k} style={btn(e.k === 'ok' || e.k === 'tolta' || e.k === 'risolto' || e.k === 'approvato' ? '#22c55e' : e.k === 'attesa' || e.k === 'ancora' ? '#fbbf24' : '#f87171')} disabled={salvando} onClick={() => confermaFatto(a, e.k, e.l)}>{e.l}</button>)}
+            <button style={btn('#38bdf8')} disabled={salvando} onClick={() => setAzione({ id: a.id, modo: 'attesa', data: addGiorni(oggi, 7), nota: '' })}>⏳ In attesa… (nota libera)</button>
+            <button style={btn('#64748b')} onClick={() => setAzione(null)}>Annulla</button>
+          </>}
+          {aperta && azione.modo === 'attesa' && <>
+            <input type="text" autoFocus placeholder="es. attendere verifica doc" value={azione.nota || ''} onChange={e => setAzione({ ...azione, nota: e.target.value })} style={{ ...inp, minWidth: 220 }} />
+            <span style={{ fontSize: 12, color: '#cbd5e1' }}>ricontrolla il</span>
+            <input type="date" value={azione.data} min={addGiorni(oggi, 1)} onChange={e => setAzione({ ...azione, data: e.target.value })} style={inp} />
+            <button style={btn('#38bdf8')} disabled={salvando} onClick={() => confermaAttesa(a, azione.data, azione.nota)}>Conferma attesa</button>
             <button style={btn('#64748b')} onClick={() => setAzione(null)}>Annulla</button>
           </>}
         </div>
