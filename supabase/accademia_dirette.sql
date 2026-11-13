@@ -24,3 +24,6 @@ create table if not exists public.accademia_dirette_letti (
   primary key (chat_id, msg_id)
 );
 alter table public.accademia_dirette_letti enable row level security;
+
+-- 13/11/2026: telefonata Twilio 15 minuti prima della diretta (una sola volta per diretta)
+alter table public.accademia_dirette add column if not exists avviso_15m_tel boolean not null default false;

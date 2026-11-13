@@ -2,10 +2,13 @@
 //  1) legge i messaggi recenti (ultimi 14 giorni) che sembrano annunci di dirette e li fa interpretare dall'AI (Groq)
 //     -> tabella accademia_dirette (titolo, data e ora in Italia, link)
 //  2) manda l'avviso Telegram il giorno prima (24 ore) e 30 minuti prima.
+//  3) 13/11/2026: telefona (Twilio) ~15 minuti prima della diretta, una sola volta (colonna avviso_15m_tel; SQL in supabase/accademia_dirette.sql).
 // Bot: LUCY_TELEGRAM_BOT_TOKEN / LUCY_TELEGRAM_CHAT_ID; se mancano usa quelli del watchdog (PROP_WATCHDOG_TELEGRAM_*).
 // Prova a mano: curl.exe -H "Authorization: Bearer IL_TUO_CRON_SECRET" "https://sergioapicella.it/api/cron/accademia-dirette"
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { chiamaMioNumero } from '../../../../lib/chiamataTwilio'
+import { testoChiamataDiretta, twiml } from '../../../../lib/avvisoChiamata'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -128,7 +131,7 @@ export async function GET(req: NextRequest) {
   if (!cronSecret || req.headers.get('authorization') !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  const rep = { letti: 0, annunci: 0, nuove: 0, avvisi: 0, errori: [] as string[] }
+  const rep = { letti: 0, annunci: 0, nuove: 0, avvisi: 0, chiamate: 0, errori: [] as string[] }
 
   /* PROVA A SECCO: ?prova=1&giorni=60 -> fa leggere a Lucy gli ultimi 5 annunci della finestra e mostra cosa capisce.
      Non scrive niente nel database e non manda avvisi. Serve solo a controllare che la lettura funzioni. */
@@ -217,7 +220,7 @@ export async function GET(req: NextRequest) {
     const adesso = Date.now()
     const { data: prossime } = await sb
       .from('accademia_dirette')
-      .select('id,titolo,inizio,link,gruppo,avviso_24h,avviso_30m')
+      .select('*')
       .gt('inizio', new Date(adesso).toISOString())
       .lte('inizio', new Date(adesso + 24 * 3600000).toISOString())
       .order('inizio', { ascending: true })
@@ -232,6 +235,18 @@ export async function GET(req: NextRequest) {
         const r = await telegram(`📡 Entro 24 ore: diretta Accademia\n${riga}`)
         if (r.ok) { await sb.from('accademia_dirette').update({ avviso_24h: true }).eq('id', d.id); rep.avvisi++ }
         else rep.errori.push(String(r.motivo))
+      }
+
+      /* telefonata ~15 minuti prima (il cron gira ogni 5 min: scatta tra 15 e 10 minuti prima). Se il link c'è e non è Zoom, niente telefonata. */
+      if (manca <= 15 * 60000 && d.avviso_15m_tel === false && (!d.link || /zoom/i.test(d.link))) {
+        const r = await chiamaMioNumero(twiml(testoChiamataDiretta(d.titolo, d.inizio)))
+        if (r.ok) {
+          const { error: e3 } = await sb.from('accademia_dirette').update({ avviso_15m_tel: true }).eq('id', d.id)
+          if (e3) rep.errori.push(`flag telefonata: ${e3.message}`)
+          rep.chiamate++
+        } else if (!r.saltata) rep.errori.push(`telefonata: ${r.motivo}`.slice(0, 150))   // saltata = limite/pausa: riprova al prossimo giro
+      } else if (manca <= 15 * 60000 && d.avviso_15m_tel === undefined) {
+        rep.errori.push('telefonata: colonna avviso_15m_tel mancante (eseguire il SQL su Supabase)')
       }
     }
   } catch (e) {

@@ -28,3 +28,12 @@ export function puoChiamare(dateCreate: string[], adesso = Date.now()): { ok: tr
 }
 
 export const twiml = (testo: string) => `<Response><Say language="it-IT" voice="alice">${xmlEscape(testo)}</Say><Pause length="1"/><Say language="it-IT" voice="alice">${xmlEscape(testo)}</Say></Response>`
+
+// 13/11/2026 · Testo della telefonata per le dirette/Zoom dell'Accademia (15 minuti prima).
+export function testoChiamataDiretta(titolo: string, inizioIso: string): string {
+  const pulito = String(titolo || 'una diretta').replace(/[^A-Za-zÀ-ÿ0-9\s'.,&-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 90)
+  const p = new Intl.DateTimeFormat('it-IT', { timeZone: 'Europe/Rome', hour: 'numeric', minute: '2-digit', hour12: false }).formatToParts(new Date(inizioIso))
+  const h = p.find((x) => x.type === 'hour')?.value, m = p.find((x) => x.type === 'minute')?.value
+  const alle = h ? `, alle ${Number(h)}${m && m !== '00' ? ' e ' + Number(m) : ''}` : ''
+  return `Attenzione. Tra quindici minuti inizia la diretta Zoom: ${pulito}${alle}. Controlla il link su Telegram.`
+}
