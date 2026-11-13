@@ -112,6 +112,8 @@ export default function DashboardTab({
   formatCurrency,
   saveWeeklySnapshot,
   royaltyAvvisi = [],
+  accantonamentiScadenze = [],   // 13/11/2026: rate degli accantonamenti scadute / di oggi / entro 3 giorni, non ancora segnate Pagato
+  onPagaAccantonamento = null,
   promemoriaNuoviBook = null,
   onPromemoriaNuoviBookFatto,
   onPagaRoyaltyMensile,
@@ -222,7 +224,8 @@ export default function DashboardTab({
           royaltyMensili.length === 0 &&
           !promemoriaNuoviBook &&
           !(chatDaSentire || []).length &&
-          !(azioniRosse || []).length
+          !(azioniRosse || []).length &&
+          !(accantonamentiScadenze || []).length
         ) return null
 
         const righe = tutte.map(item => {
@@ -446,6 +449,72 @@ export default function DashboardTab({
                 )}
               </div>
             ))}
+
+            {/* 13/11/2026 — ACCANTONAMENTI in scadenza (Massimiliano, Michela, Paolo, servizi, Antonello): restano qui finché non li segni Pagato */}
+            {(accantonamentiScadenze || []).map(a => {
+              const pag = (n) => `${n} giorn${n === 1 ? 'o' : 'i'}`
+              return (
+                <div
+                  key={'acc-' + a.key}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    flexWrap: 'wrap',
+                    color: a.diff < 0 ? '#ff4444' : a.diff === 0 ? '#fbbf24' : '#fca5a5'
+                  }}
+                >
+                  <span>
+                    {a.diff < 0 ? '⛔' : a.diff === 0 ? '🔴' : '⚠️'} [ACCANTONAMENTO] {String(a.chi || '').toUpperCase()} — {formatCurrency(a.importo)} ({a.etichetta})
+                    {a.diff < 0
+                      ? ` — IN RITARDO DI ${pag(-a.diff).toUpperCase()}`
+                      : a.diff === 0
+                      ? ' — DA PAGARE OGGI'
+                      : ` — mancano ${pag(a.diff)}`}
+                  </span>
+
+                  {onPagaAccantonamento && (
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`Segno come pagato: ${a.chi} — ${formatCurrency(a.importo)} (${a.etichetta})?`)) onPagaAccantonamento(a.key)
+                      }}
+                      style={{
+                        padding: '2px 10px',
+                        borderRadius: 8,
+                        border: '1px solid rgba(34,197,94,0.6)',
+                        background: 'rgba(34,197,94,0.15)',
+                        color: '#22c55e',
+                        fontWeight: 800,
+                        fontSize: 12,
+                        cursor: 'pointer',
+                        lineHeight: 1.6
+                      }}
+                    >
+                      ✅ Pagato
+                    </button>
+                  )}
+
+                  {goToAccantonamenti && (
+                    <button
+                      onClick={goToAccantonamenti}
+                      style={{
+                        padding: '2px 10px',
+                        borderRadius: 8,
+                        border: '1px solid rgba(252,165,165,0.6)',
+                        background: 'rgba(252,165,165,0.12)',
+                        color: '#fca5a5',
+                        fontWeight: 800,
+                        fontSize: 12,
+                        cursor: 'pointer',
+                        lineHeight: 1.6
+                      }}
+                    >
+                      👉 Accantonamenti
+                    </button>
+                  )}
+                </div>
+              )
+            })}
             </ListaCompatta>
           </div>
         )

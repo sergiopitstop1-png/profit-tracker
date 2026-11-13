@@ -7808,6 +7808,28 @@ const obiettivoMensileSpese = mediaMensileResidua + accantonamentiMensiliObietti
 const accantonamentiAvvisiCount = rateFiglioDaPagare.length + ratePaoloDaPagare.length + rateMichelaDaPagare.length + rateServiziDaPagare.length + antonelloDaPagare.length +
   royaltyCalc.avvisi.filter(a => a.giorniRitardo >= 0).length
 
+// 13/11/2026 (Sergio): gli accantonamenti in scadenza (rate non ancora segnate "Pagato") compaiono anche nel riquadro rosso
+// "Avvisi scadenze" della Dashboard: quelle già scadute o di oggi, e quelle che scadono nei prossimi 3 giorni.
+// diff = giorno della rata - oggi (negativo = in ritardo). Il royalty ha già le sue righe e non è qui.
+const accantonamentiScadenze = (() => {
+  const adesso = new Date()
+  const giorno = adesso.getDate()
+  const meseKey = `${adesso.getFullYear()}-${String(adesso.getMonth() + 1).padStart(2, '0')}`
+  const out = []
+  const aggiungi = (chi, schedule) => schedule.forEach(r => {
+    if (dashboardSettings[r.key] === meseKey) return
+    const diff = r.day - giorno
+    if (diff > 3) return
+    out.push({ key: r.key, chi: r.nome || chi, importo: r.amount, etichetta: r.label, diff })
+  })
+  aggiungi('Massimiliano', FIGLIO_SCHEDULE)
+  if (PAOLO_ATTIVO) aggiungi('Paolo', PAOLO_SCHEDULE)
+  aggiungi('Michela', MICHELA_SCHEDULE)
+  aggiungi('Servizio', SERVIZI_SCHEDULE)
+  antonelloDaPagare.forEach(r => out.push({ key: r.key, chi: 'Antonello', importo: r.amount, etichetta: r.label, diff: 15 - giorno }))
+  return out.sort((a, b) => a.diff - b.diff)
+})()
+
 // Totale "da pagare questo mese" mostrato in Dashboard e in cima al tab Accantonamenti:
 // parte dal totale mensile pieno e scala solo quando segni "Pagato" (non quando passa il giorno).
 // Royalty e Club restano invariati: Royalty scala gi\xe0 da s\xe9 coi pagamenti registrati nella tab Clienti, Club non ha un pulsante "pagato".
@@ -8699,6 +8721,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             saveWeeklySnapshot={saveWeeklySnapshot}
             royaltyAvvisi={royaltyAvvisi}
             onPagaRoyaltyMensile={pagaRoyaltyMensile}
+            accantonamentiScadenze={accantonamentiScadenze}
+            onPagaAccantonamento={toggleAccantonamentoPagato}
             promemoriaNuoviBook={promemoriaNuoviBook}
             chatDaSentire={chatDaSentireOggi()}
             azioniRosse={azioniRosseOggi()}
