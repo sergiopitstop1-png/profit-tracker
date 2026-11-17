@@ -165,6 +165,11 @@ def main():
                         log(f'Giro di controllo: {pagine} pagine')
                     righe = leggi(lavoro, cfg, pagine)
                     log(f'  Letti {len(righe)} pronostici')
+                    try:   # il pronostico piu' recente (per data della partita) presente su SBOStats: se non cambia, SBOStats non ha pubblicato altro
+                        ultimo = max(righe, key=lambda r: datetime.strptime(r['data'], '%d/%m/%Y %H:%M'))
+                        log(f"  Pronostico piu' recente su SBOStats: {ultimo['data']} · {ultimo['partita']} · {ultimo['pronostico']}")
+                    except (ValueError, KeyError):
+                        pass
                     if not righe:
                         if not segnalato_vuoto:
                             log('  Nessuna riga letta: sessione scaduta o pagina cambiata? Controlla il browser (accedi di nuovo se serve).')
