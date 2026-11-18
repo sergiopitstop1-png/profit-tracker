@@ -65,6 +65,30 @@ function personeDoppie(contiBook) {
   for (const b of contiBook || []) { if (!b) continue; const k = normNome(b.intestatario); if (!k) continue; if (!m.has(k)) m.set(k, []); m.get(k).push(b) }
   return [...m.values()].filter(l => l.length > 1).map(l => ({ persona: l[0].intestatario, conti: l }))
 }
+// 18/11/2026 — 🔀 MESCOLA I CONTI tra più gruppi: ogni gruppo mantiene il suo numero di conti (es. 8), una persona non finisce due volte nello stesso gruppo
+// e nessun gruppo riceve più di metà dei conti dallo stesso vecchio gruppo (se no non sarebbe un mescolamento).
+// gruppiSel = [{ id, conti: [book_id] }] · datiConto(id) = book · ritorna [{ id: idGruppo, conti: [book_id] }] oppure null se non trova una combinazione valida
+export function mescolaContiGruppi(gruppiSel, datiConto, rnd = Math.random, tentativi = 3000) {
+  if (!gruppiSel || gruppiSel.length < 2) return null
+  const dim = gruppiSel.map(g => (g.conti || []).length)
+  const tutti = gruppiSel.flatMap(g => (g.conti || []).map(String))
+  const da = new Map(); gruppiSel.forEach(g => (g.conti || []).forEach(id => da.set(String(id), g.id)))
+  for (let t = 0; t < tentativi; t++) {
+    const mix = [...tutti]
+    for (let i = mix.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [mix[i], mix[j]] = [mix[j], mix[i]] }
+    let pos = 0, ok = true
+    const out = []
+    for (let k = 0; k < gruppiSel.length && ok; k++) {
+      const parte = mix.slice(pos, pos + dim[k]); pos += dim[k]
+      if (personeDoppie(parte.map(id => datiConto(id))).length) { ok = false; break }
+      const per = new Map(); parte.forEach(id => per.set(da.get(id), (per.get(da.get(id)) || 0) + 1))
+      if (Math.max(...per.values()) > Math.ceil(dim[k] / 2)) { ok = false; break }
+      out.push({ id: gruppiSel[k].id, conti: parte })
+    }
+    if (ok) return out
+  }
+  return null
+}
 const dataIt = (iso) => iso ? iso.split('-').reverse().join('/') : ''
 const giornoLungo = (iso) => iso ? new Date(iso + 'T12:00:00').toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : ''
 const inp = { background: '#020617', color: '#f8fafc', border: '1px solid #475569', borderRadius: 8, padding: '6px 9px', fontSize: 13 }
@@ -100,7 +124,7 @@ export function prossimaMirata(g, fatte, giorniPausa) {
 //  • Casinò live · roulette: 12 sessioni (ognuna da 3 giri). Il P/L reale viene dai numeri usciti scritti nella sessione (payout 1:35 o quello scelto);
 //    il costo teorico considera il puntato e il payout (con 1:35 è 1/37). Un conto messo a 0 numeri in un giro non ha giocato: quel giro non conta.
 //  • Sport e Slot: 1.000 € giocati in totale per conto (si sommano gli importi indicati in ✅ Fatta).
-// Il conteggio parte da g.conteggio_dal (se l'hai azzerato con 🔄), altrimenti da sempre. Il gruppo di casinò live si riconosce dal nome.
+// Il conteggio parte da g.conteggio_dal (se l'hai azzerato con 🔄), altrimenti da sempre. Nel casinò live la posizione segue il conto (dal 18/11/2026), non il nome del gruppo.
 export const SOGLIA_BACCARAT = 4
 export const SOGLIA_ROULETTE = 12
 export const SOGLIA_EURO = 1000   // sport e slot
@@ -121,19 +145,22 @@ export function posizioneGruppo(g, sessioni, fatte, datiConto) {
   }
   let operazioni = 0
   if (tipo === 'casino live') {
-    const mie = (sessioni || []).filter(s => s?.gruppo === g?.nome && (!dalT || new Date(s.creato || s.giorno).getTime() >= dalT))
+    // 18/11/2026: lo storico segue il CONTO, non il nome del gruppo: contano le sessioni mirate di tutti i gruppi in cui quel conto ha giocato,
+    // ma solo per i conti che fanno parte del gruppo adesso (così si possono mescolare i conti tra i gruppi senza perdere la posizione netta).
+    const idGruppo = new Set((g?.conti || []).map(String))
+    const mie = (sessioni || []).filter(s => !dalT || new Date(s.creato || s.giorno).getTime() >= dalT)
     for (const s of mie) {
       if (s.gioco === 'baccarat') {
         if (s.operazione !== 'campionato') continue   // il baccarat spot non ha un risultato per conto
         let giocata = false
-        for (const p of s.partecipanti || []) { if (!p?.campionato) continue; const r = conto(p.id, p); r.bacc.sessioni += 1; r.bacc.netto += Number(p.risultato) || 0; r.bacc.puntato += Number(p.puntato_totale) || 0; giocata = true }
+        for (const p of s.partecipanti || []) { if (!p?.campionato || !idGruppo.has(String(p.id))) continue; const r = conto(p.id, p); r.bacc.sessioni += 1; r.bacc.netto += Number(p.risultato) || 0; r.bacc.puntato += Number(p.puntato_totale) || 0; giocata = true }
         if (giocata) operazioni += 1
       } else {   // roulette (le righe vecchie senza "gioco" sono roulette)
         const giri = Number(s.giri_fatti) || 0
         let giocata = false
         for (const p of s.partecipanti || []) {
           const n = (p?.numeri || []).length
-          if (!n) continue   // 0 numeri = quel conto in questo giro non ha giocato
+          if (!n || !idGruppo.has(String(p.id))) continue   // 0 numeri = quel conto in questo giro non ha giocato
           const puntato = n * (Number(p.stake) || 0) * giri
           const paga = Number(p.paga) > 0 ? Number(p.paga) : 35   // roulette particolari: 1:29, 1:21…
           const r = conto(p.id, p); r.roul.sessioni += 1; r.roul.puntato += puntato; r.roul.costo += puntato * (36 - paga) / 37; giocata = true
@@ -224,6 +251,37 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
     if (error) { onError('Conteggio non azzerato: lancia profilazioni_mirate_conteggio.sql (' + error.message + ')'); return }
     setGruppi(prev => prev.map(x => x.id === g.id ? { ...x, conteggio_dal: dal } : x))
     onMessage(`🔄 ${g.nome}: conteggio ripartito da zero`)
+  }
+
+  // ─── 18/11/2026 — 🔀 MESCOLA I CONTI tra i gruppi di casinò live (stesso numero di conti per gruppo, la posizione netta resta ai conti) ───
+  const [mescola, setMescola] = useState(null)   // { sel: { idGruppo: true }, proposta: [{ id, conti }] | null, prima: { idConto: { riga, da } } }
+  const gruppiLive = (gruppi || []).filter(g => tipoMirata(g) === 'casino live')
+  function generaMescolamento(sel) {
+    const scelti = gruppiLive.filter(g => sel[g.id])
+    if (scelti.length < 2) { onError('Scegli almeno due gruppi da mescolare'); return }
+    const proposta = mescolaContiGruppi(scelti, bookDi)
+    if (!proposta) { onError('Non trovo un mescolamento valido: una persona non può stare due volte nello stesso gruppo. Togli un gruppo o riprova.'); return }
+    const prima = {}
+    for (const g of scelti) for (const r of posizioneGruppo(g, sessioniMirate, fatte, bookDi).righe) prima[r.id] = { riga: r, da: g.nome }
+    for (const g of scelti) for (const id of g.conti || []) if (!prima[String(id)]) prima[String(id)] = { riga: null, da: g.nome }
+    setMescola({ sel, proposta, prima })
+  }
+  async function applicaMescolamento() {
+    const { proposta } = mescola
+    const originali = proposta.map(p => ({ id: p.id, conti: (gruppi.find(x => x.id === p.id)?.conti || []).map(String) }))
+    const fatti = []
+    for (const p of proposta) {
+      const { error } = await supabase.from('profilazioni_mirate').update({ conti: p.conti.map(String) }).eq('id', p.id)
+      if (error) {
+        for (const f of fatti) await supabase.from('profilazioni_mirate').update({ conti: originali.find(o => o.id === f).conti }).eq('id', f)   // rimetto com'erano
+        onError('Mescolamento non applicato (nessun gruppo è cambiato): ' + error.message)
+        return
+      }
+      fatti.push(p.id)
+    }
+    setGruppi(prev => prev.map(x => { const p = proposta.find(y => y.id === x.id); return p ? { ...x, conti: p.conti.map(String) } : x }))
+    setMescola(null)
+    onMessage(`🔀 Conti mescolati tra ${proposta.length} gruppi: stessi numeri di conti, posizione netta invariata`)
   }
 
   const righe = (gruppi || []).map(g => ({ g, ...prossimaMirata(g, fatte || [], giorniPausa) }))
@@ -649,6 +707,69 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
           )
   }
 
+  // 18/11/2026 · pannello "Mescola conti": 1) scegli i gruppi  2) anteprima con la posizione di ogni conto  3) applica
+  const riassuntoPos = r => {
+    if (!r) return 'nessuna sessione'
+    const p = []
+    if (r.bacc.sessioni) p.push(`${r.bacc.sessioni} camp. ${segnoEuro(r.bacc.netto)}`)
+    if (r.roul.sessioni) p.push(`roulette ${r.roul.sessioni}${r.roul.conNumeri ? ' ' + segnoEuro(r.roul.netto) : ''}`)
+    return p.join(' · ') || 'nessuna sessione'
+  }
+  const pannelloMescola = mescola && (() => {
+    const scelti = gruppiLive.filter(g => mescola.sel[g.id])
+    const azzerati = scelti.filter(g => g.conteggio_dal)
+    return (
+      <div style={{ marginTop: 8, padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(250,204,21,0.55)', background: 'rgba(250,204,21,0.06)' }}>
+        <b style={{ fontSize: 13, color: '#fde047' }}>🔀 Mescola i conti tra i gruppi</b>
+        <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 2 }}>Ogni gruppo mantiene lo stesso numero di conti. La posizione netta e i campionati restano ai conti, che la portano nel nuovo gruppo. Le sessioni passate non vengono toccate.</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+          {gruppiLive.map(g => (
+            <label key={g.id} style={{ ...btn(mescola.sel[g.id] ? '#facc15' : '#64748b'), display: 'inline-flex', gap: 6, alignItems: 'center', opacity: mescola.proposta ? 0.6 : 1 }}>
+              <input type="checkbox" disabled={!!mescola.proposta} checked={!!mescola.sel[g.id]} onChange={e => setMescola({ ...mescola, sel: { ...mescola.sel, [g.id]: e.target.checked } })} />
+              {g.nome} ({(g.conti || []).length} conti)
+            </label>
+          ))}
+        </div>
+        {!mescola.proposta && (
+          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+            <button style={btn('#facc15')} disabled={scelti.length < 2} onClick={() => generaMescolamento(mescola.sel)}>🎲 Genera mescolamento</button>
+            <button style={btn('#94a3b8')} onClick={() => setMescola(null)}>✕ Annulla</button>
+          </div>
+        )}
+        {mescola.proposta && (
+          <>
+            {azzerati.length > 0 && <div style={{ marginTop: 8, fontSize: 11.5, color: '#fbbf24' }}>⚠️ {azzerati.map(g => g.nome).join(', ')} ha il conteggio azzerato (🔄 Riparto da zero): i conti che arrivano lì contano solo dalla data dell'azzeramento di quel gruppo.</div>}
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${mescola.proposta.length}, minmax(0, 1fr))`, gap: 8, marginTop: 8 }}>
+              {mescola.proposta.map(p => {
+                const g = gruppi.find(x => x.id === p.id)
+                return (
+                  <div key={p.id} style={{ border: '1px solid rgba(51,65,85,0.8)', borderRadius: 8, padding: '6px 8px', background: 'rgba(11,18,32,0.6)' }}>
+                    <b style={{ color: '#fde047', fontSize: 12.5 }}>{g?.nome} · {p.conti.length} conti</b>
+                    {p.conti.map(id => {
+                      const b = bookDi(id), pr = mescola.prima[String(id)]
+                      const resta = pr?.da === g?.nome
+                      return (
+                        <div key={id} style={{ fontSize: 11.5, marginTop: 3, color: '#e2e8f0' }}>
+                          <b>{b?.nome || '?'}</b> · {b?.intestatario || '—'}
+                          <div style={{ fontSize: 10.5, color: resta ? '#64748b' : '#7dd3fc' }}>{resta ? 'resta qui' : `da ${pr?.da || '?'}`} · {riassuntoPos(pr?.riga)}</div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })}
+            </div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+              <button style={btn('#22c55e')} onClick={applicaMescolamento}>✅ Applica</button>
+              <button style={btn('#facc15')} onClick={() => generaMescolamento(mescola.sel)}>🎲 Rigenera</button>
+              <button style={btn('#94a3b8')} onClick={() => setMescola(null)}>✕ Annulla</button>
+            </div>
+          </>
+        )}
+      </div>
+    )
+  })()
+
   return (
     <div style={{ background: 'rgba(250,204,21,0.05)', border: '1px solid rgba(250,204,21,0.35)', borderRadius: 16, padding: '12px 16px', marginBottom: 16 }}>
       <div onClick={() => setAperto(!aperto)} style={{ fontSize: 14, fontWeight: 900, color: '#fde047', cursor: 'pointer' }}>
@@ -667,9 +788,13 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
                   <div onClick={() => setChiuse({ ...chiuse, [t.k]: !chiusa })} style={{ fontSize: 13.5, fontWeight: 900, color: t.colore, cursor: 'pointer' }}>
                     {t.icona} {t.nome} · {dellaSezione.length} gruppi{daFareT ? <span style={{ color: '#f87171' }}> · {daFareT} da fare</span> : ''} {chiusa ? '▸' : '▾'}
                   </div>
-                  {!edit && <button style={btn(t.colore)} onClick={() => setEdit({ tipo: t.k, nome: `${t.prefisso} ${dellaSezione.length + 1}`, ogni_giorni: 7, conti: [], cerca: '' })}>➕ Nuovo gruppo</button>}
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {!edit && t.k === 'casino live' && dellaSezione.length >= 2 && !mescola && <button style={btn(t.colore)} title="Rimescola i conti tra i gruppi mantenendo il numero di conti e la posizione netta" onClick={() => setMescola({ sel: {}, proposta: null, prima: {} })}>🔀 Mescola conti</button>}
+                    {!edit && <button style={btn(t.colore)} onClick={() => setEdit({ tipo: t.k, nome: `${t.prefisso} ${dellaSezione.length + 1}`, ogni_giorni: 7, conti: [], cerca: '' })}>➕ Nuovo gruppo</button>}
+                  </div>
                 </div>
                 {inModifica && editor}
+                {t.k === 'casino live' && !edit && pannelloMescola}
                 {!chiusa && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
                     {dellaSezione.length === 0 && !inModifica && <div style={{ fontSize: 12, color: '#94a3b8' }}>{t.vuoto}</div>}
