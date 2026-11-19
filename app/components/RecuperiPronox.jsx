@@ -17,7 +17,7 @@ import { MODEL_VERSION } from '../../lib/pronox/footballModel'
 import { PIANO_PILOTA, MASANIELLO_ATTIVO, statoPiano, schedaDelGiorno, dividiTraConti } from '../../lib/recupero/masanielloRecupero'
 
 // book dove il recupero NON passa dalle scommesse sport
-// 10/10/2026 (rettifica di Sergio): i limitati del gruppo E-play24 (eplay24, sportium, betwin360) fanno scommettere 1 €, quindi restano utilizzabili
+// 10/10/2026 (rettifica di Sergio): i limitati del gruppo Eplay24 (eplay24, sportium, betwin360) fanno scommettere 1 €, quindi restano utilizzabili
 // 24/10/2026 (Sergio): 888 (888sport) si recupera solo col casino (slot e casino offline, 2 volte al mese, 10-20 € a sessione): mai scommesse sport
 const ESCLUSI = ['bet365', 'betfair', 'admiral', '888']
 const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '')

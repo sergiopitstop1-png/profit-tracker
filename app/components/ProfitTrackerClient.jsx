@@ -1170,9 +1170,11 @@ useEffect(() => {
 
 
 
+// 19/11/2026 (Sergio): il book si scrive Eplay24, senza trattino. Anche se nel database c'e' ancora "Eplay24", in matrice e nei Book nuovi esce sempre Eplay24.
+const nomeBookCanonico = n => (/^\s*e-?play24\s*$/i.test(String(n || '')) ? 'Eplay24' : n)
 const CLASSI_BOOK = {
   A: ['bet365','snai','sisal','lottomatica','goldbet','planetwin365','eurobet','pokerstars'],
-  B: ['netbet','bwin','betsson','william hill','stanleybet','e-play24','betfair'],
+  B: ['netbet','bwin','betsson','william hill','stanleybet','eplay24','betfair'],
   B_CASINO: ['gioco digitale','starcasino','betflag','tombola','zonagioco','leovegas'],
   C: ['admiral','codere','betpoint','staryes','sportium','vincitu','marathonbet','domusbet','betpassion'],
 }
@@ -1182,7 +1184,7 @@ const MANUTENZIONE = {
   C: { label: 'Serie C', frequenza: 'Bet 1 ogni 2 mesi (Slot 1 ogni 2 mesi se solo-casinò)', azioni: ['1 bet da 5-10€ ogni 2 mesi (giorno random)', 'Se solo-casinò: 1 sessione slot 5-10€ ogni 2 mesi al posto della bet'] }
 }
 function getClasseBook(nomeBook) {
-  const nome = (nomeBook || '').toLowerCase().replace(/\.it$/, '').trim()
+  const nome = (nomeBook || '').toLowerCase().replace(/\.it$/, '').replace(/e-play24/g, 'eplay24').trim()
   for (const [classe, lista] of Object.entries(CLASSI_BOOK)) {
     if (lista.some(k => nome.includes(k))) return classe
   }
@@ -1251,7 +1253,7 @@ function inizioCicloEff(book) {
 function contoSportLimitato(book) {
   return !!book?.sport_bloccato || /limitat[oa]\s+sport/i.test(String(book?.note || ''))
 }
-// 10/10/2026 (Sergio): limitati del gruppo E-play24 (E-play24, Sportium, Betwin360): puntata massima 1 €,
+// 10/10/2026 (Sergio): limitati del gruppo Eplay24 (Eplay24, Sportium, Betwin360): puntata massima 1 €,
 // troppo poco per incroci e copertura; restano nel Masaniello di recupero a 1 € a bet
 function eplayLimitato(book) {
   const n = String(book?.nome || '').toLowerCase().replace(/[^a-z0-9]/g, '')
@@ -1393,7 +1395,7 @@ const BOOK_SETTIMANA_MESE = ['dazn', 'eplay24', 'sportium', 'betwin360']
 const BOOK_STANDARD = [
   'marathon', 'zonagioco', 'perlaplay', 'sunbet', 'betpassion',
   'giochi24', 'codere', 'vincitu', 'domusbet', 'daznbet', 'netwin', 'elabet', 'gioca7',
-  'casino di venezia', 'staryes', 'bgame', 'stake', 'e-play24', 'betitaly',
+  'casino di venezia', 'staryes', 'bgame', 'stake', 'eplay24', 'betitaly',
   'totosi'
 ]
 
@@ -1643,7 +1645,7 @@ const VARIANTI_PROFILAZIONE = {
     { key: 'sport', label: 'Sport', desc: '1 mese · ricarica 50€+ a inizio settimana · il giorno dopo 3/4 bet da 10 a 30€ (quota min 1.35)' },
     { key: 'casino', label: 'Casinò', desc: '1 mese · ricarica 50€+ a inizio settimana · il giorno dopo 50-100€ slot spin bassi (meglio 3/4 diverse)' },
   ],
-  // DaznBet e gruppo E-play24: due profilazioni alternative, entrambe una settimana al mese
+  // DaznBet e gruppo Eplay24: due profilazioni alternative, entrambe una settimana al mese
   settimana_mese: [
     { key: 'sport', label: 'Sport', desc: 'Una settimana al mese: ricarica 50-100€ + 2/3 bet da 10 a 25€ (quota min 1.35)' },
     { key: 'casino', label: 'Casinò', desc: 'Una settimana al mese: ricarica 50-100€ + 50-100€ slot spin bassi' },
@@ -1739,8 +1741,8 @@ function getTipoProtocolloAttivo(nomeBook) {
   if (BOOK_GRUPPO_LOTTOMATICA.some(k => nome.includes(k))) return 'gruppo_lottomatica'
   if (['sisal', 'pokerstars', 'snai'].some(k => nome.includes(k))) return 'vip_fase12'
   if (['betsson', 'william hill', 'netbet', 'admiral'].some(k => nome.includes(k))) return 'expert'
-  // 26/09/2026 — schede Profiliamo "una settimana al mese" (Sport oppure Casinò): DaznBet e gruppo E-play24 (E-play24, Sportium, Betwin360)
-  // 27/09/2026 — Totosì non ha scheda Profiliamo: protocollo interno di Sergio (Sport stile E-play24, importi al 30%)
+  // 26/09/2026 — schede Profiliamo "una settimana al mese" (Sport oppure Casinò): DaznBet e gruppo Eplay24 (Eplay24, Sportium, Betwin360)
+  // 27/09/2026 — Totosì non ha scheda Profiliamo: protocollo interno di Sergio (Sport stile Eplay24, importi al 30%)
   if (nome.normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes('totosi')) return 'totosi'
   if (BOOK_SETTIMANA_MESE.some(k => nome.replace(/[^a-z0-9]/g, '').includes(k))) return 'settimana_mese'
   if (BOOK_STANDARD.some(k => nome.includes(k))) return 'standard'
@@ -1759,10 +1761,10 @@ function getRecuperoProtocollo(nomeBook, tipo) {
   const stileLotto = (fonte) => ({ disponibile: true, fonte, nota: 'la scheda rimanda al recupero stile Eurobet / Lottomatica', passi: LS, periodica: VOLUME_BLANDO_SETTIMANALE })
   // Bet365 (indicazione di Sergio, 25/09/2026): una volta limitato o chiuso NON si recupera, qualunque limitazione
   if (t === 'bet365') return { disponibile: false, motivo: 'Bet365: una volta limitato o chiuso NON si recupera' }
-  // 10/10/2026 (rettifica di Sergio): i limitati del gruppo E-play24 (E-play24, Sportium, Betwin360) fanno scommettere 1 € (non meno):
+  // 10/10/2026 (rettifica di Sergio): i limitati del gruppo Eplay24 (Eplay24, Sportium, Betwin360) fanno scommettere 1 € (non meno):
   // recupero stile Lottomatica come da scheda, con lo sport a puntate da 1 €.
   if (t === 'settimana_mese' && !n.includes('dazn')) return {
-    ...stileLotto('Scheda gruppo E-play24 (Profiliamo): recupero stile Lottomatica'),
+    ...stileLotto('Scheda gruppo Eplay24 (Profiliamo): recupero stile Lottomatica'),
     nota: 'il conto limitato fa puntare al massimo 1 €: bet sport da 1 €'
   }
   // 27/09/2026 (Sergio): Betpassion limitato bonus → come Bwin sport (bet da 2€ + richiesta di sblocco)
@@ -1774,8 +1776,8 @@ function getRecuperoProtocollo(nomeBook, tipo) {
   }
   // 27/09/2026 (Sergio): 888sport → recupero come Lottomatica
   if (tipo !== 'sport' && n.includes('888')) return { disponibile: true, fonte: 'Recupero Lottomatica (indicazione di Sergio)', passi: LS, periodica: VOLUME_BLANDO_SETTIMANALE }
-  // 27/09/2026 (Sergio): Totosì → recupero del gruppo E-play24 (stile Eurobet / Lottomatica)
-  if (tipo !== 'sport' && t === 'totosi') return stileLotto('Recupero gruppo E-play24 (indicazione di Sergio)')
+  // 27/09/2026 (Sergio): Totosì → recupero del gruppo Eplay24 (stile Eurobet / Lottomatica)
+  if (tipo !== 'sport' && t === 'totosi') return stileLotto('Recupero gruppo Eplay24 (indicazione di Sergio)')
   if (tipo === 'sport') {
     // 26/09/2026 (Sergio): la regola di recupero sport della scheda Bwin vale per TUTTI i limitati sport
     return {
@@ -1808,7 +1810,7 @@ function getRecuperoProtocollo(nomeBook, tipo) {
   if (t === 'expert' && n.includes('netbet')) return { ...stileLotto('Scheda NetBet (Profiliamo)'), passi: [...LS, 'Richiedi la valutazione del conto (scheda NetBet)'], testoContatto: 'contatta il supporto da GIOCATORE e richiedi la valutazione del conto (scheda NetBet)' }
   if (t === 'mylotteryplay') return stileLotto('Scheda MyLotteryPlay (Profiliamo)')
   if (t === 'bwin') return stileLotto('Scheda Bwin (Profiliamo)')
-  if (t === 'settimana_mese') return stileLotto(n.includes('dazn') ? 'Scheda DaznBet (Profiliamo)' : 'Scheda gruppo E-play24 (Profiliamo)')
+  if (t === 'settimana_mese') return stileLotto(n.includes('dazn') ? 'Scheda DaznBet (Profiliamo)' : 'Scheda gruppo Eplay24 (Profiliamo)')
   return { disponibile: false, motivo: 'Manca la scheda di recupero di questo book: manda lo screenshot Profiliamo' }
 }
 
@@ -1853,8 +1855,8 @@ function getAgendaAttivoV2(book, giorno, settimana) {
     const giornoBet = giornoRic + 1 + (hsM('bet') % (lun + 6 - giornoRic))   // un giorno dopo, entro la domenica
     const oggiNum = oggiD.getDate()
     // Le aggiunte "VXT / alto RTP / cambia importo tra gli amici" vengono dalle schede operative di DaznBet
-    // schede operative: DaznBet e E-play24 variano la ricarica tra gli amici e fanno le VXT della settimana;
-    // slot ad alto RTP (DaznBet) o a spin bassi (E-play24); copertura sport su Bet365 (DaznBet) o AdmiralBet (E-play24)
+    // schede operative: DaznBet e Eplay24 variano la ricarica tra gli amici e fanno le VXT della settimana;
+    // slot ad alto RTP (DaznBet) o a spin bassi (Eplay24); copertura sport su Bet365 (DaznBet) o AdmiralBet (Eplay24)
     if (isTotosi && oggiNum === giornoRic) return [`${etichetta}: ricarica 15-30€ — varia l'importo tra gli amici (settimana di profilazione sport del mese · protocollo interno)`]
     if (isTotosi && oggiNum === giornoBet) return [`${etichetta}: gioca 2/3 bet da 3 a 8€ — quota min 1.35, refertazione entro sera/gg dopo`]
     if (oggiNum === giornoRic) return [`${etichetta}: ricarica 50-100€ — varia l'importo tra gli amici (settimana di profilazione ${varDazn === 'casino' ? 'casinò' : 'sport'} del mese)`]
@@ -2289,8 +2291,8 @@ function getRiassuntoProtocolloAttivo(nomeBook, variante = null) {
         : ['Ricarica 50-100€', 'Gioca 2/3 bet da 10 a 25€ — quota minima 1.35, refertazione entro sera/gg dopo', 'Copertura: su qualsiasi book con lo sport (AdmiralBet per ora non è in uso) — la sceglie Lucy negli incroci', 'Una settimana al mese', 'Utilizza le valide per tutti se disponibili · prelievi: usa il buon senso'] }
   }
   if (tipo === 'totosi') return { durata: 'Totosì · Profilazione Sport (una settimana al mese) · protocollo interno, non in Profiliamo', capitale_min: 15,
-    recupero: ['Se conto limitato alle promo: recupero del gruppo E-play24 (vedi esempi di Eurobet o Lottomatica)', ...PROTOCOLLO_GRUPPO_LOTTOMATICA.recupero],
-    azioni: ['Ricarica 15-30€ (varia importi tra gli amici)', 'Gioca 2/3 bet da 3 a 8€ — quota minima 1.35, refertazione entro sera/gg dopo', 'Una settimana al mese', 'Importi = Sport E-play24 ridotti del 70%', 'Utilizza le valide per tutti se disponibili · prelievi: usa il buon senso'] }
+    recupero: ['Se conto limitato alle promo: recupero del gruppo Eplay24 (vedi esempi di Eurobet o Lottomatica)', ...PROTOCOLLO_GRUPPO_LOTTOMATICA.recupero],
+    azioni: ['Ricarica 15-30€ (varia importi tra gli amici)', 'Gioca 2/3 bet da 3 a 8€ — quota minima 1.35, refertazione entro sera/gg dopo', 'Una settimana al mese', 'Importi = Sport Eplay24 ridotti del 70%', 'Utilizza le valide per tutti se disponibili · prelievi: usa il buon senso'] }
   if (tipo === 'stanleybet') {
     const v = getVarianteProfilazione({ nome: nomeBook, profilo_variante: variante })
     const recupero = PROTOCOLLO_STANLEYBET.recupero
@@ -2365,13 +2367,13 @@ const PROTOCOLLI = {
   'bet365': { durata: 'continuativo', capitale_min: 50, azioni: ['Due profilazioni: Superquote oppure Finte riservate (scegli quando lo metti in Profilazione)', 'Superquote: 10-15 bet/sett da 10-50€, quota min 1.35, ricarica 5/sett', 'Finte riservate: 1 ricarica + 1 bet da 20€+ al mese', 'Controlla testa a testa, classifiche e ultime 5 partite (Diretta.it)'] },
   'codere': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Attenzione: può richiedere documentazione aggiuntiva', 'Utilizza amici con documentazione facile se richiesto', 'Usa volume di gioco per la metà di quello fatto su Sisal'] },
   'starcasino': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Prova sempre codici ricarica'] },
-  'sportium': { durata: 'continuativo', capitale_min: 200, azioni: ['Stesso gruppo E-play24', 'Metodo tradizionale', 'Coordina le movimentazioni con E-play24'] },
+  'sportium': { durata: 'continuativo', capitale_min: 200, azioni: ['Stesso gruppo Eplay24', 'Metodo tradizionale', 'Coordina le movimentazioni con Eplay24'] },
   'eplay24': { durata: 'continuativo', capitale_min: 200, azioni: ['Stesso gruppo Sportium', 'Metodo tradizionale', 'Coordina le movimentazioni con Sportium'] },
   'default': { durata: 'continuativo', capitale_min: 200, azioni: ['Metodo tradizionale', 'Ricarica periodica per mantenere conto attivo', 'Qualche bet sportiva mensile', 'Prova codici ricarica se disponibili', 'Chiedi promozioni direttamente al book'] }
 }
 
 function getProtocollo(nomeBook) {
-  const nome = (nomeBook || '').toLowerCase().replace(/\.it$/, '').trim()
+  const nome = (nomeBook || '').toLowerCase().replace(/\.it$/, '').replace(/e-play24/g, 'eplay24').trim()
   for (const [key, proto] of Object.entries(PROTOCOLLI)) {
     if (nome.includes(key)) return { ...proto, key }
   }
@@ -2737,7 +2739,7 @@ async function updateProfiloLivello(bookId, livello, variante = null) {
       supabase.from('matrice_bookmakers').select('*').order('bookmaker', { ascending: true }).range(1000, 1999),
       supabase.from('matrice_bookmakers').select('*').order('bookmaker', { ascending: true }).range(2000, 2999),
     ])
-    setMatrice([...(m1.data || []), ...(m2.data || []), ...(m3.data || [])])
+    setMatrice([...(m1.data || []), ...(m2.data || []), ...(m3.data || [])].map(r => ({ ...r, bookmaker: nomeBookCanonico(r.bookmaker) })))
     setMatriceCaricata(true)
   }
 
@@ -6330,7 +6332,7 @@ async function saveCliente(e) {
     if (error) { setErrorMessage('Errore inserimento cliente'); return }
     // Aggiungi automaticamente tutti i bookmaker in matrice con stato DA APRIRE
     const { data: bookmakerData } = await supabase.from('matrice_bookmakers').select('bookmaker').eq('cliente', 'Sergio Apicella').limit(100)
-    const bookmakerUnici = [...new Set((bookmakerData || []).map(m => m.bookmaker))]
+    const bookmakerUnici = [...new Set((bookmakerData || []).map(m => nomeBookCanonico(m.bookmaker)))]
     if (bookmakerUnici.length > 0 && nuovoCliente) {
       const righeMatrice = bookmakerUnici.map(book => ({
         bookmaker: book,
