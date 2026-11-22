@@ -381,9 +381,32 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
       const v = Number(String(t).replace(',', '.'))
       importo = String(t).trim() && Number.isFinite(v) && v > 0 ? v : null
     }
+    // 22/11/2026: sulle mirate sport (fedeltà Lottomatica/Goldbet) si segna anche il tipo di giocata (doppia/tripla) e la quota totale,
+    // così Lucy li memorizza e sa quanto è stato giocato verso la soglia settimanale (la quota totale deve essere 2.00+, sotto i punti si dimezzano)
+    let tipoGiocata = null, quotaTotale = null
+    if (!daSessione && tipoMirata(g) === 'sport') {
+      const tt = window.prompt(`Che giocata hai fatto su "${g.nome}"?\n2 = doppia · 3 = tripla (altro numero = multipla di quegli eventi)\nLascia vuoto se non vuoi indicarlo.`, '2')
+      if (tt === null) return
+      const n = Math.round(Number(String(tt).replace(',', '.')))
+      tipoGiocata = String(tt).trim() && Number.isFinite(n) && n >= 2 ? (n === 2 ? 'doppia' : n === 3 ? 'tripla' : `multipla ${n}`) : null
+      const tq = window.prompt(`Quota TOTALE della ${tipoGiocata || 'giocata'}? (es. 2.05)\nSotto 2.00 i punti fedeltà si dimezzano. Lascia vuoto se non la sai.`, '')
+      if (tq === null) return
+      const q = Number(String(tq).replace(',', '.'))
+      quotaTotale = String(tq).trim() && Number.isFinite(q) && q > 1 ? q : null
+      if (quotaTotale != null && quotaTotale < 2 && !window.confirm(`⚠️ Quota totale ${quotaTotale.toFixed(2)}: sotto 2.00 i punti si dimezzano.\n\nRegistro lo stesso?`)) return
+    }
     const riga = { gruppo_id: g.id, nome_gruppo: g.nome, data: oggi, conti: g.conti }
     if (importo != null) riga.importo_per_conto = importo
-    const { data, error } = await supabase.from('profilazioni_mirate_fatte').insert([riga]).select().single()
+    if (tipoGiocata) riga.tipo_giocata = tipoGiocata
+    if (quotaTotale != null) riga.quota_totale = quotaTotale
+    let { data, error } = await supabase.from('profilazioni_mirate_fatte').insert([riga]).select().single()
+    // se le colonne nuove non esistono ancora (profilazioni_mirate_fatte_tipo.sql non lanciato) registro comunque l'operazione e lo dico
+    if (error && (tipoGiocata || quotaTotale != null) && /tipo_giocata|quota_totale|column/i.test(error.message || '')) {
+      const { tipo_giocata, quota_totale, ...base } = riga
+      const retry = await supabase.from('profilazioni_mirate_fatte').insert([base]).select().single()
+      data = retry.data; error = retry.error
+      if (!error) onError('Registrata, ma tipo e quota NON salvati: lancia profilazioni_mirate_fatte_tipo.sql su Supabase')
+    }
     if (error) { onError('Non registrata: ' + error.message); return }
     setFatte(prev => [...prev, data])
     onMessage(`✅ ${g.nome} registrata`)
@@ -694,7 +717,7 @@ export default function ProfilazioniMiratePanel({ books, terminato, gruppi, setG
                   {(fatte || []).filter(f => f.gruppo_id === g.id).sort((a, b) => b.data.localeCompare(a.data)).map(f => (
                     <div key={f.id} style={{ fontSize: 11, color: '#cbd5e1', display: 'flex', gap: 8, alignItems: 'center' }}>
                       <span style={{ minWidth: 70 }}>{dataIt(f.data)}</span>
-                      <span style={{ flex: 1 }}>{(f.conti || []).map(bookDi).filter(Boolean).map(b => `${b.nome} · ${b.intestatario}`).join(', ')}</span>
+                      <span style={{ flex: 1 }}>{(f.conti || []).map(bookDi).filter(Boolean).map(b => `${b.nome} · ${b.intestatario}`).join(', ')}{(f.tipo_giocata || f.importo_per_conto != null) ? ` — ${[f.tipo_giocata, f.importo_per_conto != null ? `${euroIt(f.importo_per_conto)} a conto` : null, f.quota_totale != null ? `quota ${Number(f.quota_totale).toFixed(2)}` : null].filter(Boolean).join(' · ')}` : ''}</span>
                       <span onClick={() => annullaFatta(f)} style={{ cursor: 'pointer', color: '#f87171' }}>✕</span>
                     </div>))}
                   {!(fatte || []).some(f => f.gruppo_id === g.id) && <div style={{ fontSize: 11, color: '#64748b' }}>Ancora nessuna operazione registrata.</div>}

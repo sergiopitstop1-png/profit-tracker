@@ -145,7 +145,7 @@ export function righeMirate(rows, books, sessioni = [], tipi = null) {
       const b = (books || []).find(x => String(x.id) === String(id))
       out.push({
         quando: f.creato || f.data, data: f.data, origine: 'Profilazione mirata', tipo: (tipi && tipi.get(String(f.gruppo_id))) || 'casino live', cliente: b?.intestatario || '?',
-        book: b?.nome || `conto ${id}`, evento: f.nome_gruppo, giocata: '', importo: num(f.importo_per_conto), quota: null, stato: 'FATTA', esito: '', pl: null,
+        book: b?.nome || `conto ${id}`, evento: f.nome_gruppo, giocata: f.tipo_giocata || '', importo: num(f.importo_per_conto), quota: num(f.quota_totale), stato: 'FATTA', esito: '', pl: null,
         note: f.importo_per_conto == null ? 'importo non indicato' : '',
       })
     }
