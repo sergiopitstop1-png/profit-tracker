@@ -56,6 +56,7 @@ export default function MailCriticheOkVisto() {
                 <span style={{ background: 'rgba(245,158,11,0.2)', color: '#fde68a', borderRadius: 6, padding: '1px 8px', fontWeight: 800 }}>{ETICHETTA[m.categoria] || m.categoria}</span>
                 {m.cliente && <span style={{ marginLeft: 'auto', fontWeight: 800, color: '#f8fafc' }}>{m.cliente}</span>}
               </div>
+              {m.mittente && <div style={{ fontSize: 12, color: '#fcd34d', marginTop: 4, wordBreak: 'break-all' }}>✉️ Da: <b>{m.mittente}</b></div>}
               <div style={{ fontSize: 14, fontWeight: 700, margin: '4px 0' }}>{m.oggetto || '[senza oggetto]'}</div>
               {m.riassunto && <div style={{ fontSize: 12, color: '#cbd5e1', marginBottom: 6, lineHeight: 1.4 }}>{m.riassunto}</div>}
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 12 }}>

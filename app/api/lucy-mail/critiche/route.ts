@@ -79,6 +79,7 @@ export async function GET(req: NextRequest) {
       book: m.bookmaker || '',
       categoria: m.categoria || '',
       priorita: m.priorita || '',
+      mittente: taglia(m.mittente, 160),
       oggetto: taglia(m.oggetto, 140),
       riassunto: taglia(m.motivazione_ai, 400),
     }))
