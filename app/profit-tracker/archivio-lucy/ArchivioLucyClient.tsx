@@ -1174,6 +1174,7 @@ export default function ArchivioLucyClient({ incorporato = false, onVaiAPromo, v
           api="/api/lucy-mail/riassunti"
           titolo="✉️ RIASSUNTO MAIL E SMS · 12:00 e 19:00"
           conteggio={r => `${r.n_selezionati} comunicazioni importanti su ${r.n_messaggi} ricevute`}
+          inviaTelegram
         />
         {/* MOBILE */}
 

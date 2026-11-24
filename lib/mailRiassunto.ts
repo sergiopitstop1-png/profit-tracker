@@ -123,6 +123,12 @@ Ogni punto è UNA frase breve (circa 25 parole). Non aggiungere altre sezioni, i
 GRUPPI (uno per riga, JSON):
 ${gruppi.map(g => JSON.stringify({ ...g, scadenza: g.scadenza ? fmtScadenza(g.scadenza) : null, entro_24h: g.entro_24h ? 'sì' : 'no', ...(g.clienti.length ? {} : { clienti: undefined }) })).join('\n')}`
 
+/** 24/11/2026 · manda un riassunto già pronto sul bot Telegram (cron alle 12 e alle 19, e pulsante «Invia su Telegram» in Archivio Lucy) */
+export async function inviaRiassuntoMailTelegram(r: { giorno: string; fascia: number; testo: string }) {
+  const data = new Intl.DateTimeFormat('it-IT', { timeZone: 'Europe/Rome', day: '2-digit', month: 'short' }).format(new Date(`${r.giorno}T12:00:00Z`))
+  return telegramTesto(`✉️ Riassunto mail e SMS · ${data} · ore ${r.fascia}:00\n\n${r.testo.replace(/^## /gm, '▸ ')}`)
+}
+
 /* ---------- tutto insieme ---------- */
 export async function generaRiassuntoMail(opz: { giorno: string; fascia: Fascia; salva: boolean; telegram: boolean }) {
   const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false, autoRefreshToken: false } })
@@ -175,8 +181,7 @@ export async function generaRiassuntoMail(opz: { giorno: string; fascia: Fascia;
   let inviato = false
   let telegram: { ok: boolean; motivo: string } | null = null
   if (opz.telegram && importanti.length) {
-    const intesta = `✉️ Riassunto mail e SMS · ${new Intl.DateTimeFormat('it-IT', { timeZone: 'Europe/Rome', day: '2-digit', month: 'short' }).format(new Date(`${opz.giorno}T12:00:00Z`))} · ore ${opz.fascia}:00`
-    telegram = await telegramTesto(`${intesta}\n\n${testo.replace(/^## /gm, '▸ ')}`)
+    telegram = await inviaRiassuntoMailTelegram({ giorno: opz.giorno, fascia: opz.fascia, testo })
     inviato = telegram.ok
   }
   if (opz.salva) {

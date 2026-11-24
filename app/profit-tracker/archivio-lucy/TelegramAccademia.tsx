@@ -148,8 +148,8 @@ function TestoRiassunto({ testo }: { testo: string }) {
   )
 }
 
-export function RiassuntiAccademia({ api = '/api/accademia/riassunti', titolo = '📋 RIASSUNTI · 12:00 e 19:00', conteggio }: {
-  api?: string; titolo?: string; conteggio?: (r: Riassunto) => string
+export function RiassuntiAccademia({ api = '/api/accademia/riassunti', titolo = '📋 RIASSUNTI · 12:00 e 19:00', conteggio, inviaTelegram = false }: {
+  api?: string; titolo?: string; conteggio?: (r: Riassunto) => string; inviaTelegram?: boolean
 }) {
   const [lista, setLista] = useState<Riassunto[] | null>(null)
   const [errore, setErrore] = useState('')
@@ -188,6 +188,18 @@ export function RiassuntiAccademia({ api = '/api/accademia/riassunti', titolo = 
       if (!r.ok) setErrore(j?.error || `Errore ${r.status}`)
       else { setSel(null); setGiro(g => g + 1) }
     } catch { setErrore('Server non raggiungibile') } finally { setLavoro(0) }
+  }
+  // 24/11/2026 · manda su Telegram il riassunto che stai guardando (solo dove l'API lo prevede: riassunto mail e SMS)
+  const [invio, setInvio] = useState(false)
+  const [esitoInvio, setEsitoInvio] = useState('')
+  const invia = async (id: number) => {
+    setInvio(true); setEsitoInvio('')
+    try {
+      const r = await fetch(api, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ invia: id }) })
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok) setEsitoInvio(`⚠️ ${j?.error || `Errore ${r.status}`}`)
+      else { setEsitoInvio('✅ Inviato su Telegram'); setGiro(g => g + 1) }
+    } catch { setEsitoInvio('⚠️ Server non raggiungibile') } finally { setInvio(false) }
   }
   const corrente = lista?.find(r => r.id === sel) ?? lista?.[0]
   return (
@@ -234,6 +246,15 @@ export function RiassuntiAccademia({ api = '/api/accademia/riassunti', titolo = 
                     {corrente.costo_usd ? ` · costo ${Number(corrente.costo_usd).toFixed(4)} $` : ''}
                     {corrente.inviato_telegram ? ' · inviato su Telegram' : ''}
                   </div>
+                  {inviaTelegram && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <button disabled={invio} onClick={() => invia(corrente.id)}
+                        className="rounded-lg border border-green-900/70 px-3 py-1 text-xs text-slate-300 hover:border-green-500 disabled:opacity-50">
+                        {invio ? '> invio…' : corrente.inviato_telegram ? '📨 Rimanda su Telegram' : '📨 Invia su Telegram'}
+                      </button>
+                      {esitoInvio && <span className="text-xs text-slate-300">{esitoInvio}</span>}
+                    </div>
+                  )}
                 </div>
               )}
             </>
