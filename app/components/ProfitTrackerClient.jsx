@@ -984,6 +984,46 @@ async function screenshotTelefono(nome) {
   setScatto(prev => ({ ...prev, inCorso: '' }))
   setErrorMessage('📷 Nessuna risposta dal PC dei telefoni (lo script book_lavorati è acceso?)')
 }
+// 25/11/2026 — 📷 screenshot di TUTTI i telefoni in un colpo: un comando per cliente inviato insieme, si controllano tutti insieme e le miniature
+// compaiono man mano che arrivano (stessa tabella comandi_telefoni e stesso script del singolo)
+async function screenshotTutti(nomiIn) {
+  const visti = new Set()
+  const nomi = nomiIn.filter(n => { const k = String(n).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, ''); if (!k || visti.has(k)) return false; visti.add(k); return true })
+  if (!nomi.length) return
+  setScatto(prev => ({ ...(prev || {}), inCorso: '', risultato: null, tutti: { nomi, res: {}, inCorso: true, scaduto: false } }))
+  const { data, error } = await supabase.from('comandi_telefoni').insert(nomi.map(n => ({ azione: 'screenshot', url: '-', intestatari: [n] }))).select('id,intestatari')
+  if (error) { setErrorMessage('Comandi non inviati: ' + error.message); setScatto(prev => ({ ...prev, tutti: null })); return }
+  const idDi = new Map((data || []).map(c => [c.id, (c.intestatari || [])[0]]))
+  const ricevuti = new Set()
+  for (let giro = 0; giro < 150 && ricevuti.size < idDi.size; giro++) {   // fino a ~5 minuti
+    await new Promise(r => setTimeout(r, 2000))
+    const { data: righe } = await supabase.from('comandi_telefoni').select('id,stato,esito').in('id', [...idDi.keys()])
+    const nuovi = {}
+    for (const c of righe || []) {
+      if (c.stato !== 'fatto' || ricevuti.has(c.id)) continue
+      ricevuti.add(c.id)
+      const nome = idDi.get(c.id)
+      const e = (c.esito || {})[nome] || {}
+      nuovi[nome] = e.stato === 'ok' ? { stato: 'ok', img: e.img, file: e.file } : { stato: 'ko', motivo: e.motivo || 'screenshot non riuscito' }
+      // l'immagine è grande: la tolgo dal comando una volta ricevuta
+      supabase.from('comandi_telefoni').update({ esito: { [nome]: { stato: e.stato || 'ko', file: e.file } } }).eq('id', c.id).then(() => {})
+    }
+    if (Object.keys(nuovi).length) setScatto(prev => prev?.tutti ? { ...prev, tutti: { ...prev.tutti, res: { ...prev.tutti.res, ...nuovi } } } : prev)
+  }
+  const mancanti = idDi.size - ricevuti.size
+  setScatto(prev => prev?.tutti ? { ...prev, tutti: { ...prev.tutti, inCorso: false, scaduto: mancanti > 0 } } : prev)
+  if (mancanti > 0) setErrorMessage(`📷 ${mancanti} telefoni non hanno risposto (lo script book_lavorati è acceso?)`)
+}
+function scaricaTuttiScreenshot(tutti) {
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')
+  Object.entries(tutti.res).filter(([, r]) => r.stato === 'ok' && r.img).forEach(([nome, r], i) => {
+    setTimeout(() => {
+      const a = document.createElement('a')
+      a.href = r.img; a.download = `screenshot_${nome.replace(/\s+/g, '_')}_${stamp}.${r.img.startsWith('data:image/png') ? 'png' : 'jpg'}`
+      document.body.appendChild(a); a.click(); a.remove()
+    }, i * 350)
+  })
+}
 async function salvaSaldoRapido(book, invariato) {
   const oggiIso = new Date().toLocaleDateString('sv-SE')
   if (invariato) { await segnaSaldoVerificato([book.id]); setMessage(`✓ Saldo invariato: ${book.nome} (${book.intestatario || '—'})`); return }
@@ -8174,18 +8214,47 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           const r = scatto.risultato
           return (
             <div onClick={() => setScatto(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.8)', zIndex: 1050, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-              <div onClick={e => e.stopPropagation()} style={{ background: '#0f172a', border: '1px solid #475569', borderRadius: 16, padding: 18, width: 'min(760px, 100%)', maxHeight: '90vh', overflowY: 'auto', color: '#e2e8f0' }}>
+              <div onClick={e => e.stopPropagation()} style={{ background: '#0f172a', border: '1px solid #475569', borderRadius: 16, padding: 18, width: scatto.tutti ? 'min(1100px, 100%)' : 'min(760px, 100%)', maxHeight: '90vh', overflowY: 'auto', color: '#e2e8f0' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <div style={{ fontSize: 16, fontWeight: 900 }}>📷 Screenshot di un telefono</div>
+                  <div style={{ fontSize: 16, fontWeight: 900 }}>📷 {scatto.tutti ? 'Screenshot di tutti i telefoni' : 'Screenshot di un telefono'}</div>
                   <button onClick={() => setScatto(null)} style={{ background: '#020617', color: '#f8fafc', border: '1px solid #475569', borderRadius: 8, padding: '6px 10px', cursor: 'pointer' }}>Chiudi</button>
                 </div>
                 <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>Fotografa lo schermo così com'è. L'immagine viene salvata nella <b>Galleria del telefono</b> (cartella Screenshots, per allegarla da lì) e la puoi <b>scaricare sul PC</b> da qui.</div>
-                {!r && <>
+                {!r && !scatto.tutti && <>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+                    <button disabled={!!scatto.inCorso || !lista.length} onClick={() => screenshotTutti(lista)} style={{ background: '#16a34a', color: 'white', border: 0, borderRadius: 10, padding: '9px 16px', fontWeight: 900, cursor: 'pointer', opacity: (scatto.inCorso || !lista.length) ? 0.5 : 1 }}>📷 Tutti i telefoni ({lista.length})</button>
+                    <span style={{ fontSize: 11, color: '#94a3b8' }}>{q ? 'Solo i clienti filtrati qui sotto. ' : ''}Un comando per cliente, tutti insieme: le miniature arrivano man mano.</span>
+                  </div>
                   <input autoFocus placeholder="Cerca cliente…" value={scatto.cerca} onChange={e => setScatto({ ...scatto, cerca: e.target.value })} style={{ background: '#020617', color: '#f8fafc', border: '1px solid #475569', borderRadius: 8, padding: '7px 9px', fontSize: 13, width: '100%' }} />
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 4, marginTop: 8 }}>
                     {lista.map(n => <button key={n} disabled={!!scatto.inCorso} onClick={() => screenshotTelefono(n)} style={{ textAlign: 'left', padding: '7px 10px', borderRadius: 8, border: '1px solid #334155', background: scatto.inCorso === n ? '#334155' : 'rgba(11,18,32,0.75)', color: '#e2e8f0', fontSize: 12, cursor: scatto.inCorso ? 'default' : 'pointer' }}>{scatto.inCorso === n ? '⏳ ' : '📷 '}{n}</button>)}
                   </div>
                 </>}
+                {scatto.tutti && (() => {
+                  const t = scatto.tutti
+                  const fatti = Object.keys(t.res).length
+                  const ok = Object.values(t.res).filter(x => x.stato === 'ok').length
+                  return (
+                    <div>
+                      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+                        <div style={{ fontSize: 13, fontWeight: 800 }}>{t.inCorso ? '⏳ ' : '✅ '}{fatti} / {t.nomi.length} · {ok} riusciti{fatti - ok > 0 ? ` · ${fatti - ok} con errore` : ''}{t.scaduto ? ' · alcuni non hanno risposto' : ''}</div>
+                        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                          {ok > 0 && <button onClick={() => scaricaTuttiScreenshot(t)} style={{ background: '#16a34a', color: 'white', border: 0, borderRadius: 10, padding: '8px 14px', fontWeight: 900, cursor: 'pointer' }}>⬇️ Scarica tutti ({ok})</button>}
+                          <button disabled={t.inCorso} onClick={() => setScatto({ ...scatto, tutti: null })} style={{ background: '#334155', color: 'white', border: 0, borderRadius: 10, padding: '8px 14px', fontWeight: 800, cursor: 'pointer', opacity: t.inCorso ? 0.5 : 1 }}>↩ Indietro</button>
+                        </div>
+                      </div>
+                      <div style={{ height: 6, borderRadius: 4, background: '#1e293b', marginBottom: 10 }}><div style={{ height: 6, borderRadius: 4, background: '#22c55e', width: `${Math.round(100 * fatti / t.nomi.length)}%`, transition: 'width .3s' }} /></div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8 }}>
+                        {t.nomi.map(n => { const x = t.res[n]; return (
+                          <div key={n} style={{ border: '1px solid #334155', borderRadius: 10, padding: 6, background: 'rgba(11,18,32,0.75)', textAlign: 'center' }}>
+                            <div style={{ fontSize: 11, fontWeight: 800, marginBottom: 4, color: x?.stato === 'ko' ? '#fca5a5' : '#e2e8f0' }}>{n}</div>
+                            {!x && <div style={{ fontSize: 11, color: '#64748b', padding: '30px 0' }}>{t.inCorso ? '⏳ in attesa…' : '—'}</div>}
+                            {x?.stato === 'ko' && <div style={{ fontSize: 11, color: '#fca5a5', padding: '20px 0' }}>{x.motivo}</div>}
+                            {x?.stato === 'ok' && x.img && <a href={x.img} download={`screenshot_${n.replace(/\s+/g, '_')}.${x.img.startsWith('data:image/png') ? 'png' : 'jpg'}`} title="Scarica"><img src={x.img} alt={n} style={{ width: '100%', borderRadius: 6, display: 'block' }} /></a>}
+                          </div>) })}
+                      </div>
+                    </div>)
+                })()}
                 {r && (
                   <div style={{ textAlign: 'center' }}>
                     <div style={{ fontSize: 13, marginBottom: 8 }}>✅ <b>{r.nome}</b> · salvato sul telefono in <b>{r.file}</b>{r.motivo ? ` · ${r.motivo}` : ''}</div>
