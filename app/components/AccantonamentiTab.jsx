@@ -23,7 +23,7 @@ function AvvisiRate({ label, rate, onPagato }) {
   return (
     <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
       {rate.map((rata) => (
-        <div key={rata.key} style={{
+        <div key={rata.id} style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.35)',
           borderRadius: 8, padding: '6px 10px',
@@ -31,7 +31,7 @@ function AvvisiRate({ label, rate, onPagato }) {
           <span style={{ fontSize: 12, color: '#fca5a5', fontWeight: 700 }}>
             ⚠️ PAGARE {label.toUpperCase()} · {formatCurrencyFallback(rata.amount)} ({rata.label})
           </span>
-          <button
+          {rata.pagabile && <button
             onClick={() => onPagato(rata.key)}
             style={{
               fontSize: 11, fontWeight: 700, color: '#4ade80', background: 'rgba(34,197,94,0.12)',
@@ -39,7 +39,7 @@ function AvvisiRate({ label, rate, onPagato }) {
             }}
           >
             ✓ Pagato
-          </button>
+          </button>}
         </div>
       ))}
     </div>
@@ -112,6 +112,7 @@ export default function AccantonamentiTab({
 
   paoloAttivo,
   accantonamentoPaolo,
+  residuoPaolo,
   totaleMensilePaolo,
   paoloR15, paoloR30,
   ratePaoloDaPagare,
@@ -261,7 +262,7 @@ export default function AccantonamentiTab({
           </div>
           {paoloAttivo ? (
             <>
-              <BigValue>{fmt(totaleMensilePaolo - accantonamentoPaolo)}</BigValue>
+              <BigValue>{fmt(residuoPaolo)}</BigValue>
               <SubNote>ancora da pagare questo mese (su {fmt(totaleMensilePaolo)})</SubNote>
               <AvvisiRate label="Paolo" rate={ratePaoloDaPagare} onPagato={toggleAccantonamentoPagato} />
             </>
@@ -311,12 +312,12 @@ export default function AccantonamentiTab({
           </div>
           {rateServiziDaPagare.map(r => {
             const servizio = serviziSchedule.find(s => s.key === r.key)
-            return <AvvisiRate key={r.key} label={servizio ? `${servizio.nome}${servizio.nota ? ` (${servizio.nota})` : ''}` : 'Servizio'} rate={[r]} onPagato={toggleAccantonamentoPagato} />
+            return <AvvisiRate key={r.id} label={servizio ? `${servizio.nome}${servizio.nota ? ` (${servizio.nota})` : ''}` : 'Servizio'} rate={[r]} onPagato={toggleAccantonamentoPagato} />
           })}
         </div>
 
         {/* ANTONELLO */}
-        <div style={{ ...panel, opacity: meseCicloAntonello > 0 ? 1 : 0.6 }}>
+        <div style={{ ...panel, opacity: meseCicloAntonello > 0 || antonelloDaPagare.length ? 1 : 0.6 }}>
           <div style={panelHeader}>
             <div>
               <h2 style={panelTitle}>Antonello</h2>
@@ -329,11 +330,14 @@ export default function AccantonamentiTab({
               <SubNote>
                 {fmt(antonelloImporto / 3)} × {meseCicloAntonello} mesi del ciclo trimestrale in corso
               </SubNote>
-              <AvvisiRate label="Antonello" rate={antonelloDaPagare} onPagato={toggleAccantonamentoPagato} />
             </>
           ) : (
-            <SubNote>Ciclo non attivo (fuori dal periodo ott 2026 → giu 2027, oppure contratto concluso).</SubNote>
+            <>
+              {accantonamentoAntonello > 0 && <BigValue>{fmt(accantonamentoAntonello)}</BigValue>}
+              <SubNote>Ciclo non attivo (fuori dal periodo ott 2026 → giu 2027, oppure contratto concluso).</SubNote>
+            </>
           )}
+          <AvvisiRate label="Antonello" rate={antonelloDaPagare} onPagato={toggleAccantonamentoPagato} />
           <div style={{ fontSize: 11, color: '#4b5568', marginTop: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
             <span>Importo trimestrale:</span>
             <input

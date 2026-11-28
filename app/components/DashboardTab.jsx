@@ -455,7 +455,7 @@ export default function DashboardTab({
               const pag = (n) => `${n} giorn${n === 1 ? 'o' : 'i'}`
               return (
                 <div
-                  key={'acc-' + a.key}
+                  key={'acc-' + a.id}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -473,7 +473,7 @@ export default function DashboardTab({
                       : ` — mancano ${pag(a.diff)}`}
                   </span>
 
-                  {onPagaAccantonamento && (
+                  {onPagaAccantonamento && a.pagabile && (
                     <button
                       onClick={() => {
                         if (window.confirm(`Segno come pagato: ${a.chi} — ${formatCurrency(a.importo)} (${a.etichetta})?`)) onPagaAccantonamento(a.key)

@@ -26,6 +26,7 @@ const GIORNI_TOLLERANZA_RITARDO = 5
 const PREAVVISO_MENSILI = 2      // giorni prima del giorno di pagamento dei mensili
 const PREAVVISO_ANNUALI = 10     // giorni prima del pagamento di annuali e benvenuti
 const GIORNO_PAGAMENTO_ANNUALI = { 6: 30, 12: 20 } // giugno -> 30/6, dicembre -> 20/12 (altri mesi: il 20)
+const ANNUALI_PERSISTENTI_DAL = '2026-12-01' // 28/11/2026: le annuali da qui in poi restano in avviso finché non sono pagate
 const GIORNO_PAGAMENTO_BENVENUTO = 20              // il benvenuto si paga il 20 del mese di pagamento // oltre questi giorni dal giorno di pagamento l'avviso diventa "in ritardo"
 
 const eur = (v) => new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(Number(v || 0))
@@ -154,23 +155,51 @@ export function calcolaRoyalty(accordi = [], pagamenti = [], giornoGenerale = 26
       }
     }
 
-    // Annuali: prossimo mese di pagamento e saldo previsto a quella data
-    // Pagamento di quest'anno se non è ancora passato, oppure se è passato da poco ma non è stato fatto.
+    // 28/11/2026 · ANNUALI SCADUTE E NON PAGATE: restano in avviso finché non risultano pagate (prima sparivano dopo 45 giorni).
+    // Pagata = c'è una royalty con quel periodo, oppure royalty+anticipi coprono il maturato fino al mese di scadenza.
+    let arretratoAnnuale = 0
+    const miei = pagamenti.filter(p => String(p.cliente_id) === String(id) && !p.storico)
+    const pagatoRicorrente = miei.filter(p => p.tipo !== 'premio' && p.periodo !== PERIODO_BENVENUTO).reduce((s, p) => s + Number(p.importo || 0), 0)
+    const maturatoFinoA = (finoA) => c.accordi.filter(a => a.frequenza !== 'nessuna' && a.frequenza !== 'una_tantum' && a.valido_dal <= finoA).reduce((s, a) => {
+      const fine = a.valido_al && a.valido_al < finoA ? a.valido_al : finoA
+      return s + Number(a.importo_mensile || 0) * Math.max(0, meseIdx(fine) - meseIdx(a.valido_dal) + 1)
+    }, 0)
+    const scadute = new Map()
+    for (const a of c.accordi) {
+      if (a.frequenza !== 'annuale') continue
+      const mp = Number(a.mese_pagamento || 12)
+      for (let y = Number(String(a.valido_dal).slice(0, 4)); y <= yOggi; y++) {
+        const scadenza = dataPagamentoAnnuale(y, mp)
+        if (scadenza < ANNUALI_PERSISTENTI_DAL || scadenza > oggi || scadenza < a.valido_dal) continue
+        scadute.set(scadenza, { y, mp })
+        // accordo chiuso: l'ultima scadenza utile è la prima dopo la sua fine
+        if (a.valido_al && scadenza >= a.valido_al) break
+      }
+    }
+    for (const [scadenza, { y, mp }] of [...scadute].sort((x, z) => x[0].localeCompare(z[0]))) {
+      const periodo = mp === 12 ? String(y) : `${y - 1}/${String(y).slice(2)}`
+      if (miei.some(p => p.tipo === 'royalty' && p.periodo === periodo)) continue
+      const fineMese = `${scadenza.slice(0, 7)}-${String(giorniNelMese(y, mp)).padStart(2, '0')}`
+      const dovuto = r2(Math.min(maturatoFinoA(fineMese) - pagatoRicorrente - arretratoAnnuale, c.saldo + Number(c.attivo?.importo_mensile || 0)))
+      if (dovuto <= 0.5) continue
+      arretratoAnnuale = r2(arretratoAnnuale + dovuto)
+      const ritardo = diffGiorni(scadenza, oggi)
+      avvisi.push({ cliente_id: Number(id), tipo: 'annuale', periodo, etichetta: `annuale ${periodo}`, importo: dovuto, scadenza, giorniRitardo: ritardo, inRitardo: ritardo > GIORNI_TOLLERANZA_RITARDO })
+    }
+
+    // Annuali: prossimo mese di pagamento e saldo previsto a quella data (al netto delle annuali già in avviso sopra)
     if (c.attivo && c.attivo.frequenza === 'annuale') {
       const mp = Number(c.attivo.mese_pagamento || 12)
       const rata = Number(c.attivo.importo_mensile || 0)
-      const saldoAl = (anno) => r2(c.saldo - Math.max(0, benvResiduo) + rata * ((anno * 12 + mp - 1) - idxOggi)) // saldo previsto al mese di pagamento (senza benvenuto)
-      // ultima data di pagamento già arrivata: se è di meno di 45 giorni fa e non è stata pagata, resta quella
-      const annoUltima = oggi >= dataPagamentoAnnuale(yOggi, mp) ? yOggi : yOggi - 1
-      const ultima = dataPagamentoAnnuale(annoUltima, mp)
-      const accordoAllUltima = accordoAttivoAl(c.accordi, ultima)
-      const anno = accordoAllUltima && accordoAllUltima.frequenza === 'annuale' && diffGiorni(ultima, oggi) <= 45 && saldoAl(annoUltima) > 0.5 ? annoUltima : annoUltima + 1
+      const saldoAl = (anno) => r2(c.saldo - Math.max(0, benvResiduo) - arretratoAnnuale + rata * ((anno * 12 + mp - 1) - idxOggi)) // saldo previsto al mese di pagamento (senza benvenuto)
+      const anno = oggi < dataPagamentoAnnuale(yOggi, mp) ? yOggi : yOggi + 1
       const scadenza = dataPagamentoAnnuale(anno, mp)
       const previsto = saldoAl(anno)
       const periodo = mp === 12 ? String(anno) : `${anno - 1}/${String(anno).slice(2)}` // dicembre: "2026", giugno: "2025/26"
       c.prossimaAnnuale = { periodo: scadenza.slice(0, 7), scadenza, previsto, periodoPagamento: periodo }
       prossimiAnnuali.push({ cliente_id: Number(id), ...c.prossimaAnnuale })
-      if (previsto > 0.5 && aggiungiGiorni(scadenza, -PREAVVISO_ANNUALI) <= oggi) {
+      const giaPagata = miei.some(p => p.tipo === 'royalty' && p.periodo === periodo)
+      if (!giaPagata && previsto > 0.5 && aggiungiGiorni(scadenza, -PREAVVISO_ANNUALI) <= oggi) {
         const ritardo = diffGiorni(scadenza, oggi)
         avvisi.push({ cliente_id: Number(id), tipo: 'annuale', periodo, etichetta: `annuale ${periodo}`, importo: previsto, scadenza, giorniRitardo: ritardo, inRitardo: ritardo > GIORNI_TOLLERANZA_RITARDO })
       }

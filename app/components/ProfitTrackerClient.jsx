@@ -67,6 +67,7 @@ let REGOLE_MANT = {}
 const regolaMant = (book) => regolaMantPer(REGOLE_MANT, book)
 const RE_CASINO_MIRATE = /(slot|casin[oò]|live|roulette|blackjack|baccarat|numeri|spin|vxt)/i
 import DashboardTab from './DashboardTab'
+import { rateAperte, rateInArrivo, arretrati, daPagareTotale, prossimaDaPagare, oggiLocale } from '../../lib/rateAccantonamenti'   // 28/11/2026: rate non pagate che restano in evidenza
 import { vociProfiliamo, vociPagamenti, rinvioValido, domaniIso, dataIt as dataItLista } from '../../lib/oggiDaFare'   // 14/10/2026: Profiliamo per cliente e pagamenti servizi nella lista Oggi da fare
 import AccantonamentiTab from './AccantonamentiTab'
 import SmsTab from './SmsTab'
@@ -103,6 +104,36 @@ async function tutteLeRighe(crea) {
   return { data: out, error: null }
 }
 const BASE_CASSA_MESE = 57229.62
+
+// 28/11/2026: i piani delle rate stanno qui, fuori dal componente (li usano avvisi, "Pagato" e "Oggi da fare")
+const MICHELA_SETTIMANALE = 260
+// Le prime 4 chiavi sono quelle storiche di Michela. La quinta usa una chiave legacy di
+// Massimiliano ora libera, così non serve alcuna migrazione di dashboard_settings.
+const MICHELA_PAGATO_KEYS = [
+  'michela_r1_pagato_mese',
+  'michela_r9_pagato_mese',
+  'michela_r17_pagato_mese',
+  'michela_r24_pagato_mese',
+  'figlio_g27_pagato_mese',
+]
+function lunediDelMese(periodo) {
+  const [anno, mese] = periodo.split('-').map(Number)
+  const giorni = []
+  for (let d = 1; d <= new Date(anno, mese, 0).getDate(); d += 1) {
+    if (new Date(anno, mese - 1, d).getDay() === 1) giorni.push(d)
+  }
+  return giorni
+}
+// 'dal' = primo mese in cui il servizio compare: per un servizio nuovo va SEMPRE scritto, altrimenti risultano arretrati
+const SERVIZI_TUTTI = [
+  { day: 9, amount: 22, key: 'anthropic_claude_pagato_mese', label: 'giorno 9', nome: 'Anthropic / Claude' },
+  { day: 9, amount: 9.99, key: 'sbostats_pagato_mese', label: 'giorno 9', nome: 'Sbostats', nota: 'abbonamento con Google Play su sergio1971able', dal: '2026-12' },
+  { day: 11, amount: 22, key: 'chatgpt_openai_pagato_mese', label: 'giorno 11', nome: 'ChatGPT / OpenAI' },
+  { day: 17, amount: 22, key: 'supabase_database_pagato_mese', label: 'giorno 17', nome: 'Supabase Database' },
+  { day: 23, amount: 19, key: 'api_football_pagato_mese', label: 'giorno 23', nome: 'API-Football', dal: '2026-11' },
+  { day: 30, amount: 22, key: 'vercel_deployment_pagato_mese', label: 'giorno 30', nome: 'Vercel Deployment' },
+]
+
 
 // 01/10/2026 — SEZIONE A SCOMPARSA (tab Profilazione, vista Operativa).
 // Il contenuto resta montato anche da chiusa (display: none): i pannelli continuano a lavorare
@@ -2423,26 +2454,6 @@ function getProtocollo(nomeBook) {
 // Calcola lo stato di un "accantonamento a rate" (usato per figlio, Paolo, Michela):
 // dato uno schedule di {day, amount, key}, dice quanto e' gia' maturato, quanto resta
 // da pagare questo mese, e quali rate sono scadute ma non ancora segnate come pagate.
-function calcolaRateAccantonamento(schedule, dashboardSettings) {
-  const oggi = new Date()
-  const giorno = oggi.getDate()
-  const meseKey = `${oggi.getFullYear()}-${String(oggi.getMonth() + 1).padStart(2, '0')}`
-  const totale = schedule.reduce((s, r) => s + r.amount, 0)
-  const maturato = schedule.filter(r => r.day <= giorno).reduce((s, r) => s + r.amount, 0)
-  const daPagare = schedule.filter(r => r.day <= giorno && dashboardSettings[r.key] !== meseKey)
-  return { giorno, meseKey, totale, maturato, residuo: totale - maturato, daPagare }
-}
-
-// Come calcolaRateAccantonamento, ma per il totale generale: non guarda il giorno del mese,
-// parte sempre dal totale pieno e scala solo quando una rata viene segnata "Pagato".
-function totaleMenoPagato(schedule, dashboardSettings) {
-  const oggi = new Date()
-  const meseKey = `${oggi.getFullYear()}-${String(oggi.getMonth() + 1).padStart(2, '0')}`
-  const totale = schedule.reduce((s, r) => s + r.amount, 0)
-  const pagato = schedule.filter(r => dashboardSettings[r.key] === meseKey).reduce((s, r) => s + r.amount, 0)
-  return totale - pagato
-}
-
 function getSettimanaAnno() {
   const now = new Date()
   const start = new Date(now.getFullYear(), 0, 1)
@@ -4325,8 +4336,9 @@ function fotografiaOggiDaFare() {
 
   // pagamenti dei servizi (ChatGPT, Supabase, Anthropic, Vercel): restano finché non sono segnati "Pagato" nel mese
   try {
-    const rate = calcolaRateAccantonamento(SERVIZI_SCHEDULE, dashboardSettings || {})
-    voci.push(...vociPagamenti(rate.daPagare.map(r => ({ key: r.key, amount: r.amount, nome: r.nome, day: r.day })), rate.meseKey))
+    for (const r of rateAperte(SERVIZI_TUTTI, dashboardSettings || {})) {
+      voci.push(...vociPagamenti([{ key: r.key, amount: r.amount, nome: r.periodo < oggiLocale().slice(0, 7) ? `${r.nome} (arretrato ${r.periodo})` : r.nome, day: r.day }], r.periodo))
+    }
   } catch { /* accantonamenti non ancora caricati */ }
 
   // stato delle bet (la pagina lo mostra) e conti utilizzabili per il Masaniello di recupero (la pagina calcola da sola la scheda proposta)
@@ -6407,25 +6419,52 @@ async function toggleSimRinnovato(cliente) {
   setClienti(prev => prev.map(c => c.id === cliente.id ? { ...c, sim_rinnovato: nuovoRinnovato, sim_rinnovato_mese: nuovoRinnovato ? meseKey : null } : c))
 }
 
+const INIZIO_ANTONELLO_RATE = '2026-12'
+const inizioRata = (key) => key === 'antonello_pagato_trimestre' ? INIZIO_ANTONELLO_RATE : undefined
+function pianoRata(key) {
+  if (MICHELA_PAGATO_KEYS.includes(key)) {
+    return (periodo) => lunediDelMese(periodo).map((day, i) => ({ day, amount: MICHELA_SETTIMANALE, key: MICHELA_PAGATO_KEYS[i], label: `lunedì ${day}` }))
+  }
+  if (key === 'antonello_pagato_trimestre') {
+    const importo = Number(dashboardSettings.antonello_importo_trimestrale ?? 1050)
+    return (periodo) => ['2026-12', '2027-03', '2027-06'].includes(periodo) ? [{ day: 15, amount: importo, key, label: 'rata trimestrale' }] : []
+  }
+  if (key.startsWith('figlio_')) return FIGLIO_SCHEDULE
+  if (key.startsWith('paolo_')) return PAOLO_SCHEDULE
+  return SERVIZI_TUTTI
+}
+
+// 28/11/2026: "Pagato" chiude la rata aperta più vecchia di quel campo (vedi lib/rateAccantonamenti.js)
 async function toggleAccantonamentoPagato(fieldKey) {
-  const oggi = new Date()
-  const meseKey = `${oggi.getFullYear()}-${String(oggi.getMonth() + 1).padStart(2, '0')}`
-  const giaPagato = dashboardSettings[fieldKey] === meseKey
-  const nuovoValore = giaPagato ? null : meseKey
+  const rata = prossimaDaPagare(pianoRata(fieldKey), fieldKey, dashboardSettings, oggiLocale(), inizioRata(fieldKey))
+  if (!rata) return
   // 10/10/2026: prima l'errore veniva ignorato e il "Pagato" tornava dopo il ricaricamento. Ora lo vedi subito.
-  const { data, error } = await supabase.from('dashboard_settings').update({ [fieldKey]: nuovoValore }).eq('id', 1).select(fieldKey)
+  const { data, error } = await supabase.from('dashboard_settings').update({ [fieldKey]: rata.periodo }).eq('id', 1).select(fieldKey)
   if (error || !data || data.length === 0) {
     const motivo = error?.message || 'nessuna riga aggiornata'
     setErrorMessage(`Pagato NON salvato (${motivo}). Se la colonna "${fieldKey}" non esiste, esegui supabase_accantonamenti_servizi.sql nel SQL Editor di Supabase.`)
     return
   }
-  setDashboardSettings(prev => ({ ...prev, [fieldKey]: nuovoValore }))
+  setDashboardSettings(prev => ({ ...prev, [fieldKey]: rata.periodo }))
 }
 
 async function togglePaoloAttivo() {
   const nuovoValore = !dashboardSettings.paolo_attivo
-  await supabase.from('dashboard_settings').update({ paolo_attivo: nuovoValore }).eq('id', 1)
-  setDashboardSettings(prev => ({ ...prev, paolo_attivo: nuovoValore }))
+  const modifiche = { paolo_attivo: nuovoValore }
+  if (!nuovoValore && rateAperte(PAOLO_SCHEDULE, dashboardSettings).length) {
+    setErrorMessage('Paolo ha rate scadute non ancora segnate Pagato: chiudile prima di disattivarlo.')
+    return
+  }
+  if (nuovoValore) {
+    // all'attivazione non nascono arretrati: contano solo le rate da oggi in poi
+    const oggiIso = oggiLocale()
+    const d = new Date(oggiIso + 'T12:00:00')
+    const mesePrima = new Date(d.getFullYear(), d.getMonth() - 1, 1).toLocaleDateString('sv-SE').slice(0, 7)
+    for (const r of PAOLO_SCHEDULE) modifiche[r.key] = Number(oggiIso.slice(8)) > r.day ? oggiIso.slice(0, 7) : mesePrima
+  }
+  const { error } = await supabase.from('dashboard_settings').update(modifiche).eq('id', 1)
+  if (error) { setErrorMessage('Paolo non aggiornato: ' + error.message); return }
+  setDashboardSettings(prev => ({ ...prev, ...modifiche }))
 }
 
 async function toggleClienteTerminato(cliente) {
@@ -7743,12 +7782,12 @@ const FIGLIO_G13 = 250
 const FIGLIO_SCHEDULE = [
   { day: 13, amount: FIGLIO_G13, key: 'figlio_g13_pagato_mese', label: 'giorno 13' },
 ]
-const rateFiglio = calcolaRateAccantonamento(FIGLIO_SCHEDULE, dashboardSettings)
-const giornoFiglio = rateFiglio.giorno
-const accantonamentoFiglio = rateFiglio.maturato
-const totaleMensileFiglio = rateFiglio.totale
-const residuoMensileFiglio = totaleMenoPagato(FIGLIO_SCHEDULE, dashboardSettings)
-const rateFiglioDaPagare = rateFiglio.daPagare
+const sommaRate = (lista) => lista.reduce((s, r) => s + r.amount, 0)
+const giornoFiglio = new Date().getDate()
+const accantonamentoFiglio = sommaRate(FIGLIO_SCHEDULE.filter(r => r.day <= giornoFiglio))
+const totaleMensileFiglio = sommaRate(FIGLIO_SCHEDULE)
+const residuoMensileFiglio = daPagareTotale(FIGLIO_SCHEDULE, dashboardSettings)
+const rateFiglioDaPagare = rateAperte(FIGLIO_SCHEDULE, dashboardSettings)
 
 // Paolo (collaboratore, bisettimanale): non ancora operativo -> non conta finché non lo attivi.
 const PAOLO_ATTIVO = !!dashboardSettings.paolo_attivo
@@ -7758,82 +7797,54 @@ const PAOLO_SCHEDULE = [
   { day: 15, amount: PAOLO_R15, key: 'paolo_r15_pagato_mese', label: 'giorno 15' },
   { day: 30, amount: PAOLO_R30, key: 'paolo_r30_pagato_mese', label: 'giorno 30' },
 ]
-const ratePaolo = calcolaRateAccantonamento(PAOLO_SCHEDULE, dashboardSettings)
-const accantonamentoPaolo = PAOLO_ATTIVO ? ratePaolo.maturato : 0
-const totaleMensilePaolo = ratePaolo.totale
-const ratePaoloDaPagare = PAOLO_ATTIVO ? ratePaolo.daPagare : []
+const accantonamentoPaolo = PAOLO_ATTIVO ? sommaRate(PAOLO_SCHEDULE.filter(r => r.day <= new Date().getDate())) : 0
+const totaleMensilePaolo = sommaRate(PAOLO_SCHEDULE)
+const residuoPaolo = PAOLO_ATTIVO ? daPagareTotale(PAOLO_SCHEDULE, dashboardSettings) : 0
+const ratePaoloDaPagare = PAOLO_ATTIVO ? rateAperte(PAOLO_SCHEDULE, dashboardSettings) : []
 
 // Michela: 260 € ogni lunedì. Lo schedule nasce dal calendario del mese corrente:
 // 4 lunedì = 1.040 €, 5 lunedì = 1.300 €.
-const MICHELA_SETTIMANALE = 260
-const oggiMichela = new Date()
-const annoMichela = oggiMichela.getFullYear()
-const meseMichela = oggiMichela.getMonth()
-const giorniNelMeseMichela = new Date(annoMichela, meseMichela + 1, 0).getDate()
-const lunediMichela = []
-for (let d = 1; d <= giorniNelMeseMichela; d += 1) {
-  if (new Date(annoMichela, meseMichela, d).getDay() === 1) lunediMichela.push(d)
-}
-// Le prime 4 chiavi sono quelle storiche di Michela. La quinta usa una chiave legacy di
-// Massimiliano ora libera, così non serve alcuna migrazione di dashboard_settings.
-const MICHELA_PAGATO_KEYS = [
-  'michela_r1_pagato_mese',
-  'michela_r9_pagato_mese',
-  'michela_r17_pagato_mese',
-  'michela_r24_pagato_mese',
-  'figlio_g27_pagato_mese',
-]
-const MICHELA_SCHEDULE = lunediMichela.map((day, i) => ({
+const rateMichelaDelMese = (periodo) => lunediDelMese(periodo).map((day, i) => ({
   day,
   amount: MICHELA_SETTIMANALE,
   key: MICHELA_PAGATO_KEYS[i],
   label: `lunedì ${day}`,
 }))
-const rateMichela = calcolaRateAccantonamento(MICHELA_SCHEDULE, dashboardSettings)
-const accantonamentoMichela = rateMichela.maturato
-const totaleMensileMichela = rateMichela.totale
-const residuoMensileMichela = totaleMenoPagato(MICHELA_SCHEDULE, dashboardSettings)
-const rateMichelaDaPagare = rateMichela.daPagare
+const lunediMichela = lunediDelMese(oggiLocale().slice(0, 7))
+const MICHELA_SCHEDULE = rateMichelaDelMese(oggiLocale().slice(0, 7))
+const accantonamentoMichela = sommaRate(MICHELA_SCHEDULE.filter(r => r.day <= new Date().getDate()))
+const totaleMensileMichela = sommaRate(MICHELA_SCHEDULE)
+const residuoMensileMichela = daPagareTotale(rateMichelaDelMese, dashboardSettings)
+const rateMichelaDaPagare = rateAperte(rateMichelaDelMese, dashboardSettings)
 
 // Servizi software: 22 € al mese ciascuno. L'intero importo è accantonato dal 1° del mese;
 // quando viene segnato Pagato sparisce dagli accantonamenti perché l'uscita reale è già nei wallet.
 // 23/10/2026: aggiunto API-Football (19 € al mese, scade il 23), conta dal mese di novembre 2026 ('dal' = primo mese in cui compare).
 // 09/11/2026: aggiunto Sbostats (9,99 € al mese, scade il 9), conta dal mese di dicembre 2026.
-const SERVIZI_TUTTI = [
-  { day: 9, amount: 22, key: 'anthropic_claude_pagato_mese', label: 'giorno 9', nome: 'Anthropic / Claude' },
-  { day: 9, amount: 9.99, key: 'sbostats_pagato_mese', label: 'giorno 9', nome: 'Sbostats', nota: 'abbonamento con Google Play su sergio1971able', dal: '2026-12' },
-  { day: 11, amount: 22, key: 'chatgpt_openai_pagato_mese', label: 'giorno 11', nome: 'ChatGPT / OpenAI' },
-  { day: 17, amount: 22, key: 'supabase_database_pagato_mese', label: 'giorno 17', nome: 'Supabase Database' },
-  { day: 23, amount: 19, key: 'api_football_pagato_mese', label: 'giorno 23', nome: 'API-Football', dal: '2026-11' },
-  { day: 30, amount: 22, key: 'vercel_deployment_pagato_mese', label: 'giorno 30', nome: 'Vercel Deployment' },
-]
 const MESE_ORA_SERVIZI = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
 const SERVIZI_SCHEDULE = SERVIZI_TUTTI.filter(x => !x.dal || x.dal <= MESE_ORA_SERVIZI)
-const rateServizi = calcolaRateAccantonamento(SERVIZI_SCHEDULE, dashboardSettings)
-const totaleMensileServizi = rateServizi.totale
-const rateServiziDaPagare = rateServizi.daPagare
-const accantonamentoServizi = totaleMenoPagato(SERVIZI_SCHEDULE, dashboardSettings)
+const totaleMensileServizi = sommaRate(SERVIZI_SCHEDULE)
+const rateServiziDaPagare = rateAperte(SERVIZI_TUTTI, dashboardSettings)
+const accantonamentoServizi = daPagareTotale(SERVIZI_TUTTI, dashboardSettings)
 
 // Antonello: 1.050€ ogni 3 mesi (350€/mese equivalente). Settembre 2026 già pagato/in Contabilità,
 // quindi il ciclo sintetico parte da ottobre 2026. Prossime rate reali: dic 2026, mar 2027, giu 2027,
 // poi il contratto finisce -> da luglio 2027 in poi l'accantonamento torna a 0 in automatico.
 const ANTONELLO_IMPORTO = Number(dashboardSettings.antonello_importo_trimestrale ?? 1050)
 const ANTONELLO_INIZIO = new Date(2026, 9, 1)
-const ANTONELLO_FINE = new Date(2027, 5, 30)
+const ANTONELLO_FINE = new Date(2027, 5, 30, 23, 59, 59)   // 28/11/2026: il 30 giugno è compreso tutto
 const oggiAntonello = new Date()
 let meseCicloAntonello = 0
 let accantonamentoAntonello = 0
-let antonelloDaPagare = []
 if (oggiAntonello >= ANTONELLO_INIZIO && oggiAntonello <= ANTONELLO_FINE) {
   const mesiTrascorsiAntonello = (oggiAntonello.getFullYear() - ANTONELLO_INIZIO.getFullYear()) * 12 + (oggiAntonello.getMonth() - ANTONELLO_INIZIO.getMonth()) + 1
   meseCicloAntonello = ((mesiTrascorsiAntonello - 1) % 3) + 1
   accantonamentoAntonello = (ANTONELLO_IMPORTO / 3) * meseCicloAntonello
-  const meseKeyAntonello = `${oggiAntonello.getFullYear()}-${String(oggiAntonello.getMonth() + 1).padStart(2, '0')}`
-  const giornoAntonello = oggiAntonello.getDate()
-  if (meseCicloAntonello === 3 && giornoAntonello >= 15 && dashboardSettings.antonello_pagato_trimestre !== meseKeyAntonello) {
-    antonelloDaPagare = [{ key: 'antonello_pagato_trimestre', amount: ANTONELLO_IMPORTO, label: 'rata trimestrale' }]
-  }
 }
+// 28/11/2026: le rate trimestrali non pagate restano (e restano accantonate) anche dopo la fine del mese e del contratto
+const pianoAntonello = pianoRata('antonello_pagato_trimestre')
+const antonelloDaPagare = rateAperte(pianoAntonello, dashboardSettings, oggiLocale(), inizioRata('antonello_pagato_trimestre'))
+accantonamentoAntonello += arretrati(pianoAntonello, dashboardSettings, oggiLocale(), inizioRata('antonello_pagato_trimestre'))
 
 // 29/10/2026 (Sergio): l'obiettivo mensile del banner "SPESE COPERTE" = media delle spese programmate (Contabilità)
 // + le spese MENSILI di accantonamento: royalty, club (rinnovo/12), Massimiliano, Paolo (solo se attivo), Michela, servizi software, Antonello (trimestrale/3, solo nel periodo del contratto).
@@ -7854,21 +7865,22 @@ const accantonamentiAvvisiCount = rateFiglioDaPagare.length + ratePaoloDaPagare.
 // "Avvisi scadenze" della Dashboard: quelle già scadute o di oggi, e quelle che scadono nei prossimi 3 giorni.
 // diff = giorno della rata - oggi (negativo = in ritardo). Il royalty ha già le sue righe e non è qui.
 const accantonamentiScadenze = (() => {
-  const adesso = new Date()
-  const giorno = adesso.getDate()
-  const meseKey = `${adesso.getFullYear()}-${String(adesso.getMonth() + 1).padStart(2, '0')}`
+  const oggiIso = oggiLocale()
   const out = []
-  const aggiungi = (chi, schedule) => schedule.forEach(r => {
-    if (dashboardSettings[r.key] === meseKey) return
-    const diff = r.day - giorno
+  const aggiungi = (chi, piano, inizio) => [
+    ...rateAperte(piano, dashboardSettings, oggiIso, inizio),
+    ...rateInArrivo(piano, dashboardSettings, oggiIso, inizio),
+  ].forEach(r => {
+    const diff = Math.round((new Date(r.scadenza + 'T12:00:00') - new Date(oggiIso + 'T12:00:00')) / 86400000)
     if (diff > 3) return
-    out.push({ key: r.key, chi: r.nome || chi, importo: r.amount, etichetta: r.label, diff })
+    out.push({ id: r.id, key: r.key, chi: r.nome || chi, importo: r.amount, etichetta: r.label, diff, pagabile: r.pagabile })
   })
   aggiungi('Massimiliano', FIGLIO_SCHEDULE)
   if (PAOLO_ATTIVO) aggiungi('Paolo', PAOLO_SCHEDULE)
-  aggiungi('Michela', MICHELA_SCHEDULE)
-  aggiungi('Servizio', SERVIZI_SCHEDULE)
-  antonelloDaPagare.forEach(r => out.push({ key: r.key, chi: 'Antonello', importo: r.amount, etichetta: r.label, diff: 15 - giorno }))
+  aggiungi('Michela', rateMichelaDelMese)
+  aggiungi('Servizio', SERVIZI_TUTTI)
+  // Antonello: preavviso solo dal giorno della rata, come prima
+  antonelloDaPagare.forEach(r => out.push({ id: r.id, key: r.key, chi: 'Antonello', importo: r.amount, etichetta: r.label, diff: Math.round((new Date(r.scadenza + 'T12:00:00') - new Date(oggiIso + 'T12:00:00')) / 86400000), pagabile: r.pagabile }))
   return out.sort((a, b) => a.diff - b.diff)
 })()
 
@@ -7881,9 +7893,9 @@ const accantonamentiDaPagareTotale =
   risparmiSamuMassi +
   accantonamentoRoyalty +
   accantonamentoClub +
-  totaleMenoPagato(FIGLIO_SCHEDULE, dashboardSettings) +
-  (PAOLO_ATTIVO ? totaleMenoPagato(PAOLO_SCHEDULE, dashboardSettings) : 0) +
-  totaleMenoPagato(MICHELA_SCHEDULE, dashboardSettings) +
+  residuoMensileFiglio +
+  residuoPaolo +
+  residuoMensileMichela +
   accantonamentoServizi +
   accantonamentoAntonello
 
@@ -8840,6 +8852,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
             rateFiglioDaPagare={rateFiglioDaPagare}
             paoloAttivo={PAOLO_ATTIVO}
             accantonamentoPaolo={accantonamentoPaolo}
+            residuoPaolo={residuoPaolo}
             totaleMensilePaolo={totaleMensilePaolo}
             paoloR15={PAOLO_R15}
             paoloR30={PAOLO_R30}
