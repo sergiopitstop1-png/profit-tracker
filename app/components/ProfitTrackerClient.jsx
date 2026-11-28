@@ -31,6 +31,7 @@ import PromoBonusPanel, { PromoScadenze } from './PromoBonus'   // 05/10/2026: t
 import SelectCercabile from './SelectCercabile'   // 30/10/2026: menu wallet/book con ricerca mentre scrivi
 import MailCriticheOkVisto from './MailCriticheOkVisto'   // 22/10/2026: popup mail critiche (inibizione bonus, conto sospeso, KYC) finché non premi «Ok visto» (solo admin)
 import PromoNuovePopup from './PromoNuovePopup'   // 14/10/2026: popup promo segnalate nuove, finché non premi «Ok visto» (solo admin)
+import PreparaAnno from './PreparaAnno'   // 28/11/2026: contabilità dell'anno nuovo
 import PeriodiTab from './PeriodiTab'   // 28/11/2026: periodi per anno e archivio
 import SceltaData from './SceltaData'   // 14/10/2026: calendario unico per scegliere le date (rimandi)
 import DiretteAvviso from './DiretteAvviso'   // 09/10/2026: prossima diretta Accademia (solo admin)
@@ -234,6 +235,8 @@ export default function ProfitTrackerClient() {
 const [weeklySnapshots, setWeeklySnapshots] = useState([])
 const [monthlySnapshots, setMonthlySnapshots] = useState([])
 const [stimeCassa, setStimeCassa] = useState([])
+const [annoStime, setAnnoStime] = useState(() => new Date().getFullYear())   // 28/11/2026: Contabilità per anno
+const [preparaAnno, setPreparaAnno] = useState(null)
 const [pendingRefresh, setPendingRefresh] = useState(false)
 // Royalty clienti (tab Clienti): accordi e pagamenti, vedi RoyaltyPanel.jsx
 const [royaltyAccordi, setRoyaltyAccordi] = useState([])
@@ -2685,7 +2688,7 @@ async function updateProfiloLivello(bookId, livello, variante = null) {
       supabase.from('contabilita').select('*').order('data_movimento', { ascending: false }).gte('data_movimento', sei_mesi_fa),
       supabase.from('weekly_snapshots').select('*').order('snapshot_date', { ascending: true }),
       supabase.from('monthly_snapshots').select('*').order('snapshot_month', { ascending: true }),
-      supabase.from('stime_cassa').select('*').order('anno', { ascending: true }).order('mese', { ascending: true }).order('ordine', { ascending: true }).order('id', { ascending: true }),
+      tutteLeRighe(() => supabase.from('stime_cassa').select('*').order('anno', { ascending: true }).order('mese', { ascending: true }).order('ordine', { ascending: true }).order('id', { ascending: true })),
       supabase.from('risparmi_movimenti').select('*').order('data', { ascending: true }).order('id', { ascending: true }),
       supabase.from('risparmi_tassi').select('*').order('valido_dal', { ascending: true }),
       supabase.from('memo_future_notes').select('*').order('ordine', { ascending: true }).order('id', { ascending: true }),
@@ -6373,6 +6376,21 @@ async function toggleClienteTerminato(cliente) {
   setClienti(prev => prev.map(c => c.id === cliente.id ? { ...c, terminato: nuovoTerminato } : c))
 }
 // ──────────────────────────────────────────────────────────
+
+// 28/11/2026: aggiungi / togli righe in Contabilità
+async function aggiungiRigaStima(anno, mese, righe) {
+  const ordine = righe.reduce((m, r) => Math.max(m, Number(r.ordine ?? 0)), 0) + 1
+  const { data, error } = await supabase.from('stime_cassa').insert([{ anno, mese, voce: 'Nuova voce', importo: 0, stato: 'previsto', note: '', ordine }]).select().single()
+  if (error) { setErrorMessage('Riga non aggiunta: ' + error.message); return }
+  setStimeCassa(prev => [...prev, data])
+}
+
+async function eliminaRigaStima(row) {
+  if (!window.confirm(`Elimino "${row.voce || 'riga senza nome'}" (${formatCurrency(row.importo)}) da ${String(row.mese).padStart(2, '0')}/${row.anno}?`)) return
+  const { error } = await supabase.from('stime_cassa').delete().eq('id', row.id)
+  if (error) { setErrorMessage('Riga non eliminata: ' + error.message); return }
+  setStimeCassa(prev => prev.filter(r => r.id !== row.id))
+}
 
 async function updateStatoStima(row, nuovoStato) {
   const payload = { stato: nuovoStato }
@@ -10621,8 +10639,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
     <div style={statsGridCompact}>
       <StatCard
         label='Mesi presenti'
-        value={String(stimeCassaByMonth.length)}
-        sub='Riquadri mese disponibili'
+        value={String(stimeCassaByMonth.filter(g => g.anno === annoStime).length)}
+        sub={`Riquadri mese del ${annoStime}`}
         accent='#f59e0b'
       />
       <StatCard
@@ -10633,8 +10651,32 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
       />
     </div>
 
+    {(() => {
+      const annoOra = new Date().getFullYear()
+      const presenti = [...new Set(stimeCassa.map(r => Number(r.anno)))]
+      const anni = [...new Set([annoOra, ...presenti])].sort((a, b) => b - a)
+      const daPreparare = [annoOra, annoOra + 1].find(a => !presenti.includes(a) && presenti.includes(a - 1))
+      const stile = { padding: '7px 14px', borderRadius: 10, border: '1px solid rgba(56,189,248,0.5)', background: 'rgba(56,189,248,0.12)', color: '#7dd3fc', fontWeight: 800, fontSize: 13, cursor: 'pointer' }
+      return (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', margin: '4px 0 14px' }}>
+          {anni.map(a => (
+            <button key={a} type='button' onClick={() => setAnnoStime(a)} style={{ ...stile, ...(a === annoStime ? { background: 'rgba(56,189,248,0.35)', color: '#f8fafc' } : {}) }}>{a}</button>
+          ))}
+          {daPreparare && (
+            <button type='button' onClick={() => setPreparaAnno(daPreparare)} style={{ ...stile, borderColor: 'rgba(34,197,94,0.6)', background: 'rgba(34,197,94,0.16)', color: '#86efac' }}>
+              ➕ Prepara {daPreparare}
+            </button>
+          )}
+        </div>
+      )
+    })()}
+    {preparaAnno && (
+      <PreparaAnno annoNuovo={preparaAnno} stimeCassa={stimeCassa} onChiudi={() => setPreparaAnno(null)}
+        onCreato={(nuove) => { setStimeCassa(prev => [...prev, ...nuove]); setAnnoStime(preparaAnno); setPreparaAnno(null); setMessage(`Contabilità ${preparaAnno} creata: ${nuove.length} righe`) }} />
+    )}
+
     <div style={stimeMonthsGrid}>
-      {stimeCassaByMonth.map((monthGroup) => {
+      {stimeCassaByMonth.filter(g => g.anno === annoStime).map((monthGroup) => {
         const meseLabel = new Date(monthGroup.anno, monthGroup.mese - 1, 1).toLocaleDateString('it-IT', {
           month: 'short',
           year: '2-digit'
@@ -10736,7 +10778,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
 />
                   </div>
 
-                  <div style={stimeVoceCol}>
+                  <div style={{ ...stimeVoceCol, display: 'flex', gap: 4, alignItems: 'center', minWidth: 0 }}>
                     <input
   defaultValue={row.voce || ''}
   onBlur={(e) => updateStimaCassa(row.id, 'voce', e.target.value)}
@@ -10753,6 +10795,8 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
   }}
   style={stimeMiniInput}
 />
+                    <button type='button' onClick={() => eliminaRigaStima(row)} title='Elimina questa riga' aria-label='Elimina riga'
+                      style={{ flexShrink: 0, background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 13, padding: '0 2px' }}>✕</button>
                   </div>
                   {row.stato === 'previsto' && monthGroup.key === meseCorrenteKey && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 4 }}>
@@ -10791,6 +10835,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                   )}
                 </div>
               ))}
+              <button type='button' onClick={() => aggiungiRigaStima(monthGroup.anno, monthGroup.mese, monthGroup.rows)}
+                style={{ alignSelf: 'flex-start', marginTop: 4, padding: '5px 12px', borderRadius: 10, border: '1px dashed rgba(56,189,248,0.5)', background: 'transparent', color: '#7dd3fc', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
+                ＋ Aggiungi riga
+              </button>
             </div>
           </div>
         )
