@@ -31,6 +31,7 @@ import PromoBonusPanel, { PromoScadenze } from './PromoBonus'   // 05/10/2026: t
 import SelectCercabile from './SelectCercabile'   // 30/10/2026: menu wallet/book con ricerca mentre scrivi
 import MailCriticheOkVisto from './MailCriticheOkVisto'   // 22/10/2026: popup mail critiche (inibizione bonus, conto sospeso, KYC) finché non premi «Ok visto» (solo admin)
 import PromoNuovePopup from './PromoNuovePopup'   // 14/10/2026: popup promo segnalate nuove, finché non premi «Ok visto» (solo admin)
+import PeriodiTab from './PeriodiTab'   // 28/11/2026: periodi per anno e archivio
 import SceltaData from './SceltaData'   // 14/10/2026: calendario unico per scegliere le date (rimandi)
 import DiretteAvviso from './DiretteAvviso'   // 09/10/2026: prossima diretta Accademia (solo admin)
 import ProfilazioniMiratePanel, { prossimaMirata, tipoMirata } from './ProfilazioniMirate'   // 05/10/2026: prossimaMirata per il banner in Dashboard
@@ -67,6 +68,8 @@ let REGOLE_MANT = {}
 const regolaMant = (book) => regolaMantPer(REGOLE_MANT, book)
 const RE_CASINO_MIRATE = /(slot|casin[oò]|live|roulette|blackjack|baccarat|numeri|spin|vxt)/i
 import DashboardTab from './DashboardTab'
+import { MICHELA_SETTIMANALE, MICHELA_PAGATO_KEYS, lunediDelMese, rateMichelaDelMese, SERVIZI_TUTTI, FIGLIO_G13, FIGLIO_SCHEDULE, inizioRata, pianoRata as pianoRataDa } from '../../lib/pianiRate'
+import { calcolaPeriodi, totaliAnno, aperturaAnno, riferimentoCorrente, oggiRoma, inizioAnnoIso } from '../../lib/contiAnno'   // 28/11/2026: ogni anno riparte da zero
 import { rateAperte, rateInArrivo, arretrati, daPagareTotale, prossimaDaPagare, oggiLocale } from '../../lib/rateAccantonamenti'   // 28/11/2026: rate non pagate che restano in evidenza
 import { vociProfiliamo, vociPagamenti, rinvioValido, domaniIso, dataIt as dataItLista } from '../../lib/oggiDaFare'   // 14/10/2026: Profiliamo per cliente e pagamenti servizi nella lista Oggi da fare
 import AccantonamentiTab from './AccantonamentiTab'
@@ -103,37 +106,6 @@ async function tutteLeRighe(crea) {
   }
   return { data: out, error: null }
 }
-const BASE_CASSA_MESE = 57229.62
-
-// 28/11/2026: i piani delle rate stanno qui, fuori dal componente (li usano avvisi, "Pagato" e "Oggi da fare")
-const MICHELA_SETTIMANALE = 260
-// Le prime 4 chiavi sono quelle storiche di Michela. La quinta usa una chiave legacy di
-// Massimiliano ora libera, così non serve alcuna migrazione di dashboard_settings.
-const MICHELA_PAGATO_KEYS = [
-  'michela_r1_pagato_mese',
-  'michela_r9_pagato_mese',
-  'michela_r17_pagato_mese',
-  'michela_r24_pagato_mese',
-  'figlio_g27_pagato_mese',
-]
-function lunediDelMese(periodo) {
-  const [anno, mese] = periodo.split('-').map(Number)
-  const giorni = []
-  for (let d = 1; d <= new Date(anno, mese, 0).getDate(); d += 1) {
-    if (new Date(anno, mese - 1, d).getDay() === 1) giorni.push(d)
-  }
-  return giorni
-}
-// 'dal' = primo mese in cui il servizio compare: per un servizio nuovo va SEMPRE scritto, altrimenti risultano arretrati
-const SERVIZI_TUTTI = [
-  { day: 9, amount: 22, key: 'anthropic_claude_pagato_mese', label: 'giorno 9', nome: 'Anthropic / Claude' },
-  { day: 9, amount: 9.99, key: 'sbostats_pagato_mese', label: 'giorno 9', nome: 'Sbostats', nota: 'abbonamento con Google Play su sergio1971able', dal: '2026-12' },
-  { day: 11, amount: 22, key: 'chatgpt_openai_pagato_mese', label: 'giorno 11', nome: 'ChatGPT / OpenAI' },
-  { day: 17, amount: 22, key: 'supabase_database_pagato_mese', label: 'giorno 17', nome: 'Supabase Database' },
-  { day: 23, amount: 19, key: 'api_football_pagato_mese', label: 'giorno 23', nome: 'API-Football', dal: '2026-11' },
-  { day: 30, amount: 22, key: 'vercel_deployment_pagato_mese', label: 'giorno 30', nome: 'Vercel Deployment' },
-]
-
 
 // 01/10/2026 — SEZIONE A SCOMPARSA (tab Profilazione, vista Operativa).
 // Il contenuto resta montato anche da chiusa (display: none): i pannelli continuano a lavorare
@@ -2697,7 +2669,7 @@ async function updateProfiloLivello(bookId, livello, variante = null) {
 
     // ── FASE 1: dati critici per la dashboard (parallelo) ──────────────────
     const sei_mesi_fa = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString()
-    const anno_corrente = new Date().getFullYear() + '-01-01'
+    const annoRoma = Number(oggiRoma().slice(0, 4))
     const [
       booksRes, walletsRes, txRes, contRes,
       weeklyRes, monthlyRes, stimeRes,
@@ -2720,7 +2692,7 @@ async function updateProfiloLivello(bookId, livello, variante = null) {
       supabase.from('dashboard_settings').select('*').eq('id', 1).maybeSingle(),
       supabase.from('clienti').select('*').order('nome', { ascending: true }),
       supabase.from('clienti_email').select('*').order('cliente_id', { ascending: true }),
-      supabase.from('transactions').select('importo').eq('azione', 'wallet_to_external').gte('data', anno_corrente),
+      tutteLeRighe(() => supabase.from('transactions').select('id,importo').eq('azione', 'wallet_to_external').gte('data', inizioAnnoIso(annoRoma)).order('id', { ascending: true })),
       supabase.from('post_it_notes').select('*').order('fatto', { ascending: true }).order('created_at', { ascending: false }),
       supabase.from('royalty_accordi').select('*').order('valido_dal', { ascending: true }),
       supabase.from('royalty_pagamenti').select('*').order('id', { ascending: true }),
@@ -2854,18 +2826,24 @@ async function updateProfiloLivello(bookId, livello, variante = null) {
     else if (activeTab === 'punti-monete') loadPuntiMonete()
     else if (activeTab === 'sms') loadSms()
   }, [activeTab, clienti.length])
+  // Prelievi verso l'esterno dall'inizio dell'anno (ora italiana), tutte le righe anche oltre 1000
+  const prelieviAnno = (anno) => tutteLeRighe(() => supabase.from('transactions').select('id,importo').eq('azione', 'wallet_to_external').gte('data', inizioAnnoIso(anno)).order('id', { ascending: true }))
+  const sommaImporti = (righe) => Math.round((righe || []).reduce((t, tx) => t + Number(tx.importo || 0), 0) * 100) / 100
+
   const saveWeeklySnapshot = async () => {
     try {
-      const snapshotDate = new Date().toISOString().split('T')[0]
+      const snapshotDate = oggiRoma()
+      const anno = Number(snapshotDate.slice(0, 4))
 
       const totalCash =
   books.reduce((sum, b) => sum + Number(b.saldo || 0), 0) +
   wallets.reduce((sum, w) => sum + Number(w.saldo || 0), 0)
 
-      // DOPO
-const externalWithdrawals = totaleEsterni
+      const uscite = await prelieviAnno(anno)
+      if (uscite.error) throw uscite.error
+      const externalWithdrawals = sommaImporti(uscite.data)
 
-      const baseCashMonth = BASE_CASSA_MESE
+      const baseCashMonth = aperturaAnno(weeklySnapshots, anno).valore
       const profit = totalCash + externalWithdrawals - baseCashMonth
 
       const { error } = await supabase
@@ -2891,62 +2869,14 @@ const externalWithdrawals = totaleEsterni
       alert('Errore nel salvataggio')
     }
   }
-// Dati storici fissi per gen/feb 2026 (non presenti nel DB)
-// I valori _prelievi e _cashflow sono fissi; profit è cumulativo nella sequenza
-const STORICO_FISSO = [
-  { id: 'fisso-gen', snapshot_date: '2026-01-31', total_cash: 51532.70, base_cash_month: 57229.62, profit: 10052.56, _prelievi: 5859.65, _cashflow: 4192.91, _fisso: true },
-  { id: 'fisso-feb', snapshot_date: '2026-02-28', total_cash: 57229.62, base_cash_month: 57229.62, profit: 16622.02, _prelievi: 5572.01, _cashflow: 997.45, _fisso: true },
-]
-// Per marzo: total_cash e profitto corretti fissi; prelievi e cashflow fissi
-const MARZO_FIX = { total_cash: 60069.41, _profitto_periodo: 10930.56, _prelievi: 8090.77, _cashflow: 2839.79 }
+// 28/11/2026: i conti per anno stanno in lib/contiAnno.js (i numeri del 2026 sono calcolati come prima)
+const periodiConti = useMemo(() => calcolaPeriodi(weeklySnapshots), [weeklySnapshots])
 
-// Sequenza normalizzata: inietta gen/feb se mancanti, fix marzo
-const normalizedSnapshots = useMemo(() => {
-  let snaps = [...weeklySnapshots]
-  snaps = snaps.map(s => {
-    if (s.snapshot_date && s.snapshot_date.startsWith('2026-03')) {
-      return { ...s, ...MARZO_FIX }
-    }
-    return s
-  })
-  for (const fisso of STORICO_FISSO) {
-    const mese = fisso.snapshot_date.slice(0, 7)
-    if (!snaps.some(s => s.snapshot_date && s.snapshot_date.startsWith(mese))) {
-      snaps.push(fisso)
-    }
-  }
-  snaps.sort((a, b) => (a.snapshot_date || '').localeCompare(b.snapshot_date || ''))
-  return snaps
-}, [weeklySnapshots])
-
-const weeklyChartData = useMemo(() => {
-  return normalizedSnapshots.map((item, idx) => {
-    let profitPeriodo
-    if (item._fisso) {
-      // righe fittizie: delta rispetto alla precedente (profit cumulativo proprio)
-      const cur = Number(item.profit || 0)
-      const prec = idx > 0 ? Number(normalizedSnapshots[idx - 1].profit || 0) : 0
-      profitPeriodo = idx === 0 ? cur : cur - prec
-    } else if (item._profitto_periodo !== undefined) {
-      // marzo: usa il valore fisso corretto
-      profitPeriodo = item._profitto_periodo
-    } else {
-      // DB normale: delta profit cumulativo, ma salta il "salto" causato dai fissi
-      // trova l'ultimo snap non-fisso precedente per il delta corretto
-      const cur = Number(item.profit || 0)
-      const prec = idx > 0 ? Number(normalizedSnapshots[idx - 1].profit || 0) : 0
-      profitPeriodo = idx === 0 ? cur : cur - prec
-    }
-    return {
-      name: new Date(item.snapshot_date).toLocaleDateString('it-IT', {
-        day: '2-digit',
-        month: '2-digit'
-      }),
-      profit: profitPeriodo,
-      totalCash: Number(item.total_cash || 0)
-    }
-  })
-}, [normalizedSnapshots])
+const weeklyChartData = useMemo(() => periodiConti.map(item => ({
+  name: new Date(item.snapshot_date).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: '2-digit' }),
+  profit: item.profittoPeriodo,
+  totalCash: Number(item.total_cash || 0)
+})), [periodiConti])
 
 const weeklyProfitColor =
   weeklyChartData.length > 0 &&
@@ -3124,44 +3054,26 @@ useEffect(() => {
   const interval = setInterval(controlla, 60 * 1000)
   return () => clearInterval(interval)
 }, [smsClienti])
-// Auto-snapshot a fine mese: scatta al primo accesso del mese nuovo
+// 28/11/2026: la chiusura di fine mese la fa il SERVER a mezzanotte (/api/cron/chiusura-periodo).
+// Qui resta una riserva solo per il 2026: se dal giorno 4 il mese prima non ha nessun periodo, lo salva.
+// Mai a cavallo d'anno: la chiusura del 31/12 non si ricostruisce con i saldi di gennaio.
 useEffect(() => {
   if (books.length === 0 || wallets.length === 0) return
-
-  const oggi = new Date()
-  const meseCorrenteKey = `${oggi.getFullYear()}-${String(oggi.getMonth() + 1).padStart(2, '0')}`
-  const chiaveLS = 'autoSnapshotMese'
-  const ultimoAutoSnap = localStorage.getItem(chiaveLS)
-
-  // Se già fatto questo mese, non fare nulla
-  if (ultimoAutoSnap === meseCorrenteKey) return
-
-  // Calcola la data dell'ultimo giorno del mese precedente
-  const mesePrecedente = new Date(oggi.getFullYear(), oggi.getMonth(), 0)
-  const snapshotDate = mesePrecedente.toISOString().split('T')[0]
-  const snapshotMeseKey = `${mesePrecedente.getFullYear()}-${String(mesePrecedente.getMonth() + 1).padStart(2, '0')}`
-
-  // Verifica se esiste già uno snapshot per il mese precedente
-  const giaEsiste = weeklySnapshots.some(s => s.snapshot_date && s.snapshot_date.startsWith(snapshotMeseKey))
-  if (giaEsiste) {
-    localStorage.setItem(chiaveLS, meseCorrenteKey)
-    return
-  }
-
-  const totalCash = books.reduce((sum, b) => sum + Number(b.saldo || 0), 0) +
-    wallets.reduce((sum, w) => sum + Number(w.saldo || 0), 0)
-  const externalWithdrawals = totaleEsterni
-  const baseCashMonth = BASE_CASSA_MESE
-  const profit = totalCash + externalWithdrawals - baseCashMonth
-
-  supabase.from('weekly_snapshots').upsert(
-    [{ snapshot_date: snapshotDate, total_cash: totalCash, external_withdrawals: externalWithdrawals, base_cash_month: baseCashMonth, profit }],
-    { onConflict: 'snapshot_date' }
-  ).then(({ error }) => {
-    if (!error) {
-      localStorage.setItem(chiaveLS, meseCorrenteKey)
-      loadData({ preserveMessages: true })
-    }
+  const oggiIso = oggiRoma()
+  const [anno, mese, giorno] = oggiIso.split('-').map(Number)
+  if (anno !== 2026 || mese === 1 || giorno < 4) return
+  const fine = new Date(Date.UTC(anno, mese - 1, 0)).toISOString().slice(0, 10)
+  if (weeklySnapshots.length === 0 || weeklySnapshots.some(s => s.snapshot_date && s.snapshot_date.startsWith(fine.slice(0, 7)))) return
+  prelieviAnno(anno).then(async (uscite) => {
+    if (uscite.error) return
+    const totalCash = books.reduce((sum, b) => sum + Number(b.saldo || 0), 0) + wallets.reduce((sum, w) => sum + Number(w.saldo || 0), 0)
+    const externalWithdrawals = sommaImporti(uscite.data)
+    const base = aperturaAnno(weeklySnapshots, anno).valore
+    const { error } = await supabase.from('weekly_snapshots').upsert(
+      [{ snapshot_date: fine, total_cash: totalCash, external_withdrawals: externalWithdrawals, base_cash_month: base, profit: totalCash + externalWithdrawals - base }],
+      { onConflict: 'snapshot_date', ignoreDuplicates: true }
+    )
+    if (!error) loadData({ preserveMessages: true })
   })
 }, [books, wallets, weeklySnapshots])
 
@@ -6419,20 +6331,7 @@ async function toggleSimRinnovato(cliente) {
   setClienti(prev => prev.map(c => c.id === cliente.id ? { ...c, sim_rinnovato: nuovoRinnovato, sim_rinnovato_mese: nuovoRinnovato ? meseKey : null } : c))
 }
 
-const INIZIO_ANTONELLO_RATE = '2026-12'
-const inizioRata = (key) => key === 'antonello_pagato_trimestre' ? INIZIO_ANTONELLO_RATE : undefined
-function pianoRata(key) {
-  if (MICHELA_PAGATO_KEYS.includes(key)) {
-    return (periodo) => lunediDelMese(periodo).map((day, i) => ({ day, amount: MICHELA_SETTIMANALE, key: MICHELA_PAGATO_KEYS[i], label: `lunedì ${day}` }))
-  }
-  if (key === 'antonello_pagato_trimestre') {
-    const importo = Number(dashboardSettings.antonello_importo_trimestrale ?? 1050)
-    return (periodo) => ['2026-12', '2027-03', '2027-06'].includes(periodo) ? [{ day: 15, amount: importo, key, label: 'rata trimestrale' }] : []
-  }
-  if (key.startsWith('figlio_')) return FIGLIO_SCHEDULE
-  if (key.startsWith('paolo_')) return PAOLO_SCHEDULE
-  return SERVIZI_TUTTI
-}
+const pianoRata = (key) => pianoRataDa(key, dashboardSettings, { paoloSchedule: PAOLO_SCHEDULE })
 
 // 28/11/2026: "Pagato" chiude la rata aperta più vecchia di quel campo (vedi lib/rateAccantonamenti.js)
 async function toggleAccantonamentoPagato(fieldKey) {
@@ -6572,6 +6471,15 @@ async function handleDeleteTransaction(tx) {
     tx.azione === 'auto_balance_adjustment'
   ) {
     setErrorMessage('Le correzioni saldo non sono eliminabili in sicurezza')
+    return
+  }
+
+  // 28/11/2026: anno chiuso = non si tocca. Il controllo sta PRIMA di rimettere a posto i saldi.
+  // (la data del movimento è salvata in UTC, anche quando arriva senza fuso)
+  const quandoTx = String(tx.data || '').replace(' ', 'T')
+  const annoTx = Number(oggiRoma(new Date(/(Z|[+-]\d\d:?\d\d)$/.test(quandoTx) ? quandoTx : quandoTx + 'Z')).slice(0, 4))
+  if (annoTx < Number(oggiRoma().slice(0, 4)) && weeklySnapshots.some(s => s.snapshot_date === `${annoTx}-12-31`)) {
+    setErrorMessage(`Il ${annoTx} è chiuso: i suoi movimenti non si possono eliminare`)
     return
   }
 
@@ -7209,57 +7117,15 @@ if (nota === null) return
   const totaleBooks = useMemo(() => books.reduce((t, b) => t + Number(b.saldo || 0), 0), [books])
   const totaleWallets = useMemo(() => wallets.reduce((t, w) => t + Number(w.saldo || 0), 0), [wallets])
   const totaleCassa = totaleBooks + totaleWallets
-  const ultimoSnapshot = weeklySnapshots.length > 0
-  ? weeklySnapshots[weeklySnapshots.length - 1]
-  : null
+  // 28/11/2026: il riferimento è l'ultimo periodo dell'anno in corso; a inizio anno è la cassa di chiusura
+  const annoOggi = Number(oggiRoma().slice(0, 4))
+  const riferimento = riferimentoCorrente(weeklySnapshots, annoOggi)
+  const basePeriodo = riferimento.base
+  const totaleUsciteEsterne = totaleEsterni - riferimento.prelieviGiaContati
+  const guadagnoCorrente = (totaleCassa - basePeriodo) + totaleUsciteEsterne
 
-const basePeriodo = ultimoSnapshot
-  ? Number(ultimoSnapshot.total_cash)
-  : BASE_CASSA_MESE
-
-const totalePrelieviEsterniStorici = totaleEsterni
-
-const totaleUsciteEsterne = ultimoSnapshot
-  ? totalePrelieviEsterniStorici - Number(ultimoSnapshot.external_withdrawals || 0)
-  : totalePrelieviEsterniStorici
-
-const guadagnoCorrente =
-  (totaleCassa - basePeriodo) + totaleUsciteEsterne
-
-// Guadagno annuo: somma profitti di periodo di tutti gli snapshot dell'anno corrente
-const guadagnoAnnuo = useMemo(() => {
-  const annoCorrente = new Date().getFullYear()
-  const snapsAnno = normalizedSnapshots.filter(s => s.snapshot_date && s.snapshot_date.startsWith(String(annoCorrente)))
-  return snapsAnno.reduce((tot, snap, i) => {
-    const allIdx = normalizedSnapshots.indexOf(snap)
-    if (snap._fisso) {
-      const cur = Number(snap.profit || 0)
-      const prec = allIdx > 0 ? Number(normalizedSnapshots[allIdx - 1].profit || 0) : 0
-      return tot + (allIdx === 0 ? cur : cur - prec)
-    }
-    if (snap._profitto_periodo !== undefined) return tot + snap._profitto_periodo
-    const cur = Number(snap.profit || 0)
-    const prec = allIdx > 0 ? Number(normalizedSnapshots[allIdx - 1].profit || 0) : 0
-    return tot + (allIdx === 0 ? cur : cur - prec)
-  }, 0)
-}, [normalizedSnapshots])
-
-// Cash flow annuo: uguale a quello calcolato in periodi
-const cashFlowAnnuo = useMemo(() => {
-  const annoCorrente = new Date().getFullYear()
-  const snapsAnno = normalizedSnapshots.filter(s => s.snapshot_date && s.snapshot_date.startsWith(String(annoCorrente)))
-  return snapsAnno.reduce((tot, snap) => {
-    if (snap._cashflow !== undefined) return tot + snap._cashflow
-    const allIdx = normalizedSnapshots.indexOf(snap)
-    const profitCur = Number(snap.profit || 0)
-    const profitPrec = allIdx > 0 ? Number(normalizedSnapshots[allIdx - 1].profit || 0) : 0
-    const profitPeriodo = allIdx === 0 ? profitCur : profitCur - profitPrec
-    const preliCur = Number(snap.external_withdrawals || 0)
-    const preliPrec = allIdx > 0 ? Number(normalizedSnapshots[allIdx - 1].external_withdrawals || 0) : 0
-    const preliPeriodo = allIdx === 0 ? preliCur : preliCur - preliPrec
-    return tot + (profitPeriodo - preliPeriodo)
-  }, 0)
-}, [normalizedSnapshots])
+// Guadagno e cash flow dell'anno corrente: somma dei periodi dell'anno
+const { profitto: guadagnoAnnuo, cashFlow: cashFlowAnnuo } = useMemo(() => totaliAnno(periodiConti, annoOggi), [periodiConti, annoOggi])
   
   const filteredBooks = useMemo(() =>
   books
@@ -7778,10 +7644,6 @@ if (oggiClub >= CLUB_CICLO_INIZIO) {
 // l'accantonamento sintetico resta prudenziale e gli avvisi continuano a seguire le scadenze.
 
 // Massimiliano: 250 € al mese, unica scadenza il giorno 13.
-const FIGLIO_G13 = 250
-const FIGLIO_SCHEDULE = [
-  { day: 13, amount: FIGLIO_G13, key: 'figlio_g13_pagato_mese', label: 'giorno 13' },
-]
 const sommaRate = (lista) => lista.reduce((s, r) => s + r.amount, 0)
 const giornoFiglio = new Date().getDate()
 const accantonamentoFiglio = sommaRate(FIGLIO_SCHEDULE.filter(r => r.day <= giornoFiglio))
@@ -7804,12 +7666,6 @@ const ratePaoloDaPagare = PAOLO_ATTIVO ? rateAperte(PAOLO_SCHEDULE, dashboardSet
 
 // Michela: 260 € ogni lunedì. Lo schedule nasce dal calendario del mese corrente:
 // 4 lunedì = 1.040 €, 5 lunedì = 1.300 €.
-const rateMichelaDelMese = (periodo) => lunediDelMese(periodo).map((day, i) => ({
-  day,
-  amount: MICHELA_SETTIMANALE,
-  key: MICHELA_PAGATO_KEYS[i],
-  label: `lunedì ${day}`,
-}))
 const lunediMichela = lunediDelMese(oggiLocale().slice(0, 7))
 const MICHELA_SCHEDULE = rateMichelaDelMese(oggiLocale().slice(0, 7))
 const accantonamentoMichela = sommaRate(MICHELA_SCHEDULE.filter(r => r.day <= new Date().getDate()))
@@ -8891,97 +8747,10 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
           </div>
         )}
         {activeTab === 'masaniello' && <Masaniello />}
-        {activeTab === 'periodi' && (() => {
-          const annoCorrente = new Date().getFullYear()
-          const cashFlowAnno = cashFlowAnnuo
-          return (
-          <div style={tabContent}>
-            <div style={sectionTopBar}>
-              <div>
-                <h2 style={sectionTitle}>Periodi</h2>
-                <p style={sectionDescription}>Storico degli snapshot salvati con Salva Periodo</p>
-              </div>
-            </div>
-
-            {/* Box cash flow annuale */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginBottom: 16 }}>
-              <div style={{ ...statCard, borderColor: cashFlowAnno >= 0 ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)' }}>
-                <div style={statLabel}>Cash Flow {annoCorrente}</div>
-                <div style={{ ...statValue, color: cashFlowAnno >= 0 ? '#4ade80' : '#f87171', fontSize: 32 }}>{formatCurrency(cashFlowAnno)}</div>
-                <div style={statSub}>Variazione netta cassa anno in corso</div>
-              </div>
-            </div>
-
-            <div style={panel}>
-              <div style={panelHeader}>
-                <div>
-                  <h2 style={panelTitle}>Storico periodi</h2>
-                  <p style={panelSubtitle}>Dati letti da weekly_snapshots</p>
-                </div>
-              </div>
-
-              <div style={tableWrap}>
-                <table style={tableLarge}>
-                  <thead>
-                    <tr>
-                      <th style={th}>ID</th>
-                      <th style={th}>Data periodo</th>
-                      <th style={th}>Ora salvataggio</th>
-                      <th style={th}>Cassa totale</th>
-                      <th style={th}>Prelievi (periodo)</th>
-                      <th style={th}>Profitto</th>
-                      <th style={th}>Cash Flow</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {normalizedSnapshots.map((snap, idx) => {
-                      // Se la riga ha valori fissi (_fisso o _profitto_periodo), li usa direttamente
-                      // Altrimenti calcola i delta dal DB (aprile in poi)
-                      const profitPeriodo = snap._fisso
-                        ? (() => {
-                            const cur = Number(snap.profit || 0)
-                            const prec = idx > 0 ? Number(normalizedSnapshots[idx - 1].profit || 0) : 0
-                            return idx === 0 ? cur : cur - prec
-                          })()
-                        : snap._profitto_periodo !== undefined
-                          ? snap._profitto_periodo
-                          : (() => {
-                              const cur = Number(snap.profit || 0)
-                              const prec = idx > 0 ? Number(normalizedSnapshots[idx - 1].profit || 0) : 0
-                              return idx === 0 ? cur : cur - prec
-                            })()
-
-                      const preliPeriodo = snap._prelievi !== undefined
-                        ? snap._prelievi
-                        : (() => {
-                            const cur = Number(snap.external_withdrawals || 0)
-                            const prec = idx > 0 ? Number(normalizedSnapshots[idx - 1].external_withdrawals || 0) : 0
-                            return idx === 0 ? cur : cur - prec
-                          })()
-
-                      const cashFlow = snap._cashflow !== undefined
-                        ? snap._cashflow
-                        : profitPeriodo - preliPeriodo
-
-                      return (
-                      <tr key={snap.id} style={tr}>
-                        <td style={td}>{snap._fisso ? '-' : snap.id}</td>
-                        <td style={td}>{snap.snapshot_date || '-'}</td>
-                        <td style={td}>{snap._fisso ? '-' : formatDate(snap.created_at)}</td>
-                        <td style={td}>{formatCurrency(snap.total_cash)}</td>
-                        <td style={td}>{formatCurrency(preliPeriodo)}</td>
-                        <td style={tdStrong}>{formatCurrency(profitPeriodo)}</td>
-                        <td style={{ ...tdStrong, color: cashFlow >= 0 ? '#4ade80' : '#f87171' }}>{formatCurrency(cashFlow)}</td>
-                      </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-          )
-        })()}
+        {activeTab === 'periodi' && (
+          <PeriodiTab periodi={periodiConti} snapshots={weeklySnapshots} formatCurrency={formatCurrency} formatDate={formatDate}
+            stili={{ tabContent, sectionTopBar, sectionTitle, sectionDescription, statCard, statLabel, statValue, statSub, panel, panelHeader, panelTitle, panelSubtitle, tableWrap, tableLarge, th, td, tdStrong, tr }} />
+        )}
        {activeTab === 'profilazione' && (() => {
   const intestatari = [...new Set(books.map(b => b.intestatario).filter(Boolean))].sort()
   const giorno = new Date().getDay()
@@ -11190,7 +10959,7 @@ const targetRaggiunto = targetCassa > 0 && cassaDisponibile >= targetCassa
                   <textarea name='note' value={txForm.note} onChange={handleTransactionChange} placeholder='Nota opzionale' style={textarea} />
                   <button style={primaryButtonGreen} type='submit'>Esegui transazione</button>
                 </form>
-                <div style={hintBox}>Guadagno = cassa attuale + prelievi esterni - BASE_CASSA_MESE</div>
+                <div style={hintBox}>Guadagno dell'anno = cassa attuale + prelievi esterni dell'anno − cassa di apertura dell'anno</div>
               </div>
 
               <div style={panel}>
